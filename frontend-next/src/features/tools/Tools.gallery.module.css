@@ -1,0 +1,144 @@
+/* Tool cards gallery (dev only). No flex gap: margins; grid-gap is the Safari 12 grid spelling. */
+/* stylelint-disable property-no-deprecated */
+.page {
+  color: var(--md-sys-color-on-surface);
+}
+
+.page > * + * {
+  margin-top: var(--app-space-12);
+}
+
+.section > * + * {
+  margin-top: var(--app-space-4);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--md-sys-typescale-title-large-font);
+  font-size: var(--md-sys-typescale-title-large-size);
+  font-weight: 400;
+  line-height: var(--md-sys-typescale-title-large-line-height);
+}
+
+.title small {
+  margin-left: var(--app-space-3);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-medium-size);
+}
+
+.frame {
+  padding: 16px;
+  border-radius: var(--md-sys-shape-corner-extra-large);
+  background: var(--md-sys-color-surface);
+}
+
+.frame > * + * {
+  margin-top: var(--app-space-4);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-gap: 10px;
+  align-items: start;
+}
+
+@media (--compact) {
+  .frame {
+  padding: 16px;
+  border-radius: var(--md-sys-shape-corner-extra-large);
+  background: var(--md-sys-color-surface);
+}
+
+.frame > * + * {
+  margin-top: var(--app-space-4);
+}
+
+.grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.column {
+  max-width: 840px;
+}
+
+.column > * + * {
+  margin-top: 16px;
+}
+
+.run > * + * {
+  margin-top: 14px;
+}
+
+.prose {
+  font-size: var(--md-sys-typescale-body-large-size);
+  line-height: var(--md-sys-typescale-body-large-line-height);
+}
+
+.user {
+  width: fit-content;
+  max-width: 80%;
+  margin-left: auto;
+  padding: 10px 16px;
+  border-radius: 22px 22px 6px;
+  background: var(--md-sys-color-surface-container-high);
+  font-size: var(--md-sys-typescale-body-large-size);
+  line-height: var(--md-sys-typescale-body-large-line-height);
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+}
+
+.controls > * + * {
+  margin-left: var(--app-space-4);
+}
+
+.button {
+  min-height: 40px;
+  padding: 0 var(--app-space-6);
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  font-family: var(--md-sys-typescale-label-large-font);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  cursor: pointer;
+}
+
+.muted {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-small-size);
+}
+
+.states {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-gap: 6px 10px;
+}
+
+.stateHead,
+.stateRow {
+  display: contents;
+}
+
+.stateHead > span {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-label-medium-size);
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+@media (--compact) {
+  .states {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .stateHead {
+    display: none;
+  }
+}
