@@ -640,7 +640,7 @@ IA §9.4 (approved) adds "Show on TV" for visuals. It depends on a **proposed ad
 `POST /api/visualizations/cast {path}`, which wraps the existing TV display script. The backend
 change is listed for approval, not assumed.
 
-- Availability probe (W-06 `capabilitiesProbe.ts`): `GET /api/visualizations/cast/status` →
+- Availability probe (W-06 `capabilitiesProbe.ts`): `GET /api/visualizations/cast` (as shipped in backend BX-2) →
   `{available: true, tv_connected: bool}`, **proposed together with the endpoint**. Any other
   answer (404, a `text/html` SPA-fallback 200, network error) means "unavailable", and the action
   is **hidden**, not disabled. Probed on app start and on visibility.
@@ -1237,4 +1237,4 @@ tokens and icon names. R4 and R6 are Android-side.
 | D-W4 | Voice scope on the iPad (compat) | Support OpenAI WebRTC voice and WAV audio messages; WS-relay voice (Qwen/Gemini) via ScriptProcessor as best effort, hidden if the device test fails |
 | D-W5 | Keyboard bindings, since Ctrl+Tab / Ctrl+W / Ctrl+1…9 cannot be captured in a browser tab | Ctrl+Alt+→/←/W/1…9 everywhere, plus the IA bindings when running as an installed PWA |
 | D-W6 | nginx `client_max_body_size 200m` on the Jetson (G-1, infra) so uploads > 1 MiB work | Approve together with the backend-changes proposal |
-| D-W7 | "Show on TV" endpoint `POST /api/visualizations/cast {path}` **plus** `GET /api/visualizations/cast/status` for the availability probe | Approve both in the backend proposal; the UI hides the action until then |
+| D-W7 | "Show on TV" endpoint `POST /api/visualizations/cast {path}` **plus** `GET /api/visualizations/cast` → `{available, reason}` for the availability probe (shipped) | Approve both in the backend proposal; the UI hides the action until then |

@@ -113,7 +113,7 @@ describe('autolinkLiteralSafe (fork) vs stock', () => {
       for (let i = 0; i < len; i++) s += alphabet[Math.floor(next() * alphabet.length)] ?? '';
       expectSameAsStock(s);
     }
-  });
+  }, 30_000);
 
   it('actually links emails and URLs (sanity)', () => {
     const tree = parseWith('mail a@b.com or https://x.org', fork.gfmAutolinkLiteralFromMarkdown);

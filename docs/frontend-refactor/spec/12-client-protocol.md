@@ -1365,6 +1365,7 @@ Shown while `stall != null` and the view is busy: "<tool> has been running for <
 
 - **Turn errors** are `notice{error}` entries (§4.4.4). No action needed.
 - **Connection banner**: Retry = reconnect now (resets backoff). Start failures show the backend `detail`.
+- **Retry after a failed start** (`start_failed` / SEQ-8): the user's Retry closes and reopens the socket (a fresh `socket_open` → `start`), never re-sends `start` on the failed socket; the reducer stays in `failed` until the new `session_started`. Both clients implement it this way.
 - **Termination** (`session_terminated` then `session_stopped`): the view stays open (W-9) with a banner whose headline depends on `reason` (`subprocess_crashed` "This session crashed", `subprocess_lost` "The session ended unexpectedly", `unreachable` "The host is unreachable", `replaced` "This session was replaced", `closed_by_user` "This session was closed") plus `detail`. "Continue in a new view" (enabled when `sdk_session_id` is present) replaces the view in place with a new view: new `localId`, `sdkId = sdk_session_id`, **the same kind** (A-8.5), canonical cold open. `session_terminated` is only sent on the chat WS; an orchestrator that died shows as `agent_session_closed{is_orchestrator:true}` or a socket close and recovers through §6.11.
 
 ### 6.14 Session config: Save and Restart
