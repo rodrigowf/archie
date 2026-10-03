@@ -289,7 +289,6 @@ class InvariantsTest {
         for (f in listOf(
             ServerFrame.AgentSessionOpened("A1", "S1"),
             ServerFrame.AgentSessionClosed("A1"),
-            ServerFrame.NestedSessionEvent("A1", "permission_request", obj("""{"request_id":"r"}""")),
             ServerFrame.Ping(),
             ServerFrame.VoiceAudioOut("AAAA"),
             ServerFrame.VoiceCommand(obj("{}")),

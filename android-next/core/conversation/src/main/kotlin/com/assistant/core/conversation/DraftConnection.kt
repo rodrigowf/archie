@@ -45,6 +45,10 @@ internal fun Draft.apply(input: ConversationInput) {
         is ConversationInput.SdkIdLearned -> if (ref.sdkId == null) ref = ref.copy(sdkId = input.sdkId)
         is ConversationInput.PoolStatus -> poolStatus(input.status)
         ConversationInput.DismissBanner -> connectionBanner = null
+        is ConversationInput.ClearAgentApprovals -> {
+            val keep = agentApprovals.filter { it.localId != input.localId }
+            agentApprovals.clear(); agentApprovals.addAll(keep)
+        }
     }
 }
 
@@ -54,8 +58,8 @@ internal fun Draft.onFrame(f: ServerFrame) {
     if (f is ServerFrame.VoiceAudioOut) return                               // L-3: the audio engine's
     if (reloading) { reloadBuffer.add(f); return }                           // §5.2 / §5.6
     if (awaitingSessionStarted && f !is ServerFrame.SessionStarted) {
-        // Start failures answer the start itself: they can never be followed by session_started.
-        if (f is ServerFrame.Error && f.error in ConversationReducer.START_ERRORS) { dispatch(f); return }
+        // SEQ-5 exception: errors are applied at once; only a start error also ends the wait (SEQ-8).
+        if (f is ServerFrame.Error) { dispatch(f); return }
         preStart.add(f); return                                              // SEQ-5
     }
     if (f is ServerFrame.SessionStarted) { onSessionStarted(f); return }
@@ -75,6 +79,7 @@ internal fun Draft.dispatch(f: ServerFrame) {
 
 private fun Draft.onSessionStarted(f: ServerFrame.SessionStarted) {
     awaitingSessionStarted = false
+    stoppingRetried = false
     // T-12
     connection = ConnectionState.SUBSCRIBED
     connectionBanner = null

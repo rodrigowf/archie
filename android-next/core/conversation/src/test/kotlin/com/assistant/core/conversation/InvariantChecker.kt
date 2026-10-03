@@ -55,8 +55,10 @@ object InvariantChecker {
         // Only single-frame steps are checked: a frame held behind a pending start (SEQ-5) or a reload
         // (§5.6) is not applied yet, and session_started / a completed reload apply several held frames
         // in one step (content may legitimately follow the turn end). Our own stop ack is swallowed.
+        val startErrorReleasingHeld = frame is ServerFrame.Error && frame.error in ConversationReducer.START_ERRORS &&
+            before.awaitingSessionStarted && before.preStart.isNotEmpty()                     // SEQ-8
         val multiFrame = frame is ServerFrame.SessionStarted || input is ConversationInput.HistoryPage ||
-            input is ConversationInput.ReloadFailed
+            input is ConversationInput.ReloadFailed || startErrorReleasingHeld
         val held = before.awaitingSessionStarted || before.reloading || multiFrame
         val turnEnded = !held && before.inTurn && !after.inTurn
         val voiceEnded = !held && before.voiceActive && !after.voiceActive
@@ -66,11 +68,15 @@ object InvariantChecker {
         if (voiceEnded || stoppedOrTerminated) v += openContent(after, BlockScope.VOICE, "I-7 (endVoice)")
         val transport = input is ConversationInput.SocketClosed || input is ConversationInput.SocketOpened ||
             input is ConversationInput.Resync || input is ConversationInput.DismissBanner ||
-            (frame is ServerFrame.Error && frame.error in ConversationReducer.START_ERRORS)
+            (frame is ServerFrame.Error && frame.error in ConversationReducer.START_ERRORS && !startErrorReleasingHeld)
         if (transport && before.entries != after.entries) v += "I-15: transport input $input changed the entries"
-        if (frame is ServerFrame.AgentSessionOpened || frame is ServerFrame.AgentSessionClosed || frame is ServerFrame.NestedSessionEvent) {
-            if (before != after) v += "I-14: watcher/routing frame changed the conversation"
+        // I-14: watcher frames about OTHER sessions never touch this conversation (WATCH-1 handles its own close;
+        // PM-5 approvals are side state, never entries)
+        val ownClose = frame is ServerFrame.AgentSessionClosed && frame.sessionId == before.ref.localId
+        if ((frame is ServerFrame.AgentSessionOpened || frame is ServerFrame.AgentSessionClosed) && !ownClose && before != after) {
+            v += "I-14: watcher frame for another session changed the conversation"
         }
+        if (frame is ServerFrame.NestedSessionEvent && before.entries != after.entries) v += "PM-5: nested_session_event changed the timeline"
         return v
     }
 

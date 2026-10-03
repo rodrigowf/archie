@@ -163,6 +163,74 @@ class ConnectionManagerTest {
     }
 
     @Test
+    fun seq8_startErrorReleasesHeldFramesInOrder() {
+        val waiting = agent().input(ConversationInput.SocketOpened)
+            .on(ServerFrame.UserMessage("one"), ServerFrame.Error("invalid_json"), ServerFrame.UserMessage("two"))
+        // a protocol error is applied at once (SEQ-5 exception) but keeps the wait
+        assertTrue(waiting.awaitingSessionStarted)
+        assertEquals(2, waiting.preStart.size)
+        assertTrue(waiting.entries.isEmpty())
+        val failed = waiting.on(ServerFrame.Error("start_failed", "not authenticated"))
+        assertFalse(failed.awaitingSessionStarted)
+        assertTrue(failed.preStart.isEmpty())
+        assertShape("U(one):echo U(two):echo", failed)                          // released, never dropped (L-2)
+        assertEquals(ConnectionBanner("start_failed", "not authenticated"), failed.connectionBanner)
+        assertEquals(ConnectionState.FAILED, failed.connection)
+    }
+
+    @Test
+    fun seq8_orchestratorStoppingIsRetriedOnceThenFails() {
+        val s = orchestrator().input(ConversationInput.SocketOpened).on(ServerFrame.UserMessage("held"))
+        val first = ConversationReducer.step(s, ConversationInput.Frame(ServerFrame.Error("orchestrator_stopping")))
+        assertEquals(listOf(ConversationEffect.ScheduleStartRetry(1_000)), first.effects)
+        assertTrue("still waiting", first.state.awaitingSessionStarted)
+        assertNull(first.state.connectionBanner)
+        // the retry: Resync re-sends start; a second orchestrator_stopping fails and releases the held frame
+        val retried = first.state.input(ConversationInput.Resync)
+        val second = ConversationReducer.step(retried, ConversationInput.Frame(ServerFrame.Error("orchestrator_stopping")))
+        assertEquals(listOf(ConversationEffect.StartError("orchestrator_stopping", null)), second.effects)
+        assertEquals(ConnectionState.FAILED, second.state.connection)
+        // a successful start resets the one-retry budget
+        assertFalse(first.state.on(ServerFrame.SessionStarted("O1")).stoppingRetried)
+    }
+
+    @Test
+    fun watch1_ownAgentSessionClosedStopsTheView() {
+        val busy = orchestrator().send("x").on(ServerFrame.Status("streaming"), toolUse("c1"))
+        assertEquals(busy, busy.on(ServerFrame.AgentSessionClosed("L9", false)))   // another session
+        assertEquals(busy, busy.on(ServerFrame.AgentSessionClosed("O1", false)))   // FOCUS-2: wrong flag
+        val closed = busy.on(ServerFrame.AgentSessionClosed("O1", true))
+        assertEquals(SessionStatus.STOPPED, closed.status)
+        assertShape("U(x) A[X(c1:no_result)]", closed)                         // the view stays open (FOCUS-3)
+        // an agent view that receives its own close (agent flag) stops too; terminated is kept
+        val agentClosed = agent().send("y").on(processing(), ServerFrame.AgentSessionClosed("L1", false))
+        assertEquals(SessionStatus.STOPPED, agentClosed.status)
+        val dead = agent().on(ServerFrame.SessionTerminated("subprocess_lost"), ServerFrame.AgentSessionClosed("L1", false))
+        assertEquals(SessionStatus.TERMINATED, dead.status)
+    }
+
+    @Test
+    fun pm5_agentApprovalsComeFromNestedEventsOnly() {
+        fun nested(local: String, type: String, rid: String) = ServerFrame.NestedSessionEvent(
+            local, type, obj("""{"type":"$type","request_id":"$rid","tool_name":"ExitPlanMode","tool_input":{"plan":"p"},"seq":3,"stream_id":"$local:1"}"""),
+        )
+        val s = orchestrator().on(
+            nested("A1", "permission_request", "r1"),
+            nested("A1", "permission_request", "r1"),                            // once per (localId, request_id)
+            nested("A2", "permission_request", "r1"),                            // same rid, other agent: distinct
+            nested("A3", "permission_request", "r9"),
+            nested("A2", "permission_resolved", "r1"),
+            nested("A2", "permission_resolved", "zz"),                           // unknown: ignored
+        )
+        assertEquals(listOf("A1" to "r1", "A3" to "r9"), s.agentApprovals.map { it.localId to it.requestId })
+        assertEquals(obj("""{"plan":"p"}"""), s.agentApprovals[0].toolInput)
+        assertTrue("never timeline content", s.entries.isEmpty())
+        assertEquals(listOf("A3"), s.input(ConversationInput.ClearAgentApprovals("A1")).agentApprovals.map { it.localId })
+        // agent conversations do not keep an approvals list
+        assertTrue(agent().on(nested("A1", "permission_request", "r1")).agentApprovals.isEmpty())
+    }
+
+    @Test
     fun seq7_gapPossibleOnlyWithoutReplay() {
         fun closedInTurn(s: ConversationState) = s.input(ConversationInput.SocketClosed).gapPossible
         assertFalse(closedInTurn(agent().send("go").on(processing())))

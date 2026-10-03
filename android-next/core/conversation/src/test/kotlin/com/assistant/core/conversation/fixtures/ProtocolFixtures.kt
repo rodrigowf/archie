@@ -212,6 +212,12 @@ object ProtocolFixtures {
         "reloading" -> JsonPrimitive(s.reloading)
         "history_has_more" -> JsonPrimitive(s.history.hasMore)
         "history_start_index" -> JsonPrimitive(s.history.startIndex)
+        "connection_banner" -> s.connectionBanner?.let { buildJsonObject { put("code", it.code); put("detail", it.detail) } } ?: JsonNull
+        "agent_approvals" -> buildJsonArray {
+            for (a in s.agentApprovals) add(buildJsonObject {
+                put("local_id", a.localId); put("request_id", a.requestId); put("tool_name", a.toolName); put("tool_input", a.toolInput)
+            })
+        }
         "last_start" -> s.startRequest?.let { ProtocolCodec.encodeClientJson(it) } ?: JsonNull
         else -> error("unknown expected.state key '$key' (README §expected.state)")
     }

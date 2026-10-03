@@ -87,7 +87,7 @@ class FixtureIndexTest {
     fun fixturesArePresent() {
         val names = ProtocolFixtures.names()
         assertTrue("no protocol fixtures found", names.isNotEmpty())
-        assertTrue("expected the 33 spec-12 fixtures, found ${names.size}", names.size >= 33)
+        assertTrue("expected the 38 spec-12 fixtures, found ${names.size}", names.size >= 38)
         for (n in names) ProtocolFixtures.load(n)
     }
 }

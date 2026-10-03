@@ -37,6 +37,7 @@ internal class Draft(s: ConversationState) {
     var promptSinceTurnEnd = s.promptSinceTurnEnd
     var compactPending = s.compactPending
     val pendingInjects = s.pendingInjects.builder()
+    val agentApprovals = s.agentApprovals.builder()
     var voiceActive = s.voiceActive
     var openVoiceUserId = s.openVoiceUserId
     var speechAnchor = s.speechAnchor
@@ -56,6 +57,7 @@ internal class Draft(s: ConversationState) {
 
     var connection = s.connection
     var awaitingSessionStarted = s.awaitingSessionStarted
+    var stoppingRetried = s.stoppingRetried
     var startRequest = s.startRequest
     val preStart = s.preStart.builder()
     var reloading = s.reloading
@@ -85,6 +87,7 @@ internal class Draft(s: ConversationState) {
         promptSinceTurnEnd = promptSinceTurnEnd,
         compactPending = compactPending,
         pendingInjects = pendingInjects.build(),
+        agentApprovals = agentApprovals.build(),
         voiceActive = voiceActive,
         openVoiceUserId = openVoiceUserId,
         speechAnchor = speechAnchor,
@@ -100,6 +103,7 @@ internal class Draft(s: ConversationState) {
         turnNeedsReconcile = turnNeedsReconcile,
         connection = connection,
         awaitingSessionStarted = awaitingSessionStarted,
+        stoppingRetried = stoppingRetried,
         startRequest = startRequest,
         preStart = preStart.build(),
         reloading = reloading,

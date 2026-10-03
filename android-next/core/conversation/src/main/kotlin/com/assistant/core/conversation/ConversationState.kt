@@ -38,6 +38,9 @@ data class HistoryState(
     val hasMore: Boolean = false,
 )
 
+/** An agent permission seen on the orchestrator WS via `nested_session_event` (PM-5, §6.9). */
+data class AgentApproval(val localId: String, val requestId: String, val toolName: String, val toolInput: JsonObject)
+
 /** A streaming block closed by an interleaved entry; a continuation may follow (I-5). */
 data class SplitRef(val blockId: String, val thinking: Boolean, val scope: BlockScope, val text: String)
 
@@ -69,6 +72,8 @@ data class ConversationState(
     val promptSinceTurnEnd: Boolean = false,
     val compactPending: Boolean = false,
     val pendingInjects: PersistentList<String> = persistentListOf(),
+    /** Orchestrator only: the "Agent approvals" list (PM-5). */
+    val agentApprovals: PersistentList<AgentApproval> = persistentListOf(),
     val voiceActive: Boolean = false,
     val openVoiceUserId: String? = null,
     val speechAnchor: Int? = null,
@@ -89,6 +94,8 @@ data class ConversationState(
 
     val connection: ConnectionState = ConnectionState.OFFLINE,
     val awaitingSessionStarted: Boolean = false,
+    /** `orchestrator_stopping` already retried once for this start (T-12, SEQ-8). */
+    val stoppingRetried: Boolean = false,
     /** The last `start` produced by [ConversationInput.SocketOpened] / [ConversationInput.Resync]. */
     val startRequest: ClientFrame.Start? = null,
     val preStart: PersistentList<ServerFrame> = persistentListOf(),
@@ -180,6 +187,9 @@ sealed interface ConversationInput {
     data class PoolStatus(val status: LiveStatus) : ConversationInput
 
     data object DismissBanner : ConversationInput
+
+    /** Orchestrator view: the agent view [localId] saw its turn end; drop its approvals (PM-5). */
+    data class ClearAgentApprovals(val localId: String) : ConversationInput
 }
 
 /** Work the reducer asks its owner (the repository) to do. The reducer itself performs no I/O (L-1). */
@@ -198,8 +208,11 @@ sealed interface ConversationEffect {
     /** A turn ended (MC-2 list refresh, visualization refresh). */
     data object TurnEnded : ConversationEffect
 
-    /** `start_timeout` / `start_failed` / `orchestrator_active` / `orchestrator_stopping` (T-12). */
+    /** `start_timeout` / `start_failed` / `orchestrator_active` / `orchestrator_stopping` after its retry (T-12, SEQ-8). */
     data class StartError(val code: String, val detail: String?) : ConversationEffect
+
+    /** First `orchestrator_stopping`: feed [ConversationInput.Resync] after [delayMillis] (T-12). Still waiting. */
+    data class ScheduleStartRetry(val delayMillis: Long) : ConversationEffect
 
     /** Protocol or voice error codes: logged / toast / voice banner, never an entry (§4.4.4). */
     data class SideError(val code: String, val detail: String?) : ConversationEffect

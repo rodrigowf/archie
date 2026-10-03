@@ -44,12 +44,36 @@ internal fun Draft.reduceFrame(f: ServerFrame) {
         is ServerFrame.VoiceOwnerActive -> if (f.active) voiceActive = true else endVoice()
         is ServerFrame.VoiceEnded, is ServerFrame.VoiceStopped -> endVoice()
         is ServerFrame.SessionStarted -> if (f.voice == true) voiceActive = true
+        is ServerFrame.NestedSessionEvent -> onNestedSessionEvent(f)
+        is ServerFrame.AgentSessionClosed -> {
+            // WATCH-1: this conversation itself left the pool (FOCUS-2: the flag must match its kind)
+            if (f.sessionId == ref.localId && f.isOrchestrator == isOrchestrator) {
+                if (status != SessionStatus.TERMINATED) status = SessionStatus.STOPPED
+                endTurn("stopped"); endVoice()
+            }
+        }
         is ServerFrame.ModelChanged -> f.modelInfo?.modelInfo?.contextWindow?.let { counters = counters.copy(contextWindow = it) }
         is ServerFrame.ModelInfo -> f.modelInfo?.modelInfo?.contextWindow?.let { counters = counters.copy(contextWindow = it) }
-        // Routed or consumed outside the reducer: nested_session_event (to the agent view and the
-        // approvals list), watcher events, voice_ending, voice_command, voice_audio_out,
+        // Routed or consumed outside the reducer: agent_session_opened, voice_ending, voice_command, voice_audio_out,
         // voice_connection_error, models_list, audio_upload, ping, unknown.
         else -> Unit
+    }
+}
+
+/** PM-5. The runtime also routes `eventData` to the open agent view (`routeToAgentView`). */
+private fun Draft.onNestedSessionEvent(f: ServerFrame.NestedSessionEvent) {
+    if (!isOrchestrator) return
+    val localId = f.sessionId ?: return
+    val data = f.eventData ?: return
+    val rid = (data["request_id"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+    if (rid.isNullOrEmpty()) return
+    val i = agentApprovals.indexOfFirst { it.localId == localId && it.requestId == rid }
+    when (f.eventType) {
+        "permission_request" -> if (i < 0) {
+            val name = (data["tool_name"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: ""
+            agentApprovals.add(AgentApproval(localId, rid, name, data["tool_input"] as? JsonObject ?: Draft.EMPTY_OBJECT))
+        }
+        "permission_resolved" -> if (i >= 0) agentApprovals.removeAt(i)
     }
 }
 
@@ -170,15 +194,27 @@ internal fun Draft.onError(code: String?, detail: String?) {
 
 private fun Draft.connectionOrSideError(code: String, detail: String?) {
     when (code) {
-        in ConversationReducer.START_ERRORS -> {
-            if (code == "start_timeout" || code == "start_failed") connection = ConnectionState.FAILED
-            connectionBanner = ConnectionBanner(code, detail)
-            awaitingSessionStarted = false
-            preStart.clear()
-            effects += ConversationEffect.StartError(code, detail)
-        }
+        in ConversationReducer.START_ERRORS -> onStartError(code, detail)
         "not_started" -> sendStart()                                          // T-12: re-send start
         else -> effects += ConversationEffect.SideError(code, detail)
+    }
+}
+
+/** SEQ-8: a start error ends the wait for `session_started` and releases the held frames in order (L-2). */
+private fun Draft.onStartError(code: String, detail: String?) {
+    if (code == "orchestrator_stopping" && !stoppingRetried) {
+        stoppingRetried = true
+        effects += ConversationEffect.ScheduleStartRetry(1_000)                // T-12; keep waiting
+        return
+    }
+    connection = ConnectionState.FAILED
+    connectionBanner = ConnectionBanner(code, detail)                         // never an entry (I-15)
+    effects += ConversationEffect.StartError(code, detail)
+    if (awaitingSessionStarted) {
+        awaitingSessionStarted = false
+        val held = preStart.toList()
+        preStart.clear()
+        for (g in held) dispatch(g)
     }
 }
 
