@@ -4,6 +4,8 @@ Newest first. One entry per milestone event, accepted WP, or decision.
 
 ## 2026-10-03
 
+- 17:57 — All 6 running agents (W-03, W-04, W-06, A-03, A-04, B-01) were cut off by an API usage limit (reset 15:40). Resumed W-03, W-04, B-01, A-04 from their saved context; W-06 and A-03 queued. **Lesson:** 6 parallel agents exhausts the session limit; cap lowered to 4 (plan/21 §2).
+- Accepted + committed: W-08 (1f62515), A-02 (0d23fe5, 9c64f0e), W-02 (ed4bffd), W-05 (b347d9f), spec 12 updates (78a9fd0, 51f6996). Gate G-P met on both platforms: 38/38 shared fixtures.
 - **M0 closed: Rodrigo approved the mockups and design tokens.** Design-dependent WPs unblocked (W-02 now; B-01/B-02 when an Android slot frees).
 - Wave 1 started (design-independent): W-05 protocol client, W-08 markdown, A-02 model/reducer, A-04 voice parity tests.
 - Commits (not pushed): a65eafd docs/specs/tokens/fixtures/mockups · 66249f4 backend changes · 75b7c6f W-01 · af16837 A-01.

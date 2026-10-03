@@ -26,7 +26,7 @@ Wave 4  W-09 conversation · W-11 composer → M2 web preview · A-08 voice host
 Wave 5  B-09 system integration · C-01 wiring → D-01 field tests · W-15 hardening → M5 cutover
 ```
 
-Concurrency cap: **at most 4 implementation agents at once** (laptop: 8 cores / 15 GB), with at
+Concurrency cap: **at most 4 implementation agents at once** (hard limit: 6 parallel agents exhausted the API session limit on 2026-10-03) (laptop: 8 cores / 15 GB), with at
 most **2 Android agents** at a time (Gradle is memory-heavy). Web and Android lanes interleave.
 Within a wave, the protocol cores go first (web W-05 and Android A-02), because everything
 downstream depends on the reducer passing the shared fixtures.
