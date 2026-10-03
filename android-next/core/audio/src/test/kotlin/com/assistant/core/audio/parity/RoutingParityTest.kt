@@ -9,11 +9,9 @@ import com.assistant.core.audio.ports.Route
 import com.assistant.core.audio.ports.SpeakerMode
 import com.assistant.core.testing.PinsConstant
 import org.junit.Assert.assertEquals
-import org.junit.Ignore
 import org.junit.Test
 
 /** Routing decision table (inv04 §3.4 "Decision", §4.10) for every output × provider × BT availability. */
-@Ignore("A-05")
 class RoutingParityTest {
     private val decider = audioCore.routeDecider
 

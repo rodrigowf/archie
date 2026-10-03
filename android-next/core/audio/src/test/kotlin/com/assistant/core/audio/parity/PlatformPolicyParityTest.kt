@@ -10,11 +10,9 @@ import com.assistant.core.audio.ports.TrackConstructor
 import com.assistant.core.audio.ports.TrackWriteMode
 import com.assistant.core.testing.PinsConstant
 import org.junit.Assert.assertEquals
-import org.junit.Ignore
 import org.junit.Test
 
 /** API-level branches as pure policies, at 21/22/23/26/30/31/34/36 (inv04 §5.1, spec 14 §6.1). */
-@Ignore("A-05")
 class PlatformPolicyParityTest {
 
     /** RS-24 (`55037c2`): wake mic, WS mic and WebRTC ADM share one source per API level. */

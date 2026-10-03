@@ -1,10 +1,8 @@
 package com.assistant.core.audio.parity
 
-import org.junit.Ignore
 import org.junit.Test
 
 /** inv04 §10.1 `EchoDuckTuningTest` (inv04 §4.8). "No timeout" is pinned behaviourally in [EchoDuckerParityTest]. */
-@Ignore("A-05")
 class EchoDuckTuningTest {
     private val pins = audioPins()
 

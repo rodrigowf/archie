@@ -16,7 +16,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /**
@@ -24,7 +23,6 @@ import org.junit.Test
  * throws `NoSuchMethodError` for an API the level lacks, so an unguarded call fails the test the
  * way it crashed Lollipop (`20217b1`).
  */
-@Ignore("A-05")
 class RouteApplierParityTest {
     private val allRoutes = listOf(
         Route.SystemDefault, Route.Earpiece, Route.Loudspeaker, Route.BluetoothCallAudio, Route.BluetoothMedia,

@@ -2,7 +2,6 @@ package com.assistant.core.audio.parity
 
 import com.assistant.core.testing.PinsConstant
 import org.junit.Assert.assertEquals
-import org.junit.Ignore
 import org.junit.Test
 
 /**
@@ -10,7 +9,6 @@ import org.junit.Test
  * §4.7). Values are frozen (memory `feedback_dont_touch_wake_word_tuning.md`); changing one needs
  * Rodrigo's per-constant approval.
  */
-@Ignore("A-05")
 class AudioTuningTest {
     private val pins = audioPins()
 

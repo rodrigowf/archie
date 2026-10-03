@@ -6,11 +6,9 @@ import java.util.Base64
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Ignore
 import org.junit.Test
 
 /** PCM utilities used by the wake loop (RMS, WAV for Whisper / talk messages) and the WS mic path. */
-@Ignore("A-05")
 class PcmMathParityTest {
     private val pcm = audioCore.pcm
 

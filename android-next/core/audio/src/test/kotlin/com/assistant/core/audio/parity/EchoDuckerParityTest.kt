@@ -12,7 +12,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /**
@@ -20,7 +19,6 @@ import org.junit.Test
  * `EchoDuckControllerParityTest`). Drain-then-restore is non-negotiable
  * (memory `feedback_dont_shortcut_echo_ducking.md`).
  */
-@Ignore("A-05")
 class EchoDuckerParityTest {
     private val clock = FakeClock()
     private val playback = FakePlaybackClock(head = 0L, written = 0L)

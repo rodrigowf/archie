@@ -9,6 +9,8 @@ android {
 
 dependencies {
     api(project(":core:model"))
+    // PcmSink's single writer coroutine and the full-buffer retry delay (A-05).
+    implementation(libs.kotlinx.coroutines.core)
     // A-04: parity fakes + virtual-time helpers (spec 14 §6.1). Test classpath only.
     testImplementation(project(":core:testing"))
 }

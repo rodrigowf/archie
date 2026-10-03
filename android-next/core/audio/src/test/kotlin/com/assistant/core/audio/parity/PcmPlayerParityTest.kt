@@ -19,12 +19,10 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /** Speaker playback (inv04 §4.7; fixes B3; RS-25). */
 @OptIn(ExperimentalCoroutinesApi::class)
-@Ignore("A-05")
 class PcmPlayerParityTest {
     private val chunk = ByteArray(960) { 1 } // 20 ms at 24 kHz
 
