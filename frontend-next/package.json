@@ -17,6 +17,7 @@
     "build:main": "vite build -c vite.config.main.ts",
     "build:compat": "vite build -c vite.config.compat.ts",
     "build:preview": "FN_BASE=/next/ FN_OUT=dist-preview/main vite build -c vite.config.main.ts && FN_BASE=/next-compat/ FN_OUT=dist-preview/compat vite build -c vite.config.compat.ts && node scripts/scan-compat-bundle.mjs dist-preview/compat",
+    "build:gallery": "VITE_GALLERY=1 FN_OUT=dist-gallery/main vite build -c vite.config.main.ts && VITE_GALLERY=1 FN_OUT=dist-gallery/compat vite build -c vite.config.compat.ts && node scripts/scan-compat-bundle.mjs dist-gallery/compat",
     "typecheck": "tsc -b",
     "lint": "eslint --max-warnings=0 .",
     "lint:css": "stylelint --allow-empty-input \"src/**/*.css\"",

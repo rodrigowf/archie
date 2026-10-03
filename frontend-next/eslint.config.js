@@ -113,6 +113,7 @@ export default defineConfig([
     'dist/',
     'dist-compat/',
     'dist-preview/',
+    'dist-gallery/',
     'coverage/',
     '.scan-test-*/',
     'public-main/',

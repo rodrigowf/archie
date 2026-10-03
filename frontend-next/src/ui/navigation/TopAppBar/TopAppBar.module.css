@@ -1,0 +1,130 @@
+/*
+ * Small top app bar (mockups `.appbar`, `.ttl`, `.ttl-main`, `.ttl-sub`): 64 px, 4 px side
+ * padding, title button 52 tall radius 16, title 19/24/500, subtitle 12/16/500 on-surface-variant.
+ * Transparent: it sits on the content surface, no divider (R1).
+ */
+.bar {
+  box-sizing: content-box;
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: 64px;
+  padding: 0 4px;
+  padding-top: env(safe-area-inset-top);
+  color: var(--md-sys-color-on-surface);
+}
+
+.leading,
+.actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+.edge {
+  flex: none;
+  width: 12px;
+}
+
+.title {
+  box-sizing: border-box;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+  height: 52px;
+  padding: 0 8px;
+  border-radius: 16px;
+  text-align: left;
+}
+
+.titleButton {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.titleButton:focus-visible {
+  outline-offset: -2px;
+}
+
+.icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  margin-right: 10px;
+}
+
+.heading {
+  min-width: 0;
+  margin: 0;
+  font: inherit;
+}
+
+.texts {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.main {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 24px;
+  white-space: nowrap;
+}
+
+.plainTitle {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  font-size: var(--md-sys-typescale-title-large-size);
+  font-weight: var(--md-sys-typescale-title-large-weight);
+  line-height: var(--md-sys-typescale-title-large-line-height);
+  white-space: nowrap;
+}
+
+.titleText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drop {
+  flex: none;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.sub {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-label-medium-size);
+  font-weight: var(--md-sys-typescale-label-medium-weight);
+  line-height: var(--md-sys-typescale-label-medium-line-height);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+.sub > * + * {
+  margin-left: 6px;
+}
+
+.sub > * {
+  flex: none;
+}
+
+.sub > :last-child {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

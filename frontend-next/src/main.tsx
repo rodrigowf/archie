@@ -11,16 +11,19 @@ import { initPlatform } from '@/platform';
 
 initPlatform();
 
-// Dev gallery of UI primitives and components (W-02), loaded lazily on #/dev/gallery.
-const Gallery = lazy(() => import('@/dev/gallery').then((m) => ({ default: m.Gallery })));
-const isGallery = window.location.hash.indexOf('#/dev/gallery') === 0;
+// Dev gallery of UI primitives and components (W-02), loaded lazily on #/dev/gallery. Only in the
+// dev server or a `VITE_GALLERY=1` build (`npm run build:gallery`, for device QA): both flags are
+// replaced at build time, so a normal production build drops the import and ships no gallery chunk.
+const GALLERY_ENABLED = import.meta.env.DEV || import.meta.env.VITE_GALLERY === '1';
+const Gallery = GALLERY_ENABLED ? lazy(() => import('@/dev/gallery').then((m) => ({ default: m.Gallery }))) : null;
+const isGallery = Gallery !== null && window.location.hash.indexOf('#/dev/gallery') === 0;
 
 const container = document.getElementById('root');
 if (!container) throw new Error('#root element missing from index.html');
 
 createRoot(container).render(
   <StrictMode>
-    {isGallery ? (
+    {isGallery && Gallery ? (
       <Suspense fallback={null}>
         <Gallery />
       </Suspense>

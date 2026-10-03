@@ -1,0 +1,131 @@
+/*
+ * Navigation rail (mockups `.rail`, `.rd`, `.pill`, `.fab-new`). Sits on the shell's
+ * surface-container-low tone; no border (R1). Destinations: 80 wide, pill 56 × 32 radius 16,
+ * label-medium 12/16, active pill secondary-container.
+ */
+.rail {
+  box-sizing: border-box;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  width: 80px;
+  height: 100%;
+  min-height: 0;
+  padding: 18px 0;
+  padding-top: calc(18px + env(safe-area-inset-top));
+  padding-bottom: calc(18px + env(safe-area-inset-bottom));
+}
+
+.menu {
+  margin-bottom: 4px;
+}
+
+.fab {
+  margin-bottom: 18px;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.group > * + * {
+  margin-top: 6px;
+}
+
+.grow {
+  flex: 1 1 auto;
+}
+
+.dest {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 80px;
+  min-height: 56px;
+  padding: 0 0 8px;
+  border: 0;
+  background: none;
+  color: var(--md-sys-color-on-surface-variant);
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.dest:focus-visible {
+  outline: none;
+}
+
+.pill {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 32px;
+  margin-bottom: 4px;
+  border-radius: 16px;
+  transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+
+.active .pill,
+.active:hover .pill {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.dest:focus-visible .pill {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+@media (--hover) {
+  .dest:hover .pill {
+    background: var(--md-sys-color-on-surface-variant-hover);
+  }
+}
+
+.dest:active .pill {
+  background: var(--md-sys-color-on-surface-variant-pressed);
+}
+
+.label {
+  font-size: var(--md-sys-typescale-label-medium-size);
+  font-weight: var(--md-sys-typescale-label-medium-weight);
+  line-height: var(--md-sys-typescale-label-medium-line-height);
+  letter-spacing: var(--md-sys-typescale-label-medium-tracking);
+}
+
+.active {
+  color: var(--md-sys-color-on-surface);
+}
+
+.badgeDot {
+  position: absolute;
+  top: 4px;
+  right: 14px;
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--md-sys-color-error);
+}
+
+.badgeCount {
+  position: absolute;
+  top: 0;
+  left: 30px;
+  box-sizing: border-box;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--md-sys-color-error);
+  color: var(--md-sys-color-on-error);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  text-align: center;
+}

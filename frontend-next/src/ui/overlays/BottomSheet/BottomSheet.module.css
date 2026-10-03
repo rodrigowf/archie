@@ -1,0 +1,109 @@
+/*
+ * Bottom sheet (mockups `.sheet`, `.handle`, `.sheet-h`, `.sheet-acts`): surface-container-low,
+ * top corners 28, 12 px side padding, handle 32 × 4 at 40 % on-surface-variant. Max width 640 and
+ * centered on wide windows (M3). Explicit offsets only.
+ */
+/* stylelint-disable declaration-block-no-redundant-longhand-properties -- explicit top/right/bottom/left, never `inset` (Safari 12; inv02 §5.4 #3) */
+.layer {
+  overflow: hidden;
+}
+
+.sheet {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  max-width: 640px;
+  max-height: calc(100% - 72px);
+  margin: 0 auto;
+  padding: 0 12px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  border-radius: 28px 28px 0 0;
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface);
+  box-shadow: var(--md-sys-elevation-level1);
+  transition: transform var(--md-sys-motion-duration-medium1) var(--md-sys-motion-easing-emphasized-decelerate);
+  animation: sheet-in var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized-decelerate);
+}
+
+.sheet:focus {
+  outline: none;
+}
+
+.dragging {
+  transition: none;
+}
+
+.leaving {
+  transition-timing-function: var(--md-sys-motion-easing-emphasized-accelerate);
+}
+
+.scrimLeaving {
+  opacity: 0;
+  transition: opacity var(--md-sys-motion-duration-short4) linear;
+}
+
+/* 48 px hit target around the 32 × 4 handle. */
+.handle {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  width: 64px;
+  height: 36px;
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 18px;
+  background: none;
+  cursor: grab;
+}
+
+.handleBar {
+  width: 32px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--md-sys-color-on-surface-variant);
+  opacity: 0.4;
+}
+
+.noHandle {
+  flex: none;
+  height: 16px;
+}
+
+.header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 0 8px 8px 16px;
+}
+
+.title {
+  min-width: 0;
+  margin: 0;
+  font-size: var(--md-sys-typescale-title-large-size);
+  font-weight: var(--md-sys-typescale-title-large-weight);
+  line-height: var(--md-sys-typescale-title-large-line-height);
+}
+
+.body {
+  flex: 0 1 auto;
+}
+
+.footer {
+  flex: none;
+  padding: 14px 4px 0;
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
