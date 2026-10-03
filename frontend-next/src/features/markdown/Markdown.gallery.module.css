@@ -1,0 +1,71 @@
+/* Gallery page for the markdown corpus (dev only). */
+.page {
+  box-sizing: border-box;
+  max-width: 840px;
+  margin: 0 auto;
+  padding: var(--app-space-6) var(--app-space-4) var(--app-space-16);
+  color: var(--md-sys-color-on-surface);
+}
+
+.page > * + * {
+  margin-top: var(--app-space-8);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--md-sys-typescale-headline-small-font);
+  font-size: var(--md-sys-typescale-headline-small-size);
+  font-weight: 400;
+  line-height: var(--md-sys-typescale-headline-small-line-height);
+}
+
+.section > * + * {
+  margin-top: var(--app-space-3);
+}
+
+.sectionTitle {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-family: var(--md-sys-typescale-title-small-font);
+  font-size: var(--md-sys-typescale-title-small-size);
+  font-weight: var(--md-sys-typescale-title-small-weight);
+  line-height: var(--md-sys-typescale-title-small-line-height);
+}
+
+.surface > * + * {
+  margin-top: var(--app-space-4);
+}
+
+.button {
+  min-height: 40px;
+  padding: 0 var(--app-space-6);
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  font-family: var(--md-sys-typescale-label-large-font);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  cursor: pointer;
+}
+
+.frontmatter {
+  padding: var(--app-space-2) var(--app-space-4);
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-label-large-size);
+}
+
+.frontmatter pre {
+  margin: var(--app-space-2) 0 0;
+  overflow-x: auto;
+  font-family: var(--md-sys-typescale-code-font);
+  font-size: var(--md-sys-typescale-code-size);
+}
+
+.note {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-medium-size);
+}

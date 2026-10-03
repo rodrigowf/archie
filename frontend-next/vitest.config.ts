@@ -11,6 +11,7 @@ import { FIXTURES_DIR, postcssPlugins, targetAliases, targetDefine } from './vit
 
 const TEST_GLOB = '**/*.test.{ts,tsx}';
 const COMPAT_GLOB = '**/*.compat.test.{ts,tsx}';
+const GFM_INLINE = ['remark-gfm', 'mdast-util-gfm', 'micromark-extension-gfm'];
 
 export default defineConfig({
   test: {
@@ -44,6 +45,8 @@ export default defineConfig({
           include: [`src/${TEST_GLOB}`],
           exclude: [`src/protocol/**`, `src/${COMPAT_GLOB}`],
           setupFiles: ['src/test/setup.ts'],
+          // Inline the GFM packages so the autolink-safe alias applies inside them too (W-08).
+          server: { deps: { inline: GFM_INLINE } },
         },
         resolve: { alias: targetAliases('main') },
         define: targetDefine('main'),
@@ -56,6 +59,7 @@ export default defineConfig({
           environment: 'jsdom',
           include: [`src/${COMPAT_GLOB}`],
           setupFiles: ['src/test/setup.compat.ts', 'src/test/setup.ts'],
+          server: { deps: { inline: GFM_INLINE } },
         },
         resolve: { alias: targetAliases('compat') },
         define: targetDefine('compat'),
