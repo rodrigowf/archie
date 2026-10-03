@@ -10,6 +10,12 @@ afterEach(() => {
 });
 
 if (typeof window !== 'undefined') {
+  // user-event uses CSS.escape (radio-group arrow keys); jsdom does not provide it.
+  if (typeof CSS === 'undefined' || typeof CSS.escape !== 'function') {
+    const escape = (value: string): string => value.replace(/[^a-zA-Z0-9_-]/g, (ch) => '\\' + ch);
+    (globalThis as { CSS?: object }).CSS = { ...(globalThis as { CSS?: object }).CSS, escape };
+  }
+
   if (typeof window.matchMedia !== 'function') {
     // Matches nothing. Tests that need a specific media state stub window.matchMedia themselves.
     window.matchMedia = (query: string): MediaQueryList =>

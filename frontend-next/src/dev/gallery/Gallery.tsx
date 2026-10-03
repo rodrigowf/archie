@@ -76,7 +76,7 @@ export function Gallery({ sections = collectSections() }: { sections?: GallerySe
           <div className={styles.brand} style={{ display: 'flex', alignItems: 'center' }}>
             <ArchieMark size={56} className={styles.mark} />
             <div>
-              <p className={styles.eyebrow}>frontend-next · W-02 styles foundation</p>
+              <p className={styles.eyebrow}>frontend-next · component gallery</p>
               <h1 className={styles.title}>Component gallery</h1>
             </div>
           </div>
