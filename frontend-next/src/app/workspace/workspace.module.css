@@ -1,0 +1,219 @@
+/*
+ * Workspace: top bar with the tab strip (mockups `.wtop`, `.wstat`), compact app bar, panels,
+ * the empty workspace, and the session switcher rows (phone (c) `.sheet .li.big`).
+ */
+/* stylelint-disable declaration-block-no-redundant-longhand-properties -- explicit top/right/bottom/left, never `inset` (Safari 12; inv02 §5.4 #3) */
+
+.wtop {
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: 64px;
+  padding: 0 8px 0 6px;
+}
+
+.wtop > * + * {
+  margin-left: 4px;
+}
+
+.stripSlot {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.wstat {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 20px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.wstat > * + * {
+  margin-left: 8px;
+}
+
+.wstat:focus-visible {
+  outline: 2px solid var(--md-sys-color-secondary);
+  outline-offset: 2px;
+}
+
+.appbar {
+  flex: none;
+}
+
+/* ---------- panels ---------- */
+
+.panels {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+}
+
+.panel[hidden] {
+  display: none;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+/* ---------- session switcher ---------- */
+
+.swRow {
+  display: flex;
+  align-items: center;
+  min-height: 64px;
+  padding-right: 4px;
+  border-radius: 20px;
+}
+
+.swActive {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.swMain {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+  min-height: 64px;
+  padding: 8px 8px 8px 12px;
+  border: 0;
+  border-radius: 20px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.swMain > * + * {
+  margin-left: 12px;
+}
+
+.tile {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.swText {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.swTitle {
+  overflow: hidden;
+  font-size: var(--md-sys-typescale-title-medium-size);
+  font-weight: 500;
+  line-height: var(--md-sys-typescale-title-medium-line-height);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.swSub {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: var(--md-sys-typescale-body-small-line-height);
+  white-space: nowrap;
+}
+
+.swActive .swSub {
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.swSub > * + * {
+  margin-left: 6px;
+}
+
+.newBadge {
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  font-size: var(--md-sys-typescale-label-small-size);
+  font-weight: 500;
+}
+
+.swEmpty {
+  margin: 8px 16px 16px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.sheetActs {
+  display: flex;
+  padding: 14px 4px 0;
+}
+
+.sheetActs > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* mockups `.sheet-acts .btn { padding: 0 12px }`: both labels fit at 412 dp */
+.sheetActs > button {
+  padding-right: 12px;
+  padding-left: 12px;
+}
+
+.sheetActs > * + * {
+  margin-left: 8px;
+}
+
+.renameForm {
+  min-width: 260px;
+  padding-top: 8px;
+}
+
+/* ---------- unseen badge (P-6) on a tab's icon ---------- */
+
+.leadWrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.unseenBadge {
+  position: absolute;
+  top: -2px;
+  right: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--md-sys-color-primary);
+  box-shadow: 0 0 0 2px var(--md-sys-color-surface);
+}
