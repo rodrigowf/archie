@@ -278,7 +278,7 @@ The implementation's `WakeWordState` only has Stopped / Idle / SilenceMonitor / 
 | PAUSING_WAKE | ack / timeout | STARTING | `GET /api/config` → cfg. `activeVoiceConfig=cfg`. WS `voice_start` :722-742. `VoiceManager.start(cfg)` |
 | STARTING | (backend) `voice_event voice_status summarizing/preparing` before the provider exists | SUMMARIZING / CONNECTING | `VoiceManager.kt:195-204`. The provider's initial Off does not overwrite it :308-313 |
 | STARTING | `POST voice/session` → null | ERROR | `VoiceEvent.Error` → controller **finalize** (`c0cad2c`) |
-| STARTING | `connection_info` OK | PROVIDER_CONNECTING | provider chosen; gains, fallback getter, drain of queued commands; audio focus + route; {route re-apply +1/+3/+5 s}; `provider.connect` |
+| STARTING | `connection_info` OK | PROVIDER_CONNECTING | provider chosen; gains, fallback getter, drain of queued commands; audio focus + route; {route re-apply +1/+4/+9 s (sequential delays 1000/3000/5000; errata §12)}; `provider.connect` |
 | any pre-active | `session_started{voice, voice_initiator=true, voice_session_update}` | (same) | owner=true. The update is queued (no provider) or forwarded; cached in `lastSessionUpdate` |
 | PROVIDER_CONNECTING (WebRTC) | DC OPEN | ACTIVE | drain `pendingCommands`. If no `session.update` was sent → re-send the cached one. Else if nothing is cached → log error (`d4bc698`) |
 | PROVIDER_CONNECTING (WebRTC) | 15 s without success / SDP failure / exception | ERROR | cleanup → controller finalize |
@@ -727,7 +727,7 @@ Design rules:
 | `:core:model` | pure Kotlin JVM | `VoiceUiState`, `VoiceEvent`, `VoiceConfig`, `ConnectionInfo`, `AudioOutput`, `WakeSignal`, settings data classes, protocol DTOs | — |
 | `:core:protocol` | pure Kotlin JVM | JSON codec for every WS message in §2.1. Encodes defaults (`voice_initiator` default false), delta drop list, **recursive** (not shallow) conversion of `voice_event` payloads (fixes B1) | `ProtocolCodec` |
 | `:core:network` | Android lib, 21 | okhttp WS client (ping 30 s, reconnect 3 s, `willReconnect`, audio-frame log suppression), `VoiceApi` REST (3 endpoints), shared OkHttpClient | `OrchestratorSocket`, `VoiceApi` |
-| `:core:session` | Android lib, 21 (logic pure) | Orchestrator adoption (pool probe + 400 ms retry), genuine-reconnect gating (`initialConnectionDone`), recovery 0/500/2000, resume checkpoint, `start` builder | `OrchestratorSession` (localId, sdkId, isOrchestrator, events Adopted/Reconnected/NoOrchestrator) |
+| `:core:session` | Android lib, 21 (logic pure) | Orchestrator adoption (pool probe + 400 ms retry), genuine-reconnect gating (`initialConnectionDone`), recovery 0/500/1000 (errata §12), resume checkpoint, `start` builder | `OrchestratorSession` (localId, sdkId, isOrchestrator, events Adopted/Reconnected/NoOrchestrator) |
 | `:core:audio` | Android lib, 21 | **Pure:** `EchoDucker` FSM (§3.3), `RouteDecider` (§3.4), PCM utils (RMS, gain, WAV, b64). **Adapters:** `MicSource` (AudioRecord, source policy §5), `PcmSink` (AudioTrack, write policy, flush, CALL/MEDIA rebuild **with single writer**, fixes B3), `RouteApplier` (AudioManager), `AudioFocus`, `DeviceWatcher` | `MicSource`, `PcmSink`, `PlaybackClock` (head/written) |
 | `:core:voice` | Android lib, 21; depends on `stream-webrtc-android` | **Pure:** `VoiceSessionMachine` (§3.2), ownership, `SessionUpdateDelivery` (§3.2 sub-FSM), provider event parsers (OpenAI/Qwen/Gemini → `VoiceEvent`), OpenAI duck policy (§3.3). **Adapters:** `WebRtcTransport` (threading rule: no dispose on callback threads; thread-safe pending queue, fixes B2), `WsPcmTransport` | `VoiceSessionController` (commands + `StateFlow<VoiceUiState>`), `TranscriptSink`, `VoiceCues` |
 | `:core:wakeword` | Android lib, 21; NDK 26.1, CMake shim, patched `libvosk.so` (v7a+arm64), model asset (`noCompress`), vosk 0.3.47 | **Pure:** `WakeLoopMachine` (§3.1, explicit states incl. CONFIRMING/CAPTURING/COOLDOWN), `RmsGate`, `PreBuffer`, `NoiseFloorTracker`, `TalkVad`, `VariantMatcher` (findMatch/prefix), `WhisperDecision`, backoff policy. **Adapters:** `VoskEngine` (single-thread confinement incl. close — fixes R4), `SpeechRecognizerEngine` (port verbatim; V6 deferred), `VoskModelStore`, `WhisperClient` | `WakeWordEngine` (start/pause/resume/stop, `Flow<WakeSignal>`, health) |
@@ -828,7 +828,7 @@ Pin **every** row of §4 marked **LB** or *wire*. The table below groups them; a
 | `SrTuningTest` | 10000, 20, 2, 8, 1000, the full `EXTRA_*` map |
 | `WhisperTuningTest` | 10000 ms, `whisper-1`, temperature "0", language "en", the boilerplate set (exact) |
 | `ServiceTuningTest` | 3000 (strict `<`), 300 debounce, 3000 wake lock, 600 long press, pref keys |
-| `SessionTuningTest` | 5000, 1500, 2000, route re-apply [1000,3000,5000], 75%, gains 1.0/0.05 + clamps, 400 probe, 0/500/2000, 30000/3000 |
+| `SessionTuningTest` | 5000, 1500, 2000, route re-apply delays [1000,3000,5000] run sequentially (= +1/+4/+9 s), 75%, gains 1.0/0.05 + clamps, 400 probe, 0/500/1000, 30000/3000 |
 | `AudioTuningTest` | 480, 800, `max(minBuf*4, rate*2/5)`, `max(minBuf*4, bps*1.5)`=72000 @24k, 200 settle, 10 ms retry |
 | `EchoDuckTuningTest` | 1000, 80, 400, no timeout |
 | `WebRtcTuningTest` | 15000, 2000 restore, HW AEC/NS off, SW on |
@@ -1038,3 +1038,18 @@ Keep greppable log markers equivalent to today's:
   - So either that trace came from another device, or the comment mislabels the source.
 - `wakeword_subsystem.md` "~600 MB free" vs `android_peripheral_project.md` "888 MB real, MemFree 60–79 MB": use the latter.
 - `687442e` describes a 1 s restore after `cleared`. The code uses 2 s for both (`OpenAIVoiceProvider.kt:750, 757`); the code wins.
+
+## 12. Errata (found by A-04 against the old code at `e871d05`, 2026-10-03)
+
+The parity tests pin the **old code's** behaviour; where this chapter disagrees, the code wins.
+`android-next/tools/parity/old_constants.json` (generated from `e871d05`) is the authoritative
+constant list.
+
+1. Route re-apply delays 1000/3000/5000 ms run **sequentially**, so re-apply happens at +1/+4/+9 s (not +1/+3/+5 s). Fixed in §3/§10 above.
+2. Orchestrator recovery backoff is **0/500/1000 ms** (not 0/500/2000). Fixed above and in spec 14.
+3. The pre-buffer capacity computation rounds **down**, not up.
+4. The Qwen parser only accepts the legacy `response.audio_transcript.*` event names.
+5. A blank `serverUrl` makes the Whisper confirm gate **let matches through** (not fail-closed) — preserve for parity, flagged for review.
+6. The SpeechRecognizer extras map also contains `DICTATION_MODE`, `CALLING_PACKAGE` and `LANGUAGE_PREFERENCE`.
+7. Line citations drifted: `noCompress` is at build.gradle `:46`, vosk at `:122`.
+8. The screen-on re-arm restart is subject to the 3 s dedupe.
