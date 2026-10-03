@@ -1,0 +1,10 @@
+/*
+ * Window size classes (spec 13 §2.2, §4.1; IA §0). vite.shared.ts prepends these definitions to
+ * every stylesheet, so any CSS file or CSS Module can write `@media (--compact) { … }`.
+ * JS uses the same breakpoints (src/app/useWindowClass.ts, W-07).
+ */
+@custom-media --compact (max-width: 599.98px);
+@custom-media --medium (min-width: 600px) and (max-width: 839.98px);
+@custom-media --expanded (min-width: 840px);
+@custom-media --not-compact (min-width: 600px);
+@custom-media --hover (hover: hover);

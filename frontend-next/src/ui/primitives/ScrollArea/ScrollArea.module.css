@@ -1,0 +1,53 @@
+/*
+ * Every scroll container in the app (spec 13 §2.6). Momentum scrolling on iOS, no browser scroll
+ * anchoring (the controller restores anchors itself, identically on every engine).
+ */
+.root {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden auto; /* x y; expanded to longhands for Safari 12 by postcss-preset-env */
+  -webkit-overflow-scrolling: touch;
+  overflow-anchor: none;
+  overscroll-behavior: contain;
+}
+
+.x {
+  overflow: auto hidden;
+}
+
+.both {
+  overflow: auto;
+}
+
+.fill {
+  height: 100%;
+}
+
+/* Quiet scrollbars for mouse users only; touch devices keep the native overlay scrollbar. */
+@media (hover: hover) and (pointer: fine) {
+  .root {
+    scrollbar-width: thin;
+    scrollbar-color: var(--md-sys-color-outline-variant) transparent;
+  }
+
+  .root::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .root::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .root::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 5px;
+    background: var(--md-sys-color-outline-variant);
+    background-clip: padding-box;
+  }
+
+  .root::-webkit-scrollbar-thumb:hover {
+    background-color: var(--md-sys-color-outline);
+  }
+}

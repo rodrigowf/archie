@@ -1,0 +1,29 @@
+/*
+ * Motion and low-end mode (spec 13 §2.7). `html.low-end` is set by src/platform/lowEnd.ts
+ * (hardwareConcurrency <= 2, deviceMemory <= 1, the compat build, or the "Reduce motion" pref).
+ * Components use the M3 duration/easing tokens; this file switches them off wholesale.
+ * Exception: progress spinners keep turning (Spinner.module.css), because a frozen spinner reads
+ * as a hang; a rotate transform is composited and cheap.
+ */
+html.low-end *,
+html.low-end *::before,
+html.low-end *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+
+/* No blur on low-end devices (scrims become a plain translucent color). Autoprefixer adds -webkit-. */
+html.low-end * {
+  backdrop-filter: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
