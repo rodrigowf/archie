@@ -52,9 +52,9 @@ contract (only small, justified fixes allowed).
 | `inventory/03-android-app.md` | Android UI/chat/network inventory, ordering bug root cause | done |
 | `inventory/04-android-voice-and-device.md` | Voice stack rewrite spec: constants, state machines, 46 regression scenarios, module design, lite-app needs | done |
 | `spec/12-client-protocol.md` + `shared/protocol-fixtures/` | Normative client data-layer spec + conformance fixtures | done |
-| `design/tokens/` | Shared M3 token source + generators (CSS, Kotlin, TS); TonalSpot from seed, 196/196 contrast pairs pass | done |
-| `spec/11-information-architecture.md` | Screens, navigation, settings hierarchy (web + Android) | structure approved |
-| `mockups/archie-mockups.html` | High-fidelity mockups of every key screen (web, phone, tablet, lite); published privately: https://claude.ai/artifact/MDViCDBwzHDfnyqrcUuBLR | awaiting Rodrigo review |
+| `design/tokens/` | (approved 2026-10-03) Shared M3 token source + generators (CSS, Kotlin, TS); TonalSpot from seed, 196/196 contrast pairs pass | done |
+| `spec/11-information-architecture.md` | Screens, navigation, settings hierarchy (web + Android) | approved |
+| `mockups/archie-mockups.html` | High-fidelity mockups of every key screen (web, phone, tablet, lite); published privately: https://claude.ai/artifact/MDViCDBwzHDfnyqrcUuBLR | **approved by Rodrigo 2026-10-03** |
 | `spec/13-web-architecture.md` | Web architecture + work packages W-01..15 | done |
 | `spec/14-android-architecture.md` | Android architecture (main + lite + core) + work packages A/B/C/D | done |
 | `plan/20-decisions-and-backend-changes.md` | All pending/approved decisions + backend changes | live |

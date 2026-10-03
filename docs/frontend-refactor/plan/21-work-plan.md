@@ -7,7 +7,7 @@ Owner of this plan: coordinator (Claude). Progress is tracked in `22-progress-lo
 
 | Milestone | Content | Rodrigo checkpoint |
 |---|---|---|
-| **M0 Specs** | inventory, specs 11–14, tokens, fixtures, mockups, decisions | ✅ structure approved · ⏳ **mockups review** |
+| **M0 Specs** | inventory, specs 11–14, tokens, fixtures, mockups, decisions | ✅ structure, mockups and tokens approved (2026-10-03) |
 | **M1 Foundations** | backend changes; web W-01/02/05/08; Android A-01/02/04, B-01/02 | review backend diff before Jetson deploy |
 | **M2 Web preview** | web waves 2–4 → new web app live at `/next/` + `/next-compat/` on the Jetson | **try it on desktop, phone, iPad** |
 | **M3 Android main** | Android waves 2–5 (main app) after the voice-parity gate G-01 | **install Archie on the POCO** |
