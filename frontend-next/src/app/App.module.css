@@ -1,0 +1,102 @@
+/* PLACEHOLDER hello-page styles (W-01), replaced by W-07. Spacing uses margins only: no flex gap. */
+:global(html),
+:global(body),
+:global(#root) {
+  height: 100%;
+  margin: 0;
+  background: var(--md-sys-color-surface);
+}
+
+.page {
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: var(--app-space-6) var(--app-space-4);
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  font-family: var(--md-sys-typescale-body-large-font);
+  font-size: var(--md-sys-typescale-body-large-size);
+  line-height: var(--md-sys-typescale-body-large-line-height);
+}
+
+.page > * {
+  max-width: 840px;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.page > * + * {
+  margin-top: var(--app-space-4);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+}
+
+.header > * + * {
+  margin-left: var(--app-space-4);
+}
+
+.mark {
+  display: block;
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-primary-container);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--md-sys-typescale-headline-small-font);
+  font-size: var(--md-sys-typescale-headline-small-size);
+  font-weight: var(--md-sys-typescale-headline-small-weight);
+  line-height: var(--md-sys-typescale-headline-small-line-height);
+}
+
+.subtitle {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-medium-size);
+}
+
+.card {
+  padding: var(--app-space-4);
+  border-radius: var(--md-sys-shape-corner-large);
+  background: var(--md-sys-color-surface-container);
+}
+
+.cardTitle {
+  margin: 0 0 var(--app-space-3);
+  color: var(--md-sys-color-primary);
+  font-size: var(--md-sys-typescale-title-medium-size);
+  font-weight: var(--md-sys-typescale-title-medium-weight);
+}
+
+.list {
+  margin: 0;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  padding: var(--app-space-1) 0;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.row:last-child {
+  border-bottom: 0;
+}
+
+.label {
+  margin-right: var(--app-space-4);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.value {
+  margin: 0;
+  font-family: var(--md-sys-typescale-code-font);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  overflow-wrap: break-word;
+}

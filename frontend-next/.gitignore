@@ -1,0 +1,8 @@
+node_modules/
+dist/
+dist-compat/
+dist-preview/
+coverage/
+qa/screenshots/
+*.tsbuildinfo
+.scan-test-*/

@@ -1,0 +1,19 @@
+{
+  "//": "Bundle budgets (spec 13 §5.4), enforced by scripts/check-budgets.mjs. Sizes in kB (1000 bytes), gzip level 9, except fonts (uncompressed woff2). A budget change needs a one-line entry in `justifications` (who, when, why).",
+  "main": {
+    "initialJs": 190,
+    "initialCss": 35,
+    "fonts": 80,
+    "largestLazyJs": 60,
+    "totalJs": 480
+  },
+  "compat": {
+    "initialJs": 270,
+    "polyfills": 60,
+    "initialCss": 40,
+    "fonts": 80,
+    "largestLazyJs": 75,
+    "totalJs": 560
+  },
+  "justifications": []
+}

@@ -1,0 +1,14 @@
+# Two environments, one per build (spec 13 §0, §1.4). Tools read them by name:
+# postcss-preset-env (`env`), eslint-plugin-compat and stylelint (via scripts/browserslist-env.mjs).
+
+[main]
+chrome >= 109
+edge >= 109
+firefox >= 115
+safari >= 15.4
+ios_saf >= 15.4
+samsung >= 21
+
+[compat]
+safari >= 12
+ios_saf >= 12
