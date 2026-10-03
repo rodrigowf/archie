@@ -9,5 +9,11 @@ android {
 
 dependencies {
     api(project(":core:model"))
-    implementation(libs.androidx.datastore.preferences.legacy)
+    api(libs.kotlinx.coroutines.core)
+    // DataStore types (DataStore<Preferences>) appear in public constructors for testability.
+    api(libs.androidx.datastore.preferences.legacy)
+    // `saved_servers_v2` JSON list (spec 14 §2.10).
+    implementation(libs.kotlinx.serialization.json)
+
+    testImplementation(libs.kotlinx.coroutines.test)
 }

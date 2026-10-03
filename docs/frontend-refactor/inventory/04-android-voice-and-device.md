@@ -1053,3 +1053,4 @@ constant list.
 6. The SpeechRecognizer extras map also contains `DICTATION_MODE`, `CALLING_PACKAGE` and `LANGUAGE_PREFERENCE`.
 7. Line citations drifted: `noCompress` is at build.gradle `:46`, vosk at `:122`.
 8. The screen-on re-arm restart is subject to the 3 s dedupe.
+9. The **LB** label on the "WS ping / reconnect 30000 / 3000 ms" row (commit `f77cd62`) applies to the **30 s ping** (keeps the A300M radio awake). The fixed 3000 ms reconnect is *not* load-bearing; it is replaced on purpose by spec 12 T-13 exponential backoff (spec 12 bug A-3.3). Decided by the coordinator, 2026-10-03.

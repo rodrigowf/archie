@@ -63,11 +63,14 @@ SESSION = "com.assistant.core.session.SessionTuning#"
 NETWORK = "com.assistant.core.network.NetworkTuning#"
 
 
-def row(id, module, label, file, lines, regex, type, new=None, value=None, note=None, alias=None):
+def row(id, module, label, file, lines, regex, type, new=None, value=None, note=None, alias=None, superseded=None):
     """One constant. `regex` is applied to every cited line (str) or per line (list).
-    For scalar types the first capture group of the FIRST line is the value unless `value` is given."""
+    For scalar types the first capture group of the FIRST line is the value unless `value` is given.
+    `superseded` = the spec rule that intentionally replaces the old behaviour: the extracted value
+    stays the OLD one, and the new-vs-old cross-check skips the row (the new value is pinned by its
+    own test instead)."""
     return dict(id=id, module=module, label=label, file=file, lines=lines, regex=regex,
-                type=type, new=new, value=value, note=note, alias=alias)
+                type=type, new=new, value=value, note=note, alias=alias, superseded=superseded)
 
 
 ROWS = [
@@ -214,7 +217,10 @@ ROWS = [
         SESSION + "RECOVERY_BACKOFF_MS", value=[0, 500, 1000],
         note="attempt 0: no delay; attempt n>0: 500 shl (n-1) => 0/500/1000 with the cap of 3 (the code comment and inv04 say 2000)"),
     row("network.ws_ping_interval_ms", "network", "LB", WSM, [47], r"PING_INTERVAL_MS = ([\d_]+)L", "long", NETWORK + "WS_PING_INTERVAL_MS"),
-    row("network.ws_reconnect_delay_ms", "network", "LB", WSM, [42], r"RECONNECT_DELAY_MS = ([\d_]+)L", "long", NETWORK + "WS_RECONNECT_DELAY_MS"),
+    row("network.ws_reconnect_delay_ms", "network", "LB", WSM, [42], r"RECONNECT_DELAY_MS = ([\d_]+)L", "long", NETWORK + "WS_RECONNECT_BASE_DELAY_MS",
+        superseded="spec 12 T-13 (A-3.3)",
+        note="superseded by spec 12 T-13 (A-3.3): exponential min(15 s, 1 s x 2^attempt) +/-20 % jitter, reset on session_started; "
+             "the LB label of this inv04 row (f77cd62) belongs to the 30 s ping, which is kept"),
     row("protocol.voice_initiator_default", "protocol", "wire", WSM, [342], r'optBoolean\("voice_initiator", (false)\)', "behaviour", value=False),
     row("voice.default_provider", "voice", "wire", VP, [75], r'provider = "([^"]+)"', "string", VOICE + "DEFAULT_PROVIDER"),
     row("voice.default_model", "voice", "wire", VP, [76], r'model = "([^"]+)"', "string", VOICE + "DEFAULT_MODEL"),
@@ -339,6 +345,8 @@ def extract(rev: str) -> dict:
             }
             if r["note"]:
                 entry["note"] = r["note"]
+            if r["superseded"]:
+                entry["superseded"] = r["superseded"]
             results.append(entry)
             by_id[r["id"]] = entry
     if errors:

@@ -1265,7 +1265,9 @@
       ],
       "type": "long",
       "value": 3000,
-      "new": "com.assistant.core.network.NetworkTuning#WS_RECONNECT_DELAY_MS"
+      "new": "com.assistant.core.network.NetworkTuning#WS_RECONNECT_BASE_DELAY_MS",
+      "note": "superseded by spec 12 T-13 (A-3.3): exponential min(15 s, 1 s x 2^attempt) +/-20 % jitter, reset on session_started; the LB label of this inv04 row (f77cd62) belongs to the 30 s ping, which is kept",
+      "superseded": "spec 12 T-13 (A-3.3)"
     },
     {
       "id": "protocol.voice_initiator_default",

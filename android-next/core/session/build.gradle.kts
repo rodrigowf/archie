@@ -10,4 +10,7 @@ android {
 dependencies {
     api(project(":core:network"))
     api(project(":core:settings"))
+
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
 }
