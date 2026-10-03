@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Splash icon: the full mark (tile + arch + dot) inside the 240 dp splash icon canvas. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="240dp"
+    android:height="240dp"
+    android:viewportWidth="240"
+    android:viewportHeight="240">
+    <group android:translateX="72" android:translateY="72" android:scaleX="2" android:scaleY="2">
+        <path
+            android:pathData="M15,0 L33,0 A15,15 0 0 1 48,15 L48,33 A15,15 0 0 1 33,48 L15,48 A15,15 0 0 1 0,33 L0,15 A15,15 0 0 1 15,0 Z"
+            android:fillColor="@color/archie_mark_tile" />
+        <path
+            android:pathData="M14.5,35.5 L14.5,23.5 A9.5,9.5 0 0 1 33.5,23.5 L33.5,35.5"
+            android:strokeColor="@color/archie_mark_arch"
+            android:strokeWidth="4.6"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000" />
+        <path
+            android:pathData="M24,27 m-3.4,0 a3.4,3.4 0 1 0 6.8,0 a3.4,3.4 0 1 0 -6.8,0"
+            android:fillColor="@color/archie_mark_dot" />
+    </group>
+</vector>

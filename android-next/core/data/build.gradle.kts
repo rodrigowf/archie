@@ -13,4 +13,10 @@ dependencies {
     api(project(":core:session"))
     api(project(":core:settings"))
     api(project(":core:voice-host"))
+    api(libs.kotlinx.coroutines.core)
+
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
 }

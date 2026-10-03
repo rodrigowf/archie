@@ -160,7 +160,7 @@ class SettingsStore(
                 enableWakeWord = p[SettingsKeys.ENABLE_WAKE_WORD] ?: d.enableWakeWord,
                 talkWord = p[SettingsKeys.TALK_WORD] ?: d.talkWord,
                 wakeWord = p[SettingsKeys.WAKE_WORD] ?: d.wakeWord,
-                themeMode = ThemeMode.entries.firstOrNull { it.name == p[SettingsKeys.THEME_MODE] } ?: ThemeMode.SYSTEM,
+                themeMode = ThemeMode.entries.firstOrNull { it.name == p[SettingsKeys.THEME_MODE] } ?: DeviceSettings().themeMode, // D3 dark-first default
                 micGainLevel = p[SettingsKeys.MIC_GAIN_LEVEL] ?: d.micGainLevel,
                 wakeWordMicGainLevel = p[SettingsKeys.WAKE_WORD_MIC_GAIN_LEVEL] ?: d.wakeWordMicGainLevel,
                 talkSilenceSensitivity = p[SettingsKeys.TALK_SILENCE_SENSITIVITY] ?: d.talkSilenceSensitivity,

@@ -1,0 +1,106 @@
+package com.assistant.core.data
+
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.emptyPreferences
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
+import okhttp3.mockwebserver.Dispatcher
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
+import okio.ByteString.Companion.encodeUtf8
+import java.util.concurrent.CopyOnWriteArrayList
+
+/**
+ * A scripted Archie backend on MockWebServer: REST (`/api/sessions`, `pool/live`, `messages`, `close`)
+ * and both WebSockets. `start` is answered with `session_started` (binary frame, as the server does,
+ * T-1). Every request and every client frame is recorded so tests can assert what was (not) sent.
+ */
+class FakeBackend {
+    val server = MockWebServer()
+
+    /** `"METHOD /path"` of every HTTP request, in order. */
+    val requests = CopyOnWriteArrayList<String>()
+
+    /** `(endpoint, text)` of every client WS frame. */
+    val frames = CopyOnWriteArrayList<Pair<String, String>>()
+    val orchestratorSockets = CopyOnWriteArrayList<WebSocket>()
+    val agentSockets = CopyOnWriteArrayList<WebSocket>()
+
+    @Volatile var poolJson = "[]"
+    @Volatile var sessionsJson = "[]"
+    @Volatile var messagesJson = """{"messages":[],"total_count":0,"has_more":false,"start_index":0}"""
+
+    val url: String get() = "ws://${server.hostName}:${server.port}"
+
+    fun start(): FakeBackend {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                requests += "${request.method} $path"
+                return when {
+                    path == "/api/orchestrator/chat" -> MockResponse().withWebSocketUpgrade(listener("orch", orchestratorSockets))
+                    path == "/api/sessions/chat" -> MockResponse().withWebSocketUpgrade(listener("agent", agentSockets))
+                    path == "/api/sessions/pool/live" -> json(poolJson)
+                    path == "/api/sessions" -> json(sessionsJson)
+                    path.startsWith("/api/sessions/") && path.contains("/messages") -> json(messagesJson)
+                    path.endsWith("/close") -> MockResponse().setResponseCode(204)
+                    path == "/api/auth/status" -> json("""{"authenticated":true,"headless":true}""")
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        server.start()
+        return this
+    }
+
+    fun shutdown() = runCatching { server.shutdown() }
+
+    fun closeRequests(): List<String> = requests.filter { it.endsWith("/close") }
+
+    fun stopFrames(): List<String> = frames.map { it.second }.filter { it.contains("\"type\":\"stop\"") || it.contains("\"type\":\"voice_stop\"") }
+
+    /** Pushes a server frame to every orchestrator socket (watcher events, T-7). */
+    fun pushOrchestrator(json: String) = orchestratorSockets.forEach { it.send(json.encodeUtf8()) }
+
+    private fun json(body: String) = MockResponse().setHeader("Content-Type", "application/json").setBody(body)
+
+    private fun listener(endpoint: String, sockets: MutableList<WebSocket>) = object : WebSocketListener() {
+        override fun onOpen(webSocket: WebSocket, response: Response) { sockets += webSocket }
+        override fun onMessage(webSocket: WebSocket, text: String) {
+            frames += endpoint to text
+            if (text.contains("\"type\":\"start\"")) {
+                val localId = Regex("\"local_id\":\"([^\"]+)\"").find(text)?.groupValues?.get(1) ?: "x"
+                val jsonl = if (endpoint == "orch") ""","jsonl_id":"JSONL"""" else ""
+                webSocket.send("""{"type":"session_started","session_id":"$localId"$jsonl}""".encodeUtf8())
+            }
+        }
+        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(1000, null) }
+    }
+}
+
+/** In-memory DataStore for SettingsStore. */
+class MemoryDataStore(initial: Preferences = emptyPreferences()) : DataStore<Preferences> {
+    private val state = MutableStateFlow(initial)
+    private val mutex = Mutex()
+    override val data: Flow<Preferences> = state
+    override suspend fun updateData(transform: suspend (t: Preferences) -> Preferences): Preferences = mutex.withLock {
+        transform(state.value).also { state.value = it }
+    }
+}
+
+/** Polls [cond] until true (real time; the sockets are real). */
+fun eventually(timeoutMs: Long = 10_000, message: () -> String = { "condition not met" }, cond: () -> Boolean) {
+    val end = System.currentTimeMillis() + timeoutMs
+    while (System.currentTimeMillis() < end) {
+        if (cond()) return
+        Thread.sleep(20)
+    }
+    throw AssertionError(message())
+}

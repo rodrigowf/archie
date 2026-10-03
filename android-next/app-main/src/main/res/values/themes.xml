@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Window theme behind Compose. The window background is the tokens' surface (light/dark by the
+      system setting), so nothing purple or white flashes before ArchieTheme paints. Edge-to-edge is
+      enabled in MainActivity (targetSdk 36 enforces it).
+    -->
+    <style name="Theme.Archie" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/archie_window_background</item>
+        <item name="android:colorBackground">@color/archie_window_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
+    <!-- core-splashscreen launch theme (spec 14 §2.4); hands over to Theme.Archie. -->
+    <style name="Theme.Archie.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/archie_window_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_archie_splash</item>
+        <item name="postSplashScreenTheme">@style/Theme.Archie</item>
+    </style>
+</resources>

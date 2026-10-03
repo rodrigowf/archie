@@ -20,7 +20,7 @@ data class DeviceSettings(
     val talkWord: String = "my friend",
     /** Comma-separated; triggers a realtime voice conversation. */
     val wakeWord: String = "wake up",
-    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val themeMode: ThemeMode = ThemeMode.DARK, // D3: dark-first; System and Light are opt-in
     /** 0.0–1.5; voice session mic gain. */
     val micGainLevel: Float = 1.0f,
     /** 0.0–1.5; scales the wake-word RMS gate. */

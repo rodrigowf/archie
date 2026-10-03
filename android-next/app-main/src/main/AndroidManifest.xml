@@ -1,8 +1,55 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  :app-main manifest — initial shell version (B-03). B-09 adds the voice host service, notification
+  channels, VIS/assist components, the QS tile, the trampoline, shortcuts and their permissions.
+-->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- NetworkMonitor: reconnect on "network available" (T-14) and the LAN scan's subnet lookup. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!--
+      usesCleartextTraffic: the default backend is ws://192.168.0.200:80 on the LAN (spec 14 §2.10,
+      decision E-6 keeps today's transport); https/wss servers use the TOFU TrustStore.
+    -->
     <application
+        android:name=".graph.ArchieApplication"
         android:allowBackup="false"
-        android:label="Archie" />
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Archie"
+        android:usesCleartextTraffic="true">
+
+        <!-- Single Activity (spec 14 §2.8). Share target parity with old/MainActivity.kt + SEND_MULTIPLE (inv03 §1.8). -->
+        <activity
+            android:name=".shell.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.Archie.Starting"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
+    </application>
 
 </manifest>
