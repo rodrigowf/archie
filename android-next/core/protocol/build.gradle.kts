@@ -8,3 +8,11 @@ dependencies {
     api(project(":core:model"))
     api(libs.kotlinx.serialization.json)
 }
+
+// The codec round-trip test decodes every frame of the shared fixtures (spec 14 §6.1).
+val protocolFixtures = rootProject.layout.projectDirectory.dir("../shared/protocol-fixtures")
+
+tasks.withType<Test>().configureEach {
+    inputs.dir(protocolFixtures).withPathSensitivity(PathSensitivity.RELATIVE)
+    systemProperty("archie.protocolFixtures", protocolFixtures.asFile.absolutePath)
+}
