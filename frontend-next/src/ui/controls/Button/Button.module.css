@@ -1,0 +1,201 @@
+/*
+ * Button (mockups `.btn`): 40 dp, full radius, label-large. State layer = the host's ::before
+ * (`.has-state-layer`, W-02); ::after widens the hit area to 48 dp. No flex gap: the icon slot has
+ * a margin.
+ */
+.button {
+  display: inline-flex;
+  position: relative;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  height: 40px;
+  padding: 0 24px;
+  border-radius: 20px;
+  font-family: var(--md-sys-typescale-label-large-font);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  line-height: var(--md-sys-typescale-label-large-line-height);
+  letter-spacing: var(--md-sys-typescale-label-large-tracking);
+  text-decoration: none;
+  white-space: nowrap;
+  vertical-align: middle;
+  user-select: none;
+  transition: box-shadow var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+}
+
+/* 48 dp touch target around the 32/40 dp visual (spec 13 §3.5). */
+.button::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 48px;
+  margin-top: -24px;
+}
+
+.button[data-state="focus"] {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.icon,
+.spinner {
+  margin-right: var(--app-space-2);
+}
+
+.trailing {
+  margin-left: var(--app-space-2);
+}
+
+/* The W-02 spinner is primary-colored; on a button it follows the label color. */
+.button .spinner {
+  border-color: currentcolor;
+  border-right-color: transparent;
+}
+
+.withIcon {
+  padding-left: 16px;
+}
+
+.withTrailing {
+  padding-right: 16px;
+}
+
+.fullWidth {
+  display: flex;
+  width: 100%;
+}
+
+/* ---------- sizes ---------- */
+
+.small {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 16px;
+}
+
+.small.withIcon {
+  padding-left: 10px;
+}
+
+.large {
+  height: 56px;
+  padding: 0 28px;
+  border-radius: 28px;
+  font-size: var(--md-sys-typescale-title-medium-size);
+  letter-spacing: 0.15px;
+}
+
+.large.withIcon {
+  padding-left: 20px;
+}
+
+/* ---------- variants ---------- */
+
+.filled {
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+}
+
+.tonal {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.outlined {
+  box-shadow: inset 0 0 0 1px var(--md-sys-color-outline-variant);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.text {
+  padding: 0 12px;
+  color: var(--md-sys-color-primary);
+}
+
+.text.withIcon {
+  padding: 0 16px 0 12px;
+}
+
+.elevated {
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-primary);
+  box-shadow: var(--md-sys-elevation-level1);
+}
+
+@media (--hover) {
+  .elevated:hover {
+    box-shadow: var(--md-sys-elevation-level2);
+  }
+}
+
+.elevated[data-state="hover"] {
+  box-shadow: var(--md-sys-elevation-level2);
+}
+
+/* ---------- tones ---------- */
+
+.filled.error {
+  background: var(--md-sys-color-error);
+  color: var(--md-sys-color-on-error);
+}
+
+.tonal.error {
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+}
+
+.outlined.error,
+.text.error,
+.elevated.error {
+  color: var(--md-sys-color-error);
+}
+
+.filled.warning {
+  background: var(--md-ext-color-warning);
+  color: var(--md-ext-color-on-warning);
+}
+
+.tonal.warning {
+  background: var(--md-ext-color-warning-container);
+  color: var(--md-ext-color-on-warning-container);
+}
+
+.outlined.warning,
+.text.warning,
+.elevated.warning {
+  color: var(--md-ext-color-warning);
+}
+
+/* ---------- disabled (aria-disabled) ---------- */
+
+.button[aria-disabled="true"] {
+  background: var(--md-sys-color-on-surface-disabled-container);
+  color: var(--md-sys-color-on-surface-disabled);
+  box-shadow: none;
+}
+
+.text[aria-disabled="true"] {
+  background: none;
+}
+
+.outlined[aria-disabled="true"] {
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--md-sys-color-on-surface-disabled-container);
+}
+
+.button[aria-busy="true"] {
+  cursor: progress;
+}
+
+/* Low-end: shadows only on menus (spec 13 §2.7). */
+:global(html.low-end) .elevated {
+  box-shadow: inset 0 0 0 1px var(--md-sys-color-outline-variant);
+}

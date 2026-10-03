@@ -1,0 +1,139 @@
+/*
+ * W-03 gallery boards: the mockups' component sheet (`.boards`, `.board`, `.spec`, `.spec-l`).
+ * Grid spacing uses `grid-gap`, the one gap property Safari 10.1+ supports (spec 13 §2.1);
+ * stylelint's deprecation autofix would turn it into the banned `gap`.
+ */
+/* stylelint-disable property-no-deprecated */
+
+.boards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  grid-gap: var(--app-space-4);
+}
+
+@media (--compact) {
+  .boards {
+    grid-template-columns: 100%;
+  }
+}
+
+.board {
+  min-width: 0;
+  padding: 20px;
+  border-radius: 24px;
+  background: var(--md-sys-color-surface);
+}
+
+.board > * + * {
+  margin-top: var(--app-space-4);
+}
+
+.wide {
+  grid-column: 1 / -1;
+}
+
+.boardTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: var(--md-sys-typescale-title-medium-size);
+  font-weight: 500;
+  line-height: var(--md-sys-typescale-title-medium-line-height);
+}
+
+.boardTitle small {
+  margin-left: var(--app-space-3);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-small-size);
+  font-weight: 400;
+}
+
+.specLabel {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.note {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: var(--md-sys-typescale-body-small-line-height);
+}
+
+.col > * + * {
+  margin-top: 8px;
+}
+
+/* A labelled row of specimens: label column, then the wrapping specimens. */
+.stateRow {
+  display: flex;
+  align-items: center;
+}
+
+.stateRow > .specLabel {
+  flex: none;
+  width: 72px;
+  margin-right: 8px;
+}
+
+.stateRow > :last-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sliderPad {
+  padding-top: 40px;
+}
+
+.selectPad {
+  padding-bottom: 236px;
+}
+
+.surfaceHigh {
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--md-sys-color-surface-container);
+}
+
+.mono {
+  font-family: var(--md-sys-typescale-code-font);
+  font-size: var(--md-sys-typescale-code-size);
+}
+
+.cardBody > * + * {
+  margin-top: 4px;
+}
+
+.cardTitle {
+  font-size: var(--md-sys-typescale-title-medium-size);
+  font-weight: 500;
+  line-height: var(--md-sys-typescale-title-medium-line-height);
+}
+
+.cardText {
+  display: block;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: var(--md-sys-typescale-body-medium-line-height);
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  grid-gap: 12px;
+}
+
+.emptyFrame {
+  border-radius: 16px;
+  background: var(--md-sys-color-surface-container-low);
+}
+
+.rowDivider {
+  display: flex;
+  align-items: center;
+  height: 40px;
+}

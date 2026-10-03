@@ -1,0 +1,375 @@
+/*
+ * M3 text-field frame (mockups `.tf`, `.sup`). Used by TextField and Select.
+ * 56 dp container; text is body-large, always 16 px (iOS focus zoom, spec 13 §2.6).
+ * Outlined: notched <fieldset>/<legend> outline (no label background needed, Safari 12 safe).
+ * Filled: surface-container-highest, top corners 4 dp, bottom active indicator.
+ */
+/* stylelint-disable no-descending-specificity -- state rules are ordered by precedence (base, hover, focus, error, disabled), not by specificity */
+.root {
+  display: block;
+  min-width: 0;
+  font-family: var(--md-sys-typescale-body-large-font);
+  font-size: var(--md-sys-typescale-body-large-size);
+  line-height: var(--md-sys-typescale-body-large-line-height);
+  letter-spacing: var(--md-sys-typescale-body-large-tracking);
+}
+
+.field {
+  display: flex;
+  position: relative;
+  align-items: center;
+  min-height: 56px;
+  border-radius: var(--md-sys-shape-corner-extra-small);
+  color: var(--md-sys-color-on-surface);
+}
+
+.multiline .field {
+  align-items: flex-start;
+}
+
+.control {
+  display: flex;
+  position: relative;
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-width: 0;
+}
+
+/* ---------- the native control (TextField input/textarea, Select <select>) ---------- */
+
+.input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 56px;
+  margin: 0;
+  padding: 0 16px;
+  border: 0;
+  border-radius: inherit;
+  outline: none;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: var(--md-sys-typescale-body-large-size);
+  line-height: var(--md-sys-typescale-body-large-line-height);
+  letter-spacing: inherit;
+  caret-color: var(--md-sys-color-primary);
+  appearance: none;
+}
+
+.input::placeholder {
+  color: var(--md-sys-color-on-surface-variant);
+  opacity: 1;
+}
+
+/* With a label, the placeholder only shows once the label has floated (M3). */
+.labelled:not(.floated) .input::placeholder {
+  opacity: 0;
+}
+
+textarea.input {
+  height: auto;
+  padding-top: 16px;
+  padding-bottom: 16px;
+  overflow-y: hidden;
+  /* stylelint-disable-next-line plugin/no-unsupported-browser-features -- `none` is the value iOS has anyway */
+  resize: none;
+}
+
+.filled.labelled .input {
+  padding-top: 24px;
+  padding-bottom: 8px;
+}
+
+.error .input {
+  caret-color: var(--md-sys-color-error);
+}
+
+/* Select's custom (menu) trigger: same box as the input. */
+.value {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  user-select: none;
+}
+
+.value > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.placeholder {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.labelled:not(.floated) .placeholder {
+  visibility: hidden;
+}
+
+/* ---------- slots ---------- */
+
+.leading,
+.trailingIcon {
+  display: flex;
+  flex: none;
+  align-self: center;
+  color: var(--md-sys-color-on-surface-variant);
+  pointer-events: none;
+}
+
+.leading {
+  margin-left: 12px;
+}
+
+.trailingIcon {
+  margin-right: 12px;
+}
+
+.trailingNode {
+  display: flex;
+  flex: none;
+  align-self: center;
+  margin-right: 4px;
+}
+
+.multiline .leading,
+.multiline .trailingIcon,
+.multiline .trailingNode {
+  align-self: flex-start;
+  margin-top: 16px;
+}
+
+.multiline .trailingNode {
+  margin-top: 4px;
+}
+
+.error .trailingIcon {
+  color: var(--md-sys-color-error);
+}
+
+/* ---------- label ---------- */
+
+.label {
+  position: absolute;
+  top: 28px;
+  left: 16px;
+  max-width: calc(100% - 32px);
+  overflow: hidden;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-large-size);
+  line-height: var(--md-sys-typescale-body-large-line-height);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  transform: translateY(-50%);
+  cursor: text;
+  transition:
+    top var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard),
+    font-size var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard),
+    left var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+}
+
+.withLeading .label {
+  left: 52px;
+  max-width: calc(100% - 68px);
+}
+
+.floated .label {
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: var(--md-sys-typescale-body-small-line-height);
+}
+
+.outlined.floated .label {
+  top: 0;
+  left: 16px;
+  max-width: calc(100% - 32px);
+}
+
+.filled.floated .label {
+  top: 16px;
+}
+
+.focused .label {
+  color: var(--md-sys-color-primary);
+}
+
+.error .label {
+  color: var(--md-sys-color-error);
+}
+
+/* ---------- outlined ---------- */
+
+.outline {
+  position: absolute;
+  inset: -5px 0 0;
+  min-width: 0;
+  margin: 0;
+  padding: 0 8px 0 11px;
+  overflow: hidden;
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: inherit;
+  text-align: left;
+  pointer-events: none;
+}
+
+.legend {
+  display: block;
+  width: auto;
+  max-width: 0.01px;
+  height: 11px;
+  padding: 0;
+  overflow: hidden;
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: 11px;
+  white-space: nowrap;
+  visibility: hidden;
+  transition: max-width 50ms linear;
+}
+
+.legend > span {
+  display: inline-block;
+  padding: 0 4px;
+  opacity: 0;
+}
+
+.floated .legend {
+  max-width: 100%;
+  transition: max-width 100ms linear 50ms;
+}
+
+@media (--hover) {
+  .outlined .field:hover .outline {
+    border-color: var(--md-sys-color-on-surface);
+  }
+
+  .outlined.error .field:hover .outline {
+    border-color: var(--md-sys-color-on-error-container);
+  }
+}
+
+.outlined.hovered .outline {
+  border-color: var(--md-sys-color-on-surface);
+}
+
+.outlined.focused .outline,
+.outlined.focused .field:hover .outline {
+  padding-left: 10px;
+  border-width: 2px;
+  border-color: var(--md-sys-color-primary);
+}
+
+.outlined.error .outline,
+.outlined.error .field:hover .outline {
+  border-color: var(--md-sys-color-error);
+}
+
+.outlined.error.focused .outline {
+  padding-left: 10px;
+  border-width: 2px;
+}
+
+/* ---------- filled ---------- */
+
+.filled .field {
+  border-radius: var(--md-sys-shape-corner-extra-small) var(--md-sys-shape-corner-extra-small) 0 0;
+  background: var(--md-sys-color-surface-container-highest);
+}
+
+.stateLayer {
+  position: absolute;
+  inset: 0; /* lowered to top/right/bottom/left for Safari 12 by postcss-preset-env */
+  border-radius: inherit;
+  background: var(--md-sys-color-on-surface);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
+}
+
+@media (--hover) {
+  .filled .field:hover .stateLayer {
+    opacity: var(--md-sys-state-hover-opacity);
+  }
+
+  .filled .field:hover .indicator {
+    background: var(--md-sys-color-on-surface);
+  }
+}
+
+.filled.hovered .stateLayer {
+  opacity: var(--md-sys-state-hover-opacity);
+}
+
+.indicator {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  background: var(--md-sys-color-on-surface-variant);
+  pointer-events: none;
+}
+
+.filled.focused .indicator,
+.filled.focused .field:hover .indicator {
+  height: 2px;
+  background: var(--md-sys-color-primary);
+}
+
+.filled.error .indicator,
+.filled.error .field:hover .indicator {
+  background: var(--md-sys-color-error);
+}
+
+.filled.error.focused .indicator {
+  height: 2px;
+}
+
+/* ---------- supporting text ---------- */
+
+.supporting {
+  padding: 4px 16px 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: var(--md-sys-typescale-body-small-line-height);
+  letter-spacing: var(--md-sys-typescale-body-small-tracking);
+}
+
+.error .supporting {
+  color: var(--md-sys-color-error);
+}
+
+/* ---------- disabled ---------- */
+
+.disabled .field,
+.disabled .label,
+.disabled .leading,
+.disabled .trailingIcon,
+.disabled .supporting {
+  color: var(--md-sys-color-on-surface-disabled);
+}
+
+.disabled .label,
+.disabled .value {
+  cursor: default;
+}
+
+.disabled.outlined .outline,
+.disabled.outlined .field:hover .outline {
+  border-color: var(--md-sys-color-on-surface-disabled-container);
+}
+
+.disabled.filled .field {
+  /* stylelint-disable-next-line color-function-alias-notation -- the -rgb token is a comma list; rgba() is the Safari 12 form */
+  background: rgba(var(--md-sys-color-on-surface-rgb), 0.04);
+}
+
+.disabled.filled .indicator,
+.disabled.filled .field:hover .indicator {
+  background: var(--md-sys-color-on-surface-disabled);
+}
+
+.disabled .stateLayer {
+  display: none;
+}

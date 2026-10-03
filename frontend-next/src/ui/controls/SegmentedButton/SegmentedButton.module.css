@@ -1,0 +1,80 @@
+/* Segmented button (mockups `.seg`): 40 dp, full radius, 1 dp outline, outline dividers. */
+.group {
+  display: inline-flex;
+  position: relative;
+  height: 40px;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 20px;
+  box-shadow: inset 0 0 0 1px var(--md-sys-color-outline);
+  vertical-align: middle;
+}
+
+.fullWidth {
+  display: flex;
+  width: 100%;
+}
+
+.segment {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  min-height: 48px;
+  margin-top: -4px;
+  padding: 0 12px;
+  color: var(--md-sys-color-on-surface);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  line-height: var(--md-sys-typescale-label-large-line-height);
+  letter-spacing: var(--md-sys-typescale-label-large-tracking);
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* The segment is 48 dp tall (touch target) and clipped to the 40 dp pill by the group. */
+.group .segment::before {
+  top: 4px;
+  bottom: 4px;
+}
+
+.fullWidth .segment {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-right: 8px;
+  padding-left: 8px;
+}
+
+.segment + .segment {
+  box-shadow: inset 1px 0 0 var(--md-sys-color-outline);
+}
+
+.icon {
+  margin-right: 6px;
+}
+
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.selected {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+/* The group clips outlines, so the focus ring is drawn inside the segment. */
+.segment:focus-visible,
+.segment[data-state="focus"] {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -6px;
+}
+
+.segment[aria-disabled="true"] {
+  color: var(--md-sys-color-on-surface-disabled);
+}
+
+.selected[aria-disabled="true"] {
+  background: var(--md-sys-color-on-surface-disabled-container);
+}
