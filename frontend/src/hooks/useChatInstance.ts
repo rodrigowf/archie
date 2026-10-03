@@ -179,6 +179,10 @@ function convertPreviews(previews: MessagePreview[]): ChatMessage[] {
         if (b.text) {
           blocks.push({ type: "text", content: b.text, streaming: false });
         }
+      } else if (b.type === "thinking") {
+        if (b.text) {
+          blocks.push({ type: "thinking", content: b.text, streaming: false });
+        }
       } else if (b.type === "tool_use") {
         const result = b.tool_use_id ? toolResults.get(b.tool_use_id) : undefined;
         const resultOutput = result?.output ?? b.output ?? undefined;

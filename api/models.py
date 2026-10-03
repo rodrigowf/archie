@@ -50,7 +50,7 @@ class MemoryNodeResponse(BaseModel):
 
 
 class ContentBlockResponse(BaseModel):
-    type: str  # "text" | "tool_use" | "tool_result"
+    type: str  # "text" | "thinking" | "tool_use" | "tool_result"
     text: str | None = None
     tool_use_id: str | None = None
     tool_name: str | None = None

@@ -578,26 +578,17 @@ class TestSessionManagerSend:
         assert len(thinking_deltas) == 1
         assert thinking_deltas[0].text == "hmm"
 
-    @pytest.mark.asyncio
-    async def test_tool_result_from_user_message(self):
-        """UserMessage with tool_use_result yields ToolResult."""
-        from claude_agent_sdk import SystemMessage, UserMessage
+    @staticmethod
+    async def _collect_tool_results(*sdk_msgs):
+        """Feed SDK messages through send() and return the ToolResults."""
+        from claude_agent_sdk import SystemMessage
 
         init_msg = SystemMessage(subtype="init", data={"session_id": "s1"})
-        user_msg = UserMessage(
-            content="",
-            uuid="u1",
-            parent_tool_use_id="tool1",
-            tool_use_result={
-                "tool_use_id": "tool1",
-                "content": "command output",
-                "is_error": False,
-            },
-        )
         result = _mock_result()
 
         async def fake_response():
-            yield user_msg
+            for m in sdk_msgs:
+                yield m
             yield result
 
         client = _make_mock_client([init_msg], fake_response)
@@ -609,9 +600,132 @@ class TestSessionManagerSend:
             events = []
             async for event in sm.send("run"):
                 events.append(event)
+        return [e for e in events if isinstance(e, ToolResult)]
 
-        tool_results = [e for e in events if isinstance(e, ToolResult)]
+    @pytest.mark.asyncio
+    async def test_tool_result_from_user_message(self):
+        """Real CLI shape: the id and output live in message.content
+        tool_result blocks; tool_use_result is only tool metadata (BF-1)."""
+        from claude_agent_sdk import ToolResultBlock, UserMessage
+
+        user_msg = UserMessage(
+            content=[ToolResultBlock(
+                tool_use_id="toolu_bash1",
+                content="command output",
+                is_error=False,
+            )],
+            uuid="u1",
+            parent_tool_use_id=None,
+            tool_use_result={
+                "stdout": "command output",
+                "stderr": "",
+                "interrupted": False,
+                "isImage": False,
+                "noOutputExpected": False,
+            },
+        )
+        tool_results = await self._collect_tool_results(user_msg)
         assert len(tool_results) == 1
+        assert tool_results[0].tool_use_id == "toolu_bash1"
+        assert tool_results[0].output == "command output"
+        assert tool_results[0].is_error is False
+
+    @pytest.mark.asyncio
+    async def test_tool_result_blocks_parallel_and_error(self):
+        """Several tool_result blocks in one message each yield a result
+        with their own id; is_error is carried through."""
+        from claude_agent_sdk import ToolResultBlock, UserMessage
+
+        user_msg = UserMessage(
+            content=[
+                ToolResultBlock(tool_use_id="toolu_a", content="out a"),
+                ToolResultBlock(
+                    tool_use_id="toolu_b",
+                    content="<tool_use_error>File not found</tool_use_error>",
+                    is_error=True,
+                ),
+            ],
+            parent_tool_use_id=None,
+            tool_use_result="Error: File not found",
+        )
+        tool_results = await self._collect_tool_results(user_msg)
+        assert [(r.tool_use_id, r.is_error) for r in tool_results] == [
+            ("toolu_a", False), ("toolu_b", True),
+        ]
+        assert tool_results[0].output == "out a"
+        assert "File not found" in tool_results[1].output
+
+    @pytest.mark.asyncio
+    async def test_tool_result_block_mcp_list_content(self):
+        """MCP results: block content is a list of items; text items are
+        joined with newlines like REST history; tool_use_result is a list."""
+        from claude_agent_sdk import ToolResultBlock, UserMessage
+
+        items = [
+            {"type": "text", "text": "line one"},
+            {"type": "image", "source": {"type": "base64", "data": "xx"}},
+            {"type": "text", "text": "line two"},
+        ]
+        user_msg = UserMessage(
+            content=[ToolResultBlock(tool_use_id="toolu_mcp", content=items)],
+            parent_tool_use_id=None,
+            tool_use_result=items,
+        )
+        tool_results = await self._collect_tool_results(user_msg)
+        assert len(tool_results) == 1
+        assert tool_results[0].tool_use_id == "toolu_mcp"
+        assert tool_results[0].output == "line one\nline two"
+
+    @pytest.mark.asyncio
+    async def test_tool_result_block_none_content(self):
+        """A tool_result block with no content yields an empty output."""
+        from claude_agent_sdk import ToolResultBlock, UserMessage
+
+        user_msg = UserMessage(
+            content=[ToolResultBlock(tool_use_id="toolu_x", content=None)],
+            parent_tool_use_id=None,
+            tool_use_result={"filePath": "/tmp/x", "oldString": "a"},
+        )
+        tool_results = await self._collect_tool_results(user_msg)
+        assert len(tool_results) == 1
+        assert tool_results[0].tool_use_id == "toolu_x"
+        assert tool_results[0].output == ""
+
+    @pytest.mark.asyncio
+    async def test_tool_result_fallback_list_tool_use_result(self):
+        """Fallback (no ToolResultBlock): a list tool_use_result (MCP) is
+        emitted instead of being dropped."""
+        from claude_agent_sdk import UserMessage
+
+        user_msg = UserMessage(
+            content="",
+            parent_tool_use_id="toolu_parent",
+            tool_use_result=[{"type": "text", "text": "mcp out"}],
+        )
+        tool_results = await self._collect_tool_results(user_msg)
+        assert len(tool_results) == 1
+        assert tool_results[0].tool_use_id == "toolu_parent"
+        assert tool_results[0].output == "mcp out"
+
+    @pytest.mark.asyncio
+    async def test_tool_result_fallback_dict_without_blocks(self):
+        """Fallback (no ToolResultBlock): a legacy dict tool_use_result
+        with tool_use_id/content is still honoured."""
+        from claude_agent_sdk import UserMessage
+
+        user_msg = UserMessage(
+            content="",
+            uuid="u1",
+            parent_tool_use_id="tool1",
+            tool_use_result={
+                "tool_use_id": "tool1",
+                "content": "command output",
+                "is_error": False,
+            },
+        )
+        tool_results = await self._collect_tool_results(user_msg)
+        assert len(tool_results) == 1
+        assert tool_results[0].tool_use_id == "tool1"
         assert tool_results[0].output == "command output"
 
     @pytest.mark.asyncio
@@ -711,12 +825,16 @@ class TestSessionManagerStallWatchdog:
                 stall_events: list[SessionStalled] = []
                 tool_uses: list[ToolUse] = []
                 turn_completes: list[TurnComplete] = []
+                tool_use_seqs: list[int | None] = []
+                stall_seqs: list[int | None] = []
 
                 async for event in sm.send("research"):
                     if isinstance(event, ToolUse):
                         tool_uses.append(event)
+                        tool_use_seqs.append(sm.last_yielded_seq)
                     elif isinstance(event, SessionStalled):
                         stall_events.append(event)
+                        stall_seqs.append(sm.last_yielded_seq)
                         # Once we have at least one stall notice, unblock
                         # the SDK so the turn can finish and the loop exits.
                         if not unblock.is_set():
@@ -735,6 +853,10 @@ class TestSessionManagerStallWatchdog:
         assert stall_events[0].last_tool_use_id == "toolu_stuck"
         assert stall_events[0].elapsed_seconds > 0
         assert len(turn_completes) == 1
+        # O-5: the synthetic stall notice carries no seq (the pool would
+        # otherwise stamp it with the previous event's seq).
+        assert tool_use_seqs[0] is not None
+        assert all(seq is None for seq in stall_seqs)
 
     @pytest.mark.asyncio
     async def test_abandoned_when_zero_messages_received(self):

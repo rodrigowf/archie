@@ -199,7 +199,15 @@ async def orchestrator_ws(ws: WebSocket):
                         "detail": "Send a 'start' message first",
                     }))
                     continue
-                await _handle_send(pool, session, msg.get("text", ""))
+                send_text = msg.get("text", "")
+                if send_text:
+                    # O-3: other devices on this orchestrator see the typed
+                    # prompt (the sender already rendered it locally).
+                    await pool.broadcast_orchestrator(
+                        {"type": "user_message", "text": send_text},
+                        exclude=ws,
+                    )
+                await _handle_send(pool, session, send_text)
 
             elif msg_type == "inject_text":
                 # Deliver a shared file-link / text as a user turn. In text
@@ -518,6 +526,9 @@ async def _handle_start(
             reconnect_payload: dict = {
                 "type": "session_started",
                 "session_id": local_id,
+                # O-3: the JSONL / REST history id (== local id for a new
+                # orchestrator, the resumed id otherwise).
+                "jsonl_id": session.jsonl_id,
                 "voice": True,
                 "model_info": session.get_model_info(),
             }
@@ -542,6 +553,9 @@ async def _handle_start(
             reconnect_payload: dict = {
                 "type": "session_started",
                 "session_id": local_id,
+                # O-3: the JSONL / REST history id (== local id for a new
+                # orchestrator, the resumed id otherwise).
+                "jsonl_id": session.jsonl_id,
                 "voice": current_voice,
                 "model_info": session.get_model_info(),
             }
@@ -591,6 +605,9 @@ async def _handle_start(
                     reconnect_payload = {
                         "type": "session_started",
                         "session_id": local_id,
+                        # O-3: the JSONL / REST history id (== local id for a new
+                        # orchestrator, the resumed id otherwise).
+                        "jsonl_id": session.jsonl_id,
                         "voice": current_voice,
                         "model_info": session.get_model_info(),
                     }
@@ -605,6 +622,9 @@ async def _handle_start(
                 reconnect_payload = {
                     "type": "session_started",
                     "session_id": local_id,
+                    # O-3: the JSONL / REST history id (== local id for a new
+                    # orchestrator, the resumed id otherwise).
+                    "jsonl_id": session.jsonl_id,
                     "voice": current_voice,
                     "model_info": session.get_model_info(),
                 }
@@ -755,6 +775,9 @@ async def _handle_start(
     started_payload: dict = {
         "type": "session_started",
         "session_id": session_id,
+        # O-3: the JSONL / REST history id (== local id for a new
+        # orchestrator, the resumed id otherwise).
+        "jsonl_id": session.jsonl_id,
         "voice": voice,
         "model_info": session.get_model_info(),
     }

@@ -204,10 +204,17 @@ async def chat_ws(ws: WebSocket):
 
             elif msg_type == "interrupt":
                 if session_id is not None:
-                    await pool.cancel_turn(session_id)
-                    await ws.send_bytes(orjson.dumps({
-                        "type": "status", "status": "interrupted",
-                    }))
+                    cancelled = await pool.cancel_turn(session_id)
+                    frame = {"type": "status", "status": "interrupted"}
+                    if cancelled:
+                        # Every other device watching this session must
+                        # learn the turn ended (a cancelled turn emits no
+                        # turn_complete).  The interrupter is excluded here
+                        # and gets the direct reply below — exactly once.
+                        await pool.broadcast_session(
+                            session_id, frame, exclude=ws,
+                        )
+                    await ws.send_bytes(orjson.dumps(frame))
 
             elif msg_type == "compact":
                 if sm is None or session_id is None:

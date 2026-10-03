@@ -35,7 +35,7 @@ export interface MemoryNode {
 }
 
 export interface ContentBlock {
-  type: "text" | "tool_use" | "tool_result";
+  type: "text" | "thinking" | "tool_use" | "tool_result";
   text?: string | null;
   tool_use_id?: string | null;
   tool_name?: string | null;

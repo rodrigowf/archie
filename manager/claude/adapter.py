@@ -65,24 +65,30 @@ class ClaudeAdapter(ProviderAdapter):
         """Read user/assistant/system messages from a Claude JSONL file.
 
         Claude's native format already matches the normalized shape, so
-        we just filter to the relevant event types.
+        we just filter to the relevant event types.  Orchestrator files are
+        folded into one assistant message per turn, top-level ``tool_use`` /
+        ``tool_result`` lines included (O-1, see
+        :func:`fold_orchestrator_lines`).
         """
-        messages: list[dict] = []
-        try:
-            with open(jsonl_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        obj = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if obj.get("type") in ("user", "assistant", "system"):
-                        messages.append(obj)
-        except (OSError, PermissionError):
-            pass
-        return messages
+        objs = _read_objs(jsonl_path)
+        if _is_orchestrator_file(objs):
+            return [msg for msg, _anchor in fold_orchestrator_lines(objs)]
+        return [
+            o for o in objs
+            if o is not None and o.get("type") in ("user", "assistant", "system")
+        ]
+
+    def visible_line_indices(self, objs: list[dict | None]) -> list[int]:
+        """For orchestrator files, one index per visible folded message
+        (its anchor line), so ``drop_last_n`` computed from REST data lands
+        on the same place in the file.  Other files: the per-line rule."""
+        if not _is_orchestrator_file(objs):
+            return super().visible_line_indices(objs)
+        from ..protocol import is_visible_message_default
+        return [
+            anchor for msg, anchor in fold_orchestrator_lines(objs)
+            if is_visible_message_default(msg)
+        ]
 
     def parse_session_info(
         self,
@@ -141,6 +147,131 @@ class ClaudeAdapter(ProviderAdapter):
             is_orchestrator=is_orchestrator,
         )
 
+
+def _read_objs(jsonl_path: Path) -> list[dict | None]:
+    """Parse every line; ``None`` for blank / unparseable / non-dict lines
+    so indices stay aligned with the raw file."""
+    objs: list[dict | None] = []
+    try:
+        with open(jsonl_path) as f:
+            for line in f:
+                line = line.strip()
+                obj = None
+                if line:
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        obj = None
+                objs.append(obj if isinstance(obj, dict) else None)
+    except (OSError, PermissionError):
+        pass
+    return objs
+
+
+def _is_orchestrator_tool_line(obj: dict | None) -> bool:
+    """Top-level tool lines written by the orchestrator (text + voice)."""
+    return (
+        isinstance(obj, dict)
+        and obj.get("type") in ("tool_use", "tool_result")
+        and "tool_call_id" in obj
+    )
+
+
+def _orchestrator_tool_block(obj: dict) -> dict:
+    if obj.get("type") == "tool_use":
+        tool_input = obj.get("tool_input")
+        return {
+            "type": "tool_use",
+            "id": obj.get("tool_call_id", ""),
+            "name": obj.get("tool_name", ""),
+            "input": tool_input if isinstance(tool_input, dict) else {},
+        }
+    output = obj.get("output", "")
+    if output is not None and not isinstance(output, (str, list)):
+        output = json.dumps(output)
+    return {
+        "type": "tool_result",
+        "tool_use_id": obj.get("tool_call_id", ""),
+        "content": output,
+        "is_error": bool(obj.get("is_error", False)),
+    }
+
+
+def _content_blocks(content) -> list:
+    if isinstance(content, list):
+        return list(content)
+    if isinstance(content, str) and content:
+        return [{"type": "text", "text": content}]
+    return []
+
+
+def _is_orchestrator_file(objs: list[dict | None]) -> bool:
+    return any(
+        isinstance(o, dict) and (
+            (o.get("type") == "orchestrator_meta" and o.get("orchestrator"))
+            or _is_orchestrator_tool_line(o)
+        )
+        for o in objs
+    )
+
+
+def fold_orchestrator_lines(
+    objs: list[dict | None],
+) -> list[tuple[dict, int]]:
+    """Fold an orchestrator JSONL into one assistant message per turn.
+
+    Returns ``(message, anchor_line_index)`` for every user/assistant/system
+    message, in file order.  Every ``assistant`` line and top-level
+    ``tool_use`` / ``tool_result`` line between two visible ``user`` lines
+    becomes ONE assistant message whose blocks keep file order (text,
+    tool_use, tool_result, text, ...).  That matches the live clients,
+    which render one assistant bubble per turn, so ``drop_last_n`` counted
+    from REST data lands where the user clicked.
+
+    The message keeps the top-level fields (timestamp, source) of the
+    group's first line; a group that starts with a tool line gets a plain
+    assistant shell.  Its anchor is the group's LAST line, so a truncate
+    that keeps the turn keeps all of it (no text or tool result cut off).
+    Old files (joined text after the tools) fold the same way.
+    """
+    from ..protocol import is_visible_message_default
+
+    out: list[list] = []  # [message, anchor]
+    group: int | None = None  # index into ``out`` of the turn's assistant message
+
+    for idx, obj in enumerate(objs):
+        if obj is None:
+            continue
+        msg_type = obj.get("type")
+        is_tool = _is_orchestrator_tool_line(obj)
+        if is_tool or msg_type == "assistant":
+            if is_tool:
+                blocks = [_orchestrator_tool_block(obj)]
+            else:
+                blocks = _content_blocks(obj.get("message", {}).get("content"))
+            if group is None:
+                if is_tool:
+                    base: dict = {"type": "assistant"}
+                    if obj.get("timestamp"):
+                        base["timestamp"] = obj["timestamp"]
+                    inner: dict = {"role": "assistant"}
+                else:
+                    base = obj
+                    inner = obj.get("message", {})
+                out.append([{**base, "message": {**inner, "content": blocks}}, idx])
+                group = len(out) - 1
+            else:
+                entry = out[group]
+                msg = entry[0]
+                msg["message"]["content"] = msg["message"]["content"] + blocks
+                entry[1] = idx
+        elif msg_type == "user":
+            if is_visible_message_default(obj):
+                group = None
+            out.append([obj, idx])
+        elif msg_type == "system":
+            out.append([obj, idx])
+    return [(m, a) for m, a in out]
 
 _adapter = ClaudeAdapter()
 register_provider(_adapter)

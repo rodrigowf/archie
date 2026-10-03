@@ -56,9 +56,9 @@ def test_history_loader_simple_conversation():
 def test_history_loader_with_tool_calls():
     """Test loading conversation with tool calls and results.
 
-    Note: When tool_use entries appear after an assistant message in the JSONL,
-    they are stored as separate assistant messages. This matches how the
-    orchestrator actually writes the JSONL (text response first, then tool calls).
+    Text persisted at TextComplete followed by tool_use lines merges into ONE
+    assistant message ([text, tool_use]) — the shape the agent keeps in
+    memory, and valid history (no consecutive assistant messages).
     """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
         f.write(json.dumps({
@@ -90,28 +90,25 @@ def test_history_loader_with_tool_calls():
         loader = HistoryLoader(jsonl_path)
         history = loader.load()
 
-        assert len(history) == 5
+        assert len(history) == 4
 
         # User message
         assert history[0] == {"role": "user", "content": "Search for something"}
 
-        # Assistant text response (without tool call)
+        # Assistant text + tool call in one message
         assert history[1]["role"] == "assistant"
-        assert history[1]["content"] == [{"type": "text", "text": "Let me search for that."}]
-
-        # Assistant with tool call
-        assert history[2]["role"] == "assistant"
-        content = history[2]["content"]
-        assert len(content) == 1
-        assert content[0] == {
-            "type": "tool_use",
-            "id": "call_123",
-            "name": "search_memory",
-            "input": {"query": "something"},
-        }
+        assert history[1]["content"] == [
+            {"type": "text", "text": "Let me search for that."},
+            {
+                "type": "tool_use",
+                "id": "call_123",
+                "name": "search_memory",
+                "input": {"query": "something"},
+            },
+        ]
 
         # Tool result as user message
-        assert history[3] == {
+        assert history[2] == {
             "role": "user",
             "content": [{
                 "type": "tool_result",
@@ -121,7 +118,7 @@ def test_history_loader_with_tool_calls():
         }
 
         # Final assistant response
-        assert history[4] == {
+        assert history[3] == {
             "role": "assistant",
             "content": [{"type": "text", "text": "I found 3 results."}],
         }
@@ -315,3 +312,89 @@ def test_history_loader_multiple_tool_calls():
         assert all(r["type"] == "tool_result" for r in results)
     finally:
         jsonl_path.unlink()
+
+
+def _write_jsonl(lines):
+    f = tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False)
+    with f:
+        for line in lines:
+            f.write(json.dumps(line) + "\n")
+    return Path(f.name)
+
+
+def test_history_loader_legacy_joined_text_after_tools():
+    """Old files (one joined assistant line written after the turn's tools)
+    still load as before: [tool_use] / [tool_result] / [text]."""
+    path = _write_jsonl([
+        {"type": "user", "message": {"role": "user", "content": "go"}},
+        {"type": "tool_use", "tool_call_id": "c1", "tool_name": "t", "tool_input": {}},
+        {"type": "tool_result", "tool_call_id": "c1", "output": "r1"},
+        {"type": "assistant", "message": {"role": "assistant", "content": "a\nb"}},
+    ])
+    try:
+        history = HistoryLoader(path).load()
+        assert [m["role"] for m in history] == ["user", "assistant", "user", "assistant"]
+        assert history[1]["content"][0]["type"] == "tool_use"
+        assert history[3]["content"] == [{"type": "text", "text": "a\nb"}]
+    finally:
+        path.unlink()
+
+
+def test_history_loader_consecutive_text_lines_merge():
+    """Two text blocks persisted at TextComplete in one turn reload as one
+    assistant message (never two consecutive assistant messages)."""
+    path = _write_jsonl([
+        {"type": "user", "message": {"role": "user", "content": "hi"}},
+        {"type": "assistant", "message": {"role": "assistant", "content": "one"}},
+        {"type": "assistant", "message": {"role": "assistant", "content": "two"}},
+        {"type": "user", "message": {"role": "user", "content": "next"}},
+    ])
+    try:
+        history = HistoryLoader(path).load()
+        assert [m["role"] for m in history] == ["user", "assistant", "user"]
+        assert history[1]["content"] == [
+            {"type": "text", "text": "one"}, {"type": "text", "text": "two"},
+        ]
+    finally:
+        path.unlink()
+
+
+@pytest.mark.asyncio
+async def test_run_agent_persists_text_at_text_complete(tmp_path):
+    """O-1: each TextComplete is written when it fires, interleaved with
+    the tool lines, so the JSONL order matches the stream."""
+    from orchestrator.types import (
+        TextComplete, ToolResultEvent, ToolUseStart,
+    )
+    from orchestrator.session import OrchestratorSession
+
+    events = [
+        TextComplete(text="Let me look."),
+        ToolUseStart(tool_call_id="c1", tool_name="search", tool_input={"q": 1}),
+        ToolResultEvent(tool_call_id="c1", output="found", is_error=False),
+        TextComplete(text="Found it."),
+    ]
+
+    class FakeAgent:
+        async def run(self, prompt):
+            for e in events:
+                yield e
+
+    session = OrchestratorSession.__new__(OrchestratorSession)
+    session._agent = FakeAgent()
+    session._writer = HistoryWriter(tmp_path / "o.jsonl")
+
+    seen = [e async for e in session._run_agent("go")]
+    assert seen == events
+
+    lines = [json.loads(l) for l in (tmp_path / "o.jsonl").read_text().splitlines()]
+    assert [l["type"] for l in lines] == ["assistant", "tool_use", "tool_result", "assistant"]
+    assert lines[0]["message"]["content"] == "Let me look."
+    assert lines[3]["message"]["content"] == "Found it."
+
+    # The model history reloads in the in-memory shape.
+    history = HistoryLoader(tmp_path / "o.jsonl").load()
+    assert history[0]["content"][0] == {"type": "text", "text": "Let me look."}
+    assert history[0]["content"][1]["type"] == "tool_use"
+    assert history[1]["content"][0]["type"] == "tool_result"
+    assert history[2]["content"] == [{"type": "text", "text": "Found it."}]
