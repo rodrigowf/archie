@@ -12,4 +12,6 @@ dependencies {
     api(project(":core:protocol"))
     api(project(":core:network"))
     implementation(libs.webrtc.android)
+    // A-04: parity fakes + virtual-time helpers (spec 14 §6.1). Test classpath only.
+    testImplementation(project(":core:testing"))
 }

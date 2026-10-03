@@ -12,4 +12,6 @@ dependencies {
     api(project(":core:audio"))
     api(project(":core:network"))
     implementation(libs.vosk.android)
+    // A-04: parity fakes + virtual-time helpers (spec 14 §6.1). Test classpath only.
+    testImplementation(project(":core:testing"))
 }
