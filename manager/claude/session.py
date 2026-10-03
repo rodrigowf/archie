@@ -59,6 +59,7 @@ from typing import NamedTuple
 
 from ..base_session import BaseSessionManager, SessionDeadError, TurnAbandoned
 from ..config import ManagerConfig
+from ..protocol import tool_result_text
 from ..types import (
     CompactComplete,
     Event,
@@ -582,6 +583,10 @@ class ClaudeSessionManager(BaseSessionManager):
                     # of hanging forever.
                     if messages_received == 0 and (now - turn_started_at) >= _TURN_ABANDON_S:
                         raise SessionAbandoned(now - turn_started_at)
+                    # The stall notice is synthetic (not in the replay
+                    # ring): clear the stash so the pool does not stamp it
+                    # with the previous event's seq (O-5).
+                    self._last_yielded_seq = None
                     yield SessionStalled(
                         elapsed_seconds=now - last_msg_at,
                         last_tool_name=last_tool_name,
@@ -1107,13 +1112,31 @@ class ClaudeSessionManager(BaseSessionManager):
                     )
 
         elif isinstance(msg, UserMessage):
-            # User messages with tool_use_result contain tool output.
-            # The SDK normally hands us a dict, but some tools (notably the
-            # bundled web search/fetch path on certain claude-cli versions)
-            # send the raw stdout as a plain string.  Treat that string as
-            # the output rather than dropping the result silently — losing
-            # a tool_result leaves the UI showing a perpetual spinner.
-            if msg.tool_use_result:
+            # The real tool output lives in ``message.content`` as
+            # ``tool_result`` blocks (parsed by the SDK into
+            # ``ToolResultBlock``s) carrying the real ``tool_use_id``.
+            # ``tool_use_result`` is tool-specific *metadata* in real CLI
+            # output (Bash ``{stdout, stderr, interrupted, ...}``, Edit
+            # ``{filePath, ...}``, MCP: a list) and has no tool_use_id, so
+            # it is only a fallback for messages without result blocks.
+            result_blocks = (
+                [b for b in msg.content if isinstance(b, ToolResultBlock)]
+                if isinstance(msg.content, list) else []
+            )
+            if result_blocks:
+                for block in result_blocks:
+                    yield ToolResult(
+                        tool_use_id=block.tool_use_id or "",
+                        output=tool_result_text(block.content),
+                        is_error=bool(block.is_error),
+                    )
+            # Fallback: no ToolResultBlock.  The SDK normally hands us a
+            # dict, but some tools (notably the bundled web search/fetch
+            # path on certain claude-cli versions) send the raw stdout as a
+            # plain string.  Treat that string as the output rather than
+            # dropping the result silently — losing a tool_result leaves
+            # the UI showing a perpetual spinner.
+            elif msg.tool_use_result:
                 result = msg.tool_use_result
                 if isinstance(result, dict):
                     content = result.get("content", "")
@@ -1129,6 +1152,13 @@ class ClaudeSessionManager(BaseSessionManager):
                     yield ToolResult(
                         tool_use_id=msg.parent_tool_use_id or "",
                         output=result,
+                        is_error=False,
+                    )
+                elif isinstance(result, list):
+                    # MCP tools: a list of content items.
+                    yield ToolResult(
+                        tool_use_id=msg.parent_tool_use_id or "",
+                        output=tool_result_text(result),
                         is_error=False,
                     )
                 else:

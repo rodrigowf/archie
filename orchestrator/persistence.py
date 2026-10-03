@@ -129,15 +129,16 @@ class HistoryLoader:
                 msg = entry.get("message", {})
                 content = msg.get("content", "")
 
-                # Convert to content block format if needed
+                # Convert to content block format if needed.  Kept pending
+                # (not flushed) so text persisted at TextComplete merges with
+                # the tool_use lines that follow it into ONE assistant
+                # message, as the model produced it — consecutive assistant
+                # messages are not valid conversation history.  The next
+                # user / tool_result line (or EOF) flushes it.
                 if isinstance(content, str) and content:
                     pending_assistant_blocks.append({"type": "text", "text": content})
                 elif isinstance(content, list):
                     pending_assistant_blocks.extend(content)
-
-                # Flush if there are no pending tool calls (pure text response)
-                if not self._has_tool_calls(pending_assistant_blocks):
-                    self._flush_pending_assistant(history, pending_assistant_blocks)
 
             # Tool use (part of assistant message)
             elif msg_type == "tool_use":
@@ -168,11 +169,6 @@ class HistoryLoader:
         self._flush_pending_tool_results(history, pending_tool_results)
 
         return history
-
-    @staticmethod
-    def _has_tool_calls(blocks: list[dict[str, Any]]) -> bool:
-        """Check if content blocks contain any tool_use blocks."""
-        return any(b.get("type") == "tool_use" for b in blocks if isinstance(b, dict))
 
     @staticmethod
     def _flush_pending_assistant(

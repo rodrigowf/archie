@@ -92,6 +92,16 @@ def _make_pool(mock_sm, session_id="test-123"):
             except Exception:
                 pass
 
+    async def _broadcast_session(sid, payload, *, exclude=None):
+        for ws in tuple(subscribers.get(sid, set())):
+            if ws is exclude:
+                continue
+            try:
+                await ws.send_bytes(orjson.dumps(payload))
+            except Exception:
+                pass
+    pool.broadcast_session = AsyncMock(side_effect=_broadcast_session)
+
     async def _drive(sid, text, source_ws):
         async for event in mock_sm.send(text):
             payload = serialize_event(event)
@@ -219,6 +229,69 @@ class TestWebSocketChat:
             # Interrupt now goes through cancel_turn (which internally
             # sends the SDK interrupt and awaits the in-flight task).
             pool.cancel_turn.assert_awaited_with("test-123")
+
+    @staticmethod
+    def _blocking_turn(mock_sm):
+        """Make mock_sm.send stream one delta then hang (turn in flight)."""
+        import asyncio
+
+        async def _send(text):
+            yield TextDelta(text="working")
+            await asyncio.Event().wait()
+
+        mock_sm.send = _send
+
+    def test_interrupt_broadcasts_to_all_subscribers(self, pool_client):
+        """BF-2: a cancelled turn tells every subscriber, and the
+        interrupter receives the status frame exactly once."""
+        client, pool, mock_sm = pool_client
+        self._blocking_turn(mock_sm)
+        pool.has = MagicMock(return_value=True)
+        start = orjson.dumps({"type": "start", "local_id": "test-123"}).decode()
+
+        with client.websocket_connect("/api/sessions/chat") as ws1, \
+                client.websocket_connect("/api/sessions/chat") as ws2:
+            ws1.send_text(start)
+            assert orjson.loads(ws1.receive_bytes())["type"] == "session_started"
+            ws2.send_text(start)
+            assert orjson.loads(ws2.receive_bytes())["type"] == "session_started"
+
+            ws1.send_text(orjson.dumps({"type": "send", "text": "go"}).decode())
+            assert orjson.loads(ws1.receive_bytes())["text"] == "working"
+            assert orjson.loads(ws2.receive_bytes())["text"] == "working"
+
+            ws1.send_text(orjson.dumps({"type": "interrupt"}).decode())
+            assert orjson.loads(ws1.receive_bytes()) == {
+                "type": "status", "status": "interrupted",
+            }
+            assert orjson.loads(ws2.receive_bytes()) == {
+                "type": "status", "status": "interrupted",
+            }
+
+            # Exactly once for the interrupter: the next frame it gets is
+            # the reply to a fresh probe, not a second status.
+            ws1.send_text("not json")
+            assert orjson.loads(ws1.receive_bytes())["error"] == "invalid_json"
+
+    def test_interrupt_without_turn_replies_only_to_sender(self, pool_client):
+        """No turn running → direct reply only; other subscribers get
+        nothing."""
+        client, pool, _ = pool_client
+        pool.has = MagicMock(return_value=True)
+        start = orjson.dumps({"type": "start", "local_id": "test-123"}).decode()
+
+        with client.websocket_connect("/api/sessions/chat") as ws1, \
+                client.websocket_connect("/api/sessions/chat") as ws2:
+            ws1.send_text(start)
+            ws1.receive_bytes()
+            ws2.send_text(start)
+            ws2.receive_bytes()
+
+            ws1.send_text(orjson.dumps({"type": "interrupt"}).decode())
+            assert orjson.loads(ws1.receive_bytes())["status"] == "interrupted"
+            pool.broadcast_session.assert_not_awaited()
+            ws2.send_text("not json")
+            assert orjson.loads(ws2.receive_bytes())["error"] == "invalid_json"
 
     def test_command(self, pool_client):
         client, pool, _ = pool_client

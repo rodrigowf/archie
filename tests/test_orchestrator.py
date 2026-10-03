@@ -64,6 +64,13 @@ class TestMessage:
 
 
 class TestOrchestratorConfig:
+    @pytest.fixture(autouse=True)
+    def _no_assistant_config(self, tmp_path, monkeypatch):
+        """Isolate from the machine's real assistant_config.json (its
+        ``default_model`` now wins over the env, O-7)."""
+        import utils.paths as _paths
+        monkeypatch.setattr(_paths, "PROJECT_ROOT", tmp_path)
+
     def test_load_defaults(self, monkeypatch):
         monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/tmp/test-claude")
         monkeypatch.delenv("ORCHESTRATOR_MODEL", raising=False)
@@ -90,6 +97,67 @@ class TestOrchestratorConfig:
         monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/tmp/test-claude")
         config = OrchestratorConfig.load()
         assert config.model == "claude-opus-4-6"
+
+    def test_load_honours_assistant_config_default_model(self, tmp_path, monkeypatch):
+        """O-7: Settings' default_model wins over the env and the default."""
+        (tmp_path / "assistant_config.json").write_text(
+            json.dumps({"default_model": "gpt-audio-mini"})
+        )
+        monkeypatch.setenv("ORCHESTRATOR_MODEL", "gpt-4o")
+        config = OrchestratorConfig.load()
+        assert config.model == "gpt-audio-mini"
+        assert config.provider.value == "openai"
+
+    def test_load_ignores_blank_or_unknown_default_model(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ORCHESTRATOR_MODEL", "gpt-4o")
+        for value in ("", "   ", "totally-unknown-model", 42):
+            (tmp_path / "assistant_config.json").write_text(
+                json.dumps({"default_model": value})
+            )
+            assert OrchestratorConfig.load().model == "gpt-4o"
+        (tmp_path / "assistant_config.json").write_text("{not json")
+        assert OrchestratorConfig.load().model == "gpt-4o"
+
+    @pytest.mark.parametrize("retired", ["gpt-4o-audio-preview", "gpt-4o-mini-audio-preview"])
+    def test_retired_settings_model_falls_back_to_env(self, tmp_path, monkeypatch, retired):
+        (tmp_path / "assistant_config.json").write_text(
+            json.dumps({"default_model": retired})
+        )
+        monkeypatch.setenv("ORCHESTRATOR_MODEL", "gpt-4o")
+        assert OrchestratorConfig.load().model == "gpt-4o"
+        monkeypatch.delenv("ORCHESTRATOR_MODEL")
+        from orchestrator.config import DEFAULT_MODEL_ID
+        assert OrchestratorConfig.load().model == DEFAULT_MODEL_ID
+
+    def test_retired_env_model_falls_back_to_default(self, monkeypatch):
+        from orchestrator.config import DEFAULT_MODEL_ID
+        monkeypatch.setenv("ORCHESTRATOR_MODEL", "gpt-4o-audio-preview")
+        assert OrchestratorConfig.load().model == DEFAULT_MODEL_ID
+
+    def test_precedence_switch_env_first(self, tmp_path, monkeypatch):
+        import orchestrator.config as cfg
+        (tmp_path / "assistant_config.json").write_text(
+            json.dumps({"default_model": "gpt-audio-mini"})
+        )
+        monkeypatch.setenv("ORCHESTRATOR_MODEL", "gpt-4o")
+        monkeypatch.setattr(cfg, "SETTINGS_DEFAULT_MODEL_FIRST", False)
+        assert OrchestratorConfig.load().model == "gpt-4o"
+        monkeypatch.delenv("ORCHESTRATOR_MODEL")
+        assert OrchestratorConfig.load().model == "gpt-audio-mini"
+
+    def test_models_endpoint_reports_configured_default(self, tmp_path, monkeypatch):
+        import asyncio
+        import api.routes.voice as voice_routes
+
+        (tmp_path / "assistant_config.json").write_text(
+            json.dumps({"default_model": "claude-opus-4-20250514"})
+        )
+
+        async def _no_live():
+            raise RuntimeError("offline")
+        monkeypatch.setattr(voice_routes, "list_orchestrator_models", _no_live)
+        body = asyncio.run(voice_routes.list_models())
+        assert body["default_model"] == "claude-opus-4-20250514"
 
     def test_memory_path_uses_context_dir(self, monkeypatch):
         monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/tmp/my-config")

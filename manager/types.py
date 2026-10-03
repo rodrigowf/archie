@@ -221,8 +221,8 @@ class SessionInfo:
 class ContentBlock:
     """A content block within a message (text, tool_use, or tool_result)."""
 
-    type: str  # "text" | "tool_use" | "tool_result"
-    text: str | None = None  # for text blocks
+    type: str  # "text" | "thinking" | "tool_use" | "tool_result"
+    text: str | None = None  # for text and thinking blocks
     tool_use_id: str | None = None  # for tool_use and tool_result
     tool_name: str | None = None  # for tool_use
     tool_input: dict[str, Any] | None = None  # for tool_use

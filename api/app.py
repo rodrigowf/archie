@@ -143,6 +143,60 @@ async def lifespan(app: FastAPI):
                 pass
 
 
+def _next_preview_dirs() -> list[tuple[str, Path]]:
+    """Preview builds of ``frontend-next`` (spec 13 §1.6, BX-1).
+
+    ``npm run build:preview`` writes ``dist-preview/main`` (base ``/next/``)
+    and ``dist-preview/compat`` (base ``/next-compat/``).  Removed at cutover.
+    """
+    base = Path(__file__).resolve().parent.parent / "frontend-next" / "dist-preview"
+    return [("next", base / "main"), ("next-compat", base / "compat")]
+
+
+def _register_preview_spa(
+    app: FastAPI, prefix: str, root: Path, no_cache: dict[str, str],
+) -> bool:
+    """Serve the SPA build in *root* at ``/{prefix}/``.
+
+    No-op (returns False) unless ``root/index.html`` exists.  Hashed assets
+    are mounted under ``/{prefix}/assets``; other paths return the file when
+    it resolves inside *root*, 404 when it escapes *root*, and ``index.html``
+    (no-cache) otherwise.  Must be called before the root SPA catch-all.
+    """
+    index = root / "index.html"
+    if not index.is_file():
+        return False
+    root_resolved = root.resolve()
+    assets = root / "assets"
+    if assets.is_dir():
+        app.mount(
+            f"/{prefix}/assets", StaticFiles(directory=assets),
+            name=f"{prefix}-assets",
+        )
+
+    async def serve_preview_index():
+        return FileResponse(index, headers=no_cache)
+
+    async def serve_preview_spa(full_path: str):
+        candidate = (root / full_path).resolve()
+        if not candidate.is_relative_to(root_resolved):
+            raise HTTPException(status_code=404)
+        if full_path and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(index, headers=no_cache)
+
+    for path in (f"/{prefix}", f"/{prefix}/"):
+        app.add_api_route(
+            path, serve_preview_index, methods=["GET"],
+            include_in_schema=False, name=f"{prefix}-index",
+        )
+    app.add_api_route(
+        f"/{prefix}/{{full_path:path}}", serve_preview_spa, methods=["GET"],
+        include_in_schema=False, name=f"{prefix}-spa",
+    )
+    return True
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Assistant API", lifespan=lifespan)
 
@@ -195,6 +249,12 @@ def create_app() -> FastAPI:
             if file_path.exists() and file_path.is_file():
                 return FileResponse(file_path)
             return FileResponse(compat_dist / "index.html", headers=_no_cache)
+
+    # Preview builds of the new web app at /next/ and /next-compat/ (BX-1).
+    # Registered before the root SPA catch-all, which would swallow /next/*.
+    # Only when the build exists; context/public/ has no next* entry.
+    for prefix, preview_root in _next_preview_dirs():
+        _register_preview_spa(app, prefix, preview_root, _no_cache)
 
     # Public files directory (context/public/ — synced across machines, served at URL root).
     # Anything placed under context/public/ is reachable at the matching URL path

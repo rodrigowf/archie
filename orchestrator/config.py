@@ -7,13 +7,18 @@ interactions. Realtime voice sessions use a fixed model (set at session start).
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from utils import paths as _paths
 from utils.paths import get_memory_dir
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +201,73 @@ def _infer_model_info(model_id: str) -> ModelInfo | None:
     return None
 
 
+# Retired OpenAI audio model ids: renamed to the ``gpt-audio`` family and
+# now 404 on Rodrigo's account.  A default naming one is skipped.
+RETIRED_MODEL_IDS = frozenset({"gpt-4o-audio-preview", "gpt-4o-mini-audio-preview"})
+
+# O-7 precedence switch — the ONE place to flip.  True: the Settings value
+# (``assistant_config.default_model``) beats env ``ORCHESTRATOR_MODEL``.
+# False: the env beats Settings.  Either way :data:`DEFAULT_MODEL_ID` is last.
+SETTINGS_DEFAULT_MODEL_FIRST = True
+
+
+def _usable_model_id(model_id: object, source: str) -> str | None:
+    """Return *model_id* stripped if it is a usable orchestrator model,
+    else log why (for non-empty values) and return None."""
+    if not isinstance(model_id, str) or not model_id.strip():
+        return None
+    model_id = model_id.strip()
+    if model_id in RETIRED_MODEL_IDS:
+        logger.warning(
+            "Ignoring retired model %r from %s (renamed to the gpt-audio family)",
+            model_id, source,
+        )
+        return None
+    if get_model_info(model_id) is None and _infer_model_info(model_id) is None:
+        logger.warning("Ignoring unknown model %r from %s", model_id, source)
+        return None
+    return model_id
+
+
+def configured_default_model() -> str | None:
+    """``default_model`` from ``assistant_config.json`` (the Settings page),
+    or None when the file / key is missing, the id can't be classified or
+    it is a retired id (:data:`RETIRED_MODEL_IDS`).
+
+    Read from the raw file on every call (no cached snapshot), so a change
+    in Settings applies to the next orchestrator session.  Only the file's
+    own value counts — not the API layer's built-in default.
+    """
+    path = _paths.PROJECT_ROOT / "assistant_config.json"
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    model_id = data.get("default_model") if isinstance(data, dict) else None
+    return _usable_model_id(model_id, "assistant_config.json default_model")
+
+
+def env_default_model() -> str | None:
+    """Env ``ORCHESTRATOR_MODEL``, with the same validation."""
+    return _usable_model_id(os.environ.get("ORCHESTRATOR_MODEL"), "env ORCHESTRATOR_MODEL")
+
+
+def resolve_default_model() -> str:
+    """Model a new orchestrator session starts on (O-7).
+
+    The first usable value of Settings / env (order set by
+    :data:`SETTINGS_DEFAULT_MODEL_FIRST`), then :data:`DEFAULT_MODEL_ID`.
+    """
+    sources = (configured_default_model, env_default_model)
+    if not SETTINGS_DEFAULT_MODEL_FIRST:
+        sources = sources[::-1]
+    for source in sources:
+        model_id = source()
+        if model_id:
+            return model_id
+    return DEFAULT_MODEL_ID
+
+
 # ---------------------------------------------------------------------------
 # Orchestrator Configuration
 # ---------------------------------------------------------------------------
@@ -287,7 +359,8 @@ class OrchestratorConfig:
 
     @classmethod
     def load(cls) -> OrchestratorConfig:
-        """Load config from environment variables and defaults."""
+        """Load config from Settings (``default_model``), environment
+        variables and defaults."""
         project_dir = os.environ.get(
             "ORCHESTRATOR_PROJECT_DIR",
             str(Path(__file__).resolve().parent.parent),
@@ -296,7 +369,7 @@ class OrchestratorConfig:
         # Use context/memory/ directly for the orchestrator memory file
         memory_path = str(get_memory_dir() / "ORCHESTRATOR_MEMORY.md")
 
-        model = os.environ.get("ORCHESTRATOR_MODEL", DEFAULT_MODEL_ID)
+        model = resolve_default_model()
         max_tokens = int(os.environ.get("ORCHESTRATOR_MAX_TOKENS", "8192"))
 
         return cls(

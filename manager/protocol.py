@@ -108,6 +108,17 @@ class ProviderAdapter(ABC):
         """
         return is_visible_message_default(obj)
 
+    def visible_line_indices(self, objs: list[dict | None]) -> list[int]:
+        """Indices of *objs* (parsed raw lines, ``None`` for blank or
+        unparseable ones) that count as visible messages for
+        ``drop_last_n``.  Adapters whose REST messages do not map 1:1 onto
+        raw lines override this to stay consistent with ``read_messages``.
+        """
+        return [
+            i for i, obj in enumerate(objs)
+            if obj is not None and self.is_visible_message(obj)
+        ]
+
 
 def is_visible_message_default(obj: dict) -> bool:
     """Default visibility check for the normalized message shape.
@@ -163,6 +174,27 @@ def extract_text(message: dict) -> str:
     return "\n".join(parts)
 
 
+def tool_result_text(content) -> str:
+    """Normalize a ``tool_result`` block's ``content`` to a string.
+
+    Strings pass through; a list keeps its text items (dict ``{"type":
+    "text"}`` or bare strings) joined with ``\n``; ``None`` becomes ``""``.
+    Shared by REST history (``extract_blocks``) and the live Claude
+    ``UserMessage`` path so both report the same output for one result.
+    """
+    if content is None:
+        return ""
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                parts.append(item.get("text", ""))
+            elif isinstance(item, str):
+                parts.append(item)
+        return "\n".join(parts)
+    return str(content) if content else ""
+
+
 def extract_blocks(message: dict) -> list[ContentBlock]:
     """Extract content blocks from a normalized message dict."""
     msg = message.get("message", {})
@@ -179,10 +211,18 @@ def extract_blocks(message: dict) -> list[ContentBlock]:
             continue
         btype = block.get("type", "")
 
-        if btype in ("text", "thinking"):
+        if btype == "text":
             text = block.get("text", "")
             if text:
                 blocks.append(ContentBlock(type="text", text=text))
+
+        elif btype == "thinking":
+            # Claude stores the reasoning under ``thinking``; the Qwen and
+            # Gemini adapters normalize theirs under ``text``.  Kept as its
+            # own block type so clients can render it apart from the answer.
+            text = block.get("thinking") or block.get("text") or ""
+            if text:
+                blocks.append(ContentBlock(type="thinking", text=text))
 
         elif btype == "tool_use":
             blocks.append(ContentBlock(
@@ -193,19 +233,10 @@ def extract_blocks(message: dict) -> list[ContentBlock]:
             ))
 
         elif btype == "tool_result":
-            result_content = block.get("content", "")
-            if isinstance(result_content, list):
-                result_parts: list[str] = []
-                for item in result_content:
-                    if isinstance(item, dict) and item.get("type") == "text":
-                        result_parts.append(item.get("text", ""))
-                    elif isinstance(item, str):
-                        result_parts.append(item)
-                result_content = "\n".join(result_parts)
             blocks.append(ContentBlock(
                 type="tool_result",
                 tool_use_id=block.get("tool_use_id"),
-                output=str(result_content) if result_content else "",
+                output=tool_result_text(block.get("content", "")),
                 is_error=block.get("is_error", False),
             ))
 

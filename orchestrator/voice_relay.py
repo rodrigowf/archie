@@ -123,6 +123,11 @@ class VoiceRelay:
         # "use VoiceTimeouts.default()" which equals HEAD constants
         # exactly (parity test pins this).
         voice_timeouts: "VoiceTimeouts | None" = None,
+        # O-4 — called (synchronously, from the drain task) after a FATAL
+        # upstream failure has been reported to the frontend, i.e. when the
+        # relay is dead and will not reconnect. The session uses it to run
+        # ``end_voice("error")`` so ``voice_ended`` reaches every client.
+        on_fatal: Callable[[], None] | None = None,
     ) -> None:
         if provider.connection_type != "websocket":
             raise ValueError(
@@ -131,6 +136,7 @@ class VoiceRelay:
         self._provider = provider
         self._on_audio_out = on_audio_out
         self._on_event_for_frontend = on_event_for_frontend
+        self._on_fatal = on_fatal
         self._session_id = session_id or "anonymous"
         # If supplied, the relay will attempt to reopen the upstream WS
         # after recoverable failures (see ``_RECONNECTABLE_ERR_SUBSTRINGS``).
@@ -1289,6 +1295,7 @@ class VoiceRelay:
                         ),
                     },
                 })
+                self._notify_fatal()
                 return
         except asyncio.CancelledError:
             raise
@@ -1396,6 +1403,16 @@ class VoiceRelay:
                     "message": f"Upstream {self._provider.provider_name} WS closed: {e}",
                 },
             })
+            self._notify_fatal()
+
+    def _notify_fatal(self) -> None:
+        """Tell the owner the relay died for good (see ``on_fatal``)."""
+        if self._on_fatal is None:
+            return
+        try:
+            self._on_fatal()
+        except Exception:  # noqa: BLE001
+            logger.exception("voice relay on_fatal callback raised")
 
     def _classify_close(self, exc: BaseException | None) -> VoiceError | None:
         """Run the provider's ``classify_close_reason`` if it exists.

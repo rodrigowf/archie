@@ -260,6 +260,11 @@ class OrchestratorSession:
         self._voice_state: VoiceLifecycle = VoiceLifecycle.IDLE
         self._voice_lock: asyncio.Lock = asyncio.Lock()
         self._voice_ended: asyncio.Event = asyncio.Event()
+        # O-4: task running end_voice("error") after a fatal relay failure
+        # (kept so it is not garbage-collected mid-flight).
+        self._voice_fatal_task: asyncio.Task | None = None
+        # Relay whose ``start()`` is in flight (not yet ``_voice_relay``).
+        self._pending_voice_relay: Any = None
         # Last reason the session ended (or None). Useful for logging /
         # exposing through the broadcast.
         self._voice_end_reason: str | None = None
@@ -965,10 +970,16 @@ class OrchestratorSession:
             vad_min_silence_ms=vad_min_silence_ms,
             # Increment F — central timeouts thread through.
             voice_timeouts=self._voice_timeouts,
+            # O-4 — a dead relay ends the voice session so every client
+            # gets ``voice_ended`` instead of a zombie "voice" state.
+            on_fatal=lambda: self._on_voice_relay_fatal(relay),
         )
+        self._pending_voice_relay = relay
         try:
             await relay.start(session_update)
         except Exception:
+            if self._pending_voice_relay is relay:
+                self._pending_voice_relay = None
             # Relay failed to open. Roll the state forward to ENDED so a
             # retry creates a fresh session instead of seeing STARTING.
             async with self._voice_lock:
@@ -981,10 +992,52 @@ class OrchestratorSession:
 
         async with self._voice_lock:
             self._voice_relay = relay
+            if self._pending_voice_relay is relay:
+                self._pending_voice_relay = None
             # If a teardown snuck in between relay.start() and here, honour
             # it: don't transition to ACTIVE, let the ENDING path catch up.
             if self._voice_state == VoiceLifecycle.STARTING:
                 self._set_voice_state_unlocked(VoiceLifecycle.ACTIVE)
+
+    def _is_live_voice_relay(self, relay: Any) -> bool:
+        """True if *relay* is the session's relay, or the one still being
+        started (drain died before ``self._voice_relay = relay`` ran)."""
+        if self._voice_relay is relay:
+            return True
+        return self._voice_relay is None and self._pending_voice_relay is relay
+
+    def _on_voice_relay_fatal(self, relay: Any) -> None:
+        """Relay drain hit an unrecoverable failure (already reported to
+        the clients as ``voice_error`` + ``error: voice_relay_failed``).
+
+        Schedules ``end_voice("error")`` on its own task — the drain task
+        that calls this is the one ``end_voice`` → ``stop_voice_relay``
+        tears down, so it must not run inline.  The task re-checks that
+        *relay* is still the live relay and voice is not already ending
+        right before ending it, so a relay rebuilt in between is untouched.
+        """
+        if not self._is_live_voice_relay(relay):
+            return
+        if self._voice_state in (VoiceLifecycle.ENDING, VoiceLifecycle.ENDED):
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._voice_fatal_task = loop.create_task(
+            self._end_voice_after_relay_fatal(relay),
+            name=f"voice-relay-fatal-end-{self._local_id}",
+        )
+
+    async def _end_voice_after_relay_fatal(self, relay: Any) -> None:
+        if not self._is_live_voice_relay(relay):
+            logger.info("fatal relay %s was replaced; not ending voice", id(relay))
+            return
+        if self._voice_state in (VoiceLifecycle.ENDING, VoiceLifecycle.ENDED):
+            return
+        if self._voice_state == VoiceLifecycle.IDLE and not self._voice:
+            return
+        await self.end_voice("error")
 
     async def stop_voice_relay(self) -> None:
         """Low-level relay teardown — closes the upstream WS only.
@@ -1856,13 +1909,24 @@ class OrchestratorSession:
         self,
         prompt: str | dict[str, Any],
     ) -> AsyncIterator[OrchestratorEvent]:
-        """Run the agent with text or audio input and persist events."""
-        # Collect assistant text for persistence; persist tool events as they arrive
-        assistant_text_parts: list[str] = []
+        """Run the agent with text or audio input and persist events.
 
+        Every event is persisted as it arrives, in order: each assistant
+        text block becomes its own ``assistant`` line at ``TextComplete``
+        (O-1), so history keeps text and tool calls interleaved the way
+        they streamed, and text completed before an interrupt is kept.
+        ``HistoryReader`` merges consecutive text + ``tool_use`` lines back
+        into one assistant message for the model; older files (one joined
+        text line after the tools) still load unchanged.
+        """
         async for event in self._agent.run(prompt):
             if isinstance(event, TextComplete):
-                assistant_text_parts.append(event.text)
+                if event.text:
+                    self._writer.append({
+                        "type": "assistant",
+                        "message": {"role": "assistant", "content": event.text},
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    })
             elif isinstance(event, ToolUseStart):
                 self._writer.append({
                     "type": "tool_use",
@@ -1880,17 +1944,6 @@ class OrchestratorSession:
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
             yield event
-
-        # Persist assistant text response
-        if assistant_text_parts:
-            self._writer.append({
-                "type": "assistant",
-                "message": {
-                    "role": "assistant",
-                    "content": "\n".join(assistant_text_parts),
-                },
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            })
 
     async def compact(self) -> dict[str, int]:
         """Summarize and compress the conversation history.

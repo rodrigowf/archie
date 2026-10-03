@@ -47,6 +47,9 @@ class _PendingPrompt(NamedTuple):
     """
     text: str
     source_ws: WebSocket | None
+    # True once subscribers were told about it (``user_message`` with
+    # ``queued: true``); the dispatch then skips a second echo (O-6).
+    announced: bool = False
 
 
 def _session_manager_for(config: ManagerConfig, **kwargs) -> BaseSessionManager:
@@ -547,8 +550,11 @@ class SessionPool:
     def unsubscribe_orchestrator(self, ws: WebSocket) -> None:
         self._orchestrator_subs.discard(ws)
 
-    async def broadcast_orchestrator(self, payload: dict) -> None:
-        """Broadcast a payload to all orchestrator subscribers.
+    async def broadcast_orchestrator(
+        self, payload: dict, *, exclude: WebSocket | None = None,
+    ) -> None:
+        """Broadcast a payload to all orchestrator subscribers (except
+        *exclude*, when given).
 
         Iterates over a snapshot because ``await ws.send_bytes`` yields and
         concurrent (un)subscribers would otherwise mutate the set mid-iteration
@@ -559,6 +565,8 @@ class SessionPool:
         data = orjson.dumps(payload)
         dead: list[WebSocket] = []
         for ws in tuple(self._orchestrator_subs):
+            if ws is exclude:
+                continue
             try:
                 if ws.client_state == WebSocketState.CONNECTED:
                     await ws.send_bytes(data)
@@ -893,8 +901,13 @@ class SessionPool:
         text: str,
         *,
         source_ws: WebSocket | None = None,
+        announce: bool = True,
     ) -> AsyncIterator[Event]:
-        """Drive sm.send() with per-session lock, broadcasting to all subscribers."""
+        """Drive sm.send() with per-session lock, broadcasting to all subscribers.
+
+        ``announce=False`` skips the ``user_message`` echo — used for a
+        queued prompt whose ``queued: true`` echo already went out (O-6).
+        """
         sm = self._sessions.get(session_id)
         if sm is None:
             raise ValueError(f"No session with ID {session_id}")
@@ -902,11 +915,12 @@ class SessionPool:
         lock = self._locks[session_id]
 
         async with lock:
-            await self._broadcast_session(
-                session_id,
-                {"type": "user_message", "text": text},
-                exclude=source_ws,
-            )
+            if announce:
+                await self._broadcast_session(
+                    session_id,
+                    {"type": "user_message", "text": text},
+                    exclude=source_ws,
+                )
             # Tell every subscriber the turn has been accepted and the
             # SDK is now working on it. Without this, the UI sits on
             # the previous "idle" / "Ready" label until the SDK emits
@@ -1057,7 +1071,7 @@ class SessionPool:
             # Turn is running: enqueue.  Broadcast immediately so the
             # chat tab shows the queued user message right away.
             self._pending_prompts[session_id].append(
-                _PendingPrompt(text=text, source_ws=source_ws)
+                _PendingPrompt(text=text, source_ws=source_ws, announced=True)
             )
             await self._broadcast_session(
                 session_id,
@@ -1103,16 +1117,22 @@ class SessionPool:
         """
         from manager.base_session import TurnAbandoned
 
-        async def _stream_once(prompt: str, ws: WebSocket | None) -> None:
-            async for _event in self.send(session_id, prompt, source_ws=ws):
+        async def _stream_once(
+            prompt: str, ws: WebSocket | None, announce: bool,
+        ) -> None:
+            async for _event in self.send(
+                session_id, prompt, source_ws=ws, announce=announce,
+            ):
                 pass
 
-        async def _drive_one(prompt: str, ws: WebSocket | None) -> None:
+        async def _drive_one(
+            prompt: str, ws: WebSocket | None, announce: bool = True,
+        ) -> None:
             """Run one user message through send() with the TurnAbandoned
             retry budget.  Raises CancelledError if the task is cancelled
             mid-turn; other exceptions propagate to the outer handler."""
             try:
-                await _stream_once(prompt, ws)
+                await _stream_once(prompt, ws, announce)
             except TurnAbandoned as exc:
                 logger.warning(
                     "Turn abandoned for session %s after %.0fs; retrying once",
@@ -1127,7 +1147,7 @@ class SessionPool:
                 except Exception:
                     logger.exception("Failed to interrupt abandoned turn for %s", session_id)
                 await asyncio.sleep(1.0)
-                await _stream_once(prompt, ws)
+                await _stream_once(prompt, ws, announce)
 
         try:
             await _drive_one(text, source_ws)
@@ -1143,7 +1163,12 @@ class SessionPool:
                     if not queue:
                         break
                     next_prompt = queue.popleft()
-                await _drive_one(next_prompt.text, next_prompt.source_ws)
+                # Already echoed with ``queued: true`` at enqueue time —
+                # don't echo it a second time at dispatch (O-6).
+                await _drive_one(
+                    next_prompt.text, next_prompt.source_ws,
+                    announce=not next_prompt.announced,
+                )
         except asyncio.CancelledError:
             raise
         except TurnAbandoned as exc:
@@ -1341,6 +1366,17 @@ class SessionPool:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    async def broadcast_session(
+        self,
+        session_id: str,
+        payload: dict[str, Any],
+        *,
+        exclude: WebSocket | None = None,
+    ) -> None:
+        """Send *payload* to every subscriber of *session_id* except
+        *exclude* (unsequenced; not added to the replay ring)."""
+        await self._broadcast_session(session_id, payload, exclude=exclude)
 
     async def _broadcast_session(
         self,

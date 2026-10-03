@@ -859,3 +859,77 @@ async def test_drive_turn_catches_session_dead_error_and_closes_with_typed_event
     terminated = next(m for m in received if m["type"] == "session_terminated")
     assert terminated["reason"] == "subprocess_crashed"
     assert "ssh closed" in (terminated.get("detail") or "")
+
+
+def _capturing_ws(received: list[dict]):
+    import orjson as _orjson
+    from starlette.websockets import WebSocketState
+
+    ws = MagicMock()
+    ws.client_state = WebSocketState.CONNECTED
+
+    async def _capture(data):
+        received.append(_orjson.loads(data))
+    ws.send_bytes = _capture
+    return ws
+
+
+@pytest.mark.asyncio
+async def test_queued_prompt_is_echoed_once():
+    """O-6: an observer sees a queued prompt once (``queued: true`` at
+    enqueue time) and not a second time when it is dispatched; the sender
+    never sees its own prompt echoed."""
+    pool = SessionPool()
+    started_first = asyncio.Event()
+    release_first = asyncio.Event()
+
+    async def _send(text):
+        if text == "first":
+            started_first.set()
+            await release_first.wait()
+        yield TurnComplete(cost=0.0, num_turns=1, session_id="sdk-test")
+
+    sm = _stub_session_manager([])
+    sm.send = _send
+    sm.stream_id = None  # no resume protocol: payloads stay JSON-serializable
+    sm.last_yielded_seq = None
+    _install(pool, sm)
+
+    observed: list[dict] = []
+    sent_back: list[dict] = []
+    observer = _capturing_ws(observed)
+    sender = _capturing_ws(sent_back)
+    pool._subscribers["test-session"].update({observer, sender})
+
+    await pool.send_or_queue("test-session", "first", source_ws=sender)
+    await started_first.wait()
+    await pool.send_or_queue("test-session", "second", source_ws=sender)
+    release_first.set()
+    await asyncio.sleep(0.2)
+
+    echoes = [m for m in observed if m["type"] == "user_message"]
+    assert echoes == [
+        {"type": "user_message", "text": "first"},
+        {"type": "user_message", "text": "second", "queued": True},
+    ]
+    # The dispatch of "second" is still visible as a new turn.
+    statuses = [m["status"] for m in observed if m["type"] == "status"]
+    assert statuses == ["processing", "processing"]
+    assert not [m for m in sent_back if m["type"] == "user_message"]
+
+
+@pytest.mark.asyncio
+async def test_broadcast_session_excludes_one_subscriber():
+    pool = SessionPool()
+    sm = _stub_session_manager([])
+    _install(pool, sm)
+    got_a: list[dict] = []
+    got_b: list[dict] = []
+    a, b = _capturing_ws(got_a), _capturing_ws(got_b)
+    pool._subscribers["test-session"].update({a, b})
+
+    await pool.broadcast_session(
+        "test-session", {"type": "status", "status": "interrupted"}, exclude=a,
+    )
+    assert got_a == []
+    assert got_b == [{"type": "status", "status": "interrupted"}]

@@ -16,7 +16,9 @@ from pathlib import Path
 import httpx
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 
-from orchestrator.config import get_available_models, get_audio_capable_models
+from orchestrator.config import (
+    get_audio_capable_models, get_available_models, resolve_default_model,
+)
 from orchestrator.providers.discovery import (
     list_orchestrator_models,
     list_voice_models_live,
@@ -246,7 +248,8 @@ async def list_models() -> dict:
     return {
         "models": [m.to_dict() for m in models],
         "audio_capable_models": [m.model_id for m in audio_models],
-        "default_model": "claude-sonnet-4-5-20250929",
+        # The model a new orchestrator session starts on (O-7).
+        "default_model": resolve_default_model(),
     }
 
 

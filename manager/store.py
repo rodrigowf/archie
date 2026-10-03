@@ -427,22 +427,23 @@ class SessionStore:
         # files so a missing detector doesn't silently zero out the count.
         adapter = self._resolve_adapter(jsonl_path)
 
-        def is_visible_message(line: str) -> bool:
+        def parse(line: str) -> dict | None:
             if not line.strip():
-                return False
+                return None
             try:
                 obj = json.loads(line)
             except json.JSONDecodeError:
-                return False
-            if not isinstance(obj, dict):
-                return False
-            if adapter is not None:
-                return adapter.is_visible_message(obj)
-            return is_visible_message_default(obj)
+                return None
+            return obj if isinstance(obj, dict) else None
 
-        visible_line_indices = [
-            i for i, line in enumerate(raw_lines) if is_visible_message(line)
-        ]
+        objs = [parse(line) for line in raw_lines]
+        if adapter is not None:
+            visible_line_indices = adapter.visible_line_indices(objs)
+        else:
+            visible_line_indices = [
+                i for i, obj in enumerate(objs)
+                if obj is not None and is_visible_message_default(obj)
+            ]
         total_visible = len(visible_line_indices)
 
         if drop_last_n == 0:

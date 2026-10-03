@@ -341,10 +341,11 @@ class TestToPreviews:
         assert tool_block.tool_input == {"command": "ls"}
         assert tool_block.tool_use_id == "call_1"
 
-    def test_thinking_block_rendered_as_text(self, adapter: QwenAdapter):
-        """The shared ``extract_blocks`` collapses thinking → text so the UI
-        can show it as a regular block (Qwen's adapter already maps the
-        ``thought: True`` part to a ``thinking`` typed block in content)."""
+    def test_thinking_block_kept_as_thinking(self, adapter: QwenAdapter):
+        """The shared ``extract_blocks`` keeps thinking as its own
+        ``thinking`` block (O-2) so clients can render it apart from the
+        answer (Qwen's adapter maps the ``thought: True`` part to a
+        ``thinking`` typed block in content)."""
         # Build a normalized message directly
         msg = {
             "type": "assistant",
@@ -358,7 +359,9 @@ class TestToPreviews:
             "timestamp": "2026-05-15T01:00:00.000Z",
         }
         previews = adapter.to_previews([msg])
-        # Both blocks rendered; the user-facing text only includes "the answer"
-        texts = [b.text for b in previews[0].blocks if b.type == "text"]
-        assert texts == ["let me think", "the answer"]
+        # Both blocks kept, distinguishable; the user-facing text only
+        # includes "the answer"
+        assert [(b.type, b.text) for b in previews[0].blocks] == [
+            ("thinking", "let me think"), ("text", "the answer"),
+        ]
         assert previews[0].text == "the answer"  # extract_text skips thinking
