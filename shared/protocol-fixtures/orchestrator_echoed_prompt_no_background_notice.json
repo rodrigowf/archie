@@ -1,0 +1,118 @@
+{
+  "name": "orchestrator_echoed_prompt_no_background_notice",
+  "description": "Orchestrator, observer device: a prompt typed on another device arrives as a user_message echo (backend O-3). The reply that follows is visibly prompted, so no background notice is inserted (BG-1).",
+  "source": "synthetic",
+  "session": {
+    "kind": "orchestrator",
+    "provider": null,
+    "local_id": "O1",
+    "sdk_id": "O1"
+  },
+  "initial_history": {
+    "messages": [
+      {
+        "role": "user",
+        "text": "Start the build agent",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Start the build agent",
+            "tool_use_id": null,
+            "tool_name": null,
+            "tool_input": null,
+            "output": null,
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-10-03T12:00:00+00:00"
+      },
+      {
+        "role": "assistant",
+        "text": "Started the build agent; I'll report back.",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Started the build agent; I'll report back.",
+            "tool_use_id": null,
+            "tool_name": null,
+            "tool_input": null,
+            "output": null,
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-10-03T12:00:00+00:00"
+      }
+    ],
+    "total_count": 2,
+    "has_more": false,
+    "start_index": 0
+  },
+  "events": [
+    {
+      "type": "user_message",
+      "text": "Is it done yet?"
+    },
+    {
+      "type": "status",
+      "status": "streaming"
+    },
+    {
+      "type": "text_delta",
+      "text": "Yes"
+    },
+    {
+      "type": "text_complete",
+      "text": "Yes, the build finished: 0 errors."
+    },
+    {
+      "type": "turn_complete",
+      "input_tokens": 3000,
+      "output_tokens": 40
+    },
+    {
+      "type": "status",
+      "status": "idle"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "Start the build agent",
+        "origin": "history",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Started the build agent; I'll report back.",
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "kind": "user",
+        "text": "Is it done yet?",
+        "origin": "echo",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Yes, the build finished: 0 errors.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "state": {
+      "status": "idle",
+      "in_turn": false,
+      "context_tokens": 3000
+    }
+  }
+}

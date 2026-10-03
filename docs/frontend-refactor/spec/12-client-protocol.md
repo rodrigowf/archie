@@ -346,7 +346,7 @@ onSessionStarted(conv, f):
 - **SEQ-2.** `session_stalled` MUST be exempt from seq dedupe: it carries the previous event's seq (`manager/claude/session.py:585-591` + `api/pool.py:1257-1264`, G-18).
 - **SEQ-3.** Unsequenced frames (`user_message`, `status`, `session_*`, `error`, `compact_complete` from `compact`, the receive-loop-exit `turn_complete`) are always applied.
 - **SEQ-4.** A frame with a *different* `stream_id` than the checkpoint MUST be applied and replaces the checkpoint (the CLI subprocess reconnected).
-- **SEQ-5.** Frames received after `start` was sent and before `session_started` MUST be held (`preStart`). If a replay was requested and granted, held seq-stamped frames MUST be discarded because the replay re-delivers them in order (`api/routes/chat.py:296-301`: the socket is subscribed before `session_started` is sent). *Rationale:* applying them first and the replay later would reorder blocks.
+- **SEQ-5.** Frames received after `start` was sent and before `session_started` MUST be held (`preStart`). If a replay was requested and granted, held seq-stamped frames MUST be discarded because the replay re-delivers them in order (`api/routes/chat.py:296-301`: the socket is subscribed before `session_started` is sent). *Rationale:* applying them first and the replay later would reorder blocks. **Exception:** an `error` frame received while `preStart` is active (a failed `start`) bypasses the hold and is applied immediately; otherwise a start failure would be held forever and never shown.
 - **SEQ-6.** `replay_overflow: true` ⇒ the client MUST perform a canonical reload from REST (§5.6). If the conversation has no `sdkId`, it MUST first try `pool/live`; if there is still none, it sets `gapPossible = true` and keeps its entries.
 - **SEQ-7.** Qwen/Gemini agent sessions and the orchestrator have no replay. After a reconnect during which such a conversation was `inTurn`, the client MUST set `gapPossible = true`. For Qwen/Gemini agent sessions it SHOULD then run a canonical reload at the next `endTurn`, or immediately if `pool/live` reports `idle`. For the orchestrator it MUST NOT reload automatically (§5.7, A-4.4.1): it only offers "Reload".
 
@@ -485,7 +485,9 @@ function clearStall() { stall = null }
 
 function maybeBackgroundNotice() {                             // §4.4.3, orchestrator only
   if (ref.kind != "orchestrator" || !inTurn) return
-  if (!turnIsLocal && !turnHasContent) appendEntry({ kind: "notice", notice: "background", text: "" })
+  const prev = entries[entries.length - 1]                     // a visible prompt (echo from another device,
+  if (!turnIsLocal && !turnHasContent && !(prev && prev.kind == "user"))   // inject, voice transcript) is not "background"
+    appendEntry({ kind: "notice", notice: "background", text: "" })
   turnHasContent = true
 }
 
@@ -675,9 +677,10 @@ function reduce(f) {
       if (i >= 0) { pendingInjects.splice(i, 1); markInjectSent(f.text); return }
       appendEntry({ kind: "user", text: f.text, origin: "inject", state: "sent" }); return
     }
-    if (ref.kind == "agent" && inTurn) endTurn("superseded")                    // observer of an interrupted turn
     const d = dispatchedFromTray.indexOf(f.text)               // pre-O-6 backends still echo a dispatched
     if (d >= 0) { dispatchedFromTray.splice(d, 1); return }     // queued prompt once more: already shown
+                                                               // (checked BEFORE endTurn, which clears dispatchedFromTray)
+    if (ref.kind == "agent" && inTurn) endTurn("superseded")                    // observer of an interrupted turn
     const i = queue.findIndex(q => q.owner == "remote" && q.text == f.text)
     if (i >= 0) queue = queue.filter((q, k) => !(q.owner == "remote" && k <= i))
     appendEntry({ kind: "user", text: f.text, origin: "echo", state: "sent" })
@@ -869,7 +872,7 @@ exception path:   status{streaming} → … → error{send_failed|send_audio_fai
 
 The orchestrator does not echo typed prompts to other devices (G-22), and background-agent wake turns stream a reply with no prompt at all (01 §5.1). `background_notification` lines exist only in the JSONL and are never sent live (`orchestrator/session.py:1654-1670`).
 
-- **BG-1.** When the first assistant content of an orchestrator text turn arrives and the turn was not started by this client (`turnIsLocal == false`), the reducer appends `notice{background}` before the run (`maybeBackgroundNotice`). UI copy: "Background update" with the explanation "The orchestrator replied to a background task or to another device." This keeps the reply in its own run and visibly unprompted.
+- **BG-1.** When the first assistant content of an orchestrator text turn arrives, the turn was not started by this client (`turnIsLocal == false`), **and the entry immediately before the new run is not a user entry** (since backend O-3, prompts typed on other devices arrive as `user_message` echoes and are visible prompts, not background), the reducer appends `notice{background}` before the run (`maybeBackgroundNotice`). UI copy: "Background update" with the explanation "The orchestrator replied to a background task or to another device." This keeps the reply in its own run and visibly unprompted.
 - **BG-2.** History lines `<task-notification>…` (Claude Code background tasks) become `notice{background, text: <line>}` (§5.1).
 
 #### 4.4.4 Errors
@@ -1637,6 +1640,7 @@ IDs: **W-n** = item n of 02 §6.3; **W-6.1 / W-6.2** = the lists in 02 §6.1 / �
 | `history_live_overlap_dedupe` | W-7, §5.4 |
 | `compaction` | auto + manual compaction notices, I-2 |
 | `background_notification_wake_turn` | BG-1, TL-5 |
+| `orchestrator_echoed_prompt_no_background_notice` | BG-1 (O-3 echo is a visible prompt) |
 | `voice_transcript_coalescing_gemini` | §4.7 fragments |
 | `voice_late_user_transcript_anchor` | I-9 |
 | `queued_prompt_echoed_twice` | G-5, I-12 (observer) |
