@@ -1,0 +1,188 @@
+{
+  "name": "web_bug5_permission_feedback_then_result",
+  "description": "Web bug 5 / ExitPlanMode: the user types feedback while the permission is pending (deny with feedback). The prompt goes to the queue tray, the permission block is updated in place (no entry), the tool result after it still attaches, and the queued prompt enters the timeline when dispatched.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "text_complete",
+      "text": "Here is my plan.",
+      "seq": 1,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "t1",
+      "tool_name": "ExitPlanMode",
+      "tool_input": {
+        "plan": "1. Split utils.py\n2. Add tests"
+      },
+      "seq": 2,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "permission_request",
+      "request_id": "r1",
+      "tool_name": "ExitPlanMode",
+      "tool_input": {
+        "plan": "1. Split utils.py\n2. Add tests"
+      },
+      "seq": 3,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "permission_resolved",
+      "request_id": "r1",
+      "decision": "deny",
+      "responder": "user",
+      "message": "no, keep planning",
+      "seq": 4,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "t1",
+      "output": "The user doesn't want to proceed with this tool use.",
+      "is_error": true,
+      "seq": 5,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_complete",
+      "text": "Understood, revising.",
+      "seq": 6,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "usage": {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 990,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 50
+      },
+      "input_tokens": 1000,
+      "output_tokens": 50,
+      "num_turns": 1,
+      "session_id": "sdk-1",
+      "is_error": false,
+      "result": "",
+      "seq": 7,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "text_complete",
+      "text": "Revised plan.",
+      "seq": 8,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "usage": {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 990,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 50
+      },
+      "input_tokens": 1000,
+      "output_tokens": 50,
+      "num_turns": 1,
+      "session_id": "sdk-1",
+      "is_error": false,
+      "result": "",
+      "seq": 9,
+      "stream_id": "L1:1759500000000"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "send",
+      "text": "plan the refactor"
+    },
+    {
+      "at": 4,
+      "type": "send",
+      "text": "no, keep planning"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "plan the refactor",
+        "origin": "local",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Here is my plan.",
+            "streaming": false
+          },
+          {
+            "type": "tool",
+            "tool_use_id": "t1",
+            "tool_name": "ExitPlanMode",
+            "tool_input": {
+              "plan": "1. Split utils.py\n2. Add tests"
+            },
+            "status": "error",
+            "output": "The user doesn't want to proceed with this tool use."
+          },
+          {
+            "type": "permission",
+            "request_id": "r1",
+            "tool_name": "ExitPlanMode",
+            "state": "denied",
+            "responder": "user",
+            "message": "no, keep planning"
+          },
+          {
+            "type": "text",
+            "text": "Understood, revising.",
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "kind": "user",
+        "text": "no, keep planning",
+        "origin": "local",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Revised plan.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "queue": [],
+    "state": {
+      "status": "idle"
+    }
+  }
+}

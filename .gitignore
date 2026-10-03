@@ -72,3 +72,7 @@ android-device/local.properties
 android-device/**/*.apk
 android-device/**/*.aab
 sync/config.env
+docs/frontend-refactor/audit/screenshots/
+
+# Android rebuild (android-next/): signing paths/passwords, never committed (spec 14 §1.8)
+android-next/keystore.properties

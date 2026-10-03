@@ -1,0 +1,134 @@
+{
+  "name": "tool_result_on_next_history_page",
+  "description": "Paginated history: the newest page starts with the result of a tool whose tool_use is on the older page. The result waits in orphan_results; when the older page is prepended, it attaches and the run split by the page boundary is merged.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1"
+  },
+  "initial_history": {
+    "messages": [
+      {
+        "role": "user",
+        "text": "",
+        "blocks": [
+          {
+            "type": "tool_result",
+            "text": null,
+            "tool_use_id": "t1",
+            "tool_name": null,
+            "tool_input": null,
+            "output": "line1\nline2\nline3",
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-10-03T12:00:00+00:00"
+      },
+      {
+        "role": "assistant",
+        "text": "The file has 3 lines.",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "The file has 3 lines.",
+            "tool_use_id": null,
+            "tool_name": null,
+            "tool_input": null,
+            "output": null,
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-10-03T12:00:00+00:00"
+      }
+    ],
+    "total_count": 4,
+    "has_more": true,
+    "start_index": 2
+  },
+  "events": [],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "rest_page",
+      "mode": "prepend",
+      "response": {
+        "messages": [
+          {
+            "role": "user",
+            "text": "Read notes.txt",
+            "blocks": [
+              {
+                "type": "text",
+                "text": "Read notes.txt",
+                "tool_use_id": null,
+                "tool_name": null,
+                "tool_input": null,
+                "output": null,
+                "is_error": false
+              }
+            ],
+            "timestamp": "2026-10-03T12:00:00+00:00"
+          },
+          {
+            "role": "assistant",
+            "text": "",
+            "blocks": [
+              {
+                "type": "tool_use",
+                "text": null,
+                "tool_use_id": "t1",
+                "tool_name": "Read",
+                "tool_input": {
+                  "file_path": "notes.txt"
+                },
+                "output": null,
+                "is_error": false
+              }
+            ],
+            "timestamp": "2026-10-03T12:00:00+00:00"
+          }
+        ],
+        "total_count": 4,
+        "has_more": false,
+        "start_index": 0
+      }
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "Read notes.txt",
+        "origin": "history",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "t1",
+            "tool_name": "Read",
+            "tool_input": {
+              "file_path": "notes.txt"
+            },
+            "status": "done",
+            "output": "line1\nline2\nline3"
+          },
+          {
+            "type": "text",
+            "text": "The file has 3 lines.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "orphan_results": [],
+    "state": {
+      "history_has_more": false,
+      "history_start_index": 0
+    }
+  }
+}

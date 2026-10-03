@@ -1,0 +1,171 @@
+{
+  "name": "text_tool_interleaving",
+  "description": "text / tool / text / tool / text in one run: blocks keep arrival order, deltas only extend the open block, a complete without deltas pushes a finished block.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "text_delta",
+      "text": "Let me look.",
+      "seq": 1,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_complete",
+      "text": "Let me look.",
+      "seq": 2,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "t1",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "ls",
+        "description": "List files"
+      },
+      "seq": 3,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "t1",
+      "output": "a.txt\nb.txt",
+      "is_error": false,
+      "seq": 4,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_delta",
+      "text": "Found two",
+      "seq": 5,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_delta",
+      "text": " files.",
+      "seq": 6,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_complete",
+      "text": "Found two files.",
+      "seq": 7,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "t2",
+      "tool_name": "Read",
+      "tool_input": {
+        "file_path": "/tmp/a.txt"
+      },
+      "seq": 8,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "t2",
+      "output": "hello",
+      "is_error": false,
+      "seq": 9,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_complete",
+      "text": "a.txt says hello.",
+      "seq": 10,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "usage": {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 990,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 50
+      },
+      "input_tokens": 1000,
+      "output_tokens": 50,
+      "num_turns": 1,
+      "session_id": "sdk-1",
+      "is_error": false,
+      "result": "",
+      "seq": 11,
+      "stream_id": "L1:1759500000000"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "send",
+      "text": "list and read"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "list and read",
+        "origin": "local",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Let me look.",
+            "streaming": false
+          },
+          {
+            "type": "tool",
+            "tool_use_id": "t1",
+            "tool_name": "Bash",
+            "tool_input": {
+              "command": "ls",
+              "description": "List files"
+            },
+            "status": "done",
+            "output": "a.txt\nb.txt"
+          },
+          {
+            "type": "text",
+            "text": "Found two files.",
+            "streaming": false
+          },
+          {
+            "type": "tool",
+            "tool_use_id": "t2",
+            "tool_name": "Read",
+            "tool_input": {
+              "file_path": "/tmp/a.txt"
+            },
+            "status": "done",
+            "output": "hello"
+          },
+          {
+            "type": "text",
+            "text": "a.txt says hello.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "state": {
+      "status": "idle",
+      "in_turn": false
+    }
+  }
+}

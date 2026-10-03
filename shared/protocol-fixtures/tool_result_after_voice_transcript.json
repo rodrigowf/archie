@@ -1,0 +1,97 @@
+{
+  "name": "tool_result_after_voice_transcript",
+  "description": "OpenAI owner: transcripts come from the data channel (datachannel_event inputs), tool frames from the WS. A transcript lands between the tool call and its result; the result still attaches. voice_ended finalizes.",
+  "source": "synthetic",
+  "session": {
+    "kind": "orchestrator",
+    "provider": null,
+    "local_id": "O1",
+    "sdk_id": "O1",
+    "voice_active": true
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "tool_use",
+      "tool_use_id": "call_7",
+      "tool_name": "open_agent_session",
+      "tool_input": {
+        "title": "build",
+        "working_directory": null
+      }
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "call_7",
+      "output": "{\"session_id\": \"L9\"}",
+      "is_error": false
+    },
+    {
+      "type": "voice_ending",
+      "reason": "user_stop",
+      "session_id": "O1"
+    },
+    {
+      "type": "voice_ended",
+      "reason": "user_stop",
+      "session_id": "O1"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "datachannel_event",
+      "event": {
+        "type": "conversation.item.input_audio_transcription.completed",
+        "item_id": "item_1",
+        "content_index": 0,
+        "transcript": "Open the build session"
+      }
+    },
+    {
+      "at": 1,
+      "type": "datachannel_event",
+      "event": {
+        "type": "conversation.item.input_audio_transcription.completed",
+        "item_id": "item_2",
+        "content_index": 0,
+        "transcript": "and tell me when it is done"
+      }
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "Open the build session",
+        "origin": "voice",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "call_7",
+            "tool_name": "open_agent_session",
+            "tool_input": {
+              "title": "build",
+              "working_directory": null
+            },
+            "status": "done",
+            "output": "{\"session_id\": \"L9\"}"
+          }
+        ]
+      },
+      {
+        "kind": "user",
+        "text": "and tell me when it is done",
+        "origin": "voice",
+        "state": "sent"
+      }
+    ],
+    "state": {
+      "voice_active": false
+    }
+  }
+}

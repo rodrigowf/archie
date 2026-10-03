@@ -1,0 +1,238 @@
+{
+  "name": "tool_result_empty_id_parallel_reconcile",
+  "description": "Current backend shape (BF-1): two parallel Bash calls, both results arrive with tool_use_id \"\" and empty output. They cannot be attributed (unattributed); at turn end the cards are no_result; the REST reconcile fills the real outputs and clears the unattributed list.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "ta",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "ls"
+      },
+      "seq": 1,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "tb",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "pwd"
+      },
+      "seq": 2,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "",
+      "output": "",
+      "is_error": false,
+      "seq": 3,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "",
+      "output": "",
+      "is_error": false,
+      "seq": 4,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_complete",
+      "text": "Here is what I found.",
+      "seq": 5,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "usage": {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 990,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 50
+      },
+      "input_tokens": 1000,
+      "output_tokens": 50,
+      "num_turns": 1,
+      "session_id": "sdk-1",
+      "is_error": false,
+      "result": "",
+      "seq": 6,
+      "stream_id": "L1:1759500000000"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "send",
+      "text": "inspect"
+    },
+    {
+      "at": 7,
+      "type": "rest_page",
+      "mode": "reconcile",
+      "response": {
+        "messages": [
+          {
+            "role": "user",
+            "text": "inspect",
+            "blocks": [
+              {
+                "type": "text",
+                "text": "inspect",
+                "tool_use_id": null,
+                "tool_name": null,
+                "tool_input": null,
+                "output": null,
+                "is_error": false
+              }
+            ],
+            "timestamp": "2026-10-03T12:00:00+00:00"
+          },
+          {
+            "role": "assistant",
+            "text": "",
+            "blocks": [
+              {
+                "type": "tool_use",
+                "text": null,
+                "tool_use_id": "ta",
+                "tool_name": "Bash",
+                "tool_input": {
+                  "command": "ls"
+                },
+                "output": null,
+                "is_error": false
+              }
+            ],
+            "timestamp": "2026-10-03T12:00:00+00:00"
+          },
+          {
+            "role": "assistant",
+            "text": "",
+            "blocks": [
+              {
+                "type": "tool_use",
+                "text": null,
+                "tool_use_id": "tb",
+                "tool_name": "Bash",
+                "tool_input": {
+                  "command": "pwd"
+                },
+                "output": null,
+                "is_error": false
+              }
+            ],
+            "timestamp": "2026-10-03T12:00:00+00:00"
+          },
+          {
+            "role": "user",
+            "text": "",
+            "blocks": [
+              {
+                "type": "tool_result",
+                "text": null,
+                "tool_use_id": "ta",
+                "tool_name": null,
+                "tool_input": null,
+                "output": "a.txt",
+                "is_error": false
+              }
+            ],
+            "timestamp": "2026-10-03T12:00:00+00:00"
+          },
+          {
+            "role": "user",
+            "text": "",
+            "blocks": [
+              {
+                "type": "tool_result",
+                "text": null,
+                "tool_use_id": "tb",
+                "tool_name": null,
+                "tool_input": null,
+                "output": "/home/rodrigo",
+                "is_error": false
+              }
+            ],
+            "timestamp": "2026-10-03T12:00:00+00:00"
+          },
+          {
+            "role": "assistant",
+            "text": "Here is what I found.",
+            "blocks": [
+              {
+                "type": "text",
+                "text": "Here is what I found.",
+                "tool_use_id": null,
+                "tool_name": null,
+                "tool_input": null,
+                "output": null,
+                "is_error": false
+              }
+            ],
+            "timestamp": "2026-10-03T12:00:00+00:00"
+          }
+        ],
+        "total_count": 16,
+        "has_more": true,
+        "start_index": 10
+      }
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "inspect",
+        "origin": "local",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "ta",
+            "tool_name": "Bash",
+            "tool_input": {
+              "command": "ls"
+            },
+            "status": "done",
+            "output": "a.txt"
+          },
+          {
+            "type": "tool",
+            "tool_use_id": "tb",
+            "tool_name": "Bash",
+            "tool_input": {
+              "command": "pwd"
+            },
+            "status": "done",
+            "output": "/home/rodrigo"
+          },
+          {
+            "type": "text",
+            "text": "Here is what I found.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "unattributed_results": []
+  }
+}

@@ -1,0 +1,91 @@
+{
+  "name": "stall_notice_repeated_seq",
+  "description": "session_stalled carries the previous event's seq (G-18). It must not be dropped by seq dedupe, and a repeated notice updates the banner.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "t1",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "pytest -q",
+        "description": "Run tests"
+      },
+      "seq": 5,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "session_stalled",
+      "elapsed_seconds": 120.4,
+      "last_tool_name": "Bash",
+      "last_tool_use_id": "t1",
+      "seq": 5,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "session_stalled",
+      "elapsed_seconds": 180.5,
+      "last_tool_name": "Bash",
+      "last_tool_use_id": "t1",
+      "seq": 5,
+      "stream_id": "L1:1759500000000"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "send",
+      "text": "run tests"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "run tests",
+        "origin": "local",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "t1",
+            "tool_name": "Bash",
+            "tool_input": {
+              "command": "pytest -q",
+              "description": "Run tests"
+            },
+            "status": "running",
+            "output": null
+          }
+        ]
+      }
+    ],
+    "state": {
+      "status": "tool_use",
+      "in_turn": true,
+      "stall": {
+        "elapsed_seconds": 180.5,
+        "last_tool_name": "Bash",
+        "last_tool_use_id": "t1"
+      },
+      "checkpoint": {
+        "stream_id": "L1:1759500000000",
+        "seq": 5
+      }
+    }
+  }
+}
