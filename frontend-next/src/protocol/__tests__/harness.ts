@@ -166,6 +166,9 @@ export const STATE_KEYS: Record<string, (c: Conversation) => unknown> = {
   history_has_more: (c) => c.history.hasMore,
   history_start_index: (c) => c.history.startIndex,
   last_start: (c) => c.startRequest,
+  connection_banner: (c) => c.connectionBanner,
+  agent_approvals: (c) =>
+    c.agentApprovals.map((a) => ({ local_id: a.localId, request_id: a.request_id, tool_name: a.tool_name, tool_input: a.tool_input })),
 };
 
 export interface Normalised {

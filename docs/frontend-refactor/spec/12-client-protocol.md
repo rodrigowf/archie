@@ -74,6 +74,7 @@ The backend overloads `session_id` (G-13). Clients MUST use these names internal
 - **ID-1.** On every `session_started`, the client MUST adopt `session_started.session_id` as the conversation's `localId`, even if it differs from the one it sent (G-16). The view key MUST be re-keyed without losing state.
 - **ID-2.** The client learns `sdkId` from, in order of preference: the first non-null `turn_complete.session_id`; `agent_session_opened.sdk_session_id`; `GET /api/sessions/pool/live`. After the first `turn_complete` with no `session_id` (the Gemini harness never sends one), the client MUST do one `GET /api/sessions/pool/live` to learn it.
 - **ID-3.** Every history REST call MUST use `sdkId`. A view with `sdkId == null` MUST disable rename, rewind, fork, session config and REST history, and SHOULD say why ("available after the first reply"). It MUST NOT silently ignore the action (W-6.2).
+- **ID-4.** On an orchestrator conversation, a non-empty `session_started.jsonl_id` MUST be adopted as `sdkId` (the orchestrator's `sdkId` is its JSONL id, G-14; backend O-3). Agent conversations ignore the field. *Rationale:* every orchestrator `session_started` carries it (`api/routes/orchestrator.py:531,558,610,627,780`), so history REST works at once, with no `pool/live` lookup. Fixture `orchestrator_agent_approvals_and_jsonl_id`.
 
 ### 2.2 SessionRef
 
@@ -116,6 +117,7 @@ Conversation = {
   promptSinceTurnEnd: boolean,
   compactPending: boolean,
   pendingInjects: string[],               // orchestrator inject_text texts awaiting their echo
+  agentApprovals: { localId, request_id, tool_name, tool_input }[],  // orchestrator: agent permissions seen via nested_session_event (PM-5)
   voiceActive: boolean,                   // orchestrator: voice live on ANY device (§7)
   openVoiceUser: UserEntry | null,        // Gemini transcript being coalesced (§4.7)
   speechAnchor: number | null,            // §4.7
@@ -131,6 +133,7 @@ Conversation = {
 
   // reducer bookkeeping
   pendingSplit: TextBlock | ThinkingBlock | null,  // streaming block closed by an interleaved entry (I-5)
+  converting: boolean,                    // a history page is being converted into a scratch list (H-6)
   expectStopAck: boolean,                 // our own stop/close: swallow the session_stopped reply
 
   // connection-manager bookkeeping (§3.6, §5.2)
@@ -279,7 +282,7 @@ sendStart(conv):
 - **T-12.** Responses to `start`:
   - `status{connecting}` → `status = connecting`.
   - `session_started` → `connState = subscribed`; clear `connectionBanner`; adopt `localId` (ID-1); set `counters.contextWindow` from `context_window` (chat) or `model_info.model_info.context_window` (orchestrator), fallback 200 000; then §3.6.
-  - `error{start_timeout|start_failed}` → `connState = failed`, `connectionBanner = {code, detail}`, offer Retry. No automatic retry loop.
+  - `error{start_timeout|start_failed}` → `connState = failed`, `connectionBanner = {code, detail}`, offer Retry. No automatic retry loop. Every start error also ends the wait for `session_started` (SEQ-8).
   - `error{orchestrator_active}` → §6.12 (conflict). `error{orchestrator_stopping}` → retry `start` once after 1 s, then fail.
   - `error{not_started}` received at any time → re-send `start` once.
 
@@ -305,8 +308,8 @@ onVisible():                                    // web visibilitychange→visibl
 ```
 onFrame(conv, f):
   if f.type in ("voice_audio_out"): audio.push(f); return          // L-3
-  if conv.awaitingSessionStarted and f.type != "session_started":
-       conv.preStart.push(f); return
+  if conv.awaitingSessionStarted and f.type != "session_started" and f.type != "error":
+       conv.preStart.push(f); return                               // SEQ-5 (errors bypass the hold)
   if f.type == "session_started": onSessionStarted(conv, f); return
   dispatch(conv, f)
 
@@ -342,13 +345,27 @@ onSessionStarted(conv, f):
   conv.termination = null      // only if this start created/attached a live session
 ```
 
+```
+onStartError(conv, code, detail):                                  // SEQ-8; called by onError (§4.3)
+  if code == "orchestrator_stopping" and not conv.stoppingRetried:
+       conv.stoppingRetried = true; retry start after 1 s; return    // T-12; keep waiting
+  conv.connState = failed
+  conv.connectionBanner = { code, detail }                         // never an entry (I-15)
+  if conv.awaitingSessionStarted:
+       conv.awaitingSessionStarted = false
+       held = conv.preStart; conv.preStart = []
+       for g in held: dispatch(conv, g)                            // in arrival order, never dropped (L-2)
+// conv.stoppingRetried is reset by onSessionStarted
+```
+
 - **SEQ-1.** Within one `stream_id`, a frame with `seq <= checkpoint.seq` MUST be dropped. Gaps are normal (G-18) and MUST NOT trigger anything.
 - **SEQ-2.** `session_stalled` MUST be exempt from seq dedupe: it carries the previous event's seq (`manager/claude/session.py:585-591` + `api/pool.py:1257-1264`, G-18).
 - **SEQ-3.** Unsequenced frames (`user_message`, `status`, `session_*`, `error`, `compact_complete` from `compact`, the receive-loop-exit `turn_complete`) are always applied.
 - **SEQ-4.** A frame with a *different* `stream_id` than the checkpoint MUST be applied and replaces the checkpoint (the CLI subprocess reconnected).
-- **SEQ-5.** Frames received after `start` was sent and before `session_started` MUST be held (`preStart`). If a replay was requested and granted, held seq-stamped frames MUST be discarded because the replay re-delivers them in order (`api/routes/chat.py:296-301`: the socket is subscribed before `session_started` is sent). *Rationale:* applying them first and the replay later would reorder blocks. **Exception:** an `error` frame received while `preStart` is active (a failed `start`) bypasses the hold and is applied immediately; otherwise a start failure would be held forever and never shown.
+- **SEQ-5.** Frames received after `start` was sent and before `session_started` MUST be held (`preStart`). If a replay was requested and granted, held seq-stamped frames MUST be discarded because the replay re-delivers them in order (`api/routes/chat.py:296-301`: the socket is subscribed before `session_started` is sent). *Rationale:* applying them first and the replay later would reorder blocks. **Exception:** an `error` frame received while `preStart` is active (a failed `start`) bypasses the hold and is applied immediately; otherwise a start failure would be held forever and never shown. A start error also ends the wait and releases the held frames (SEQ-8).
 - **SEQ-6.** `replay_overflow: true` ⇒ the client MUST perform a canonical reload from REST (§5.6). If the conversation has no `sdkId`, it MUST first try `pool/live`; if there is still none, it sets `gapPossible = true` and keeps its entries.
 - **SEQ-7.** Qwen/Gemini agent sessions and the orchestrator have no replay. After a reconnect during which such a conversation was `inTurn`, the client MUST set `gapPossible = true`. For Qwen/Gemini agent sessions it SHOULD then run a canonical reload at the next `endTurn`, or immediately if `pool/live` reports `idle`. For the orchestrator it MUST NOT reload automatically (§5.7, A-4.4.1): it only offers "Reload".
+- **SEQ-8.** A start error (`start_timeout`, `start_failed`, `orchestrator_active`, or `orchestrator_stopping` after its one retry) ends the wait for `session_started`: the client MUST clear `awaitingSessionStarted` and dispatch the held `preStart` frames in arrival order (`onStartError`). They MUST NOT be dropped (L-2). Any other `error` received while waiting is applied at once (SEQ-5 exception) but does not end the wait. *Rationale:* frames can already be flowing to a socket whose `start` then fails: every orchestrator socket is a pool watcher from connect (`api/routes/orchestrator.py:127-128`), and a chat socket keeps an earlier subscription across a second `start` (G-6). The start error is the last answer to that `start` (`api/routes/chat.py:362-373`; `api/routes/orchestrator.py:463,637,718`), so nothing else would release them. Fixture `start_failed_releases_held_frames`.
 
 ### 3.7 Pool sync, watcher events, multi-client and focus
 
@@ -378,6 +395,7 @@ onWatcherEvent(e):               // only arrives on the orchestrator WS, even un
 
 - **FOCUS-1.** No server-originated event (pool sync, `agent_session_opened`, `user_message`, a background turn, a voice transcript) may change which view is active or navigate the UI. Only a direct user action may change focus. Clients MAY open a **background** view for a session started elsewhere (web parity), shown with an unread/live badge, but it MUST NOT become active (fixes W-6.1 focus stealing, A-1.1 auto-navigation).
 - **FOCUS-2.** `agent_session_closed` MUST check `is_orchestrator` before acting on a view (G-39).
+- **WATCH-1.** A conversation that itself receives `agent_session_closed` with its own `localId` and the matching `is_orchestrator` flag (FOCUS-2) MUST treat it as a server `session_stopped`: `status = stopped` (a `terminated` status is kept), `endTurn`, `endVoice`. The view stays open (FOCUS-3). In practice this is the orchestrator conversation, whose socket receives the watcher events. *Rationale:* `pool.stop_orchestrator()` clears the orchestrator's subscribers without sending them any frame and only notifies watchers (`api/pool.py:591-602`). Every orchestrator socket is a watcher (`api/routes/orchestrator.py:127-128`), so this frame is the orchestrator view's only signal that its session ended elsewhere. Fixture `orchestrator_closed_by_pool`.
 - **FOCUS-3.** A view the user has interacted with MUST NOT be closed by a server event. It shows `stopped` with a "Session ended" state and a Resume action (`start` with a new `localId` and `resume_sdk_id`).
 - **MC-1.** Mutations are not broadcast (G-27). After rename, delete, duplicate, rewind, fork, close and config writes, the acting client refreshes its own stores. Other clients see changes on their next `refreshList()` (visible, watcher event, or any `turn_complete`).
 - **MC-2.** Titles are derived, not stored on the view (02 §1.6 load-bearing): `title = list.find(s => s.session_id == sdkId)?.title ?? list.find(s => s.local_id == localId)?.title ?? placeholder`. `refreshList()` runs after every `endTurn` of any view (debounced to 1 per 2 s).
@@ -419,6 +437,7 @@ The reducer consumes these inputs, already deduplicated by the connection manage
 | `datachannel_event{event}` | OpenAI WebRTC data channel, **inbound** events, voice owner only (§7) |
 | `local_*` actions | user actions (§6): `local_send`, `local_send_audio`, `local_inject`, `local_interrupt`, `local_compact`, `local_close`/`local_stop` (sets `expectStopAck`) |
 | `voice_local_end` | the voice controller tore voice down locally (timeout, fatal error) |
+| `clear_agent_approvals{localId}` | orchestrator view: the agent view `localId` saw its turn end (PM-5, §6.9) |
 
 ### 4.3 Reducer pseudo-code
 
@@ -431,7 +450,7 @@ function last(): Entry | null { return entries.length ? entries[entries.length -
 function tail(): AssistantEntry {                              // I-1
   const e = last()
   if (e && e.kind == "assistant") return e
-  finalizeOpenVoiceUser()
+  if (!converting) finalizeOpenVoiceUser()                     // H-6
   const n = { kind: "assistant", blocks: [] }
   entries.push(n)
   return n
@@ -455,20 +474,20 @@ function closeOpenBlock() {
 function pushBlock(b) {                                        // b.origin defaults to "live"
   closeOpenBlock()
   const t = tail()
-  if (pendingSplit && !(pendingSplit.type == b.type && pendingSplit.scope == b.scope)) pendingSplit = null
+  if (!converting && pendingSplit && !(pendingSplit.type == b.type && pendingSplit.scope == b.scope)) pendingSplit = null
   t.blocks.push(b)
 }
 
 function appendEntry(x) {                                      // every non-assistant entry
-  if (x !== openVoiceUser) finalizeOpenVoiceUser()
-  const e = last()
-  if (e && e.kind == "assistant" && e.blocks.length && e.blocks.at(-1).streaming) {
+  if (!converting && x !== openVoiceUser) finalizeOpenVoiceUser()   // H-6: history conversion leaves
+  const e = last()                                             // the live state alone
+  if (!converting && e && e.kind == "assistant" && e.blocks.length && e.blocks.at(-1).streaming) {
     const b = e.blocks.at(-1)
     b.streaming = false
     pendingSplit = b                                           // a continuation may follow (I-5)
   }
   entries.push(x)
-  if (x.kind == "user") promptSinceTurnEnd = true
+  if (!converting && x.kind == "user") promptSinceTurnEnd = true
 }
 
 function appendNoticeOnce(notice) {
@@ -744,12 +763,28 @@ function reduce(f) {
   case "voice_ended":
   case "voice_stopped":     return endVoice()
   case "session_started":   if (f.voice === true) voiceActive = true; return   // fields handled in §3.6
-  case "nested_session_event":                                 // orchestrator WS: route, do not render here
-    routeToAgentView(f.session_id, f.event_data); return
+  case "nested_session_event": {                               // orchestrator WS: route, do not render here
+    routeToAgentView(f.session_id, f.event_data)
+    if (ref.kind != "orchestrator" || !f.event_data?.request_id) return   // PM-5
+    const rid = f.event_data.request_id
+    const has = agentApprovals.some(a => a.localId == f.session_id && a.request_id == rid)
+    if (f.event_type == "permission_request" && !has)
+      agentApprovals.push({ localId: f.session_id, request_id: rid,
+                            tool_name: f.event_data.tool_name ?? "", tool_input: f.event_data.tool_input ?? {} })
+    else if (f.event_type == "permission_resolved" && has)
+      agentApprovals = agentApprovals.filter(a => !(a.localId == f.session_id && a.request_id == rid))
+    return
+  }
+  case "agent_session_closed":                                 // WATCH-1: this conversation itself left the pool
+    if (f.session_id == ref.localId && (f.is_orchestrator === true) == (ref.kind == "orchestrator")) {
+      if (status != "terminated") status = "stopped"
+      endTurn("stopped"); endVoice()
+    }
+    return
   case "model_changed": case "model_info":
     counters.contextWindow = f.model_info?.model_info?.context_window ?? counters.contextWindow; return
   default: return                                              // voice_ending, voice_command, voice_audio_out,
-                                                               // voice_connection_error, agent_session_*,
+                                                               // voice_connection_error, agent_session_opened,
                                                                // models_list, audio_upload, ping, unknown:
                                                                // handled outside the reducer or ignored
   }
@@ -802,7 +837,11 @@ const ORCH_NO_IDLE_AFTER = ["send_failed", "send_audio_failed", "compact_failed"
 function onError(code, detail) {
   if (code == "interrupted") { if (inTurn) appendNoticeOnce("interrupted"); return }   // orchestrator agent loop
   const isTurnFailure = (ref.kind == "agent" ? TURN_FAILURE_AGENT : TURN_FAILURE_ORCH).includes(code)
-  if (!isTurnFailure) { connectionOrVoiceBanner(code, detail); return }     // §4.4.4: never an entry
+  if (!isTurnFailure) {                                        // §4.4.4: never an entry
+    if (["start_timeout", "start_failed", "orchestrator_active", "orchestrator_stopping"].includes(code))
+      return onStartError(code, detail)                        // SEQ-8 (§3.6)
+    connectionOrVoiceBanner(code, detail); return
+  }
   appendEntry({ kind: "notice", notice: "error", text: detail || code, data: { code } })
   compactPending = false
   if (ref.kind == "agent") { endTurn("error"); return }
@@ -834,6 +873,7 @@ function local_compact()     { compactPending = true
                                if (ref.kind == "agent") status = "compacting"; else localTurnsPending += 1 }
 function local_stop()        { expectStopAck = true }          // before sending stop or POST close
 function voice_local_end()   { endVoice() }
+function clear_agent_approvals(localId) { agentApprovals = agentApprovals.filter(a => a.localId != localId) }  // PM-5
 ```
 
 `allBlocks()` iterates the blocks of every `AssistantEntry` in order; `allToolBlocks()` filters tool blocks. `markInjectSent(text)` sets `state = "sent"` on the oldest pending inject entry with that text. `routeToAgentView` feeds `event_data` into the open agent view with that `localId` (as if it came on its chat WS; I-11 makes the double delivery harmless) and into the orchestrator-level approvals list (§6.9).
@@ -931,6 +971,7 @@ Rules:
 - **PM-2.** `permission_resolved` updates the block in place by `request_id` and MUST NOT append a timeline entry (W-5's common trigger). A resolve for an unknown `request_id` is ignored.
 - **PM-3.** The approval bar shows the newest `pending` permission of the view. It closes when that block leaves `pending` (resolve by anyone, `endTurn`, stop, terminate), never on a different `request_id`.
 - **PM-4.** Pending permissions are expired as `denied / system / "stream ended"` at `endTurn` (the backend auto-denies but does not broadcast it, G-17).
+- **PM-5.** On an orchestrator conversation, `nested_session_event{event_type:"permission_request"}` MUST add `{localId: session_id, request_id, tool_name, tool_input}` to `agentApprovals` once per `(localId, request_id)`. `nested_session_event{event_type:"permission_resolved"}` MUST remove it, and so does `clear_agent_approvals{localId}` (the runtime sends it when that agent's view saw its turn end, §6.9). Neither adds a timeline entry. The `event_data` is also routed to the open agent view (`routeToAgentView`). *Rationale:* the pool mirrors exactly these two event types, keyed by the agent's `local_id`, to orchestrator subscribers (`api/pool.py:942-952`). It is the orchestrator device's only source for the "Agent approvals" list (§6.9). Fixture `orchestrator_agent_approvals_and_jsonl_id`.
 
 ### 4.7 Voice transcripts in the timeline
 
@@ -1004,7 +1045,9 @@ function applyHistoryPage(mode, resp) {          // mode: "replace" | "prepend" 
                                                   // pendingSplit, openVoiceUser, speechAnchor
   const kept = entries
   entries = []                                    // convert into a scratch list; maps stay shared
+  converting = true                               // H-6: no live-state side effects while converting
   for (const p of resp.messages) convertPreview(p)
+  converting = false
   const page = entries
   entries = kept
   const lastOfPage = page.at(-1)
@@ -1021,6 +1064,7 @@ function applyHistoryPage(mode, resp) {          // mode: "replace" | "prepend" 
       page.pop()
     }
     entries = page.concat(entries)
+    if (speechAnchor != null) speechAnchor += page.length   // H-6: the anchor keeps pointing at the same place
   }
   history = { loaded: true, startIndex: resp.start_index, totalCount: resp.total_count, hasMore: resp.has_more }
 }
@@ -1110,6 +1154,7 @@ loadOlder(conv):
 
 - **H-4.** Trigger: web, `scrollTop <= 80 px`; Android, first visible item index ≤ 1 after the initial scroll, with the load-more guard (03 §8, `5c029d6`). Scroll restoration rules are in the UI specs (02 §7.7 freeze buffer and prepend anchoring remain load-bearing).
 - **H-5.** Prepending merges a run that the page boundary split (§5.1). Tool results from newer pages wait in `orphanResults` and attach when the older page brings their `tool_use` (fixes W-17, A-4.4.5).
+- **H-6.** Converting a history page MUST NOT change live-turn state (`converting` in §4.3/§5.1). On a `prepend`, `promptSinceTurnEnd`, `pendingSplit` and `openVoiceUser` keep their values, so an open Gemini transcript stays open and keeps coalescing. A pending `speechAnchor` MUST be shifted by the number of entries prepended (counted after the boundary merge). A `replace` resets these fields anyway (`resetContent`). *Rationale:* an older page (`GET …/messages?before=`, `manager/store.py:286-296`) is history, not a new prompt. Without this rule, scrolling up between turns blocks the dispatch of a queued prompt (I-12), and scrolling up while the user speaks misplaces their transcript (I-9) or splits it in two. Fixtures `history_prepend_queued_prompt_dispatch`, `history_prepend_voice_anchor_shift`.
 
 ### 5.4 History/live overlap dedupe
 
@@ -1290,7 +1335,7 @@ deny with feedback: just send the text: WS→ {type:"send", text}
 ⇐ permission_resolved{request_id, decision, responder, message}   (first answer wins; user or orchestrator)
 ```
 - The bar disables its buttons after one click (local UI flag) and closes only on PM-3.
-- From the orchestrator view, `nested_session_event{session_id, event_type:"permission_request", event_data}` adds the request to an "Agent approvals" list in the orchestrator view (no timeline entry). Answering sends `permission_response{session_id:<agent localId>, request_id, decision}` on that agent's chat WS if a view is open, else on a transient unsubscribed chat WS (T-8). `nested_session_event{event_type:"permission_resolved"}` removes it. The list also clears entries whose agent view saw the turn end. This is new on both platforms (02 F-25; 03 §5).
+- From the orchestrator view, `nested_session_event{session_id, event_type:"permission_request", event_data}` adds the request to an "Agent approvals" list in the orchestrator view (no timeline entry). Answering sends `permission_response{session_id:<agent localId>, request_id, decision}` on that agent's chat WS if a view is open, else on a transient unsubscribed chat WS (T-8). `nested_session_event{event_type:"permission_resolved"}` removes it. The list also clears entries whose agent view saw the turn end. This is new on both platforms (02 F-25; 03 §5). The list is conversation state (`agentApprovals`, PM-5).
 
 ### 6.10 New agent session
 
@@ -1641,6 +1686,11 @@ IDs: **W-n** = item n of 02 §6.3; **W-6.1 / W-6.2** = the lists in 02 §6.1 / �
 | `compaction` | auto + manual compaction notices, I-2 |
 | `background_notification_wake_turn` | BG-1, TL-5 |
 | `orchestrator_echoed_prompt_no_background_notice` | BG-1 (O-3 echo is a visible prompt) |
+| `history_prepend_queued_prompt_dispatch` | H-6 (prepend keeps `promptSinceTurnEnd`), I-12 |
+| `history_prepend_voice_anchor_shift` | H-6 (anchor shift, open transcript survives a prepend), I-9 |
+| `orchestrator_closed_by_pool` | WATCH-1, FOCUS-2 |
+| `start_failed_releases_held_frames` | SEQ-5 exception, SEQ-8, I-15 |
+| `orchestrator_agent_approvals_and_jsonl_id` | ID-4, PM-5 |
 | `voice_transcript_coalescing_gemini` | §4.7 fragments |
 | `voice_late_user_transcript_anchor` | I-9 |
 | `queued_prompt_echoed_twice` | G-5, I-12 (observer) |

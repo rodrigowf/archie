@@ -16,7 +16,7 @@ describe('protocol fixtures', () => {
   it('loads every *.json fixture in the directory', () => {
     const onDisk = fs.readdirSync(dir).filter((f: string) => f.endsWith('.json'));
     expect(files.length).toBe(onDisk.length);
-    expect(files.length).toBeGreaterThanOrEqual(33);
+    expect(files.length).toBeGreaterThanOrEqual(38);
     for (const { file, fixture } of files) expect(`${fixture.name}.json`).toBe(file);
   });
 

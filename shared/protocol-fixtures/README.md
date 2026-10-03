@@ -137,6 +137,8 @@ Only the keys present in a fixture are compared.
 | `gap_possible`, `reloading` | connection-manager flags |
 | `history_has_more`, `history_start_index` | pagination state |
 | `last_start` | the last `start` message produced by `ws_open` (exact JSON) |
+| `connection_banner` | `conv.connectionBanner`: `{code, detail}` or `null` (§3.3, SEQ-8) |
+| `agent_approvals` | `conv.agentApprovals` in list order, each normalised as `{local_id, request_id, tool_name, tool_input}` (PM-5) |
 
 ### `expected.controller`
 
