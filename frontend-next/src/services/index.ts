@@ -69,6 +69,7 @@ export {
 } from './sessions/manager';
 export {
   duplicateSession,
+  ensureMemoryTree,
   loadConfigCatalogs,
   loadGoogleVoiceModels,
   loadServerConfig,

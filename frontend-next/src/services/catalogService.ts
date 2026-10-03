@@ -76,6 +76,15 @@ export const refreshMemoryTree = singleFlight(async () => {
   }
 });
 
+/**
+ * Memory is pull-only and refreshed "when the section opens; manual Refresh" (spec 12 §9.2), so
+ * it is not loaded at start: the Memory pane calls this on open (a fetch only the first time,
+ * `refreshMemoryTree` for Refresh).
+ */
+export function ensureMemoryTree(): Promise<void> {
+  return catalogStore.getState().memory.loadedAt > 0 ? Promise.resolve() : refreshMemoryTree();
+}
+
 const listRefresh = debounced(refreshSessionList, LIST_REFRESH_DEBOUNCE_MS);
 const visualsRefresh = debounced(refreshVisuals, LIST_REFRESH_DEBOUNCE_MS);
 

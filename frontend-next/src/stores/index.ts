@@ -21,6 +21,7 @@ export { useShallow } from 'zustand/react/shallow';
 export * from './capabilities';
 export * from './catalog';
 export * from './connection';
+export * from './liveStatus';
 export * from './prefs';
 export * from './scheduler';
 export * from './serverConfig';

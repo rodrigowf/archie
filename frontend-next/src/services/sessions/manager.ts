@@ -26,6 +26,7 @@ import {
   activateTab,
   catalogStore,
   clearSessionRegistry,
+  finishTabRestore,
   findTab,
   getSessionEntry,
   hydrateTabs,
@@ -557,7 +558,11 @@ export function startServices(o: StartServicesOptions = {}): void {
   unsubscribers.push(tabsStore.subscribe((s, prev) => s.activeId !== prev.activeId && syncHiddenFlags()));
   // NOTE (P-1): deliberately NO pagehide / beforeunload / unload handlers.
   if (!o.skipInitialSync) {
-    void refreshSessionList().then(() => syncPool().catch(() => undefined));
+    // the list first (titles, providers), then the live tabs; the restore window closes after it
+    void refreshSessionList()
+      .then(() => syncPool().catch(() => undefined))
+      .then(() => finishTabRestore());
+    void refreshVisuals(); // visual tab titles; the Visuals pane refreshes again when it opens (§9.1)
     void probeBackendCapabilities();
   }
 }

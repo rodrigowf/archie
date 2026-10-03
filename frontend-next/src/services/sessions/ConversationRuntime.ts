@@ -21,7 +21,7 @@ import {
   type ServerFrame,
   type SessionKind,
 } from '@/protocol';
-import { showSnackbar, type RuntimeHandle, type SessionStoreHandle } from '@/stores';
+import { markTabUnseen, publishLiveStatus, showSnackbar, type RuntimeHandle, type SessionStoreHandle } from '@/stores';
 import { getEnv } from '../env';
 import { api } from '../http/endpoints';
 import { errorMessage, isApiError } from '../http/errors';
@@ -68,6 +68,7 @@ export abstract class ConversationRuntime implements RuntimeHandle {
     protected readonly hooks: RuntimeHooks,
   ) {
     this.conv = initial;
+    publishLiveStatus(initial.ref.localId, initial);
   }
 
   get localId(): string {
@@ -95,8 +96,13 @@ export abstract class ConversationRuntime implements RuntimeHandle {
     const r = stepConversation(before, input);
     const after = r.state;
     this.conv = after;
-    if (after !== before) this.handle.setConv(after);
     if (before.ref.localId !== after.ref.localId) this.hooks.onRekey(this, before.ref.localId, after.ref.localId);
+    if (after !== before) {
+      this.handle.setConv(after);
+      publishLiveStatus(after.ref.localId, after); // never frozen: the tab strip reads it while hidden
+      // unseen = new activity while the tab is in the background (not a history load)
+      if (input.type === 'frame' && after.entries.length > before.entries.length) markTabUnseen(after.ref.localId);
+    }
     if (after.ref.sdkId && before.ref.sdkId !== after.ref.sdkId) this.hooks.onSdkId(this, after.ref.sdkId);
     // a (re)subscribe: first subscribe, or the answer to a re-sent start on a subscribed socket
     const answered = before.awaitingSessionStarted && !after.awaitingSessionStarted;

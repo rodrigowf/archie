@@ -24,7 +24,7 @@ export interface Prefs {
 export const PREFS_STORAGE_KEY = 'prefs:v1';
 
 export const DEFAULT_PREFS: Prefs = {
-  theme: 'system',
+  theme: 'dark', // D3: dark-first; system and light are opt-in
   textSize: 'default',
   reduceMotion: false,
   syntaxHighlighting: true,

@@ -7,6 +7,7 @@
  * their concrete runtime back through `getSessionRuntime` (`@/services`).
  */
 import { createStore } from 'zustand/vanilla';
+import { rekeyLiveStatus, removeLiveStatus } from './liveStatus';
 import type { SessionStoreHandle } from './sessionStore';
 
 /** What the registry needs from a runtime. */
@@ -53,6 +54,7 @@ export function rekeySession(oldId: string, newId: string): void {
   entries.delete(oldId);
   entries.set(newId, e);
   e.handle.rekey(newId);
+  rekeyLiveStatus(oldId, newId);
   bump();
 }
 
@@ -63,6 +65,7 @@ export function removeSession(localId: string, forget = false): void {
   entries.delete(localId);
   e.runtime.dispose();
   e.handle.dispose(forget);
+  removeLiveStatus(localId);
   bump();
 }
 

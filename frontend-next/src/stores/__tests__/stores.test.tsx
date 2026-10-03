@@ -301,7 +301,7 @@ describe('tabs', () => {
 
 describe('prefs, snackbar, connection, capabilities', () => {
   it('prefs sanitize, persist and apply', () => {
-    expect(sanitizePrefs({ theme: 'neon', textSize: 'large', syntaxHighlighting: 'yes' })).toMatchObject({ theme: 'system', textSize: 'large', syntaxHighlighting: true });
+    expect(sanitizePrefs({ theme: 'neon', textSize: 'large', syntaxHighlighting: 'yes' })).toMatchObject({ theme: 'dark', textSize: 'large', syntaxHighlighting: true });
     setPref('theme', 'dark');
     setPref('theme', 'dark');
     setPref('reduceMotion', true);
