@@ -533,7 +533,7 @@ vanilla `createStore` and read through typed hooks, so services can update them 
 
 | Store (`src/stores/`) | Holds | Persistence |
 |---|---|---|
-| `sessionStore.ts` | **Factory**: one store per open session (`local_id`): protocol state, draft text, scroll anchor, pending-voice flags | Draft in `sessionStorage` (`draft:<local_id>`); resume checkpoint via `protocol/resume` in `sessionStorage` (per tab, **[LOAD-BEARING]** inv02 F-24) |
+| `sessionStore.ts` | **Factory**: one store per open session (`local_id`): protocol state, draft text, scroll anchor, pending-voice flags | Draft in `sessionStorage` (`draft:<local_id>`); resume checkpoint **in memory only** (spec 12 T-10: a reload rebuilds from REST and never sends a persisted `resume_from`, which fixes the duplicate-on-reload bug W-7; in-page reconnects still replay, preserving inv02 F-24) |
 | `sessionRegistry.ts` | Map `local_id → { store, runtime }`; creation and disposal | — |
 | `tabs.ts` | Ordered tab list (`kind: archie | agent | memory | visual`, ids, `resumeSdkId`, unseen badge), active id | Order and doc tabs in `localStorage` (`tabs:v1`). Chat tabs are re-derived from `pool/live` on load (inv02 F-23) |
 | `catalog.ts` | Session history list, memory tree, visuals list, with loading/error | — |
@@ -1067,7 +1067,7 @@ let a dependent start before its dependency finishes.
   G-1…G-40.
 - **Boundary:** `src/services/`, `src/stores/`.
 - **DoD:** tests with a fake WebSocket and fake timers: reconnect 2 s × 10, paused while hidden,
-  `start` re-sent on open and on visibility, checkpoint per tab in `sessionStorage`, replay
+  `start` re-sent on open and on visibility, in-memory checkpoint (spec 12 T-10), replay
   overflow → REST reload, adoption of `session_started.session_id`, pool sync without focus
   stealing, `agent_session_closed` with `is_orchestrator`, `ApiError.detail` verbatim, HTML 413
   mapped, frame coalescing (one notify per frame), frozen-while-hidden snapshots, cast probe

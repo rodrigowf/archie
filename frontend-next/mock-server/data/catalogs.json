@@ -1,0 +1,40 @@
+{
+  "auth_status": { "authenticated": true, "auth_url": null, "headless": true },
+  "providers": { "providers": [
+    { "id": "claude", "label": "Claude Code", "description": "Anthropic Claude Code CLI" },
+    { "id": "qwen", "label": "Qwen Code", "description": "Qwen Code CLI" },
+    { "id": "gemini", "label": "Gemini CLI", "description": "Google Gemini CLI" }
+  ] },
+  "qwen_models": { "models": ["qwen3-coder-plus", "qwen3-coder-flash"] },
+  "google_voice_models": { "models": [
+    { "id": "gemini-live-2.5-flash", "label": "Gemini Live 2.5 Flash", "voice": "Puck", "voices": [{ "id": "Puck", "label": "Puck", "description": "Upbeat" }, { "id": "Kore", "label": "Kore", "description": "Firm" }], "transcription_languages": ["en", "pt"], "default_transcription_language": "", "default": true, "description": "Low-latency live model" }
+  ] },
+  "orchestrator_models": {
+    "models": [
+      { "provider": "anthropic", "model_id": "claude-sonnet-4-5-20250929", "display_name": "Claude Sonnet 4.5", "supports_audio": false, "supports_vision": true, "supports_tools": true, "max_tokens": 8192, "context_window": 200000 },
+      { "provider": "openai", "model_id": "gpt-audio-mini", "display_name": "GPT Audio Mini", "supports_audio": true, "supports_vision": false, "supports_tools": true, "max_tokens": 4096, "context_window": 128000 }
+    ],
+    "audio_capable_models": ["gpt-audio-mini"],
+    "default_model": "claude-sonnet-4-5-20250929"
+  },
+  "voice_models": {
+    "providers": {
+      "openai": [{ "id": "gpt-realtime", "label": "GPT Realtime", "voices": [{ "id": "cedar", "label": "Cedar" }, { "id": "marin", "label": "Marin" }], "transcription_languages": ["en", "pt"], "default": true }],
+      "qwen": [{ "id": "qwen3.5-omni-plus-realtime", "label": "Qwen Omni Realtime", "voices": [{ "id": "Aiden", "label": "Aiden" }, { "id": "Cherry", "label": "Cherry" }], "transcription_languages": ["en", "pt", "zh"], "default": true }]
+    },
+    "default_provider": "qwen",
+    "default_model": "qwen3.5-omni-plus-realtime"
+  },
+  "mcp_servers": { "servers": {
+    "chrome-devtools": { "type": "stdio", "command": "npx", "args": ["chrome-devtools-mcp@latest"], "env": {} },
+    "filesystem": { "type": "stdio", "command": "npx", "args": ["@modelcontextprotocol/server-filesystem", "/home/mock"], "env": {} }
+  }, "project_dir": "/home/mock/project" },
+  "skills": { "skills": [
+    { "name": "create-viz", "description": "Create an interactive HTML visualization", "dir": "create-viz" },
+    { "name": "recall", "description": "Search memory and past conversations", "dir": "recall" }
+  ] },
+  "agents": { "agents": [
+    { "name": "researcher", "description": "Deep web research with sources", "file": "researcher.md" }
+  ] },
+  "orchestrator_model_info": { "model": "claude-sonnet-4-5-20250929", "provider": "anthropic", "max_tokens": 8192, "supports_audio": false, "model_info": { "provider": "anthropic", "model_id": "claude-sonnet-4-5-20250929", "display_name": "Claude Sonnet 4.5", "supports_audio": false, "supports_vision": true, "supports_tools": true, "max_tokens": 8192, "context_window": 200000 } }
+}

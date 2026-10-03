@@ -1,0 +1,6 @@
+[
+  { "session_id": "mock-sess-refactor", "started_at": "2026-10-01T09:12:00+00:00", "last_activity": "2026-10-03T08:30:00+00:00", "title": "Refactor the utils module", "message_count": 9, "is_orchestrator": false, "provider": "claude", "local_id": null },
+  { "session_id": "mock-orch-morning", "started_at": "2026-10-03T07:00:00+00:00", "last_activity": "2026-10-03T07:20:00+00:00", "title": "Morning briefing", "message_count": 4, "is_orchestrator": true, "provider": "claude", "local_id": null },
+  { "session_id": "mock-sess-garden", "started_at": "2026-09-30T18:00:00+00:00", "last_activity": "2026-10-02T19:45:00+00:00", "title": "Plan the vegetable garden", "message_count": 4, "is_orchestrator": false, "provider": "qwen", "local_id": null },
+  { "session_id": "mock-sess-weather", "started_at": "2026-09-20T10:00:00+00:00", "last_activity": "2026-09-20T10:05:00+00:00", "title": "Weather script", "message_count": 2, "is_orchestrator": false, "provider": "gemini", "local_id": null }
+]
