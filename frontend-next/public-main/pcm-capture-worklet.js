@@ -1,8 +1,9 @@
-// HANDED OFF TO W-12 (spec 13 §7 W-12 boundary). Copied verbatim by W-01 from
-// frontend/public/pcm-capture-worklet.js so the main build serves it at /pcm-capture-worklet.js.
-// W-12 fixes the processor-name bug noted in inv02 F-30.
-
-// PCM capture worklet — runs on the AudioWorklet thread.
+// PCM capture worklet (W-12, spec 13 §2.5) — runs on the AudioWorklet thread.
+// Ported from frontend/public/pcm-capture-worklet.js (inv02 F-26). Served from the main build
+// at <base>/pcm-capture-worklet.js. The processor name MUST stay 'pcm-capture':
+// src/voice/audio/capture/worklet.ts PCM_CAPTURE_PROCESSOR uses it (the old recorder asked for
+// 'pcm-capture-processor' and never recorded, inv02 F-30 / spec 12 W-2), and a unit test
+// (src/voice/__tests__/worklet.test.ts) loads this file and checks the name.
 //
 // Captures mono mic audio at the AudioContext's native rate (typically
 // 48 kHz on desktop browsers), resamples to a target rate, packs as
@@ -11,7 +12,7 @@
 // base64-encode (AudioWorkletGlobalScope has no `btoa`).
 //
 // Mounted by the main thread via:
-//   await audioContext.audioWorklet.addModule('/pcm-capture-worklet.js');
+//   await audioContext.audioWorklet.addModule('<base>/pcm-capture-worklet.js');
 //   const node = new AudioWorkletNode(ctx, 'pcm-capture', {
 //     processorOptions: { targetSampleRate: 16000, chunkMs: 100 }
 //   });

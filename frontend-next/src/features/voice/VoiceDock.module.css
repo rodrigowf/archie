@@ -1,0 +1,318 @@
+/*
+ * Voice dock (mockups `.dock`, `.dock.recon`, `.dock.mini.ok|.fail`, `.dock.ro`, `.orb`).
+ * No flex `gap` (Safari 12): spacing is margins. Motion is switched off by motion.css on
+ * low-end devices and under reduced motion.
+ */
+
+.dock {
+  display: flex;
+  box-sizing: border-box;
+  align-items: center;
+  min-height: 84px;
+  padding: 10px 10px 10px 12px;
+  border-radius: 32px;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+}
+
+.dock > * + * {
+  margin-left: 6px;
+}
+
+.text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  padding-left: 6px;
+}
+
+.title {
+  overflow: hidden;
+  font-family: var(--md-sys-typescale-title-large-font);
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 24px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.titleSmall {
+  font-size: 16px;
+  white-space: normal;
+}
+
+.detail {
+  overflow: hidden;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.wrap {
+  white-space: normal;
+}
+
+.link {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.timer {
+  margin-left: 8px;
+  color: var(--md-ext-color-warning);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.orbButton {
+  display: block;
+  flex: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+
+.orbButton:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+/* ---------- read-only: active on another device ---------- */
+
+.readOnly {
+  min-height: 64px;
+  margin-bottom: 8px;
+}
+
+/* ---------- reconnecting / outcomes (P-2) ---------- */
+
+.recon .detail {
+  white-space: normal;
+}
+
+.mini {
+  min-height: 64px;
+  padding: 8px 8px 8px 10px;
+  border-radius: 24px;
+}
+
+.mini > * + * {
+  margin-left: 10px;
+}
+
+.mini .text {
+  padding-left: 0;
+}
+
+.mini .title {
+  font-size: 15px;
+  line-height: 20px;
+}
+
+.mini .detail {
+  color: inherit;
+  opacity: 0.85;
+}
+
+.ok {
+  background: var(--md-ext-color-success-container);
+  color: var(--md-ext-color-on-success-container);
+}
+
+.fail {
+  flex-wrap: wrap;
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+}
+
+.fail .text {
+  flex-basis: 0;
+}
+
+.failAction {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+  margin: 4px 0 0;
+}
+
+.fail > .failAction {
+  margin-left: 0;
+}
+
+.inherit {
+  color: inherit;
+}
+
+.tile {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 20px;
+}
+
+.ok .tile {
+  background: var(--md-ext-color-success);
+  color: var(--md-ext-color-on-success);
+}
+
+.fail .tile,
+.tileError {
+  background: var(--md-sys-color-error);
+  color: var(--md-sys-color-on-error);
+}
+
+.errorDock {
+  flex-wrap: wrap;
+  min-height: 64px;
+}
+
+.errorDock .text {
+  flex-basis: 0;
+}
+
+.errorDock > .retry {
+  margin: 4px 0 0 auto;
+}
+
+/* ---------- the orb ---------- */
+
+.orb {
+  --orb: var(--md-sys-color-primary-rgb);
+  --orb-on: var(--md-sys-color-on-primary-rgb);
+
+  display: block;
+  flex: none;
+  overflow: visible;
+}
+
+.orbSpeak {
+  --orb: var(--md-sys-color-tertiary-rgb);
+  --orb-on: var(--md-sys-color-on-tertiary-rgb);
+}
+
+.orbIdle {
+  --orb: var(--md-sys-color-outline-rgb);
+}
+
+.o1,
+.o2,
+.bar {
+  transform-origin: 50px 50px;
+}
+
+.o1 {
+  /* stylelint-disable-next-line color-function-alias-notation -- 4-argument rgb() needs Safari 14 */
+  fill: rgba(var(--orb), 0.14);
+  animation: orb-pulse 2.6s var(--md-sys-motion-easing-standard) infinite;
+}
+
+.o2 {
+  /* stylelint-disable-next-line color-function-alias-notation -- 4-argument rgb() needs Safari 14 */
+  fill: rgba(var(--orb), 0.28);
+  animation: orb-pulse 2.6s var(--md-sys-motion-easing-standard) 0.3s infinite;
+}
+
+.o3 {
+  fill: rgb(var(--orb));
+}
+
+.bar {
+  fill: rgb(var(--orb-on));
+  animation: orb-level 1.1s var(--md-sys-motion-easing-standard) infinite;
+}
+
+.bar:nth-of-type(2) {
+  animation-delay: 0.15s;
+}
+
+.bar:nth-of-type(3) {
+  animation-delay: 0.3s;
+}
+
+.bar:nth-of-type(4) {
+  animation-delay: 0.45s;
+}
+
+.orbStill .o1,
+.orbStill .o2,
+.orbStill .bar,
+.orbLive .bar {
+  animation: none;
+}
+
+/* reconnecting (P-2): warning tone, dimmed, slower pulse, flat bars */
+.orbRecon .o1,
+.orbRecon .o2,
+.orbRecon .o3 {
+  fill: var(--md-ext-color-warning);
+}
+
+.orbRecon .o1 {
+  opacity: 0.14;
+  animation-duration: 1.6s;
+}
+
+.orbRecon .o2 {
+  opacity: 0.26;
+  animation-duration: 1.6s;
+}
+
+.orbRecon .o3 {
+  opacity: 0.6;
+  animation: orb-dim 1.6s var(--md-sys-motion-easing-standard) infinite;
+}
+
+.orbRecon .bar {
+  fill: var(--md-ext-color-on-warning);
+  transform: scaleY(0.28);
+  animation: none;
+}
+
+@keyframes orb-pulse {
+  0%,
+  100% {
+    transform: scale(0.84);
+  }
+
+  50% {
+    transform: scale(1);
+  }
+}
+
+@keyframes orb-level {
+  0%,
+  100% {
+    transform: scaleY(0.55);
+  }
+
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes orb-dim {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+
+  50% {
+    opacity: 0.75;
+  }
+}
+
+/* ---------- compact app bar action ---------- */
+
+.barAction {
+  flex: none;
+}
