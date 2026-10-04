@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Design-token generator. Reads tokens.json, resolves the M3 color scheme from the
 // seed, writes the resolved colors back into tokens.json (color.resolved) and emits
-// dist/tokens.css, dist/Tokens.kt and dist/tokens.ts. Run: `npm run build` here.
+// dist/tokens.css, dist/Tokens.kt, dist/tokens.ts and dist/android/ (Views XML, E-8). Run: `npm run build` here.
 //
 //   node generate.mjs           resolve + write everything, fail on contrast errors
 //   node generate.mjs --check   regenerate in memory; exit 1 if tokens.json or dist/
@@ -439,6 +439,70 @@ function emitTs(res) {
   return L.join('\n');
 }
 
+// ---------------------------------------------------------------- Android XML (Views)
+
+// Decision E-8 / spec 14 §5.2: the Views-based lite app cannot use Compose Colors, so the same
+// tokens are also emitted as Android resources. Names are snake_case of the token names.
+//   values/archie_colors.xml        archie_<role>        light (themed; values-night overrides)
+//                                   archie_dark_<role>   always dark  (the lite face is dark-only)
+//                                   archie_light_<role>  always light
+//   values-night/archie_colors.xml  archie_<role>        dark
+//   values/archie_dimens.xml        shape, spacing, elevation, type scale
+const snake = (s) => s.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
+const xmlHex = (hex) => `#FF${hex.slice(1).toUpperCase()}`;
+const xmlAlphaHex = (hex, a) => `#${Math.round(a * 255).toString(16).padStart(2, '0').toUpperCase()}${hex.slice(1).toUpperCase()}`;
+const XML_HEAD = ['<?xml version="1.0" encoding="utf-8"?>', `<!-- ${HEADER} -->`];
+
+/** Every color of one mode as [name, value] (scheme roles, then extended families + tints). */
+function androidColorPairs(res, mode) {
+  const out = [];
+  for (const r of ROLES) out.push([snake(r), xmlHex(res[mode][r])]);
+  const a = tokens.color.input.extended.tintAlpha[mode];
+  for (const group of ['semantic', 'tool']) {
+    for (const [name, f] of Object.entries(res.extended[mode][group])) {
+      const id = group === 'tool' ? `tool_${snake(name)}` : snake(name);
+      out.push([id, xmlHex(f.color)], [`on_${id}`, xmlHex(f.onColor)], [`${id}_container`, xmlHex(f.colorContainer)],
+        [`on_${id}_container`, xmlHex(f.onColorContainer)], [`${id}_tint`, xmlAlphaHex(f.color, a)]);
+    }
+  }
+  return out;
+}
+
+function emitAndroidColors(res, night) {
+  const L = [...XML_HEAD, '<resources>'];
+  const block = (prefix, mode) => { for (const [n, v] of androidColorPairs(res, mode)) L.push(`    <color name="${prefix}${n}">${v}</color>`); };
+  L.push(`    <!-- themed: ${night ? 'dark (night)' : 'light (day); values-night holds the dark values'} -->`);
+  block('archie_', night ? 'dark' : 'light');
+  if (!night) {
+    L.push('    <!-- fixed dark: for screens that ignore day/night (the A300M lite face, D3 dark-first) -->');
+    block('archie_dark_', 'dark');
+    L.push('    <!-- fixed light -->');
+    block('archie_light_', 'light');
+  }
+  L.push('</resources>', '');
+  return L.join('\n');
+}
+
+function emitAndroidDimens() {
+  const L = [...XML_HEAD, '<resources>', '    <!-- shape (corner radius) -->'];
+  for (const [k, px] of entries(tokens.shape)) L.push(`    <dimen name="archie_corner_${snake(k)}">${px}dp</dimen>`);
+  L.push('    <!-- spacing: archie_space_N = N x 4dp -->');
+  for (const [k, px] of entries(tokens.spacing)) L.push(`    <dimen name="archie_space_${k}">${px}dp</dimen>`);
+  L.push('    <!-- elevation -->');
+  for (const [k, e] of entries(tokens.elevation)) L.push(`    <dimen name="archie_elevation_${snake(k)}">${e.dp}dp</dimen>`);
+  L.push('    <!-- type scale (size / line height in sp, tracking in sp) -->');
+  const t = tokens.typography;
+  const type = (id, s) => {
+    L.push(`    <dimen name="archie_type_${id}_size">${s.size}sp</dimen>`);
+    L.push(`    <dimen name="archie_type_${id}_line_height">${s.lineHeight}sp</dimen>`);
+    L.push(`    <dimen name="archie_type_${id}_tracking">${s.tracking}sp</dimen>`);
+  };
+  for (const [role, s] of entries(t.scale)) type(snake(role), s);
+  type('code', t.code);
+  L.push('</resources>', '');
+  return L.join('\n');
+}
+
 // ---------------------------------------------------------------- JSON writer
 
 /** Pretty-print JSON, keeping small leaf objects/arrays on one line. */
@@ -483,6 +547,9 @@ const outputs = {
   [join(DIST, 'tokens.css')]: emitCss(resolved),
   [join(DIST, 'Tokens.kt')]: emitKotlin(resolved),
   [join(DIST, 'tokens.ts')]: emitTs(resolved),
+  [join(DIST, 'android', 'values', 'archie_colors.xml')]: emitAndroidColors(resolved, false),
+  [join(DIST, 'android', 'values-night', 'archie_colors.xml')]: emitAndroidColors(resolved, true),
+  [join(DIST, 'android', 'values', 'archie_dimens.xml')]: emitAndroidDimens(),
 };
 
 if (CHECK) {
@@ -490,14 +557,16 @@ if (CHECK) {
   if (stale.length) { console.error('Out of date (run `npm run build`):\n  ' + stale.join('\n  ')); process.exit(1); }
   console.log('tokens: up to date');
 } else {
-  mkdirSync(DIST, { recursive: true });
-  for (const [p, s] of Object.entries(outputs)) writeFileSync(p, s);
+  for (const [p, s] of Object.entries(outputs)) {
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, s);
+  }
   console.log(`seed ${resolved.seed}  (HCT ${resolved.seedHct.hue}/${resolved.seedHct.chroma}/${resolved.seedHct.tone})`);
   for (const mode of ['dark', 'light']) {
     const c = resolved[mode];
     console.log(`${mode.padEnd(5)} surface ${c.surface}  container ${c.surfaceContainer}  primary ${c.primary}  on-surface ${c.onSurface}`);
   }
-  console.log('wrote tokens.json (color.resolved), dist/tokens.css, dist/Tokens.kt, dist/tokens.ts');
+  console.log('wrote tokens.json (color.resolved), dist/tokens.css, dist/Tokens.kt, dist/tokens.ts, dist/android/values{,-night}/archie_colors.xml, dist/android/values/archie_dimens.xml');
 }
 
 const min = (kind) => audit.filter((r) => r.kind === kind).reduce((m, r) => Math.min(m, r.ratio), Infinity);

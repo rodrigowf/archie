@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  E-7 parity, B6 fixed: `sessionService` names a real VoiceInteractionSessionService (the old file
+  pointed it at the VIS itself). No `recognitionService` on purpose: selecting this VIS would also
+  make it the device's default speech recognizer, which the wake word's SpeechRecognizer fallback
+  needs to stay Google's. Without it, Lollipop's VoiceInteractionServiceInfo rejects the VIS exactly
+  as it rejected the old one, so behaviour is unchanged until field test L-F5 decides (spec 14 §5.1).
+-->
+<voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:sessionService="com.assistant.peripheral.service.AssistantVoiceSessionService"
+    android:supportsAssist="true" />

@@ -10,7 +10,10 @@ design/tokens/
 ├── tokens.json      source of truth (inputs by hand + color.resolved, written by the generator)
 ├── generate.mjs     resolver + emitters + contrast audit
 ├── preview.html     visual check of every token (open over http, see below)
-└── dist/            GENERATED: tokens.css, Tokens.kt, tokens.ts
+└── dist/            GENERATED: tokens.css, Tokens.kt, tokens.ts,
+                     android/values{,-night}/archie_colors.xml + values/archie_dimens.xml
+                     (Views lite app, decision E-8: archie_<role> themed, archie_dark_<role> /
+                     archie_light_<role> fixed)
 ```
 
 ## Rule: never hand-edit `dist/` or `color.resolved`
