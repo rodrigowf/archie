@@ -1,7 +1,7 @@
 """Tests for api/routes/sessions.py — REST session endpoints."""
 
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -229,3 +229,80 @@ class TestForkSession:
             "/api/sessions/s1/fork", json={"drop_last_n": 1}
         )
         assert resp.status_code == 201
+
+
+class TestResolvePermission:
+    """POST /api/sessions/{local_id}/permission — REST twin of the chat WS
+    ``permission_response`` frame (agent approvals from anywhere)."""
+
+    @staticmethod
+    def _pool(client):
+        pool = client._transport.app.dependency_overrides[get_pool]()
+        pool.has.return_value = True
+        pool.resolve_session_permission = AsyncMock(return_value=True)
+        return pool
+
+    async def test_allow_resolves(self, client):
+        pool = self._pool(client)
+        resp = await client.post(
+            "/api/sessions/local-1/permission",
+            json={"request_id": "r1", "decision": "allow"},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True}
+        pool.resolve_session_permission.assert_awaited_once_with(
+            "local-1", "r1", "allow", message=None, responder="user",
+        )
+
+    async def test_deny_with_message(self, client):
+        pool = self._pool(client)
+        resp = await client.post(
+            "/api/sessions/local-1/permission",
+            json={"request_id": "r1", "decision": "deny", "message": "not now"},
+        )
+        assert resp.status_code == 200
+        pool.resolve_session_permission.assert_awaited_once_with(
+            "local-1", "r1", "deny", message="not now", responder="user",
+        )
+
+    async def test_unknown_session_404(self, client):
+        pool = self._pool(client)
+        pool.has.return_value = False
+        resp = await client.post(
+            "/api/sessions/nope/permission",
+            json={"request_id": "r1", "decision": "allow"},
+        )
+        assert resp.status_code == 404
+        pool.resolve_session_permission.assert_not_awaited()
+
+    async def test_already_answered_409(self, client):
+        pool = self._pool(client)
+        pool.resolve_session_permission.return_value = False
+        resp = await client.post(
+            "/api/sessions/local-1/permission",
+            json={"request_id": "gone", "decision": "deny"},
+        )
+        assert resp.status_code == 409
+
+    @pytest.mark.parametrize("body", [
+        {"decision": "allow"},
+        {"request_id": "", "decision": "allow"},
+        {"request_id": "r1"},
+        {"request_id": "r1", "decision": "maybe"},
+        {"request_id": "r1", "decision": "deny", "message": 3},
+        ["r1", "allow"],
+    ])
+    async def test_invalid_body_400(self, client, body):
+        pool = self._pool(client)
+        resp = await client.post("/api/sessions/local-1/permission", json=body)
+        assert resp.status_code == 400
+        pool.resolve_session_permission.assert_not_awaited()
+
+    async def test_malformed_json_400(self, client):
+        self._pool(client)
+        resp = await client.post(
+            "/api/sessions/local-1/permission",
+            content=b"{not json",
+            headers={"content-type": "application/json"},
+        )
+        assert resp.status_code == 400
