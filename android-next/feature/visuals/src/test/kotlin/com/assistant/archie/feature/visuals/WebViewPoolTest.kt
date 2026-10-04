@@ -3,6 +3,9 @@ package com.assistant.archie.feature.visuals
 import android.app.Activity
 import android.app.Application
 import android.content.ComponentCallbacks2
+import android.content.Context
+import android.content.MutableContextWrapper
+import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.test.core.app.ApplicationProvider
 import com.assistant.archie.feature.visuals.web.WebViewPool
@@ -37,6 +40,16 @@ class WebViewPoolTest {
         val entry = pool.acquire("a.html", a2)
         assertSame(first, entry.webView)
         assertSame(a2, entry.baseContext)
+    }
+
+    @Test fun `the WebView is constructed on the Application, then sees its host`() {
+        // Chromium keeps construction-time lookups (AutofillManager → Activity): never build on the Activity.
+        var constructedOn: Context? = null
+        val pool = WebViewPool(app, create = { ctx -> constructedOn = (ctx as MutableContextWrapper).baseContext; WebView(ctx) })
+        val act = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val e = pool.acquire("a.html", act)
+        assertSame(app, constructedOn)
+        assertSame(act, e.baseContext)
     }
 
     @Test fun `release swaps the base context to the Application and drops the parent`() {

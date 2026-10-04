@@ -12,6 +12,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -21,6 +22,7 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import com.assistant.archie.graph.GraphOwner
 import com.assistant.archie.graph.MainAppGraph
 import com.assistant.archie.system.ShellCommand
+import com.assistant.archie.system.SystemApprovalSink
 import com.assistant.archie.system.SystemIntents
 import com.assistant.archie.system.SystemOverlays
 import com.assistant.archie.system.applyAppNightMode
@@ -61,6 +63,11 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIntent(intent: Intent?) {
         ShellIntents.parseShare(intent)?.let { graph.share.offer(it) }
+        // OI-6: a tap on an approval notification focuses that agent session.
+        intent?.getStringExtra(SystemApprovalSink.EXTRA_OPEN_AGENT)?.let { localId ->
+            intent.removeExtra(SystemApprovalSink.EXTRA_OPEN_AGENT)
+            graph.approvals.requestOpen(localId)
+        }
         // B-09: launcher shortcuts, and a voice start deferred until the mic is allowed (tile /
         // assist / shortcut without RECORD_AUDIO land here; spec 14 §2.8-§2.9).
         SystemIntents.handleInMain(intent, graph.commands) { trigger ->
@@ -84,6 +91,17 @@ fun ArchieApp(graph: MainAppGraph) {
     val context = LocalContext.current
     val loadedTheme = graph.settings.settings.collectAsStateWithLifecycle().value?.themeMode
     LaunchedEffect(loadedTheme) { loadedTheme?.let { applyAppNightMode(context, it) } }
+    // OI-6: approval notifications only for views the user is not looking at (AN-1), and a tap on one
+    // returns to the workspace with that agent focused.
+    LaunchedEffect(backStack) {
+        snapshotFlow { backStack.lastOrNull() == Workspace }.collect { graph.approvals.workspaceOnTop.value = it }
+    }
+    val openRequest by graph.approvals.openRequest.collectAsStateWithLifecycle()
+    LaunchedEffect(openRequest) {
+        val localId = graph.approvals.takeOpenRequest() ?: return@LaunchedEffect
+        while (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
+        graph.openSessions.openAgentByLocalId(localId)
+    }
     ArchieTheme(mode = state.themeMode.toDesign(), reduceMotion = appearance.reduceMotion) {
         ProvideTextSize(appearance.textSize) {
             AuthGate(settings) { ArchieShell(state, vm::onAction, backStack, destinations) }

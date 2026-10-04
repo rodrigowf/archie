@@ -24,6 +24,12 @@ export const sessions = {
     http.post<{ session_id: string }>(`/api/sessions/${id(sdkId)}/truncate`, { json: { drop_last_n: dropLastN } }),
   fork: (sdkId: string, dropLastN: number) =>
     http.post<{ session_id: string }>(`/api/sessions/${id(sdkId)}/fork`, { json: { drop_last_n: dropLastN } }),
+  /**
+   * §6.9 answer an agent's pending permission without its socket. 404 = not in the pool (or, with
+   * detail "Not Found", a server without this route); 409 = already answered or unknown request.
+   */
+  permission: (localId: string, body: { request_id: string; decision: 'allow' | 'deny'; message?: string }) =>
+    http.post<{ ok: boolean }>(`/api/sessions/${id(localId)}/permission`, { json: body }),
   /** Explicit close only (P-1): never called from unload, teardown or lifecycle paths. */
   close: (localId: string) => http.post<undefined>(`/api/sessions/${id(localId)}/close`, { as: 'none' }),
 };

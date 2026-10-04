@@ -37,6 +37,10 @@ class FakeBackend {
     @Volatile var sessionsJson = "[]"
     @Volatile var messagesJson = """{"messages":[],"total_count":0,"has_more":false,"start_index":0}"""
 
+    /** `POST /api/sessions/{id}/permission` answer (§6.9): code + JSON body; bodies received are recorded. */
+    @Volatile var permissionResponse: MockResponse? = null
+    val permissionBodies = CopyOnWriteArrayList<String>()
+
     val url: String get() = "ws://${server.hostName}:${server.port}"
 
     fun start(): FakeBackend {
@@ -51,6 +55,10 @@ class FakeBackend {
                     path == "/api/sessions" -> json(sessionsJson)
                     path.startsWith("/api/sessions/") && path.contains("/messages") -> json(messagesJson)
                     path.endsWith("/close") -> MockResponse().setResponseCode(204)
+                    path.endsWith("/permission") && request.method == "POST" -> {
+                        permissionBodies += request.body.readUtf8()
+                        permissionResponse ?: json("""{"detail":"Not Found"}""").setResponseCode(404)
+                    }
                     path == "/api/auth/status" -> json("""{"authenticated":true,"headless":true}""")
                     else -> MockResponse().setResponseCode(404)
                 }

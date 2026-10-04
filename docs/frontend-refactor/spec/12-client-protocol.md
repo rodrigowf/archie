@@ -245,7 +245,7 @@ Mapping to the requested concept list:
 - **T-5.** Each open **agent** conversation MUST use its own chat WS (`/api/sessions/chat`). A client MUST NOT send `start` for a different `localId` on a socket that is already subscribed (G-6: chat frames carry no session id). To switch a socket to another session it MUST first send `stop` and wait for `session_stopped`.
 - **T-6.** A client app instance MUST use **exactly one** orchestrator WS (`/api/orchestrator/chat`). Text `start`, `voice_start`, `voice_stop`, voice relay frames and the watcher events all go over that socket. *Rationale:* every orchestrator frame is broadcast to every subscribed socket; two sockets in one client double every event. This also removes the web's `stop`-then-`voice_start` dance (W-10).
 - **T-7.** The orchestrator WS SHOULD be open whenever the app is in the foreground, even with no orchestrator view, because it is the only source of the pool watcher events (§3.7, G-39). It MAY stay unsubscribed (no `start`) until an orchestrator view opens.
-- **T-8.** One extra chat WS MAY be opened, unsubscribed, only to send `permission_response{session_id: <agent localId>}` for a session that has no open view (§6.9).
+- **T-8.** One extra chat WS MAY be opened, unsubscribed, only to send `permission_response{session_id: <agent localId>}` for a session that has no open view, and only as the fallback for a server without `POST /api/sessions/{localId}/permission` (§6.9). The web keeps this fallback; Android does not (it shows "Open that session to answer").
 
 ### 3.3 Connect, `start` and re-`start`
 
@@ -1336,7 +1336,27 @@ deny with feedback: just send the text: WS→ {type:"send", text}
 ⇐ permission_resolved{request_id, decision, responder, message}   (first answer wins; user or orchestrator)
 ```
 - The bar disables its buttons after one click (local UI flag) and closes only on PM-3.
-- From the orchestrator view, `nested_session_event{session_id, event_type:"permission_request", event_data}` adds the request to an "Agent approvals" list in the orchestrator view (no timeline entry). Answering sends `permission_response{session_id:<agent localId>, request_id, decision}` on that agent's chat WS if a view is open, else on a transient unsubscribed chat WS (T-8). `nested_session_event{event_type:"permission_resolved"}` removes it. The list also clears entries whose agent view saw the turn end. This is new on both platforms (02 F-25; 03 §5). The list is conversation state (`agentApprovals`, PM-5).
+- From the orchestrator view, `nested_session_event{session_id, event_type:"permission_request", event_data}` adds the request to an "Agent approvals" list in the orchestrator view (no timeline entry). Answering sends `permission_response{session_id:<agent localId>, request_id, decision}` on that agent's chat WS if a view is open, else uses the REST endpoint below (both platforms). `nested_session_event{event_type:"permission_resolved"}` removes it. The list also clears entries whose agent view saw the turn end. This is new on both platforms (02 F-25; 03 §5). The list is conversation state (`agentApprovals`, PM-5).
+
+**Answering without a socket** (OI-2):
+
+```
+POST /api/sessions/{localId}/permission   {request_id, decision: "allow"|"deny", message?}
+  200 {ok: true}   resolved by this call (responder "user"); permission_resolved is broadcast as for the WS frame
+  404              the session is not in the pool
+  404 "Not Found"  (FastAPI's route-missing detail) a server without this route → web: transient WS (T-8); Android: "Open that session to answer"
+  409              no such pending request (already answered by another device or the orchestrator, expired at turn end, unknown)
+  400              invalid body
+```
+- A 409 is not an error for the UI: someone answered first, and the `permission_resolved` already on its way removes the card. Any other failure re-enables the card's buttons and shows the reason (snackbar).
+- Notification actions (AN-2) always use REST, never a socket (it may be half-dead in background).
+
+**Attention notifications (Android, OI-6):**
+
+- **AN-1.** A pending agent permission (from `agentApprovals`, PM-5, or a pending `PermissionBlock` of an open agent view) posts a notification unless the user is looking at that agent's view: the app is in the foreground (process started, screen on), the workspace is the top screen (no settings/history in front) and that agent is the selected view. Once notified, or seen in its view, the same `(localId, request_id)` is not posted again.
+- **AN-2.** Channel "Approvals" (`approvals`, importance high → heads-up), `CATEGORY_REMINDER`, `VISIBILITY_PUBLIC`. Title = the agent session's title; text = "Plan ready for approval" + the start of the plan for `ExitPlanMode`, else "Wants to use <tool>" + its main input. Actions **Deny** and **Approve** (Approve requires an unlocked device) answer over REST from a broadcast receiver; a failure updates the notification with the error and never crashes. Tap opens that agent session (from the live pool if it has no view here).
+- **AN-3.** The notification is removed when the request leaves `pending` (resolved by anyone, expired at turn end), when answered from the notification (200 or 409), or when the user opens that agent's view.
+- **AN-4.** The device only learns about requests over a live socket: backgrounded with the orchestrator socket closed (T-14: no voice owner, wake word or "Stay connected"), or with no subscribed Archie conversation and no open agent view, nothing arrives and nothing is posted. No full-screen intent (heads-up only).
 
 ### 6.10 New agent session
 

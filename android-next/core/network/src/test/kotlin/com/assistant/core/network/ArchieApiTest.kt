@@ -72,6 +72,23 @@ class ArchieApiTest {
         assertEquals("/memory/assistant/notes%20x.md", server.takeRequest().path)
     }
 
+    @Test fun resolvePermissionPostsTheDecision_section6_9() = runBlocking {
+        val api = ArchieApi(stack) { base }
+        server.enqueue(json("""{"ok":true}"""))
+        assertTrue(api.resolvePermission("L 1", "r1", allow = true) is ApiResult.Ok)
+        server.takeRequest().let {
+            assertEquals("POST", it.method)
+            assertEquals("/api/sessions/L%201/permission", it.path)
+            assertTrue(it.getHeader("Content-Type")!!.startsWith("application/json"))
+            assertEquals("""{"request_id":"r1","decision":"allow"}""", it.body.readUtf8())
+        }
+
+        server.enqueue(json("""{"detail":"No pending permission request 'r2'"}""", 409))
+        val r = api.resolvePermission("L", "r2", allow = false, message = "not now")
+        assertEquals(409, (r as ApiResult.HttpError).code)
+        assertEquals("""{"request_id":"r2","decision":"deny","message":"not now"}""", server.takeRequest().body.readUtf8())
+    }
+
     @Test fun voiceSessionUsesQueryParamsAndOmitsNulls() = runBlocking {
         server.enqueue(json("""{"connection_info":{"connection_type":"webrtc","endpoint":"e","ephemeral_token":"t","model":"gpt-realtime"}}"""))
         val r = VoiceApi(stack) { base }.startVoiceSession(VoiceConfig(provider = "openai", voice = "cedar"))

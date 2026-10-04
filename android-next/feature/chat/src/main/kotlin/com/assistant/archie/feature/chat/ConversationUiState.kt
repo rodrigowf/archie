@@ -82,8 +82,8 @@ sealed interface InlineCardUi {
         override val id get() = "perm:${block.requestId}"
     }
 
-    /** An agent's permission seen from the Archie view (PM-5); [reachable] = its view is open here. */
-    data class AgentApprovalCard(val approval: AgentApproval, val reachable: Boolean, val answered: Boolean) : InlineCardUi {
+    /** An agent's permission seen from the Archie view (PM-5); answerable from here (§6.9). */
+    data class AgentApprovalCard(val approval: AgentApproval, val answered: Boolean) : InlineCardUi {
         override val id get() = "agent-perm:${approval.localId}:${approval.requestId}"
     }
 
@@ -185,7 +185,6 @@ object ConversationUiMapper {
         s: ConversationState,
         answered: Set<String>,
         dismissed: Set<String>,
-        reachableAgents: (String) -> Boolean,
         transient: List<InlineCardUi.Error>,
     ): ImmutableList<InlineCardUi> {
         val out = ArrayList<InlineCardUi>()
@@ -195,7 +194,7 @@ object ConversationUiMapper {
         }
         if (s.kind == SessionKind.ORCHESTRATOR) {
             for (a in s.agentApprovals) {
-                val card = InlineCardUi.AgentApprovalCard(a, reachableAgents(a.localId), "${a.localId}:${a.requestId}" in answered)
+                val card = InlineCardUi.AgentApprovalCard(a, "${a.localId}:${a.requestId}" in answered)
                 if (card.id !in dismissed) out += card
             }
         }

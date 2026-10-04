@@ -191,8 +191,8 @@ private class BenchBackend : ChatBackend {
     override fun interrupt() = Unit
     override fun compact() = Unit
     override fun respondToPermission(requestId: String, allow: Boolean): SendResult = SendResult.SENT
-    override fun respondToAgentApproval(agentLocalId: String, requestId: String, allow: Boolean) = false
-    override fun canReachAgent(agentLocalId: String) = false
+    override suspend fun respondToAgentApproval(agentLocalId: String, requestId: String, allow: Boolean) =
+        com.assistant.core.data.ApprovalAnswer.Failed("benchmark")
     override fun loadOlder() = Unit
     override fun reload() = Unit
     override fun dismissBanner() = Unit

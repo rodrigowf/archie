@@ -68,8 +68,6 @@ import java.util.Calendar
 data class ConversationCallbacks(
     /** Raw href from markdown; null = open with the platform URI handler. */
     val onLink: ((String) -> Unit)? = null,
-    /** Open (focus) an agent session by its pool localId (agent approvals, PM-5). */
-    val onOpenAgent: (String) -> Unit = {},
     /** A fork result to open, focused (§6.5). */
     val onOpenSession: (SessionRef) -> Unit = {},
     /** The empty state's "Start an agent session" suggestion (§6.10). */
@@ -203,7 +201,7 @@ fun ConversationContent(
             contentAlignment = Alignment.Center,
         ) {
             Column(Modifier.widthIn(max = MessageColumnMaxWidth - 24.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                InlineCardsArea(state.cards, onAction, callbacks.onOpenAgent, onLink)
+                InlineCardsArea(state.cards, onAction, onLink)
                 ComposerArea(state.composer, state.voice, state.counters, state.queue, draft, onAction, onAttach, clock = clock)
             }
         }

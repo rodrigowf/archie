@@ -235,6 +235,23 @@ class InlineCardsUiTest : ScreenTestBase() {
         compose.onNodeWithText("Build", substring = true).assertExists()
         compose.onNodeWithText("Approve").performClick()
         assertEquals(listOf(Triple("L5", "r1", true)), backend.agentApprovals)
+        compose.onNodeWithText("Answer sent…").assertExists()
+    }
+
+    @Test
+    fun agentApprovalFailureReEnablesTheCard() {
+        show(
+            Frames.reduce(
+                Frames.archie(),
+                """{"type":"nested_session_event","session_id":"L5","event_type":"permission_request","event_data":{"type":"permission_request","request_id":"r1","tool_name":"Bash","tool_input":{"command":"ls"}}}""",
+            ),
+        )
+        backend.approvalAnswer = com.assistant.core.data.ApprovalAnswer.Failed("That agent session is no longer running")
+        compose.onNodeWithText("Reject").performClick()
+        compose.waitForIdle()
+        assertEquals(listOf(Triple("L5", "r1", false)), backend.agentApprovals)
+        compose.onNodeWithText("That agent session is no longer running").assertExists()
+        compose.onNodeWithText("Approve").assertExists()                 // buttons back (not "Answer sent…")
     }
 
     @Test

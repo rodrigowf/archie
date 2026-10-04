@@ -500,11 +500,28 @@ export async function forkSession(localId: string, targetId: string): Promise<An
 
 /**
  * §6.9 answer an agent permission from the orchestrator view: on the agent's socket when its
- * view is open, else on a transient unsubscribed chat socket (T-8).
+ * view is open, else `POST /api/sessions/{localId}/permission`. A 409 (someone answered first)
+ * is success: `permission_resolved` removes the card. Only a server without that route (404
+ * "Not Found") falls back to a transient unsubscribed chat socket (T-8). Other errors reject.
  */
-export function respondAgentPermission(agentLocalId: string, requestId: string, decision: 'allow' | 'deny'): void {
+export async function respondAgentPermission(agentLocalId: string, requestId: string, decision: 'allow' | 'deny'): Promise<void> {
   const rt = getSessionRuntime(agentLocalId);
   if (rt instanceof SessionRuntime && rt.respondPermissionFor(agentLocalId, requestId, decision)) return;
+  try {
+    await api.sessions.permission(agentLocalId, { request_id: requestId, decision });
+  } catch (err) {
+    if (isApiError(err, 409)) return;
+    if (isApiError(err, 404) && err.detail === 'Not Found') {
+      respondOnTransientSocket(agentLocalId, requestId, decision);
+      return;
+    }
+    if (isApiError(err, 404)) throw new SessionActionError('That agent session is no longer running');
+    throw err;
+  }
+}
+
+/** T-8 fallback for servers without the REST route. */
+function respondOnTransientSocket(agentLocalId: string, requestId: string, decision: 'allow' | 'deny'): void {
   const sock: ArchieSocket = new ArchieSocket(CHAT_WS_PATH, {
     onOpen: () => {
       sock.send({ type: 'permission_response', session_id: agentLocalId, request_id: requestId, decision });

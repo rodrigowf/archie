@@ -178,6 +178,21 @@ class OpenSessionsRepository(
         focus(ItemKey.Agent(conversations.openAgent(pool.toRef())))
     }
 
+    /**
+     * A tap on an approval notification (§6.9): focuses the agent view of pool key [localId],
+     * opening it from the live pool when it is not open here. False = no such live agent session.
+     */
+    suspend fun openAgentByLocalId(localId: String): Boolean {
+        slots.value.firstOrNull { s ->
+            (s.key as? ItemKey.Agent)?.let { conversations.current(it.conversation)?.ref?.localId == localId } == true
+        }?.let { select(it.key); return true }
+        val live = history.pool.value.firstOrNull { it.localId == localId && !it.isOrchestrator }
+            ?: history.syncPool()?.firstOrNull { it.localId == localId && !it.isOrchestrator }
+            ?: return false
+        openLive(live)
+        return true
+    }
+
     /** Opens a fork / continuation result (user-initiated, focused). */
     fun openRef(ref: SessionRef) {
         if (ref.kind == SessionKind.ORCHESTRATOR) {

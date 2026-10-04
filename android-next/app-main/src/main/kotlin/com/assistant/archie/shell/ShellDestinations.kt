@@ -89,7 +89,6 @@ class GraphDestinations(private val graph: MainAppGraph, private val sessions: S
             modifier = modifier,
             toolCards = CatalogToolCardRenderer,
             callbacks = ConversationCallbacks(
-                onOpenAgent = { localId -> graph.openSessions.select(ItemKey.Agent(ConversationKey.agent(localId))) },
                 onOpenSession = { ref ->
                     val sdk = ref.sdkId
                     if (sessions != null && ref.kind == SessionKind.ORCHESTRATOR && sdk != null) sessions.requestResumeArchie(sdk)

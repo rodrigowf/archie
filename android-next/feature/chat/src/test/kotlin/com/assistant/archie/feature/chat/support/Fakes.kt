@@ -56,10 +56,10 @@ class FakeChatBackend(initial: ConversationState) : ChatBackend {
     override fun interrupt() { interrupts++; apply(ConversationInput.LocalInterrupt) }
     override fun compact() { compacts++ }
     override fun respondToPermission(requestId: String, allow: Boolean): SendResult { permissions += requestId to allow; return SendResult.SENT }
-    override fun respondToAgentApproval(agentLocalId: String, requestId: String, allow: Boolean): Boolean {
-        agentApprovals += Triple(agentLocalId, requestId, allow); return true
+    var approvalAnswer: com.assistant.core.data.ApprovalAnswer = com.assistant.core.data.ApprovalAnswer.Sent
+    override suspend fun respondToAgentApproval(agentLocalId: String, requestId: String, allow: Boolean): com.assistant.core.data.ApprovalAnswer {
+        agentApprovals += Triple(agentLocalId, requestId, allow); return approvalAnswer
     }
-    override fun canReachAgent(agentLocalId: String) = true
     override fun loadOlder() { olderRequests++ }
     override fun reload() = Unit
     override fun dismissBanner() = apply(ConversationInput.DismissBanner)

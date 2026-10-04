@@ -70,6 +70,15 @@ sealed interface ConversationEvent {
     }
 }
 
+/** Result of answering an agent approval (§6.9). */
+sealed interface ApprovalAnswer {
+    data object Sent : ApprovalAnswer
+
+    /** 409: someone (another device, the orchestrator) answered first, or the request expired. */
+    data object AlreadyAnswered : ApprovalAnswer
+    data class Failed(val message: String) : ApprovalAnswer
+}
+
 /** Result of rewind/fork (§6.5). */
 sealed interface CutResult {
     data class Done(val ref: SessionRef) : CutResult
@@ -197,6 +206,38 @@ class ConversationRepository(
     /** §6.9 approve / deny (deny-with-feedback is a plain [send]). */
     fun respondToPermission(key: ConversationKey, requestId: String, allow: Boolean, message: String? = null) =
         handle(key)?.sendFrame(ClientFrame.PermissionResponse(requestId, if (allow) "allow" else "deny", message))
+
+    /**
+     * §6.9 answer an agent's permission from anywhere (Agent approvals list, notification actions).
+     * With [preferSocket] and the agent's view open here, the answer rides its own chat socket;
+     * otherwise (or when that socket cannot send) `POST /api/sessions/{localId}/permission`. The
+     * card / notification goes away on the `permission_resolved` the server broadcasts, not here.
+     */
+    suspend fun answerAgentApproval(
+        agentLocalId: String,
+        requestId: String,
+        allow: Boolean,
+        message: String? = null,
+        preferSocket: Boolean = true,
+    ): ApprovalAnswer {
+        if (preferSocket) {
+            val h = synchronized(lock) {
+                handles.values.firstOrNull { it.kind == SessionKind.AGENT && it.state.value.ref.localId == agentLocalId }
+            }
+            val frame = ClientFrame.PermissionResponse(requestId, if (allow) "allow" else "deny", message)
+            if (h != null && h.sendFrame(frame) == SendResult.SENT) return ApprovalAnswer.Sent
+        }
+        return when (val r = api.resolvePermission(agentLocalId, requestId, allow, message)) {
+            is ApiResult.Ok -> ApprovalAnswer.Sent
+            is ApiResult.HttpError -> when {
+                r.code == 409 -> ApprovalAnswer.AlreadyAnswered
+                r.code == 404 && r.detail == "Not Found" -> ApprovalAnswer.Failed("This server can't answer from here. Open that session to answer.")
+                r.code == 404 -> ApprovalAnswer.Failed("That agent session is no longer running")
+                else -> ApprovalAnswer.Failed(r.errorMessage() ?: "Couldn't send the answer")
+            }
+            else -> ApprovalAnswer.Failed(r.errorMessage() ?: "Couldn't send the answer")
+        }
+    }
 
     /** §6.15 shared text / upload link on the Archie conversation (held until subscribed by the channel). */
     fun inject(text: String) {

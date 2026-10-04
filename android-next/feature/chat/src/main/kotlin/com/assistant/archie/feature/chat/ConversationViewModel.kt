@@ -12,6 +12,7 @@ import com.assistant.core.conversation.ConversationState
 import com.assistant.core.conversation.TextBlock
 import com.assistant.core.conversation.ToolBlock
 import com.assistant.core.conversation.UserEntry
+import com.assistant.core.data.ApprovalAnswer
 import com.assistant.core.data.ConversationEvent
 import com.assistant.core.data.CutResult
 import com.assistant.core.model.ConnectionState
@@ -180,7 +181,7 @@ class ConversationViewModel(
             hasMore = s.history.hasMore,
             empty = s.entries.isEmpty(),
             composer = ConversationUiMapper.composer(s, l.draftEmpty, vu, rec, title()),
-            cards = ConversationUiMapper.cards(s, l.answered, l.dismissed, backend::canReachAgent, l.transient),
+            cards = ConversationUiMapper.cards(s, l.answered, l.dismissed, l.transient),
             queue = s.queue.toImmutableList(),
             voice = vu,
             counters = CountersUi(s.counters.cost, s.counters.turns, s.counters.contextTokens, s.counters.contextWindow),
@@ -214,8 +215,14 @@ class ConversationViewModel(
             is ChatAction.AgentApproval -> {
                 val id = "${a.localId}:${a.requestId}"
                 if (id in answered.value) return
-                if (backend.respondToAgentApproval(a.localId, a.requestId, a.allow)) answered.update { it + id }
-                else effects.trySend(ChatEffect.Snackbar("Open that session to answer"))
+                answered.update { it + id }
+                viewModelScope.launch {
+                    val r = backend.respondToAgentApproval(a.localId, a.requestId, a.allow)
+                    if (r is ApprovalAnswer.Failed) {
+                        answered.update { it - id }
+                        effects.trySend(ChatEffect.Snackbar(r.message))
+                    }
+                }
             }
             is ChatAction.DismissCard -> {
                 dismissed.update { it + a.id }

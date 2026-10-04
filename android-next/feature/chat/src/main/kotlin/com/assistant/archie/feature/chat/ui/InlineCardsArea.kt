@@ -40,7 +40,6 @@ import kotlinx.serialization.json.JsonPrimitive
 fun InlineCardsArea(
     cards: ImmutableList<InlineCardUi>,
     onAction: (ChatAction) -> Unit,
-    onOpenAgent: (String) -> Unit,
     onLink: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -50,7 +49,7 @@ fun InlineCardsArea(
             val m = Modifier.testTag("card:${card.id}")
             when (card) {
                 is InlineCardUi.Permission -> PermissionCard(card, onAction, onLink, m)
-                is InlineCardUi.AgentApprovalCard -> AgentApprovalCard(card, onAction, onOpenAgent, m)
+                is InlineCardUi.AgentApprovalCard -> AgentApprovalCard(card, onAction, m)
                 is InlineCardUi.Stall -> InlineCard(
                     InlineCardKind.Stall,
                     ConversationUiMapper.stallTitle(card.toolName, card.elapsedSeconds),
@@ -129,7 +128,6 @@ private fun PermissionCard(card: InlineCardUi.Permission, onAction: (ChatAction)
 private fun AgentApprovalCard(
     card: InlineCardUi.AgentApprovalCard,
     onAction: (ChatAction) -> Unit,
-    onOpenAgent: (String) -> Unit,
     modifier: Modifier,
 ) {
     val a = card.approval
@@ -150,13 +148,10 @@ private fun AgentApprovalCard(
             }
         },
         actions = {
-            if (card.reachable) {
-                InlineCardActionGate(!card.answered) {
-                    InlineCardAction("Reject", { onAction(ChatAction.AgentApproval(a.localId, a.requestId, false)) }, primary = false)
-                    InlineCardAction("Approve", { onAction(ChatAction.AgentApproval(a.localId, a.requestId, true)) }, primary = true)
-                }
-            } else {
-                InlineCardAction("Open session", { onOpenAgent(a.localId) }, primary = true, icon = ArchieIcons.OpenInNew)
+            // Answered from here whether or not the agent's view is open (REST, §6.9).
+            InlineCardActionGate(!card.answered) {
+                InlineCardAction("Reject", { onAction(ChatAction.AgentApproval(a.localId, a.requestId, false)) }, primary = false)
+                InlineCardAction("Approve", { onAction(ChatAction.AgentApproval(a.localId, a.requestId, true)) }, primary = true)
             }
         },
     )

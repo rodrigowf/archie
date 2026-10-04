@@ -31,7 +31,12 @@ data class PendingDownload(val url: String, val fileName: String, val mimeType: 
  * - At most [maxEntries] (3) WebViews, LRU by key (the visual's path). A WebView on screen
  *   ([Entry.attached]) is never evicted.
  * - Each WebView is built on a [MutableContextWrapper] whose base is the current Activity while
- *   attached and the Application while detached, so a pooled WebView never pins an Activity.
+ *   attached and the Application while detached, so a pooled WebView never pins an Activity. It is
+ *   *constructed* while the base is the Application: Chromium keeps what it looks up from the context
+ *   at construction (e.g. `AwContents` → `AutofillProvider` → the Activity's `AutofillManager`, whose
+ *   `mContext` is the Activity; heap dump on the POCO X7, Android 15), so a WebView built on an
+ *   Activity keeps that Activity alive whatever the base is later. Popups that need an Activity
+ *   (`<select>`, `alert`/`confirm`) look it up when they open; by then the base is the host.
  * - `onTrimMemory(RUNNING_LOW)` and above evict every detached WebView. `UI_HIDDEN` (the app just
  *   went to the background) does not: switching apps for a moment must not lose a viz's state.
  *
@@ -81,7 +86,8 @@ class WebViewPool(
     fun acquire(key: String, host: Context, owner: Any = host, configure: (Entry) -> Unit = {}): Entry {
         val existing = entries[key]
         val entry = existing ?: run {
-            val wrapper = MutableContextWrapper(host)
+            // Constructed on the Application, never on [host] (see the class doc); the base becomes [host] below.
+            val wrapper = MutableContextWrapper(app.applicationContext)
             Entry(key, create(wrapper), wrapper).also {
                 entries[key] = it
                 configure(it)

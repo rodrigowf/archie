@@ -176,4 +176,38 @@ class DataLayerTest {
         assertTrue(a.closeRequests().isEmpty() && a.stopFrames().isEmpty())
         assertNotNull(g.open.items.value.firstOrNull { it.key == ItemKey.Archie })
     }
+
+    @Test fun agentApproval_restWithoutAView_socketWithOne_section6_9() = runBlocking {
+        val b = backend(); b.poolJson = orchPool
+        val g = graph(b.url)
+        g.connection.start()
+        eventually { g.conversations.current(ConversationKey.ARCHIE)?.connection == com.assistant.core.model.ConnectionState.SUBSCRIBED }
+
+        // No view of AG7 here: REST.
+        b.permissionResponse = okhttp3.mockwebserver.MockResponse().setHeader("Content-Type", "application/json").setBody("""{"ok":true}""")
+        assertEquals(ApprovalAnswer.Sent, g.conversations.answerAgentApproval("AG7", "r1", allow = true))
+        assertEquals(listOf("""{"request_id":"r1","decision":"allow"}"""), b.permissionBodies.toList())
+        assertTrue(b.requests.contains("POST /api/sessions/AG7/permission"))
+
+        // 409: someone answered first. 404 "Not Found": a server without the route.
+        b.permissionResponse = okhttp3.mockwebserver.MockResponse().setResponseCode(409).setHeader("Content-Type", "application/json").setBody("""{"detail":"No pending permission request 'r2'"}""")
+        assertEquals(ApprovalAnswer.AlreadyAnswered, g.conversations.answerAgentApproval("AG7", "r2", allow = false))
+        b.permissionResponse = null
+        val old = g.conversations.answerAgentApproval("AG7", "r3", allow = true)
+        assertTrue("$old", old is ApprovalAnswer.Failed && old.message.contains("Open that session"))
+        b.permissionResponse = okhttp3.mockwebserver.MockResponse().setResponseCode(404).setHeader("Content-Type", "application/json").setBody("""{"detail":"No live pool session with local_id='AG7'"}""")
+        val gone = g.conversations.answerAgentApproval("AG7", "r4", allow = true)
+        assertEquals(ApprovalAnswer.Failed("That agent session is no longer running"), gone)
+
+        // With AG7's view open (subscribed), the answer rides its own socket; preferSocket=false forces REST.
+        g.conversations.openAgent(com.assistant.core.model.SessionRef("AG7", null, com.assistant.core.model.SessionKind.AGENT, null))
+        eventually { g.conversations.current(ConversationKey.agent("AG7"))?.connection == com.assistant.core.model.ConnectionState.SUBSCRIBED }
+        val restCalls = b.permissionBodies.size
+        assertEquals(ApprovalAnswer.Sent, g.conversations.answerAgentApproval("AG7", "r5", allow = false))
+        eventually { b.frames.any { it.first == "agent" && it.second.contains("\"permission_response\"") && it.second.contains("\"r5\"") } }
+        assertEquals(restCalls, b.permissionBodies.size)
+        b.permissionResponse = okhttp3.mockwebserver.MockResponse().setHeader("Content-Type", "application/json").setBody("""{"ok":true}""")
+        assertEquals(ApprovalAnswer.Sent, g.conversations.answerAgentApproval("AG7", "r6", allow = true, preferSocket = false))
+        assertEquals(restCalls + 1, b.permissionBodies.size)
+    }
 }

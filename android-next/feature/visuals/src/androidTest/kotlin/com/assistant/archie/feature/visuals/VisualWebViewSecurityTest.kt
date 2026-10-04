@@ -48,10 +48,20 @@ class VisualWebViewSecurityTest {
         val external = CopyOnWriteArrayList<String>()
         val finished = CopyOnWriteArrayList<String>()
         val errors = CopyOnWriteArrayList<Pair<String, Boolean>>()
+        @Volatile private var awaited: String? = null
         @Volatile var latch = CountDownLatch(1)
-        override fun onExternal(url: String) { external += url; latch.countDown() }
-        override fun onPageFinished(url: String) { finished += url; latch.countDown() }
-        override fun onMainFrameError(url: String, description: String, certificate: Boolean) { errors += url to certificate; latch.countDown() }
+            private set
+
+        /**
+         * Arms [latch] for the next callback about [url] only. A cancelled load still reports its own
+         * `onPageFinished` a moment after the error, which must not count for the next load.
+         */
+        fun expect(url: String) { awaited = url; latch = CountDownLatch(1) }
+        private fun hit(url: String) { if (url == awaited) latch.countDown() }
+
+        override fun onExternal(url: String) { external += url; hit(url) }
+        override fun onPageFinished(url: String) { finished += url; hit(url) }
+        override fun onMainFrameError(url: String, description: String, certificate: Boolean) { errors += url to certificate; hit(url) }
     }
 
     private fun webView(trust: WebTrust, rec: Recorder): WebView {
@@ -76,7 +86,7 @@ class VisualWebViewSecurityTest {
     }
 
     private fun load(wv: WebView, rec: Recorder, url: String) {
-        rec.latch = CountDownLatch(1)
+        rec.expect(url)
         onMain { wv.loadUrl(url) }
         assertTrue("no callback for $url", rec.latch.await(20, TimeUnit.SECONDS))
     }
@@ -94,7 +104,7 @@ class VisualWebViewSecurityTest {
         assertFalse(file); assertFalse(content)
         // file:// is not readable from the page either.
         assertEquals("false", evalJs(wv, "(function(){try{var r=new XMLHttpRequest();r.open('GET','file:///system/etc/hosts',false);r.send();return r.responseText.length>0}catch(e){return false}})()"))
-        rec.latch = CountDownLatch(1)
+        rec.expect("https://example.com/out")
         onMain { wv.evaluateJavascript("document.getElementById('x').click()", null) }
         assertTrue(rec.latch.await(10, TimeUnit.SECONDS))
         assertEquals(listOf("https://example.com/out"), rec.external.toList())

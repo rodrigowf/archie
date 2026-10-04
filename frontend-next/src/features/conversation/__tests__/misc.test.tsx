@@ -6,9 +6,9 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initialConversation, type Conversation, type Entry, type ToolBlock } from '@/protocol';
-import { catalogStore, setCatalogItems, tabsStore } from '@/stores';
+import { catalogStore, setCatalogItems, snackbarStore, tabsStore } from '@/stores';
 import { expectNoAxeViolations } from '@/test/axe';
-import { FakeWebSocket, setupServices, teardownServices } from '../../../services/__tests__/fakes';
+import { flushPromises, jsonResponse, setupServices, teardownServices, type Harness } from '../../../services/__tests__/fakes';
 import { ConversationPanel } from '../ConversationPanel';
 import { preloadRich } from '../lazyRich';
 import { visualFromTool } from '../entries/VisualCard';
@@ -19,8 +19,9 @@ beforeAll(async () => {
   await preloadRich();
 });
 
+let h: Harness;
 beforeEach(() => {
-  setupServices();
+  h = setupServices();
 });
 afterEach(() => {
   teardownServices();
@@ -43,32 +44,48 @@ const tool = (id: string, name: string, input: Record<string, unknown>, status: 
   origin: 'live',
 });
 
+function seedApprovalSession(): void {
+  setCatalogItems('sessions', [
+    {
+      session_id: 'sdk-a9',
+      local_id: 'A9',
+      title: 'TV setup plan',
+      started_at: '',
+      last_activity: '',
+      message_count: 1,
+      is_orchestrator: false,
+      provider: 'claude',
+    },
+  ] as never);
+  seedSession(
+    orch({ agentApprovals: [{ localId: 'A9', request_id: 'r9', tool_name: 'ExitPlanMode', tool_input: { plan: '1. Check Kodi\n2. Queue films' } }] }),
+  );
+}
+
 describe('orchestrator view', () => {
-  it('agent approvals: "<agent> wants to start" with the plan; Approve answers on the agent socket', () => {
-    setCatalogItems('sessions', [
-      {
-        session_id: 'sdk-a9',
-        local_id: 'A9',
-        title: 'TV setup plan',
-        started_at: '',
-        last_activity: '',
-        message_count: 1,
-        is_orchestrator: false,
-        provider: 'claude',
-      },
-    ] as never);
-    seedSession(
-      orch({ agentApprovals: [{ localId: 'A9', request_id: 'r9', tool_name: 'ExitPlanMode', tool_input: { plan: '1. Check Kodi\n2. Queue films' } }] }),
-    );
+  it('agent approvals: "<agent> wants to start" with the plan; Approve answers over REST (§6.9)', async () => {
+    h.fetch.on('POST', '/api/sessions/A9/permission', { ok: true });
+    seedApprovalSession();
     render(<ConversationPanel localId="O1" hidden={false} />);
     const c = screen.getByRole('region', { name: 'Permission request from TV setup plan' });
     expect(c.textContent).toContain('TV setup plan wants to start');
     expect(within(c).getByText('Queue films')).toBeTruthy();
     fireEvent.click(within(c).getByRole('button', { name: 'Approve' }));
-    const ws = FakeWebSocket.last('/api/sessions/chat');
-    ws.open();
-    expect(ws.messages()).toEqual([{ type: 'permission_response', session_id: 'A9', request_id: 'r9', decision: 'allow' }]);
+    await act(flushPromises);
+    expect(h.fetch.calls('POST', '/api/sessions/A9/permission').map((r) => r.body)).toEqual([{ request_id: 'r9', decision: 'allow' }]);
     expect(within(c).getByRole('button', { name: 'Approve' }).getAttribute('aria-disabled')).toBe('true');
+    catalogStore.setState({ sessions: { ...catalogStore.getState().sessions, items: [] } });
+  });
+
+  it('agent approvals: a failed answer re-enables the buttons and shows the error', async () => {
+    h.fetch.on('POST', '/api/sessions/A9/permission', () => jsonResponse({ detail: 'boom' }, 500));
+    seedApprovalSession();
+    render(<ConversationPanel localId="O1" hidden={false} />);
+    const c = screen.getByRole('region', { name: 'Permission request from TV setup plan' });
+    fireEvent.click(within(c).getByRole('button', { name: 'Reject' }));
+    await act(flushPromises);
+    expect(within(c).getByRole('button', { name: 'Reject' }).getAttribute('aria-disabled')).not.toBe('true');
+    expect(JSON.stringify(snackbarStore.getState())).toContain('boom');
     catalogStore.setState({ sessions: { ...catalogStore.getState().sessions, items: [] } });
   });
 

@@ -1,6 +1,7 @@
 package com.assistant.archie.feature.chat
 
 import com.assistant.core.conversation.ConversationState
+import com.assistant.core.data.ApprovalAnswer
 import com.assistant.core.data.ConversationEvent
 import com.assistant.core.data.ConversationKey
 import com.assistant.core.data.ConversationRepository
@@ -36,13 +37,10 @@ interface ChatBackend {
     fun respondToPermission(requestId: String, allow: Boolean): SendResult?
 
     /**
-     * Orchestrator "Agent approvals" (PM-5): answers on the agent's own socket when its view is open.
-     * Returns false when it cannot be answered from here (the caller offers to open the session).
+     * Orchestrator "Agent approvals" (PM-5, §6.9): on the agent's own socket when its view is open
+     * here, else over REST. A `Failed` answer re-enables the card.
      */
-    fun respondToAgentApproval(agentLocalId: String, requestId: String, allow: Boolean): Boolean
-
-    /** The agent's view is open here, so its approval can be answered on its socket (T-8 otherwise). */
-    fun canReachAgent(agentLocalId: String): Boolean
+    suspend fun respondToAgentApproval(agentLocalId: String, requestId: String, allow: Boolean): ApprovalAnswer
     fun loadOlder()
     fun reload()
     fun dismissBanner()
@@ -97,13 +95,8 @@ class RepositoryChatBackend(
     override fun compact() { repo.compact(key) }
     override fun respondToPermission(requestId: String, allow: Boolean) = repo.respondToPermission(key, requestId, allow)
 
-    override fun respondToAgentApproval(agentLocalId: String, requestId: String, allow: Boolean): Boolean {
-        val agent = ConversationKey.agent(agentLocalId)
-        if (repo.current(agent) == null) return false
-        return repo.respondToPermission(agent, requestId, allow) == SendResult.SENT
-    }
-
-    override fun canReachAgent(agentLocalId: String) = repo.current(ConversationKey.agent(agentLocalId)) != null
+    override suspend fun respondToAgentApproval(agentLocalId: String, requestId: String, allow: Boolean) =
+        repo.answerAgentApproval(agentLocalId, requestId, allow)
 
     override fun loadOlder() = repo.loadOlder(key)
     override fun reload() { repo.reload(key) }

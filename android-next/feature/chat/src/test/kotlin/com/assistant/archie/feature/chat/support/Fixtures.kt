@@ -198,7 +198,7 @@ object UiStates {
             hasMore = s.history.hasMore,
             empty = s.entries.isEmpty(),
             composer = ConversationUiMapper.composer(s, draft.isBlank(), vu, false, title),
-            cards = ConversationUiMapper.cards(s, emptySet(), emptySet(), { true }, emptyList()),
+            cards = ConversationUiMapper.cards(s, emptySet(), emptySet(), emptyList()),
             queue = s.queue.toImmutableList(),
             voice = vu,
             counters = CountersUi(s.counters.cost, s.counters.turns, s.counters.contextTokens, s.counters.contextWindow),

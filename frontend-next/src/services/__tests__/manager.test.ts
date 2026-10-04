@@ -260,14 +260,36 @@ describe('Archie on the single orchestrator socket (T-6, T-7)', () => {
     expect(rt.handle.store.getState().models).toEqual([{ model_id: 'gpt-audio' }]);
   });
 
-  it('agent approvals: answered on the agent socket when open, else on a transient chat socket (T-8)', () => {
+  it('agent approvals: answered over REST when the agent view is not open (§6.9)', async () => {
+    h.fetch.on('POST', '/api/sessions/AG/permission', { ok: true });
+    startServices({ skipInitialSync: true });
+    const archie = openSession({ kind: 'archie', localId: 'O1', focus: true }) as ArchieRuntime;
+    subscribe(FakeWebSocket.last(ORCH), 'O1');
+    FakeWebSocket.last(ORCH).emit({ type: 'nested_session_event', session_id: 'AG', event_type: 'permission_request', event_data: { type: 'permission_request', request_id: 'r1', tool_name: 'Bash', tool_input: {} } });
+    expect(archie.conv.agentApprovals).toHaveLength(1);
+    const chatSockets = FakeWebSocket.all(CHAT).length;
+    await respondAgentPermission('AG', 'r1', 'allow');
+    const posts = h.fetch.requests.filter((r) => r.method === 'POST' && r.path === '/api/sessions/AG/permission');
+    expect(posts.map((r) => r.body)).toEqual([{ request_id: 'r1', decision: 'allow' }]);
+    expect(FakeWebSocket.all(CHAT).length).toBe(chatSockets); // no transient socket
+  });
+
+  it('agent approvals: 409 (answered elsewhere) is success; a gone session rejects with a clear message', async () => {
+    h.fetch.on('POST', '/api/sessions/AG/permission', () => jsonResponse({ detail: 'No pending permission request' }, 409));
+    h.fetch.on('POST', '/api/sessions/GONE/permission', () => jsonResponse({ detail: "No live pool session with local_id='GONE'" }, 404));
+    startServices({ skipInitialSync: true });
+    await expect(respondAgentPermission('AG', 'r1', 'deny')).resolves.toBeUndefined();
+    await expect(respondAgentPermission('GONE', 'r1', 'allow')).rejects.toThrow('no longer running');
+  });
+
+  it('agent approvals: a server without the REST route falls back to a transient chat socket (T-8)', async () => {
     startServices({ skipInitialSync: true });
     const archie = openSession({ kind: 'archie', localId: 'O1', focus: true }) as ArchieRuntime;
     const ows = FakeWebSocket.last(ORCH);
     subscribe(ows, 'O1');
     ows.emit({ type: 'nested_session_event', session_id: 'AG', event_type: 'permission_request', event_data: { type: 'permission_request', request_id: 'r1', tool_name: 'ExitPlanMode', tool_input: {} } });
     expect(archie.conv.agentApprovals).toHaveLength(1);
-    respondAgentPermission('AG', 'r1', 'allow');
+    await respondAgentPermission('AG', 'r1', 'allow'); // unrouted → 404 "Not Found"
     const transient = FakeWebSocket.last(CHAT);
     transient.open();
     expect(transient.messages()).toEqual([{ type: 'permission_response', session_id: 'AG', request_id: 'r1', decision: 'allow' }]);
@@ -279,7 +301,7 @@ describe('Archie on the single orchestrator socket (T-6, T-7)', () => {
     subscribe(aws, 'AG');
     ows.emit({ type: 'nested_session_event', session_id: 'AG', event_type: 'permission_request', event_data: { type: 'permission_request', request_id: 'r2', tool_name: 'ExitPlanMode', tool_input: {} } });
     expect(ag.conv.entries.length).toBe(1); // routed into the open agent view
-    respondAgentPermission('AG', 'r2', 'deny');
+    await respondAgentPermission('AG', 'r2', 'deny');
     expect(aws.messages()[1]).toEqual({ type: 'permission_response', session_id: 'AG', request_id: 'r2', decision: 'deny' });
     aws.emit({ type: 'status', status: 'processing' });
     aws.emit({ type: 'turn_complete', session_id: 'sdk-ag' });

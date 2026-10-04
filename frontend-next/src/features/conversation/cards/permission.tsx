@@ -6,8 +6,8 @@ import { memo, useState } from 'react';
 import { pendingPermission, type AgentApproval, type PermissionBlock, type SessionKind } from '@/protocol';
 import { Markdown } from '@/features/markdown';
 import { resolveTool } from '@/features/tools';
-import { getSessionRuntime, respondAgentPermission, SessionRuntime } from '@/services';
-import { useCatalog, useSession } from '@/stores';
+import { errorMessage, getSessionRuntime, respondAgentPermission, SessionRuntime } from '@/services';
+import { showSnackbar, useCatalog, useSession } from '@/stores';
 import { Button } from '@/ui/controls';
 import { InlineCard } from './InlineCard';
 import { FEEDBACK_HINT, PLAN_HINT, PLAN_TITLE } from './copy';
@@ -77,8 +77,11 @@ const AgentApprovalCard = memo(function AgentApprovalCard({ approval }: { approv
   const plan = approval.tool_name === 'ExitPlanMode' && typeof approval.tool_input.plan === 'string' ? approval.tool_input.plan : null;
   const r = plan === null ? resolveTool(approval, 'agent') : null;
   const answer = (decision: 'allow' | 'deny'): void => {
-    respondAgentPermission(approval.localId, approval.request_id, decision);
     setSent(true);
+    respondAgentPermission(approval.localId, approval.request_id, decision).catch((err: unknown) => {
+      setSent(false);
+      showSnackbar(errorMessage(err));
+    });
   };
   return (
     <InlineCard

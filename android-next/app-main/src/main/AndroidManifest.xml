@@ -8,7 +8,9 @@
   BLUETOOTH_CONNECT and REQUEST_IGNORE_BATTERY_OPTIMIZATIONS. No RECEIVE_BOOT_COMPLETED: Android 15
   refuses a microphone FGS from BOOT_COMPLETED, so wake word resumes when Archie is next opened
   (decision Q7). No USE_FULL_SCREEN_INTENT yet: the "show over lock screen on wake" setting is not
-  built (spec 14 §2.6), and wake → voice runs headless with the voice notification instead.
+  built (spec 14 §2.6), and wake → voice runs headless with the voice notification instead. Agent
+  approvals (OI-6) use a heads-up notification on the high-importance "Approvals" channel, not a
+  full-screen intent.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -94,6 +96,11 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- OI-6: Approve / Deny on an agent-approval notification (REST answer, spec 12 §6.9). -->
+        <receiver
+            android:name=".system.ApprovalActionReceiver"
+            android:exported="false" />
 
         <!-- Quick Settings "Talk" (spec 14 §2.8). Follows voice while the panel shows it. -->
         <service

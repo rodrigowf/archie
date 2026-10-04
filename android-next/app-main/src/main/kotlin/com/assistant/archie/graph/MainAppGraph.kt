@@ -35,15 +35,21 @@ import com.assistant.core.voicehost.runtime.VoiceHostRuntime
 import com.assistant.archie.feature.chat.ChatVoice
 import com.assistant.archie.feature.chat.PresenceChatVoice
 import com.assistant.archie.feature.settings.VoiceStatusSource
+import com.assistant.archie.system.ApprovalCenter
+import com.assistant.archie.system.ApprovalNotifier
 import com.assistant.archie.system.HostChatVoice
 import com.assistant.archie.system.HostVoicePresence
 import com.assistant.archie.system.HostVoiceStatus
 import com.assistant.archie.system.MicPermissionGate
 import com.assistant.archie.system.ShareController
 import com.assistant.archie.system.ShellCommands
+import com.assistant.archie.system.SystemApprovalSink
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import java.io.File
@@ -101,6 +107,16 @@ class MainAppGraph(
         scanner ?: LanScanner(ServerDiscovery(http), network),
         scope,
     )
+    /**
+     * OI-2 + OI-6: agent approvals from anywhere — heads-up notifications for pending agent
+     * permissions the user is not looking at, answered over REST (spec 12 §6.9, AN-1..AN-4).
+     */
+    val approvals = ApprovalCenter(
+        ApprovalNotifier(SystemApprovalSink(app), scope, ApprovalNotifier.titleFrom(history, conversations)) { localId, requestId, allow ->
+            conversations.answerAgentApproval(localId, requestId, allow, preferSocket = false)
+        },
+        settingsLoaded = { withTimeoutOrNull(5_000) { settings.settings.filterNotNull().first() } },
+    )
     val memory = MemoryRepository(api, scope)
     val visuals = VisualsRepository(api, scope)
     val serverConfig = ServerConfigRepository(api, scope)
@@ -138,6 +154,10 @@ class MainAppGraph(
     init {
         // §9.1: visuals refresh after any turn (debounced).
         conversations.events.onEach { if (it is com.assistant.core.data.ConversationEvent.TurnEnded) visuals.refreshSoon() }.launchIn(scope)
+        approvals.notifier.attach(
+            ApprovalNotifier.pendingFrom(conversations),
+            ApprovalNotifier.lookingAtFrom(openSessions, conversations, approvals.foreground, approvals.workspaceOnTop),
+        )
     }
 
     /** T-14: reconnect immediately when a network becomes available. Called once by the Application. */
@@ -151,6 +171,7 @@ class MainAppGraph(
      */
     val processLifecycle = object : DefaultLifecycleObserver {
         override fun onStart(owner: LifecycleOwner) {
+            approvals.foreground.value = true
             conversations.onForeground()
             history.refreshAll()
             // A foreground context: the host may start / promote its FGS now (spec 14 §2.6).
@@ -158,6 +179,7 @@ class MainAppGraph(
         }
 
         override fun onStop(owner: LifecycleOwner) {
+            approvals.foreground.value = false
             // The orchestrator socket stays while the voice host's service needs it (wake word,
             // live voice, "Stay connected"): a headless wake must find it open (spec 14 §2.5).
             val keepAlive = settings.settings.value?.stayConnectedInBackground == true || voiceHost?.serviceWanted() == true

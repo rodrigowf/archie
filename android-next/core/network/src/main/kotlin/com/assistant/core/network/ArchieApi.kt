@@ -41,6 +41,8 @@ import com.assistant.core.protocol.toDto
 import com.assistant.core.protocol.toModel
 import com.assistant.core.protocol.toPutBody
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.serialization.json.encodeToJsonElement
 import okhttp3.Request
 
@@ -114,6 +116,18 @@ class ArchieApi(private val rest: RestCaller) {
      */
     suspend fun closePoolSession(localId: String): ApiResult<Unit> =
         rest.call(Request.Builder().url(sessionUrl(localId, "close")).post(rest.emptyBody()).build()) { }
+
+    /**
+     * `POST /api/sessions/{localId}/permission` (spec 12 §6.9): answers an agent's pending
+     * permission without its chat socket (Agent approvals list, notification actions). 404 = not in
+     * the pool (detail "Not Found" = a server without this route); 409 = already answered / unknown.
+     */
+    suspend fun resolvePermission(localId: String, requestId: String, allow: Boolean, message: String? = null): ApiResult<Unit> =
+        rest.sendJson("POST", sessionUrl(localId, "permission"), buildJsonObject {
+            put("request_id", requestId)
+            put("decision", if (allow) "allow" else "deny")
+            if (message != null) put("message", message)
+        })
 
     // ───────────── visualizations (inv01 §3.3, BX-2) ─────────────
     suspend fun visualizations(): ApiResult<List<VisualInfo>> =
