@@ -6,7 +6,7 @@
  * Back button / Android back gesture closes the topmost screen first (§4.5) and Escape closes it.
  */
 import { useRef, type ReactNode } from 'react';
-import { findTab } from '@/stores';
+import { catalogStore, findTab, useCatalog } from '@/stores';
 import { useOverlayLayer } from '@/ui/a11y';
 import { IconButton } from '@/ui/controls';
 import { TopAppBar } from '@/ui/navigation';
@@ -61,7 +61,8 @@ export function screensFor(route: Route, wc: WindowClass): ScreenSpec[] {
         list,
         {
           key: `visuals:${route.path}`,
-          title: tab?.titleHint ?? basename(route.path),
+          // W-14: the visual's list title (mockup h), as the tab strip shows it on larger windows.
+          title: tab?.titleHint ?? catalogStore.getState().visuals.items.find((v) => v.path === route.path)?.title ?? basename(route.path),
           parent: { name: 'visuals', path: null },
           body: <VisualViewer path={route.path} url={tab?.url} hidden={false} />,
           fill: true,
@@ -117,6 +118,7 @@ function Screen({ spec, compact, top }: { spec: ScreenSpec; compact: boolean; to
 
 export function useScreens(wc: WindowClass): ScreenSpec[] {
   const route = useRoute();
+  useCatalog((c) => c.visuals); // W-14: visual screen titles follow the list (loads, renames)
   return screensFor(route, wc);
 }
 

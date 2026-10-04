@@ -14,43 +14,55 @@
  * | Composer             | W-11  | inside ConversationPanel                       | wired
  * | SessionMenu          | W-11  | workspace top bar / compact app bar (⋮)        | wired
  * | NewMenuItems         | W-11  | rail "＋ New" menu                             | wired
- * | HistoryPane          | W-14  | list pane (Chats), drawer body, History screen |
- * | MemoryPane           | W-14  | list pane (Memory), Memory screen              |
- * | MemoryDocument       | W-14  | PanelHost (memory tabs), compact doc screen    |
- * | VisualsPane          | W-14  | list pane (Visuals), Visuals screen            |
- * | VisualViewer         | W-14  | PanelHost (visual tabs), compact doc screen    |
- * | SettingsScreen       | W-13  | Settings screen                                |
- * | AuthGate             | W-13  | App root                                       |
- * | VoiceAction          | W-12  | compact app bar trailing voice/speaker state   |
+ * | HistoryPane          | W-14  | list pane (Chats), drawer body, History screen | wired
+ * | MemoryPane           | W-14  | list pane (Memory), Memory screen              | wired
+ * | MemoryDocument       | W-14  | PanelHost (memory tabs), compact doc screen    | wired
+ * | VisualsPane          | W-14  | list pane (Visuals), Visuals screen            | wired
+ * | VisualViewer         | W-14  | PanelHost (visual tabs), compact doc screen    | wired
+ * | SettingsScreen       | W-13  | Settings screen                                | wired
+ * | AuthGate             | W-13  | App root                                       | wired
+ * | VoiceAction          | W-12  | compact app bar trailing voice/speaker state   | wired
+ * | VoiceSlot            | W-12  | composer slot: VoiceDock / Active elsewhere    | wired
  */
-import { useMemo, type ReactNode } from 'react';
+import { useCallback, useMemo, type ReactNode } from 'react';
 import { Composer, startVoice } from '@/features/composer';
 import { ConversationPanel as ConversationView } from '@/features/conversation';
+import { AuthGate as AuthGateView } from '@/features/auth';
 import { NewMenu, SessionActionsHost, SessionMenu as SessionMenuView } from '@/features/session-actions';
-import { EmptyState } from '@/ui/controls';
+import { AppearanceEffects, openSessionSettings, SessionSettingsHost, SettingsScreen as SettingsView, type SettingsPageId } from '@/features/settings';
+import { installVoice, VoiceSlot } from '@/features/voice';
+import { HistoryPane as HistoryView, type HistoryVariant, type OpenNowItem } from '@/features/history';
+import { MemoryDocument as MemoryDocumentView, MemoryPane as MemoryView } from '@/features/memory';
+import { VisualsPane as VisualsView } from '@/features/visuals';
+import { useTabs } from '@/stores';
 import { navigate } from '../navigation/route';
 import { ArchieMark } from '../shell/ArchieMark';
-import { newAgent, requestCloseTab, requestRename } from '../shell/actions';
+import { focusTab, newAgent, openDocument, openFromHistory, requestCloseTab, requestRename } from '../shell/actions';
 import { closeShellOverlays } from '../shell/shellState';
-import { SlotNote } from './SlotNote';
-import styles from './placeholders.module.css';
+import { useWindowClass } from '../useWindowClass';
+import { useTitledTabs } from '../workspace/SessionTabStrip';
+import { StatusGlyph, TabLeading } from '../workspace/TabParts';
+import { PROVIDER_LABEL, useTabSummaries } from '../workspace/tabSummary';
 
 export { Composer } from '@/features/composer';
-export { HistoryPane } from './HistoryPanePlaceholder';
+export { VoiceAction } from '@/features/voice';
+
+// W-12: voice controllers follow the Archie runtimes; the composer's Voice button starts voice.
+installVoice();
 export { SlotNote } from './SlotNote';
 
 /* ------------------------------------------------------------- W-09 + W-11 */
 
 /** W-09's conversation view with W-11's composer in its slot (W-12's VoiceDock takes it over while voice is active). */
 export function ConversationPanel({ localId, hidden }: { localId: string; hidden: boolean }) {
-  const composer = useMemo(() => <Composer localId={localId} />, [localId]);
+  const composer = useMemo(() => <VoiceSlot localId={localId} composer={<Composer localId={localId} />} />, [localId]);
   const onStartVoice = useMemo(() => () => startVoice(localId), [localId]);
   return <ConversationView localId={localId} hidden={hidden} composer={composer} onStartVoice={onStartVoice} />;
 }
 
-/** W-11 ⋮ session menu; Rename and Close run the shell's flows (W-07). Session settings: wire W-13's sheet here. */
+/** W-11 ⋮ session menu; Rename and Close run the shell's flows (W-07); Session settings opens W-13's sheet. */
 export function SessionMenu({ localId }: { localId: string }) {
-  return <SessionMenuView localId={localId} onRename={requestRename} onClose={requestCloseTab} />;
+  return <SessionMenuView localId={localId} onRename={requestRename} onClose={requestCloseTab} onSessionSettings={openSessionSettings} />;
 }
 
 /** W-11 "＋ New" items: New Archie asks first when Archie is already running (§6.11, F-25). */
@@ -69,87 +81,113 @@ export function NewMenuItems() {
 
 /* ------------------------------------------------------------- W-14 */
 
-/** PLACEHOLDER (W-14 `MemoryPane`). */
-export function MemoryPane() {
-  return (
-    <div className={styles.pane}>
-      <EmptyState icon="book_2" title="Memory" description="The memory tree with search." />
-      <SlotNote owner="W-14">Memory browser</SlotNote>
-    </div>
-  );
-}
-
-/** PLACEHOLDER (W-14 `VisualsPane`). */
-export function VisualsPane() {
-  return (
-    <div className={styles.pane}>
-      <EmptyState icon="bar_chart" title="Visuals" description="Visualizations Archie and agents made." />
-      <SlotNote owner="W-14">Visuals gallery</SlotNote>
-    </div>
-  );
-}
-
-/** PLACEHOLDER (W-14 `MemoryDocument`). */
-export function MemoryDocument({ path, hidden }: { path: string; hidden: boolean }) {
-  return (
-    <div className={styles.doc} data-hidden={hidden ? '' : undefined}>
-      <EmptyState icon="description" title={path} description="Frontmatter, rendered markdown and in-app links." />
-      <SlotNote owner="W-14">Memory document</SlotNote>
-    </div>
-  );
-}
-
 /**
- * PLACEHOLDER (W-14 `VisualViewer`). Already keeps the **[LOAD-BEARING]** iframe contract
- * (inv02 F-36, frontend/src/components/VisualizationPanel.tsx): exact sandbox tokens, and the
- * iframe stays mounted while hidden.
+ * W-14 history list. The shell supplies the open conversations exactly as the tab strip shows
+ * them (title, kind icon + unseen badge, live status) and the open / focus flows (W-07).
  */
-export function VisualViewer({ path, url, hidden }: { path: string; url: string | undefined; hidden: boolean }) {
+export function HistoryPane({ variant = 'pane' }: { variant?: HistoryVariant }) {
+  const { tabs, titles } = useTitledTabs();
+  const activeId = useTabs((s) => s.activeId);
+  const open = useMemo(() => tabs.filter((t) => t.kind === 'archie' || t.kind === 'agent'), [tabs]);
+  const summaries = useTabSummaries(open);
+  const openNow = useMemo<OpenNowItem[]>(
+    () =>
+      open.map((t) => {
+        const sum = summaries[t.id] ?? null;
+        return {
+          id: t.id,
+          title: titles[t.id] ?? '',
+          sdkId: t.sdkId ?? null,
+          isArchie: t.kind === 'archie',
+          providerLabel: t.kind === 'agent' && t.provider ? PROVIDER_LABEL[t.provider] : null,
+          statusLabel: sum ? sum.label : null,
+          leading: <TabLeading tab={t} size={t.kind === 'archie' ? 24 : 20} unseen={t.unseen && t.id !== activeId} />,
+          status: <StatusGlyph summary={sum} />,
+        };
+      }),
+    [open, summaries, titles, activeId],
+  );
   return (
-    <div className={styles.viewer} data-hidden={hidden ? '' : undefined}>
-      <iframe
-        className={styles.frame}
-        title={path}
-        src={url ?? 'about:blank'}
-        sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals"
-      />
-      <SlotNote owner="W-14">Visual viewer toolbar</SlotNote>
-    </div>
+    <HistoryView
+      variant={variant}
+      openNow={openNow}
+      activeId={activeId}
+      onFocusOpen={focusTab}
+      onOpenSession={(s) => {
+        openFromHistory(s.session_id, s.is_orchestrator);
+      }}
+      archieMark={<ArchieMark size={20} />}
+    />
   );
 }
+
+/** W-14 memory tree: files open as tabs on medium/expanded, as a document screen on compact (IA §9.2). */
+export function MemoryPane() {
+  const wc = useWindowClass();
+  return (
+    <MemoryView
+      onOpen={(path, name) => {
+        openDocument('memory', path, { compact: wc === 'compact', title: name });
+      }}
+    />
+  );
+}
+
+/** W-14 visuals list (same open rule as Memory). */
+export function VisualsPane() {
+  const wc = useWindowClass();
+  return (
+    <VisualsView
+      onOpen={(v) => {
+        openDocument('visual', v.path, { compact: wc === 'compact', url: v.url, title: v.title });
+      }}
+    />
+  );
+}
+
+/** W-14 memory document; a relative link opens the other file the same way the tree does. */
+export function MemoryDocument({ path, hidden }: { path: string; hidden: boolean }) {
+  const wc = useWindowClass();
+  const onOpenLink = useCallback(
+    (target: string) => {
+      openDocument('memory', target, { compact: wc === 'compact', title: target.split('/').pop() ?? target });
+    },
+    [wc],
+  );
+  return <MemoryDocumentView path={path} hidden={hidden} onOpenLink={onOpenLink} />;
+}
+
+/** W-14 visual viewer (sandboxed iframe that stays mounted while hidden; Show on TV; ⋮). */
+export { VisualViewer } from '@/features/visuals';
 
 /* ------------------------------------------------------------- W-13 */
 
-/** PLACEHOLDER (W-13 `SettingsScreen`). */
+const openSettingsPage = (page: SettingsPageId | null): void => {
+  navigate({ name: 'settings', page });
+};
+
+/** W-13 settings (IA §7): two panes on Expanded, pushed pages on Compact / Medium; pages route via the hash. */
 export function SettingsScreen({ page }: { page?: string | null }) {
-  return (
-    <div className={styles.pane}>
-      <EmptyState
-        icon="settings"
-        title={page ? `Settings · ${page}` : 'Settings'}
-        description="This device · Archie (server) · About"
-      />
-      <SlotNote owner="W-13">Settings</SlotNote>
-    </div>
-  );
+  return <SettingsView page={page ?? null} onNavigate={openSettingsPage} />;
 }
 
 /**
- * PLACEHOLDER (W-13 `AuthGate`): renders the app; W-13 adds the sign-in screen.
- * Keep W-11's `SessionActionsHost` (session dialogs, busy overlay, F2) mounted beside the app.
+ * W-13 `AuthGate`: startup sign-in check, sign-in screen over the app when the backend's Claude
+ * CLI is signed out. Also mounts W-11's `SessionActionsHost` (session dialogs, busy overlay, F2),
+ * W-13's session settings sheet host and the appearance effects (text size) beside the app.
  */
 export function AuthGate({ children }: { children: ReactNode }) {
   return (
-    <>
+    <AuthGateView>
+      <AppearanceEffects />
       {children}
       <SessionActionsHost onRename={requestRename} />
-    </>
+      <SessionSettingsHost
+        onOpenSettings={(p) => {
+          closeShellOverlays();
+          openSettingsPage(p);
+        }}
+      />
+    </AuthGateView>
   );
-}
-
-/* ------------------------------------------------------------- W-12 */
-
-/** PLACEHOLDER (W-12): the compact app bar's voice/speaker state action. Nothing until W-12. */
-export function VoiceAction(_props: { localId: string }) {
-  return null;
 }

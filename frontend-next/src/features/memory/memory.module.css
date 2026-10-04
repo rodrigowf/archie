@@ -1,0 +1,148 @@
+/* Memory browser + document (W-14). Margins, not flex gap (Safari 12). */
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 12px;
+}
+
+.search {
+  flex: none;
+  margin-bottom: 8px;
+}
+
+.tree {
+  padding: 0 4px;
+}
+
+.note {
+  display: flex;
+  align-items: center;
+  margin: 12px 16px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: var(--md-sys-typescale-body-medium-line-height);
+}
+
+.noteText {
+  margin-left: 8px;
+}
+
+.error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  margin: 8px 16px;
+  color: var(--md-sys-color-error);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: var(--md-sys-typescale-body-medium-line-height);
+}
+
+/* ---------- document ---------- */
+
+.doc {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--md-sys-color-surface);
+}
+
+.docBar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  min-height: 48px;
+  padding: 0 8px 0 24px;
+}
+
+.docBar > * + * {
+  margin-left: 4px;
+}
+
+.crumb {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: var(--md-sys-typescale-body-medium-line-height);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.docScroll {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.docBody {
+  box-sizing: border-box;
+  max-width: 840px;
+  margin: 0 auto;
+  padding: 4px 24px 48px;
+  padding-bottom: calc(48px + env(safe-area-inset-bottom));
+}
+
+.frontmatter {
+  margin-bottom: 16px;
+}
+
+.fmBody {
+  margin-top: 8px;
+}
+
+.fmPre {
+  margin: 0;
+  padding: 12px 16px;
+  overflow-x: auto;
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface-variant);
+  font-family: var(--md-sys-typescale-code-font);
+  font-size: var(--md-sys-typescale-code-size);
+  line-height: var(--md-sys-typescale-code-line-height);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  -webkit-overflow-scrolling: touch;
+}
+
+.modified {
+  margin: 0 0 12px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: var(--md-sys-typescale-body-small-line-height);
+}
+
+.prose {
+  color: var(--md-sys-color-on-surface);
+}
+
+@media (--compact) {
+  .docBar {
+    padding-left: 16px;
+  }
+
+  .docBody {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+}
+
+.prose + .modified {
+  margin-top: 4px;
+}
+
+.modified + .prose,
+.prose + .prose {
+  margin-top: 16px;
+}
+
+/* Compact: the pane is a full screen (ScreenLayer has no side gutter of its own). */
+@media (--compact) {
+  .pane {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+}

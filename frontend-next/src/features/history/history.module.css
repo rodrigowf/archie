@@ -1,0 +1,129 @@
+/* History list (W-14): list pane / drawer body. Spacing by margins (no flex gap, Safari 12). */
+
+.history {
+  display: flex;
+  flex-direction: column;
+  padding: 0 0 12px;
+}
+
+.historyDrawer {
+  padding-bottom: 4px;
+}
+
+.search {
+  flex: none;
+  margin-bottom: 4px;
+}
+
+.supportText {
+  margin-left: 6px;
+}
+
+.error {
+  margin: 8px 16px;
+  color: var(--md-sys-color-error);
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: var(--md-sys-typescale-body-small-line-height);
+}
+
+.emptyLine {
+  margin: 16px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: var(--md-sys-typescale-body-medium-line-height);
+}
+
+/* ---------- action rows ---------- */
+
+.row {
+  position: relative;
+}
+
+.row + .row {
+  margin-top: 2px;
+}
+
+.trail {
+  white-space: nowrap;
+}
+
+.hoverActions,
+.menuSlot {
+  position: absolute;
+  top: 0;
+  right: 4px;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+}
+
+.hoverActions {
+  display: none;
+}
+
+/* Touch (and anything without a fine hovering pointer): ⋮ always visible. */
+.rowMain {
+  padding-right: 52px;
+}
+
+/* Pointer devices: icons on hover, ⋮ only while the row has keyboard focus. */
+@media (hover: hover) and (pointer: fine) {
+  .rowMain {
+    padding-right: 12px;
+  }
+
+  .hoverActions {
+    display: flex;
+    visibility: hidden;
+  }
+
+  .menuSlot {
+    visibility: hidden;
+  }
+
+  .row:hover .hoverActions {
+    visibility: visible;
+  }
+
+  .row:hover .rowMain {
+    padding-right: calc(var(--row-actions, 3) * 40px + 8px);
+  }
+
+  .row:hover .trail {
+    visibility: hidden;
+  }
+
+  .row:focus-within .menuSlot,
+  .row.rowMenuOpen .menuSlot {
+    visibility: visible;
+  }
+
+  .row:focus-within .trail,
+  .row.rowMenuOpen .trail {
+    visibility: hidden;
+  }
+
+  .row.rowMenuOpen .rowMain {
+    padding-right: 52px;
+  }
+
+  .row:focus-within:not(:hover) .rowMain {
+    padding-right: 52px;
+  }
+
+  .row:hover .menuSlot {
+    visibility: hidden;
+  }
+}
+
+.renameForm {
+  margin-top: 8px;
+}
+
+/* Compact History screen (the drawer variant sits inside the drawer's own gutter). */
+@media (--compact) {
+  .history[data-variant="pane"] {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+}
