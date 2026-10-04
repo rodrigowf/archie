@@ -204,6 +204,16 @@ class ConversationRepository(
         orchestrator.inject(text)
     }
 
+    /**
+     * §4.7 / VT-2: an inbound OpenAI (WebRTC) data-channel event of the voice session this device
+     * owns. The server never mirrors these back, so the owner feeds its own transcripts (user
+     * transcription, streaming assistant deltas, the final transcript) into the Archie timeline
+     * here — the reducer's `datachannel_event` input. WS providers arrive as `voice_event` frames.
+     */
+    fun voiceDataChannelEvent(event: kotlinx.serialization.json.JsonObject) {
+        archieHandle()?.post(ConversationInput.DataChannelEvent(event))
+    }
+
     /** §5.3 older page; a page that does not abut triggers a canonical reload (A-4.4.6). */
     fun loadOlder(key: ConversationKey) {
         val h = handle(key) ?: return

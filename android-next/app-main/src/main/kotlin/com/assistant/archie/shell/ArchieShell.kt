@@ -648,7 +648,7 @@ private fun ShellNavDisplay(
             entry<Workspace> { workspace() }
             entry<History> { history(pop) }
             entry<MemoryTree> { destinations.MemoryScreen(onBack = pop, onOpenDoc = { backStack.add(MemoryDoc(it)) }) }
-            entry<MemoryDoc> { k -> destinations.MemoryDocScreen(k.path, onBack = pop) }
+            entry<MemoryDoc> { k -> destinations.MemoryDocScreen(k.path, onBack = pop, onOpenDoc = { backStack.add(MemoryDoc(it)) }) }
             entry<VisualsList> { destinations.VisualsScreen(onBack = pop, onOpen = { backStack.add(VisualDoc(it)) }) }
             entry<VisualDoc> { k -> destinations.VisualScreen(k.path, onBack = pop) }
             entry<SettingsHome> { destinations.SettingsScreen(onBack = pop, onOpenPage = { backStack.add(SettingsPage(it)) }) }

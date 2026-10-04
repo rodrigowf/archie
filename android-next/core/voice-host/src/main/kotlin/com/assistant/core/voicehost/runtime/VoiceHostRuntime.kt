@@ -116,6 +116,12 @@ class RuntimeDeps(
      */
     val manageConnection: Boolean = true,
     val sessionFactory: (VoiceSessionDeps) -> ReconnectableVoiceSession = { DefaultVoiceSessionController(it) },
+    /**
+     * Main app (B-09, spec 12 §4.7 / VT-2): every inbound OpenAI data-channel event of the session
+     * this device owns (exactly what the WebRTC transport mirrors as `voice_event`). The server never
+     * echoes these back, so the app feeds them to its own timeline. Default: ignored (lite).
+     */
+    val dataChannelTap: (kotlinx.serialization.json.JsonObject) -> Unit = { },
 )
 
 /**
@@ -192,7 +198,14 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
         }
 
         override fun sendVoiceStop() { sendOrLog(ClientFrame.VoiceStop) }
-        override fun sendVoiceEvent(event: kotlinx.serialization.json.JsonObject) { channel.send(ClientFrame.VoiceEvent(event)) }
+        override fun sendVoiceEvent(event: kotlinx.serialization.json.JsonObject) {
+            channel.send(ClientFrame.VoiceEvent(event))
+            try {
+                deps.dataChannelTap(event)
+            } catch (e: Exception) {
+                log.w(TAG, "data-channel tap failed: ${e.message}")
+            }
+        }
         override fun sendVoiceAudioIn(audioB64: String) { channel.send(ClientFrame.VoiceAudioIn(audioB64)) }
 
         /**

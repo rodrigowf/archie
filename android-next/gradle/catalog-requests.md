@@ -7,3 +7,4 @@ library a minSdk-21 module uses, that its AAR manifest still declares minSdk ≤
 
 | Date | WP | Alias | Coordinate | Tier (legacy / modern / pinned / shared / test) | Module(s) | Why | Status |
 |---|---|---|---|---|---|---|---|
+| 2026-10-04 | B-07 | `leakcanary-android-instrumentation` | `com.squareup.leakcanary:leakcanary-android-instrumentation:2.14` | test | `:feature:visuals` (androidTest) | Spec 14 §7 B-07 DoD names LeakCanary for the WebViewPool leak test; until it lands, `WebViewPoolLeakTest` checks reachability with WeakReference + GC | requested |

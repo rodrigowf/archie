@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher shortcuts (spec 14 §2.8). Talk goes through the trampoline (a foreground context). -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="talk"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_talk"
+        android:shortcutShortLabel="@string/shortcut_talk_short"
+        android:shortcutLongLabel="@string/shortcut_talk_long"
+        android:shortcutDisabledMessage="@string/shortcut_disabled">
+        <intent
+            android:action="com.assistant.archie.action.TALK"
+            android:targetPackage="com.assistant.archie"
+            android:targetClass="com.assistant.archie.system.VoiceTrampolineActivity">
+            <extra android:name="com.assistant.archie.extra.TRIGGER" android:value="ASSIST" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="new_archie"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_new"
+        android:shortcutShortLabel="@string/shortcut_new_archie_short"
+        android:shortcutLongLabel="@string/shortcut_new_archie_long"
+        android:shortcutDisabledMessage="@string/shortcut_disabled">
+        <intent
+            android:action="com.assistant.archie.action.NEW_ARCHIE"
+            android:targetPackage="com.assistant.archie"
+            android:targetClass="com.assistant.archie.shell.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="new_agent"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_agent"
+        android:shortcutShortLabel="@string/shortcut_new_agent_short"
+        android:shortcutLongLabel="@string/shortcut_new_agent_long"
+        android:shortcutDisabledMessage="@string/shortcut_disabled">
+        <intent
+            android:action="com.assistant.archie.action.NEW_AGENT"
+            android:targetPackage="com.assistant.archie"
+            android:targetClass="com.assistant.archie.shell.MainActivity" />
+    </shortcut>
+</shortcuts>

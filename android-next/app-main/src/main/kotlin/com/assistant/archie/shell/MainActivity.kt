@@ -8,6 +8,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -18,6 +20,10 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.navigation3.runtime.rememberNavBackStack
 import com.assistant.archie.graph.GraphOwner
 import com.assistant.archie.graph.MainAppGraph
+import com.assistant.archie.system.ShellCommand
+import com.assistant.archie.system.SystemIntents
+import com.assistant.archie.system.SystemOverlays
+import com.assistant.archie.system.applyAppNightMode
 import com.assistant.core.data.SharePayload
 import com.assistant.core.design.theme.ArchieTheme
 import com.assistant.archie.feature.settings.ui.AuthGate
@@ -29,8 +35,9 @@ import com.assistant.archie.feature.settings.ui.ProvideTextSize
  * (decision P-1) and never loses chat or voice state (inv03 §0).
  *
  * Seams kept for B-09 (inv03 §1.1): share intents land in `graph.share` (a StateFlow, so a cold-launch
- * share is not lost); wake-word callbacks and the screen-on flags for wake triggers go through the
- * voice host, not this Activity; the launch effects (auto-connect, scan on the default URL) run in
+ * share is not lost) and the share sheet (`SystemOverlays`) takes them; wake-word callbacks and the
+ * screen-on flags for wake triggers go through the voice host, not this Activity (wake → voice runs
+ * headless, spec 14 §2.6); the launch effects (auto-connect, scan on the default URL) run in
  * `ConnectionRepository.start()`.
  */
 class MainActivity : ComponentActivity() {
@@ -54,6 +61,11 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIntent(intent: Intent?) {
         ShellIntents.parseShare(intent)?.let { graph.share.offer(it) }
+        // B-09: launcher shortcuts, and a voice start deferred until the mic is allowed (tile /
+        // assist / shortcut without RECORD_AUDIO land here; spec 14 §2.8-§2.9).
+        SystemIntents.handleInMain(intent, graph.commands) { trigger ->
+            graph.mic.withMicrophone { graph.voiceHost?.startVoice(trigger) }
+        }
     }
 }
 
@@ -67,9 +79,21 @@ fun ArchieApp(graph: MainAppGraph) {
     // B-08: Appearance → text size / reduce motion, and the AuthGate over the shell.
     val settings = rememberSettingsFeature(graph)
     val appearance by settings.device.appearance.collectAsStateWithLifecycle()
+    // B-09: the system splash of the next cold start follows the app's theme (API 31+), applied
+    // only once the real settings are loaded (never the pre-load default).
+    val context = LocalContext.current
+    val loadedTheme = graph.settings.settings.collectAsStateWithLifecycle().value?.themeMode
+    LaunchedEffect(loadedTheme) { loadedTheme?.let { applyAppNightMode(context, it) } }
     ArchieTheme(mode = state.themeMode.toDesign(), reduceMotion = appearance.reduceMotion) {
         ProvideTextSize(appearance.textSize) {
             AuthGate(settings) { ArchieShell(state, vm::onAction, backStack, destinations) }
+        }
+        // B-09: system-bar icon contrast (OI-1), share sheet, mic rationale, shortcut commands.
+        SystemOverlays(graph) { cmd ->
+            when (cmd) {
+                ShellCommand.NEW_ARCHIE -> vm.onAction(ShellAction.NewArchie)
+                ShellCommand.NEW_AGENT -> vm.onAction(ShellAction.NewAgent)
+            }
         }
     }
 }

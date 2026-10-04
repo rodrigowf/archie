@@ -10,6 +10,13 @@ android {
     namespace = "com.assistant.archie"
     defaultConfig {
         applicationId = "com.assistant.archie"
+        // B-09: instrumented tests run on a test Application (in-memory settings, MockWebServer backend).
+        testInstrumentationRunner = "com.assistant.archie.ArchieTestRunner"
+    }
+    // A-07/C-01: the library's noCompress does not reach the APK; the app packaging the 68 MB Vosk
+    // model declares it itself (matches :app-lite; the model loads through streams either way).
+    androidResources {
+        noCompress += "vosk-model-small-en-us-0.15"
     }
     testOptions.unitTests.all { test ->
         // Shell goldens + Robolectric smoke (spec 14 §6.3, §6.4).
@@ -64,4 +71,5 @@ dependencies {
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.okhttp.mockwebserver)
+    androidTestImplementation(libs.androidx.test.uiautomator)
 }

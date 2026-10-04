@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  B-09: monochrome Archie mark (arch + dot) for the status bar, the QS "Talk" tile and the
+  launcher shortcuts. Same geometry as ic_archie_mark_foreground on a 48-unit canvas; white,
+  because the system tints notification and tile icons by alpha.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:pathData="M14.5,37 L14.5,22 A9.5,9.5 0 0 1 33.5,22 L33.5,37"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M24,27 m-3.6,0 a3.6,3.6 0 1 0 7.2,0 a3.6,3.6 0 1 0 -7.2,0"
+        android:fillColor="#FFFFFFFF" />
+</vector>

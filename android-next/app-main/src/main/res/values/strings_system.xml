@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- B-09 system entry points (spec 14 §2.8): tile, shortcuts, assistant. -->
+<resources>
+    <string name="tile_talk">Talk</string>
+    <string name="shortcut_talk_short">Talk</string>
+    <string name="shortcut_talk_long">Talk to Archie</string>
+    <string name="shortcut_new_archie_short">New conversation</string>
+    <string name="shortcut_new_archie_long">New Archie conversation</string>
+    <string name="shortcut_new_agent_short">New agent</string>
+    <string name="shortcut_new_agent_long">New agent session</string>
+    <string name="shortcut_disabled">Open Archie first</string>
+</resources>

@@ -31,6 +31,16 @@ import com.assistant.core.session.OrchestratorChannel
 import com.assistant.core.session.SettingsOrchestratorIdStore
 import com.assistant.core.session.SettingsPinStore
 import com.assistant.core.settings.SettingsStore
+import com.assistant.core.voicehost.runtime.VoiceHostRuntime
+import com.assistant.archie.feature.chat.ChatVoice
+import com.assistant.archie.feature.chat.PresenceChatVoice
+import com.assistant.archie.feature.settings.VoiceStatusSource
+import com.assistant.archie.system.HostChatVoice
+import com.assistant.archie.system.HostVoicePresence
+import com.assistant.archie.system.HostVoiceStatus
+import com.assistant.archie.system.MicPermissionGate
+import com.assistant.archie.system.ShareController
+import com.assistant.archie.system.ShellCommands
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -48,7 +58,7 @@ interface GraphOwner {
  * is **process-scoped**: closing the Activity does not end chat or voice state (inv03 §0).
  *
  * Owners: B-03 (this shape), B-09 (voice host, notifications, share sheet wiring; the graph is handed
- * over after wave 3). Parameters with defaults exist so tests can build the graph against a local
+ * over after wave 3: see the "system integration" block). Parameters with defaults exist so tests can build the graph against a local
  * server and a fake scanner.
  */
 class MainAppGraph(
@@ -57,7 +67,14 @@ class MainAppGraph(
     scanner: ServerScanner? = null,
     val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     log: NetLog = AndroidNetLog,
+    /**
+     * B-09: builds the process-scoped voice host ([com.assistant.archie.system.MainVoiceHost] in
+     * production). `null` (JVM tests) leaves voice idle: no runtime, no wake word, no service.
+     */
+    voiceHostFactory: ((Application, MainAppGraph) -> VoiceHostRuntime)? = null,
 ) {
+    val application: Application get() = app
+
     private val serverUrl: () -> String = { settings.settings.value?.serverUrl ?: DeviceSettings.DEFAULT_SERVER_URL }
 
     val http = HttpStack(TrustStore(SettingsPinStore(settings, scope)), File(app.cacheDir, "http"))
@@ -90,8 +107,33 @@ class MainAppGraph(
     val uploads = UploadRepository(UploadClient(rest))
     val share = ShareRepository()
 
-    /** B-09 replaces this with the process-scoped voice host (A-08). */
-    var voice: VoicePresence = VoicePresence.Idle
+    // ── B-09: system integration (spec 14 §2.5-§2.9) ──────────────────────────────────────────
+
+    /**
+     * The process-scoped voice host (A-08), built on first access: the UI's ON_START, the service
+     * after a sticky restart, the tile, the trampoline or the assist session (spec 14 §2.5).
+     */
+    val voiceHost: VoiceHostRuntime? by lazy { voiceHostFactory?.invoke(app, this) }
+
+    /** RECORD_AUDIO asked in context (spec 14 §2.9). */
+    val mic = MicPermissionGate(app)
+
+    /** Launcher-shortcut commands for the shell. */
+    val commands = ShellCommands()
+
+    /** Shell chrome voice state. */
+    val voice: VoicePresence by lazy { voiceHost?.let { HostVoicePresence(it, scope) } ?: VoicePresence.Idle }
+
+    /** The Archie conversation's voice dock / composer (replaces B-04's state-only stand-in). */
+    val chatVoice: ChatVoice by lazy { voiceHost?.let { HostChatVoice(it, mic, scope) } ?: PresenceChatVoice() }
+
+    /** Settings → Wake word health line. */
+    val voiceStatus: VoiceStatusSource by lazy {
+        voiceHost?.let { h -> HostVoiceStatus(h, scope) { settings.settings.value?.wakeWord } } ?: VoiceStatusSource.None
+    }
+
+    /** The share target (text + streamed file uploads, spec 14 §2.8). */
+    val shareFlow: ShareController by lazy { ShareController(app, share, conversations, uploads, openSessions, scope) }
 
     init {
         // §9.1: visuals refresh after any turn (debounced).
@@ -111,11 +153,16 @@ class MainAppGraph(
         override fun onStart(owner: LifecycleOwner) {
             conversations.onForeground()
             history.refreshAll()
+            // A foreground context: the host may start / promote its FGS now (spec 14 §2.6).
+            voiceHost?.onUiStarted()
         }
 
         override fun onStop(owner: LifecycleOwner) {
-            val keepAlive = settings.settings.value?.stayConnectedInBackground == true
+            // The orchestrator socket stays while the voice host's service needs it (wake word,
+            // live voice, "Stay connected"): a headless wake must find it open (spec 14 §2.5).
+            val keepAlive = settings.settings.value?.stayConnectedInBackground == true || voiceHost?.serviceWanted() == true
             conversations.onBackground(keepOrchestratorAlive = keepAlive)
+            voiceHost?.onUiStopped()
         }
     }
 }

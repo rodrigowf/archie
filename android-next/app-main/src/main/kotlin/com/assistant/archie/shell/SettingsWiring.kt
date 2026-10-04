@@ -21,8 +21,8 @@ import java.util.WeakHashMap
 
 /*
  * B-08 wiring: the settings feature built from the process-scoped graph (spec 14 §2.2). One
- * SettingsFeature per graph (process); B-09 may move this into MainAppGraph when it takes the graph
- * over, and adds the VoiceStatusSource adapter over the real VoiceHost.
+ * SettingsFeature per graph (process). B-09 binds the VoiceStatusSource adapter over the real
+ * VoiceHost (`graph.voiceStatus`).
  */
 
 private val features = WeakHashMap<MainAppGraph, SettingsFeature>()
@@ -40,6 +40,7 @@ fun settingsFeatureOf(graph: MainAppGraph, context: Context): SettingsFeature = 
                 appearance = PrefsAppearanceStore(app),
                 scope = graph.scope,
                 sessions = GraphSessionControl(graph),
+                voice = graph.voiceStatus, // B-09: wake health from the real voice host
             ),
         )
     }

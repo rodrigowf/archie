@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- B-09 launcher shortcut icon (spec 14 §2.8): the mark tile colours from colors.xml. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path android:pathData="M24,24 m-24,0 a24,24 0 1 0 48,0 a24,24 0 1 0 -48,0" android:fillColor="@color/archie_mark_tile" />
+    <path android:pathData="M17,32 L17,22 A7,7 0 0 1 31,22 L31,32" android:strokeColor="@color/archie_mark_arch" android:strokeWidth="3.6" android:strokeLineCap="round" android:fillColor="#00000000" />
+    <path android:pathData="M24,25 m-2.6,0 a2.6,2.6 0 1 0 5.2,0 a2.6,2.6 0 1 0 -5.2,0" android:fillColor="@color/archie_mark_dot" />
+</vector>

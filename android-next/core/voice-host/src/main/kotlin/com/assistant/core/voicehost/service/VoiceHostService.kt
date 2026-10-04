@@ -114,7 +114,7 @@ class VoiceHostService : Service() {
                     holdVoiceWakeLock(live)
                     if (!live && !rt.serviceWanted()) {
                         log.d(TAG, "Nothing needs the service any more — stopping")
-                        stopSelf()
+                        stopGuarded(this@VoiceHostService)
                     }
                 }
         }
@@ -123,6 +123,7 @@ class VoiceHostService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val rt = runtime ?: run {
+            Track.delivered(intent, foreground = false, mask = FgsTypes.NONE)
             stopSelf()
             return START_NOT_STICKY
         }
@@ -150,6 +151,7 @@ class VoiceHostService : Service() {
                 } catch (e2: Exception) {
                     log.e(TAG, "startForeground fallback refused — background restricted", e2)
                     rt.onServiceStartRefused()
+                    Track.delivered(intent, foreground = false, mask = FgsTypes.NONE)
                     stopSelf()
                     return START_NOT_STICKY
                 }
@@ -157,6 +159,13 @@ class VoiceHostService : Service() {
         }
         rt.onServiceStarted(decision.copy(micAllowed = micAllowedFor(granted)))
         log.d(TAG, "Service started (origin=$origin, fgsTypes=0x${currentMask.toString(16)}, mic=${micAllowedFor(granted)})")
+        // A startForegroundService() is now satisfied (startForeground ran, now or earlier); a stop
+        // that arrived while it was in flight runs only now (B-09: stopping before delivery crashes).
+        if (Track.delivered(intent, foreground, currentMask)) {
+            log.d(TAG, "Deferred stop after the pending foreground start")
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
         when (intent?.action?.removePrefix(ACTION_PREFIX)) {
             null -> if (intent == null) rt.onStickyRestart()
@@ -183,6 +192,7 @@ class VoiceHostService : Service() {
         holdVoiceWakeLock(false)
         scope.cancel()
         foreground = false
+        Track.destroyed()
         // The runtime is process-scoped: voice and the socket survive the service (spec 14 §2.5).
         log.d(TAG, "Service destroyed")
         super.onDestroy()
@@ -218,21 +228,54 @@ class VoiceHostService : Service() {
          * Start (or promote) the service. Returns false when the platform refused a background FGS
          * start (Android 12+ `ForegroundServiceStartNotAllowedException`).
          */
-        fun start(context: Context, fromForeground: Boolean): Boolean = try {
-            val i = Intent(context, VoiceHostService::class.java).putExtra(EXTRA_FROM_FOREGROUND, fromForeground)
-            ContextCompat.startForegroundService(context, i)
-            true
-        } catch (e: IllegalStateException) {
-            LogcatVoiceLog.w(TAG, "startForegroundService refused: ${e.message}")
-            false
-        } catch (e: SecurityException) {
-            LogcatVoiceLog.w(TAG, "startForegroundService refused: ${e.message}")
-            false
+        fun start(context: Context, fromForeground: Boolean): Boolean {
+            val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            val wanted = FgsPolicy.maskFor(Build.VERSION.SDK_INT, micEligible = granted && (Build.VERSION.SDK_INT < 30 || fromForeground))
+            if (!Track.claimStart(wanted)) return true // already foreground with these types, or a start is in flight
+            return try {
+                val i = Intent(context, VoiceHostService::class.java)
+                    .putExtra(EXTRA_FROM_FOREGROUND, fromForeground)
+                    .putExtra(EXTRA_FGS_START, true)
+                ContextCompat.startForegroundService(context, i)
+                true
+            } catch (e: IllegalStateException) {
+                // ForegroundServiceStartNotAllowedException (12+) extends IllegalStateException.
+                Track.startFailed()
+                LogcatVoiceLog.w(TAG, "startForegroundService refused (${e.javaClass.simpleName}): ${e.message} — staying in the current mode")
+                false
+            } catch (e: SecurityException) {
+                Track.startFailed()
+                LogcatVoiceLog.w(TAG, "startForegroundService refused (SecurityException): ${e.message} — staying in the current mode")
+                false
+            }
         }
 
+        /**
+         * Stop the service. If a `startForegroundService()` is still in flight (not yet delivered to
+         * [onStartCommand]), stopping now would crash the app ("did not then call startForeground");
+         * the stop is deferred until that start has been delivered.
+         */
         fun stop(context: Context) {
+            if (Track.deferStop()) {
+                LogcatVoiceLog.d(TAG, "stop deferred — a foreground start is in flight")
+                return
+            }
             context.stopService(Intent(context, VoiceHostService::class.java))
         }
+
+        /** [stopSelf], with the same in-flight guard as [stop]. */
+        private fun stopGuarded(service: Service) {
+            if (Track.deferStop()) {
+                LogcatVoiceLog.d(TAG, "stopSelf deferred — a foreground start is in flight")
+                return
+            }
+            service.stopSelf()
+        }
+
+        /** Tests only: forget the process-wide start/stop bookkeeping. */
+        internal fun resetForTest() = Track.reset()
+
+        internal const val EXTRA_FGS_START = "voicehost_fgs_start"
 
         /**
          * For the trampoline / launch Activity (a foreground context): promote the service and run
@@ -251,5 +294,79 @@ class VoiceHostService : Service() {
             }
             return true
         }
+    }
+}
+
+/**
+ * Process-wide bookkeeping of the foreground service's start/stop (B-09 crash fix):
+ *  - [claimStart]: a `startForegroundService()` is sent only when the service is not already in the
+ *    foreground with every wanted type and no start is in flight (idempotent start; the runtime calls
+ *    it on every owner phase change).
+ *  - [deferStop]: a stop while a start is in flight is remembered instead of executed; [delivered]
+ *    reports it once the start reached `onStartCommand` (after `startForeground`).
+ *  - A new start while a stop is deferred cancels that stop.
+ */
+internal object Track {
+    /** A start the platform never delivers (e.g. refused after the call returned) must not block forever. */
+    private const val IN_FLIGHT_EXPIRY_NS = 10_000_000_000L
+
+    private var inFlight = 0
+    private var inFlightSinceNs = 0L
+    private var stopDeferred = false
+    private var foreground = false
+    private var mask = FgsTypes.NONE
+
+    @Synchronized
+    fun claimStart(wanted: Int): Boolean {
+        stopDeferred = false
+        if (inFlight > 0 && System.nanoTime() - inFlightSinceNs > IN_FLIGHT_EXPIRY_NS) {
+            LogcatVoiceLog.w("AssistantService", "a foreground start was never delivered — starting again")
+            inFlight = 0
+        }
+        if (inFlight > 0) return false
+        if (foreground && (wanted and mask.inv()) == 0) return false
+        inFlight++
+        inFlightSinceNs = System.nanoTime()
+        return true
+    }
+
+    @Synchronized
+    fun startFailed() {
+        if (inFlight > 0) inFlight--
+    }
+
+    @Synchronized
+    fun deferStop(): Boolean {
+        if (inFlight == 0) return false
+        stopDeferred = true
+        return true
+    }
+
+    /** Called from onStartCommand; returns true when a deferred stop must run now. */
+    @Synchronized
+    fun delivered(intent: Intent?, foreground: Boolean, mask: Int): Boolean {
+        this.foreground = foreground
+        this.mask = mask
+        if (intent?.getBooleanExtra(VoiceHostService.EXTRA_FGS_START, false) == true && inFlight > 0) inFlight--
+        if (inFlight == 0 && stopDeferred) {
+            stopDeferred = false
+            return true
+        }
+        return false
+    }
+
+    @Synchronized
+    fun destroyed() {
+        foreground = false
+        mask = FgsTypes.NONE
+        // A start sent while the old instance was being destroyed is still in flight: keep counting it.
+    }
+
+    @Synchronized
+    fun reset() {
+        inFlight = 0
+        stopDeferred = false
+        foreground = false
+        mask = FgsTypes.NONE
     }
 }

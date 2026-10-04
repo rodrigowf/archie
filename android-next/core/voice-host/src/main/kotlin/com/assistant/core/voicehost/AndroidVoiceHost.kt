@@ -75,6 +75,8 @@ object AndroidVoiceHost {
         scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
         log: VoiceLog = LogcatVoiceLog,
         sdkInt: Int = Build.VERSION.SDK_INT,
+        /** See [RuntimeDeps.dataChannelTap] (main app: the owner's transcripts into the Archie timeline). */
+        dataChannelTap: (kotlinx.serialization.json.JsonObject) -> Unit = { },
     ): VoiceHostRuntime {
         val serverUrl: () -> String = { settings.settings.value?.serverUrl ?: DeviceSettings.DEFAULT_SERVER_URL }
         val voiceApi = VoiceApi(http, serverUrl)
@@ -136,6 +138,7 @@ object AndroidVoiceHost {
                 pushToTalk = MicPushToTalkRecorder(AndroidMicSourceFactory(), sdkInt, pttScope, log),
                 speakerMuter = AndroidSpeakerMuter(app, log),
                 manageConnection = channel == null,
+                dataChannelTap = dataChannelTap,
             ),
         )
         // A device appearing / disappearing mid-call re-runs routing (old `registerDeviceCallback`).
