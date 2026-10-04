@@ -1,0 +1,120 @@
+/* AuthGate screen and the shared sign-in panel (W-13). No flex gap (Safari 12). */
+
+.gate {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+}
+
+.gateInline {
+  position: relative;
+  z-index: auto;
+  min-height: 560px;
+  border-radius: 24px;
+}
+
+.gateScroll {
+  height: 100%;
+}
+
+.gateCard {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: calc(var(--app-space-12) + env(safe-area-inset-top)) var(--app-space-4) calc(var(--app-space-8) + env(safe-area-inset-bottom));
+}
+
+.gateIcon {
+  color: var(--md-sys-color-primary);
+}
+
+.gateTitle {
+  margin: var(--app-space-3) 0 var(--app-space-2);
+  font-size: var(--md-sys-typescale-headline-small-size);
+  line-height: var(--md-sys-typescale-headline-small-line-height);
+  font-weight: 400;
+  outline: none;
+}
+
+.gateText {
+  margin: 0 0 var(--app-space-6);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.gateFooter {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-top: var(--app-space-6);
+  padding-top: var(--app-space-3);
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.gateFooter > * + * {
+  margin-left: var(--app-space-2);
+}
+
+.panel > * + * {
+  margin-top: var(--app-space-4);
+}
+
+.lead {
+  margin: 0;
+  color: var(--md-sys-color-on-surface);
+}
+
+.steps {
+  margin: 0;
+  padding-left: var(--app-space-6);
+  color: var(--md-sys-color-on-surface);
+}
+
+.steps li + li {
+  margin-top: var(--app-space-1);
+}
+
+.steps code {
+  font-family: var(--md-ref-typeface-code);
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+}
+
+.note,
+.waiting {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  font-size: var(--md-sys-typescale-body-medium-size);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.note > svg,
+.waiting > svg {
+  flex: 0 0 auto;
+  margin-right: var(--app-space-2);
+}
+
+.error {
+  margin: 0;
+  padding: var(--app-space-2) var(--app-space-3);
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+  font-size: var(--md-sys-typescale-body-medium-size);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.actions > * {
+  margin: 0 var(--app-space-2) var(--app-space-2) 0;
+}
+
+/* beats the reset's `ol[class] { list-style: none }` */
+.panel .steps {
+  list-style: decimal;
+}
