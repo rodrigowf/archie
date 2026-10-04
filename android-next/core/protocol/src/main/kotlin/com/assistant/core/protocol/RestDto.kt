@@ -210,6 +210,7 @@ data class ConfigDto(
     @SerialName("voice_vad_threshold") val voiceVadThreshold: Double? = null,
     @SerialName("voice_vad_min_silence_ms") val voiceVadMinSilenceMs: Int? = null,
     @SerialName("voice_mic_gain") val voiceMicGain: Double? = null,
+    @SerialName("default_audio_model") val defaultAudioModel: String? = null,
 )
 
 /** Partial `PUT /api/config` (`ConfigUpdate`). Null fields are not sent. */
@@ -232,6 +233,7 @@ data class ConfigUpdateDto(
     @SerialName("voice_vad_threshold") val voiceVadThreshold: Double? = null,
     @SerialName("voice_vad_min_silence_ms") val voiceVadMinSilenceMs: Int? = null,
     @SerialName("voice_mic_gain") val voiceMicGain: Double? = null,
+    @SerialName("default_audio_model") val defaultAudioModel: String? = null,
 )
 
 @Serializable
@@ -330,6 +332,8 @@ data class OrchestratorModelsDto(
     val models: List<ModelInfoDto> = emptyList(),
     @SerialName("audio_capable_models") val audioCapableModels: List<String> = emptyList(),
     @SerialName("default_model") val defaultModel: String? = null,
+    /** The model the server uses for voice messages (Settings value or its fallback). */
+    @SerialName("default_audio_model") val defaultAudioModel: String? = null,
 )
 
 @Serializable

@@ -20,6 +20,7 @@ export const CONFIG: ServerConfig = {
   chrome_extension: true,
   provider: 'claude',
   default_model: 'gpt-audio-mini',
+  default_audio_model: '',
   summarizer_model: '',
   harness_model: { claude: '', qwen: '' },
   default_voice_provider: 'openai',
@@ -61,9 +62,11 @@ export const CATALOGS = {
       { provider: 'anthropic', model_id: 'claude-sonnet-4-5-20250929', display_name: 'Claude Sonnet 4.5', supports_audio: false, supports_vision: true, context_window: 200000 },
       { provider: 'openai', model_id: 'gpt-audio-mini', display_name: 'GPT Audio Mini', supports_audio: true, supports_vision: false, context_window: 128000 },
       { provider: 'openai', model_id: 'gpt-audio', display_name: 'GPT Audio', supports_audio: true, supports_vision: false, context_window: 128000 },
+      { provider: 'openai', model_id: 'gpt-4o', display_name: 'GPT-4o', supports_audio: false, supports_vision: true, context_window: 128000 },
     ],
     audio_capable_models: ['gpt-audio-mini', 'gpt-audio'],
     default_model: 'claude-sonnet-4-5-20250929',
+    default_audio_model: 'gpt-audio',
   },
   voice: {
     providers: {

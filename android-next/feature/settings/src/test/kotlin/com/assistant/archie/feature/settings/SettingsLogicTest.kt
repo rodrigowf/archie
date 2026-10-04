@@ -1,5 +1,6 @@
 package com.assistant.archie.feature.settings
 
+import com.assistant.core.protocol.ModelInfoDto
 import com.assistant.core.data.ConnectionStatus
 import com.assistant.core.model.DeviceSettings
 import com.assistant.core.model.SavedServer
@@ -128,6 +129,13 @@ class SettingsLogicTest {
     }
 
     @Test fun modelAvailability() {
+        val models = listOf(
+            ModelInfoDto(provider = "openai", modelId = "gpt-4o", supportsAudio = false),
+            ModelInfoDto(provider = "openai", modelId = "gpt-audio-mini", supportsAudio = true),
+            ModelInfoDto(provider = "anthropic", modelId = "claude-sonnet-4-5-20250929", supportsAudio = false),
+        )
+        assertEquals(listOf("gpt-4o", "claude-sonnet-4-5-20250929"), ModelLogic.textModels(models).map { it.modelId })
+        assertEquals(listOf("gpt-audio-mini"), ModelLogic.audioModels(models).map { it.modelId })
         assertEquals(ModelAvailability.RETIRED, ModelLogic.availability("gpt-4o-audio-preview", null))
         assertEquals(ModelAvailability.OK, ModelLogic.availability("anything", null))
     }

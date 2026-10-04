@@ -257,6 +257,8 @@ internal fun SettingsHomeList(feature: SettingsFeature, onBack: (() -> Unit)?, s
         val summ = cfg.summarizerModel?.takeIf { it.isNotEmpty() }
         summaries[SettingsPageKey.CONVERSATION_MODEL] =
             "${textModel?.provider?.let { "${ModelLogic.providerLabel(it)} · " } ?: ""}${ModelLogic.name(models, cfg.defaultModel)}" +
+            (cfg.defaultAudioModel?.takeIf { it.isNotEmpty() } ?: c.orchestratorModels?.defaultAudioModel)
+                ?.let { " · voice messages by ${ModelLogic.name(models, it)}" }.orEmpty() +
             " · summaries by ${summ?.let { ModelLogic.name(models, it) } ?: "server default"}"
         val v = cfg.voice
         val entry = VoiceLogic.catalog(c.voiceModels, server.google)[v.provider]?.firstOrNull { it.id == v.model }

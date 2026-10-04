@@ -4,18 +4,24 @@
  * P-9 / O-7: the Settings `default_model` now decides the model of new Archie conversations
  * (`SETTINGS_DEFAULT_MODEL_FIRST = True`); retired ids (`gpt-4o-audio-preview`, OpenAI 404) are
  * skipped by the server, so the page says so instead of showing a dead choice as healthy.
+ *
+ * Two models (2026-10-04): no OpenAI chat model takes both typed text and audio, so Archie uses
+ * the **text model** (`default_model`) for typed messages and the **audio model**
+ * (`default_audio_model`, "" = server default) for voice messages. Live voice is the Voice page.
  */
 import type { ServerConfig } from '@/services';
 import { useServerConfig } from '@/stores';
 import { Select, Switch, type SelectOption } from '@/ui/controls';
 import { saveSetting } from '../controller';
 import {
+  audioModels,
   findModel,
   harnessModels,
   modelAvailability,
   modelProviderLabel,
   modelProviders,
   modelTraits,
+  textModels,
 } from '../logic';
 import { Field, FieldStack, Notice, useFieldId } from '../parts';
 import { useSaving, WithConfig } from './shared';
@@ -46,11 +52,23 @@ function ConversationModelForm({ cfg }: { cfg: ServerConfig }) {
   const catalog = useServerConfig((s) => s.orchestratorModels);
   const saving = useSaving();
   const models = catalog?.models ?? [];
-  const providers = modelProviders(models);
+  const typed = textModels(models);
+  const providers = modelProviders(typed);
   const current = cfg.default_model;
   const provider = findModel(models, current)?.provider ?? providers[0] ?? '';
   const availability = modelAvailability(current, catalog);
+  const currentIsAudioOnly = findModel(models, current)?.supports_audio === true;
   const providerOptions: SelectOption[] = providers.map((p) => ({ value: p, label: modelProviderLabel(p) }));
+
+  const audio = audioModels(models);
+  const audioCurrent = cfg.default_audio_model ?? '';
+  const serverAudio = catalog?.default_audio_model;
+  const serverDefault: SelectOption =
+    serverAudio && !audioCurrent
+      ? { value: SERVER_DEFAULT, label: 'Server default', description: `Now ${serverAudio}` }
+      : { value: SERVER_DEFAULT, label: 'Server default' };
+  const audioOptions: SelectOption[] = [serverDefault, ...modelOptions(audio, 'openai', audioCurrent)];
+  const audioSupported = cfg.default_audio_model !== undefined;
 
   const summ = cfg.summarizer_model;
   const summProvider = summ ? (findModel(models, summ)?.provider ?? providers[0] ?? '') : SERVER_DEFAULT;
@@ -66,34 +84,62 @@ function ConversationModelForm({ cfg }: { cfg: ServerConfig }) {
           </p>
         </Notice>
       ) : null}
+      {currentIsAudioOnly ? (
+        <Notice tone="info" title="The text model is an audio model">
+          <p>
+            “{current}” can&apos;t answer typed messages, so the server answers them with gpt-4o. Pick a text model below, and choose the
+            audio model separately.
+          </p>
+        </Notice>
+      ) : null}
       <FieldStack label="Archie">
         <Field
-          help="New Archie conversations start on this model."
+          help="Answers typed messages. New Archie conversations start on it."
           info={
             <>
-              <p>You can still switch models inside a conversation. Audio models also take voice messages.</p>
+              <p>You can still switch models inside a conversation.</p>
               <p>If this model can&apos;t be used, the server falls back to its ORCHESTRATOR_MODEL setting, then gpt-audio.</p>
             </>
           }
         >
           <Select
-            label="Provider"
+            label="Text model provider"
             options={providerOptions}
             value={provider}
             disabled={saving || !providers.length}
             onChange={(p) => {
-              const first = firstModelOf(models, p);
+              const first = firstModelOf(typed, p);
               if (first && p !== provider) void saveSetting({ default_model: first }, 'default_model');
             }}
           />
           <Select
-            label="Model"
-            options={modelOptions(models, provider, current)}
+            label="Text model"
+            options={modelOptions(typed, provider, current)}
             value={current}
             disabled={saving || !models.length}
             supportingText={catalog ? undefined : 'Loading the model list…'}
             onChange={(id) => {
               if (id !== current) void saveSetting({ default_model: id }, 'default_model');
+            }}
+          />
+        </Field>
+        <Field
+          help="Answers voice messages (recorded clips)."
+          info={
+            <>
+              <p>Audio models take audio but refuse typed messages, and text models refuse audio, so Archie uses one of each.</p>
+              <p>Live voice conversations use the Voice page instead.</p>
+            </>
+          }
+        >
+          <Select
+            label="Audio model"
+            options={audioOptions}
+            value={audioCurrent}
+            disabled={saving || !audioSupported || !models.length}
+            supportingText={audioSupported ? undefined : 'This server has no separate audio model setting yet.'}
+            onChange={(id) => {
+              if (id !== audioCurrent) void saveSetting({ default_audio_model: id }, 'default_audio_model');
             }}
           />
         </Field>

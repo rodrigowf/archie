@@ -38,8 +38,10 @@ function useServerSummaries(): Partial<Record<SettingsPageId, string>> {
   const models = s.orchestratorModels?.models ?? [];
   const textModel = findModel(models, cfg.default_model);
   const summ = cfg.summarizer_model;
+  const audioId = cfg.default_audio_model || s.orchestratorModels?.default_audio_model || '';
   out['conversation-model'] =
     `${textModel?.provider ? `${modelProviderLabel(textModel.provider)} · ` : ''}${modelName(models, cfg.default_model)}` +
+    (audioId ? ` · voice messages by ${modelName(models, audioId)}` : '') +
     ` · summaries by ${summ ? modelName(models, summ) : 'server default'}`;
   const entry = voiceCatalog(s.voiceModels, s.googleVoiceModels[cfg.default_voice_endpoint])[cfg.default_voice_provider]?.find(
     (m) => m.id === cfg.default_voice_model,

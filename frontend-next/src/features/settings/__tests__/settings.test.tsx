@@ -55,7 +55,7 @@ describe('Settings home (mockup e)', () => {
     expect(groups[1]).toMatch(/^Archie \(server\)/);
     expect(groups[2]).toBe('About');
     expect(within(nav).getByText('Dark · default text size')).toBeTruthy();
-    expect(within(nav).getByText(/OpenAI · GPT Audio Mini · summaries by server default/)).toBeTruthy();
+    expect(within(nav).getByText(/OpenAI · GPT Audio Mini · voice messages by GPT Audio · summaries by server default/)).toBeTruthy();
     expect(within(nav).getByText('VAD 0.28 · silence 1800 ms · gain 1.0×')).toBeTruthy();
     expect(within(nav).getByText('Claude Code by default · Chrome on')).toBeTruthy();
     expect(within(nav).getByText('Laptop (Desktop) · 2 directories · 1 over SSH')).toBeTruthy();
@@ -306,14 +306,32 @@ describe('Voice (CFG-5, CFG-6)', () => {
 });
 
 describe('Conversation model (P-9, O-7)', () => {
-  it('a retired saved model is flagged; switching provider saves its first model', async () => {
+  it('a retired saved model is flagged; switching provider saves its first text model', async () => {
     srv = serveConfig(h.fetch, { config: { default_model: 'gpt-4o-audio-preview' } });
     const { user } = view('conversation-model');
     expect(await screen.findByText('This model was retired')).toBeTruthy();
-    await user.click(screen.getByRole('combobox', { name: 'Provider' }));
+    await user.click(screen.getByRole('combobox', { name: 'Text model provider' }));
     await user.click(await screen.findByRole('option', { name: 'OpenAI' }));
-    await waitFor(() => expect(srv.puts()).toEqual([{ default_model: 'gpt-audio-mini' }]));
+    await waitFor(() => expect(srv.puts()).toEqual([{ default_model: 'gpt-4o' }]));
     await waitFor(() => expect(screen.queryByText('This model was retired')).toBeNull());
+  });
+
+  it('text and audio models are picked separately; each list holds only its kind', async () => {
+    srv = serveConfig(h.fetch, { config: { default_model: 'gpt-audio-mini', default_audio_model: '' } });
+    const { user } = view('conversation-model');
+    // An audio model saved as the text model is explained (typed turns go to gpt-4o).
+    expect(await screen.findByText('The text model is an audio model')).toBeTruthy();
+    await user.click(screen.getByRole('combobox', { name: 'Text model' }));
+    expect(screen.queryByRole('option', { name: /GPT Audio$/ })).toBeNull();
+    await user.click(await screen.findByRole('option', { name: /GPT-4o/ }));
+    await waitFor(() => expect(srv.puts()).toEqual([{ default_model: 'gpt-4o' }]));
+
+    const audio = screen.getByRole('combobox', { name: 'Audio model' });
+    expect(audio.textContent).toContain('Server default');
+    await user.click(audio);
+    expect(screen.queryByRole('option', { name: /GPT-4o/ })).toBeNull();
+    await user.click(await screen.findByRole('option', { name: /GPT Audio Mini/ }));
+    await waitFor(() => expect(srv.puts()[1]).toEqual({ default_audio_model: 'gpt-audio-mini' }));
   });
 });
 

@@ -54,6 +54,8 @@ export interface ServerConfig {
   chrome_extension: boolean;
   provider: string;
   default_model: string;
+  /** Model for Archie turns that carry audio (voice messages); "" = server default. Absent on older servers. */
+  default_audio_model?: string;
   summarizer_model: string;
   harness_model: Record<string, string>;
   default_voice_provider: string;
@@ -80,6 +82,8 @@ export interface OrchestratorModels {
   models: ModelInfo[];
   audio_capable_models: string[];
   default_model: string;
+  /** The model the server uses for voice messages (Settings value or its fallback). */
+  default_audio_model?: string;
 }
 
 export interface VoiceModelVoice {

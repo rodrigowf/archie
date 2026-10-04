@@ -77,6 +77,7 @@ fun ConfigDto.toModel() = ServerConfig(
     voiceVadThreshold = voiceVadThreshold,
     voiceVadMinSilenceMs = voiceVadMinSilenceMs,
     voiceMicGain = voiceMicGain,
+    defaultAudioModel = defaultAudioModel,
 )
 
 fun ConfigPatch.toDto() = ConfigUpdateDto(
@@ -97,6 +98,7 @@ fun ConfigPatch.toDto() = ConfigUpdateDto(
     voiceVadThreshold = voiceVadThreshold,
     voiceVadMinSilenceMs = voiceVadMinSilenceMs,
     voiceMicGain = voiceMicGain,
+    defaultAudioModel = defaultAudioModel,
 )
 
 fun SessionConfigDto.toModel() = SessionConfig(workingDirectory, enabledMcps, chromeExtension, provider, harnessModel)

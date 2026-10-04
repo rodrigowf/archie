@@ -40,6 +40,8 @@ data class ServerConfig(
     val voiceVadThreshold: Double?,
     val voiceVadMinSilenceMs: Int?,
     val voiceMicGain: Double?,
+    /** Model for Archie turns that carry audio (voice messages); "" = server default; null = older server. */
+    val defaultAudioModel: String? = null,
 )
 
 /**
@@ -64,6 +66,8 @@ data class ConfigPatch(
     val voiceVadThreshold: Double? = null,
     val voiceVadMinSilenceMs: Int? = null,
     val voiceMicGain: Double? = null,
+    /** "" = back to the server default. */
+    val defaultAudioModel: String? = null,
 )
 
 /**

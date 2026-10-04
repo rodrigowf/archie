@@ -254,6 +254,19 @@ export function modelName(models: readonly ModelInfo[], id: string): string {
   return findModel(models, id)?.display_name ?? id;
 }
 
+/**
+ * Typed vs voice messages (2026-10-04): OpenAI's audio chat models (gpt-audio family) refuse
+ * text-only turns and text models refuse audio, so Archie uses one model per input kind.
+ * `supports_audio` marks the audio models.
+ */
+export function textModels(models: readonly ModelInfo[]): ModelInfo[] {
+  return models.filter((m) => !m.supports_audio);
+}
+
+export function audioModels(models: readonly ModelInfo[]): ModelInfo[] {
+  return models.filter((m) => m.supports_audio);
+}
+
 export function modelTraits(m: ModelInfo): string {
   const t: string[] = [];
   if (m.supports_audio) t.push('audio');

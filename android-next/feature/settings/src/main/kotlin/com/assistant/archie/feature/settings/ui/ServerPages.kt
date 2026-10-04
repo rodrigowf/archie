@@ -72,11 +72,16 @@ internal fun ConversationModelPage(feature: SettingsFeature, onBack: (() -> Unit
     val catalog = st.catalogs.orchestratorModels
     val saving = st.saving != null
     val models = catalog?.models.orEmpty()
-    val providers = ModelLogic.providers(models)
+    val typed = ModelLogic.textModels(models)
+    val providers = ModelLogic.providers(typed)
     val current = cfg.defaultModel
     val provider = ModelLogic.find(models, current)?.provider ?: providers.firstOrNull().orEmpty()
     val availability = ModelLogic.availability(current, catalog)
     val providerOptions = providers.map { Option(it, ModelLogic.providerLabel(it)) }
+    val audioCurrent = cfg.defaultAudioModel.orEmpty()
+    val serverAudio = catalog?.defaultAudioModel?.takeIf { audioCurrent.isEmpty() }
+    val audioOptions = listOf(Option("", "Server default", serverAudio?.let { "Now $it" })) +
+        modelOptions(ModelLogic.audioModels(models), "openai", audioCurrent)
     if (availability != ModelAvailability.OK) {
         Notice(
             NoticeTone.WARNING,
@@ -84,17 +89,34 @@ internal fun ConversationModelPage(feature: SettingsFeature, onBack: (() -> Unit
             body = "“$current” ${if (availability == ModelAvailability.RETIRED) "answers 404 at OpenAI" else "is not offered by the server"}, so new conversations skip it and use the server's fallback. Pick another model below.",
         )
     }
+    if (ModelLogic.find(models, current)?.supportsAudio == true) {
+        Notice(
+            NoticeTone.INFO,
+            "The text model is an audio model",
+            body = "“$current” can't answer typed messages, so the server answers them with gpt-4o. Pick a text model below, and choose the audio model separately.",
+        )
+    }
     Section("Archie") {
-        SelectRow("Provider", providerOptions, provider, { p ->
-            ModelLogic.firstOf(models, p)?.let { m.launchSave(ConfigPatch(defaultModel = it), "default_model") }
+        SelectRow("Text model provider", providerOptions, provider, { p ->
+            ModelLogic.firstOf(typed, p)?.let { m.launchSave(ConfigPatch(defaultModel = it), "default_model") }
         }, enabled = !saving && providers.isNotEmpty())
-        SelectRow("Model", modelOptions(models, provider, current), current, { id ->
+        SelectRow("Text model", modelOptions(typed, provider, current), current, { id ->
             m.launchSave(ConfigPatch(defaultModel = id), "default_model")
         }, enabled = !saving && models.isNotEmpty(), supporting = if (catalog == null) "Loading the model list…" else null)
         FieldBlock {
             HelpLine(
-                "New Archie conversations start on this model.",
-                "You can still switch models inside a conversation. Audio models also take voice messages. If this model can't be used, the server falls back to its ORCHESTRATOR_MODEL setting, then gpt-audio.",
+                "Answers typed messages. New Archie conversations start on it.",
+                "You can still switch models inside a conversation. If this model can't be used, the server falls back to its ORCHESTRATOR_MODEL setting, then gpt-audio.",
+            )
+        }
+        SelectRow("Audio model", audioOptions, audioCurrent, { id ->
+            m.launchSave(ConfigPatch(defaultAudioModel = id), "default_audio_model")
+        }, enabled = !saving && models.isNotEmpty() && cfg.defaultAudioModel != null,
+            supporting = if (cfg.defaultAudioModel == null) "This server has no separate audio model setting yet." else null)
+        FieldBlock {
+            HelpLine(
+                "Answers voice messages (recorded clips).",
+                "Audio models take audio but refuse typed messages, and text models refuse audio, so Archie uses one of each. Live voice conversations use the Voice page instead.",
             )
         }
     }

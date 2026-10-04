@@ -233,6 +233,14 @@ object ModelLogic {
 
     fun firstOf(models: List<ModelInfoDto>, provider: String): String? = models.firstOrNull { it.provider == provider && it.modelId.isNotEmpty() }?.modelId
 
+    /**
+     * Typed vs voice messages (2026-10-04): OpenAI's audio chat models (gpt-audio family) refuse
+     * text-only turns and text models refuse audio, so Archie uses one model per input kind.
+     */
+    fun textModels(models: List<ModelInfoDto>): List<ModelInfoDto> = models.filter { !it.supportsAudio }
+
+    fun audioModels(models: List<ModelInfoDto>): List<ModelInfoDto> = models.filter { it.supportsAudio }
+
     fun traits(m: ModelInfoDto): String = buildList {
         if (m.supportsAudio) add("audio")
         if (m.supportsVision) add("vision")

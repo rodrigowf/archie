@@ -36,7 +36,8 @@ class ServerSettingsModelTest {
         h.feature.server.refreshNow()
         val s = h.feature.server.current
         val cfg = s.config.value!!
-        assertEquals("gpt-audio-mini", cfg.defaultModel)
+        assertEquals("gpt-4o", cfg.defaultModel)
+        assertEquals("", cfg.defaultAudioModel)
         assertEquals(listOf("chrome-devtools"), cfg.enabledMcps)
         assertEquals(2, cfg.workingDirectoryHistory.size)
         assertEquals(74, s.catalogs.orchestratorModels?.models?.size)
@@ -54,6 +55,14 @@ class ServerSettingsModelTest {
         assertFalse(m.error)
         assertEquals(false, h.feature.server.current.config.value?.chromeExtension)
         assertEquals("""{"chrome_extension":false}""", h.backend.puts.single())
+    }
+
+    @Test fun audioModel_isSavedSeparately_andEmptyMeansServerDefault() {
+        runBlocking { h.feature.server.refreshNow() }
+        assertEquals("gpt-audio", h.feature.server.current.catalogs.orchestratorModels?.defaultAudioModel)
+        collectOne { h.feature.server.save(ConfigPatch(defaultAudioModel = "gpt-audio-mini"), "default_audio_model") }
+        collectOne { h.feature.server.save(ConfigPatch(defaultAudioModel = ""), "default_audio_model") }
+        assertEquals(listOf("""{"default_audio_model":"gpt-audio-mini"}""", """{"default_audio_model":""}"""), h.backend.puts)
     }
 
     @Test fun save_failure_showsTheServerDetailVerbatim_withRetry_andRetrySaves() {
