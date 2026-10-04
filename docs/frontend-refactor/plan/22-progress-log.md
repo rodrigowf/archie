@@ -8,12 +8,15 @@ Newest first. One entry per milestone event, accepted WP, or decision.
 |---|---|---|---|
 | OI-1 | 2026-10-04 live B-04 check | Android dark theme draws dark status-bar icons (clock/battery nearly invisible); set light system-bar icons in dark theme (edge-to-edge insets controller) | B-03 shell follow-up or B-09 |
 | OI-2 | 2026-10-04 B-04 | Agent approvals can only be answered while that agent's view is open (no temporary-socket path) | B-06 / B-09 |
-| OI-4 | 2026-10-04 A-08 | `:core:voice` `stopVoice()` on an already-finished session stays in ENDING (host guards it; fix root cause in A-06 code) | voice follow-up before G-01 |
+| ~~OI-4~~ fixed | 2026-10-04 A-08 | `:core:voice` `stopVoice()` on an already-finished session stays in ENDING (host guards it; fix root cause in A-06 code) | voice follow-up before G-01 |
 | OI-5 | 2026-10-04 | Laptop disk hit 100% (1.7 GB free); freed 7.6 GB by resetting emulator userdata overlays (regenerated on boot). Watch disk before emulator/Gradle-heavy WPs | coordinator |
+| ~~OI-1~~ fixed by B-09 | | (status-bar contrast) | |
+| OI-6 | 2026-10-04 B-09 | Attention notifications for agent permission requests + lock-screen full-screen intent not built yet | post-G-01 / D-01 |
 | OI-3 | 2026-10-03 audit | Jetson session list shows nothing newer than Aug 28 in both old and new clients — verify backend listing | Rodrigo / backend |
 
 ## 2026-10-04
 
+- **Incident:** a fix agent ran `git stash push -- <path> -q` (failed) then `git stash pop`, applying an unrelated stash from 2026-04-16 (`fix-ssh-claude-path`). Only effect: `assistant_config.json` (gitignored laptop runtime config) overwritten with the April version and left in a DU conflict. No backup exists. Recovered: index conflict cleared (`git reset -- assistant_config.json`), stash left intact, known edit re-applied (`default_model: gpt-audio-mini`). **Rodrigo to verify** `working_directory` / `working_directory_history` paths (April version points at `/home/rodrigo/Projects/assistant`). Rule added: git writes are coordinator-only (plan/21 §3).
 - **M2 web preview deployed to the Jetson (08:07)** with Rodrigo's OK: backend commit cherry-picked onto `local` as b77b0f7 and pushed; Jetson `git pull`; current `frontend/dist` + `frontend-compat/dist` rebuilt (thinking-in-history fix) and rsynced; `frontend-next/dist-preview/{main,compat}` rsynced; nginx `client_max_body_size 200m` in both server blocks (backup `~/nginx-server.conf.bak-2026-10-04`), config tested, reloaded; `agentic-backend.service` restarted. Verified: `/`, `/compat/`, `/next/`, `/next-compat/`, API 200; pool empty; no errors in logs. Cast probe: unavailable (no Fire TV on adb) → Show on TV hidden until the TV is connected.
 - Accepted + committed: W-14 + shared slot wiring (78d7970) — **all web WPs W-01..W-14 done**, full gate green (1581 tests); B-06 + B-08 (0053357); C-01 lite app (1638f18).
 - Accepted + committed: A-07 (6117005), B-05 (584157a), W-12 (887c887), W-13 (8a573b4), A-08 (34e57a2) — voice rewrite complete (479 parity/unit tests across 4 modules). G-01 pending lite wiring (C-01), release smoke, ELF alignment, scripted lite AVD run.

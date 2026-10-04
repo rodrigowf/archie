@@ -45,6 +45,8 @@ go through the coordinator. Android catalog changes go through `android-next/gra
 - Gradle (`android-next/`): `flock /tmp/archie-locks/gradle.lock ./gradlew …`, one build at a time.
 - npm installs in `frontend-next/`: `flock /tmp/archie-locks/npm.lock …`.
 
+**Git is coordinator-only.** Agents MUST NOT run any git command that writes (stash, checkout, switch, reset, restore, rebase, merge, cherry-pick, commit, rm, clean). Read-only git (status, diff, log, show) is fine. *Why:* on 2026-10-04 an agent's `git stash push/pop` applied an unrelated April stash in the shared tree and overwrote the gitignored `assistant_config.json`.
+
 **Review.** Each WP is reviewed by the coordinator before it is accepted: spec conformance, the
 tests actually run and green, screenshots checked, and boundary respected (`git status` limited to
 the boundary). Correctness-critical WPs (W-05, A-02, the voice WPs, backend BF-1) also get an
