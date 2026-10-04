@@ -63,7 +63,8 @@ class SettingsUiTest {
         compose.waitForIdle()
     }
 
-    private fun waitText(text: String, timeoutMs: Long = 10_000) =
+    // 30 s: the full `check` runs every module's Robolectric tests at once; 10 s flaked under that load.
+    private fun waitText(text: String, timeoutMs: Long = 30_000) =
         compose.waitUntil(timeoutMs) { compose.onAllNodes(hasText(text)).fetchSemanticsNodes().isNotEmpty() }
 
     @Test fun serverSave_showsSavedSnackbar() {

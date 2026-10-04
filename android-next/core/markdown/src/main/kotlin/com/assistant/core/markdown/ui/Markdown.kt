@@ -92,14 +92,23 @@ fun MarkdownNodes(
     }
 }
 
-/** Parsed nodes of a finished text, parsed off the main thread; null until ready (cache hit: immediately). */
+/**
+ * Parsed nodes of a finished text, parsed off the main thread (cache hit: immediately).
+ *
+ * Every new [text] gets its own parse (a reload, an edited file). While it runs, the previous
+ * parse of the same [id] stays on screen (no loading flash on reload); a new [id] returns null
+ * until ready. Streaming text does not come through here: it appends to a [com.assistant.core.markdown.MarkdownDocument].
+ */
 @Composable
 fun rememberMarkdown(id: String, text: String, cache: MarkdownCache = MarkdownCache.Shared): ImmutableList<MdNode>? {
-    val state by produceState(cache.peek(id, text), id, text) {
-        if (value == null) value = cache.get(id, text)
-    }
-    return state
+    // produceState keeps its value across key changes, so the result records which text it parsed.
+    val parsed by produceState<Parsed?>(null, id, text, cache) { value = Parsed(id, text, cache.get(id, text)) }
+    val p = parsed
+    if (p != null && p.id == id && p.text == text) return p.nodes
+    return cache.peek(id, text) ?: p?.nodes?.takeIf { p.id == id }
 }
+
+private class Parsed(val id: String, val text: String, val nodes: ImmutableList<MdNode>)
 
 /**
  * The memory document's frontmatter (spec 14 §4.1, mockup g2): a collapsed chip

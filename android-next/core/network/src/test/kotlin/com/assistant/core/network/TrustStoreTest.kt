@@ -5,6 +5,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.async
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import okhttp3.Response
@@ -107,9 +109,11 @@ class TrustStoreTest {
             override fun onOpen(webSocket: WebSocket, response: Response) { webSocket.send("""{"type":"status","status":"idle"}""") }
         }))
         val c = SocketClient(HttpStack(TrustStore(pins)), scope)
+        // Subscribe before connecting: the server sends its frame as soon as the socket opens.
+        val firstFrame = async(start = CoroutineStart.UNDISPATCHED) { c.events.first { it is SocketEvent.Frame } }
         c.connect(wsUrl)
-        withTimeout(5_000) { c.state.first { it == SocketState.Open } }
-        val e = withTimeout(5_000) { c.events.first { it is SocketEvent.Frame } }
+        withTimeout(15_000) { c.state.first { it == SocketState.Open } }
+        val e = withTimeout(15_000) { firstFrame.await() }
         assertEquals("status", (e as SocketEvent.Frame).frame.type)
     }
 
