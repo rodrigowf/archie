@@ -28,9 +28,11 @@ from orchestrator.audio_utils import convert_audio_to_wav
 from orchestrator.config import (
     AUDIO_FALLBACK_MODEL_ID,
     AVAILABLE_MODELS,
+    TEXT_FALLBACK_MODEL_ID,
     OrchestratorConfig,
     Provider,
     get_model_info,
+    model_requires_audio,
 )
 from orchestrator.persistence import HistoryLoader, HistoryWriter
 from orchestrator.providers.voice_base import BaseVoiceProvider
@@ -119,6 +121,20 @@ _VALID_VOICE_TRANSITIONS: dict[VoiceLifecycle, set[VoiceLifecycle]] = {
 # Increment F (plan §F) — voice-pipeline timeouts moved to
 # ``orchestrator.voice_timeouts.VoiceTimeouts``. Sessions read from
 # ``self._voice_timeouts``; tests can override per-instance.
+
+
+def _strip_audio_blocks(message: dict[str, Any], audio_format: str) -> None:
+    """Replace a user message's input_audio blocks with a text marker, in place."""
+    content = message.get("content")
+    if not isinstance(content, list):
+        return
+    texts = [
+        b.get("text", "") for b in content
+        if isinstance(b, dict) and b.get("type") == "text" and b.get("text")
+    ]
+    if len(texts) == len(content):
+        return
+    message["content"] = " ".join([f"[audio:{audio_format}]", *texts]).strip()
 
 
 def _render_notifications(notes: list[Notification]) -> str:
@@ -1741,7 +1757,24 @@ class OrchestratorSession:
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
 
-            async for event in self._run_agent(effective_prompt):
+            # An audio-only model (gpt-audio family) refuses text-only turns:
+            # route this turn to a text model, keep the configured model.
+            turn_provider = None
+            if (
+                not self._voice
+                and self._config.provider == Provider.OPENAI
+                and model_requires_audio(self._config.model)
+            ):
+                from orchestrator.providers.openai_text import OpenAITextProvider
+                logger.info(
+                    "Text turn on audio-only model %s: using %s for this turn",
+                    self._config.model, TEXT_FALLBACK_MODEL_ID,
+                )
+                turn_provider = OpenAITextProvider(
+                    model=TEXT_FALLBACK_MODEL_ID,
+                    max_tokens=self._config.max_tokens,
+                )
+            async for event in self._run_agent_with(turn_provider, effective_prompt):
                 yield event
 
     def build_silent_text_inject(self, text: str) -> list[dict[str, Any]]:
@@ -1852,18 +1885,19 @@ class OrchestratorSession:
             OpenAITextProvider, create_audio_message,
         )
 
-        if not self._config.supports_audio:
-            # Switch to audio-capable model automatically.
-            # Note: gpt-4o does NOT support audio input — use the gpt-audio
-            # family (gpt-4o-audio-preview was renamed and 404s on newer
-            # accounts). If _voice=True, set_model() normally refuses — force
-            # the config directly instead.
-            if self._voice:
-                self._config.set_model(AUDIO_FALLBACK_MODEL_ID)
-                if not self._config.supports_audio:
-                    raise RuntimeError("No audio-capable model available")
-            elif not self.set_model(AUDIO_FALLBACK_MODEL_ID):
+        # The model for this clip: the configured one when it takes audio,
+        # otherwise the audio fallback for THIS turn only (gpt-4o does NOT take
+        # audio input; the gpt-audio family does). Switching the session's model
+        # for good would make every later typed turn fail, because the
+        # gpt-audio models refuse text-only requests.
+        # In voice mode set_model() refuses, so the config is forced as before.
+        if self._voice and not self._config.supports_audio:
+            self._config.set_model(AUDIO_FALLBACK_MODEL_ID)
+            if not self._config.supports_audio:
                 raise RuntimeError("No audio-capable model available")
+        clip_model = self._config.model if self._config.supports_audio else AUDIO_FALLBACK_MODEL_ID
+        if get_model_info(clip_model) is None:
+            raise RuntimeError("No audio-capable model available")
 
         # Convert audio to OpenAI-supported format if needed (wav or mp3)
         # Browser MediaRecorder typically outputs webm, which OpenAI doesn't accept
@@ -1885,25 +1919,42 @@ class OrchestratorSession:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
 
-        # If the session is in voice (WebRTC) mode, the agent's provider is
-        # OpenAIVoiceProvider which waits on a WebRTC event queue — sending audio
-        # clips through it would time out. Temporarily swap in an audio-capable
-        # text provider for this turn only.
-        if self._voice:
-            audio_provider = OpenAITextProvider(
-                model=self._config.model,
+        # In voice (WebRTC) mode the agent's provider is OpenAIVoiceProvider,
+        # which waits on a WebRTC event queue — sending audio clips through it
+        # would time out. So in voice mode, or when the configured model takes
+        # no audio, an audio-capable text provider handles this turn only.
+        turn_provider = None
+        if self._voice or clip_model != self._config.model:
+            turn_provider = OpenAITextProvider(
+                model=clip_model,
                 max_tokens=self._config.max_tokens,
             )
-            saved_provider = self._agent._provider
-            self._agent._provider = audio_provider
-            try:
-                async for event in self._run_agent(audio_message):
-                    yield event
-            finally:
-                self._agent._provider = saved_provider
-        else:
-            async for event in self._run_agent(audio_message):
+        try:
+            async for event in self._run_agent_with(turn_provider, audio_message):
                 yield event
+        finally:
+            # Keep the clip out of the in-memory history: later turns may run on
+            # a model (or provider) that rejects input_audio blocks. The JSONL
+            # already records only "[audio:fmt] <text>", so a reload matches.
+            _strip_audio_blocks(audio_message, audio_format)
+
+    async def _run_agent_with(
+        self,
+        provider: Any,
+        prompt: str | dict[str, Any],
+    ) -> AsyncIterator[OrchestratorEvent]:
+        """Run one turn on [provider] when given (the agent's own one is restored after)."""
+        if provider is None:
+            async for event in self._run_agent(prompt):
+                yield event
+            return
+        saved_provider = self._agent._provider
+        self._agent._provider = provider
+        try:
+            async for event in self._run_agent(prompt):
+                yield event
+        finally:
+            self._agent._provider = saved_provider
 
     async def _run_agent(
         self,

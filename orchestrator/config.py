@@ -141,6 +141,19 @@ DEFAULT_MODEL_ID = "gpt-audio"
 # of truth so there's one place to change if the account's audio model changes.
 AUDIO_FALLBACK_MODEL_ID = "gpt-audio"
 
+# Model used for a typed (text-only) turn when the active model is audio-only.
+# OpenAI's gpt-audio chat models reject any request without audio in the input
+# or the output ("This model requires that either input content or output
+# modality contain audio", verified 2026-10-04 for gpt-audio, gpt-audio-mini and
+# gpt-audio-1.5), while text models reject input_audio blocks. No Chat
+# Completions model takes both, so each turn goes to a model that accepts it.
+TEXT_FALLBACK_MODEL_ID = "gpt-4o"
+
+
+def model_requires_audio(model_id: str) -> bool:
+    """True for OpenAI chat models that refuse text-only turns (the gpt-audio family)."""
+    return model_id.startswith("gpt-audio") or "audio-preview" in model_id
+
 
 def get_available_models() -> list[ModelInfo]:
     """Get list of all available models."""
