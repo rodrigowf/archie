@@ -238,6 +238,7 @@ class OrchestratorChannelTest {
         assertEquals(listOf<ChannelEvent>(ChannelEvent.OrchestratorClosed("ORCH")), r.events.drain())
         assertEquals(null, r.channel.state.value.orchestrator)
         assertFalse(r.channel.state.value.subscribed)
+        assertTrue("open socket, no conversation: connected, not connecting", r.channel.state.value.noOrchestrator)
         assertTrue(r.frames.drain().any { it is ServerFrame.AgentSessionClosed && it.isOrchestrator })
     }
 
@@ -301,5 +302,6 @@ class OrchestratorChannelTest {
         assertEquals(listOf("ORCH"), r.pool.closes)
         assertEquals(null, r.ids.value)
         assertEquals(SocketState.Open, r.socket.state.value)                 // the socket stays: watcher events (T-7)
+        assertTrue(r.channel.state.value.noOrchestrator)                     // connected, nothing open
     }
 }

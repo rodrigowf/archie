@@ -208,7 +208,7 @@ class OrchestratorChannel(
         val ok = pool.close(ref.localId)
         if (ok) {
             ids.clear()
-            _state.update { it.copy(orchestrator = null, subscribed = false) }
+            _state.update { it.copy(orchestrator = null, subscribed = false, noOrchestrator = true) }
         }
         return ok
     }
@@ -365,7 +365,9 @@ class OrchestratorChannel(
             is ServerFrame.AgentSessionClosed -> {
                 val ref = _state.value.orchestrator
                 if (f.isOrchestrator && ref != null && f.sessionId == ref.localId) {   // FOCUS-2, WATCH-1
-                    _state.update { it.copy(orchestrator = null, subscribed = false) }
+                    // noOrchestrator: the socket is open and healthy, there is just no conversation;
+                    // without it the connection status read "connecting" forever (2026-10-04).
+                    _state.update { it.copy(orchestrator = null, subscribed = false, noOrchestrator = true) }
                     ids.clear()
                     framesOut.publish(f)
                     emit(ChannelEvent.OrchestratorClosed(ref.localId))
