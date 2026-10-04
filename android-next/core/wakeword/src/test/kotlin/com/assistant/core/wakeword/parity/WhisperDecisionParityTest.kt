@@ -4,11 +4,9 @@ import com.assistant.core.testing.PinsConstant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /** Whisper gate decision (inv04 §4.4; ports the old `WhisperConfirmerDecideTest`; RS-37). */
-@Ignore("A-07")
 class WhisperDecisionParityTest {
     private val d = wakeCore.whisperDecision
 

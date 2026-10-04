@@ -7,14 +7,12 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Ignore
 import org.junit.Test
 
 /**
  * Phrase parsing and matching (inv04 §4.1 "variant parse", §4.2). Ports the intent of the old
  * `BuildVariantsParityTest` and `VoskEngineParityTest`.
  */
-@Ignore("A-07")
 class VariantMatcherParityTest {
     private val v = wakeCore.variants
 

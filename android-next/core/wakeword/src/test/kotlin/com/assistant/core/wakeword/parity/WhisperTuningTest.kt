@@ -1,10 +1,8 @@
 package com.assistant.core.wakeword.parity
 
-import org.junit.Ignore
 import org.junit.Test
 
 /** inv04 §10.1 `WhisperTuningTest` (inv04 §4.4). */
-@Ignore("A-07")
 class WhisperTuningTest {
     private val pins = wakePins()
 

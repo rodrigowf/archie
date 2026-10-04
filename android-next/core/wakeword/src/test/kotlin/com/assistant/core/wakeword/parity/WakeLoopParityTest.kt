@@ -24,7 +24,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /**
@@ -34,7 +33,6 @@ import org.junit.Test
  * capture) so the implementation may differ in read granularity but not in behaviour.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-@Ignore("A-07")
 class WakeLoopParityTest {
 
     private fun assertIn(what: String, value: Long, range: LongRange) =
@@ -71,6 +69,7 @@ class WakeLoopParityTest {
         while (r.whisper.calls.isEmpty() && guard++ < 200) r.advanceTo(r.rel(r.clock.nowMs()) + 50)
         val callAt = r.rel(r.whisper.calls.single().atMs)
         assertEquals(WakePhase.CONFIRMING_WAKE, r.phaseAt(callAt + 500))
+        r.advanceTo(callAt + 1_000) // WakeDetected only after Whisper answers (old WakeWordDetector.kt:1045-1046 → :1126)
         val detected = r.timeOf(WakeDetected)
         assertEquals(WakePhase.COOLDOWN, r.phaseAt(detected + 2_900))
         val rearm = r.phaseTimeline(detected + 2_900, detected + 3_400).firstOrNull { it.second != WakePhase.COOLDOWN }
@@ -401,8 +400,8 @@ class WakeLoopParityTest {
         r.advanceTo(5_000)
         r.engine.resume()
         r.advanceTo(12_000)
-        assertEquals(2, r.mics.successfulOpens.size)
-        assertEquals(5_000L, r.rel(r.mics.successfulOpens[1].atMs))
+        // The 5200 window ends NoMatch at 10400 → 500 ms re-arm reopens the mic (old WakeWordDetector.kt:1054-1063, :1079-1082 → :645).
+        assertEquals(listOf(0L, 5_000L, 10_900L), r.mics.successfulOpens.map { r.rel(it.atMs) })
         assertEquals(2, r.recognizers.created.size)
         assertNotEquals(WakePhase.PAUSED, r.engine.phase.value)
     }

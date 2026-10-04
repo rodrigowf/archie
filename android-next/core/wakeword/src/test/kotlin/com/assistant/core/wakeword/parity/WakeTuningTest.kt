@@ -1,6 +1,5 @@
 package com.assistant.core.wakeword.parity
 
-import org.junit.Ignore
 import org.junit.Test
 
 /**
@@ -8,7 +7,6 @@ import org.junit.Test
  * `feedback_dont_touch_wake_word_tuning.md`: `2acf57c` reverted a "logical" 200→100 retune that
  * made detection "very very difficult". Any change needs Rodrigo's per-constant approval.
  */
-@Ignore("A-07")
 class WakeTuningTest {
     private val pins = wakePins()
 

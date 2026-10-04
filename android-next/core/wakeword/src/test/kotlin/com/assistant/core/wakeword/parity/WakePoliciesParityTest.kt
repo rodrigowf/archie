@@ -7,11 +7,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /** Pure wake-loop policies: RMS gate, re-arm delays, clip helpers (inv04 §3.1, §4.1, §4.2). */
-@Ignore("A-07")
 class WakePoliciesParityTest {
 
     // ── RMS gate ─────────────────────────────────────────────────────────────────────────────

@@ -4,14 +4,12 @@ import com.assistant.core.testing.PinsConstant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /**
  * SpeechRecognizer fallback book-keeping (inv04 §4.3; ports `NoSpeechHealthParityTest`; RS-35, RS-27).
  * The fallback stays until Vosk is validated on every device (V6 deferred).
  */
-@Ignore("A-07")
 class SpeechRecognizerParityTest {
 
     /** RS-35 (`39b1cec`): NO_SPEECH × 8 → unhealthy (≥, not ==); refresh at 2 in a row (`b753ac5`). */

@@ -7,13 +7,11 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /** Vosk model extraction (ports `VoskModelLoaderParityTest`; same dir + stamp as the old app, spec 14 §1.2). */
-@Ignore("A-07")
 class VoskModelStoreParityTest {
     @get:Rule val tmp = TemporaryFolder()
     private val store = wakeCore.modelStore

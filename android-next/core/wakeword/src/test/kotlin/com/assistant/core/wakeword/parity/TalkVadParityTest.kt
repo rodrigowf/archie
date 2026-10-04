@@ -6,7 +6,6 @@ import com.assistant.core.wakeword.ports.TalkVadStep
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /**
@@ -14,7 +13,6 @@ import org.junit.Test
  * old `AdaptiveVadParityTest` and pins the frame semantics of `captureTalkCommand` exactly
  * (frames every 200 ms, timestamps as the old loop took them).
  */
-@Ignore("A-07")
 class TalkVadParityTest {
     private val s = 100_000L
 

@@ -5,11 +5,9 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
-import org.junit.Ignore
 import org.junit.Test
 
 /** inv04 §10.1 `VoskTuningTest` (inv04 §4.2). */
-@Ignore("A-07")
 class VoskTuningTest {
     private val pins = wakePins()
 

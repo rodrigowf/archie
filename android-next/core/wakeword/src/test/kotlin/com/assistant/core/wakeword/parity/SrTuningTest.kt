@@ -5,11 +5,9 @@ import com.assistant.core.testing.PinsConstant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /** inv04 §10.1 `SrTuningTest` (inv04 §4.3). The SpeechRecognizer fallback stays until Vosk is validated everywhere (V6). */
-@Ignore("A-07")
 class SrTuningTest {
     private val pins = wakePins()
 

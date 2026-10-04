@@ -5,7 +5,6 @@ import com.assistant.core.testing.OldConstants
 import com.assistant.core.testing.PinsConstant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /** Build-level pins of inv04 §4.2 that live outside Kotlin code. */
@@ -22,7 +21,6 @@ class WakewordBuildPinsTest {
 
     /** `Model(path)` needs raw files: the model directory is stored uncompressed (old `A/build.gradle.kts:46`). */
     @Test
-    @Ignore("A-07")
     @PinsConstant("vosk.no_compress")
     fun modelDirectoryIsNotCompressed() {
         val build = ArchieRoot.file("core/wakeword/build.gradle.kts").readText()

@@ -13,14 +13,12 @@ import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /**
  * whisper-1 HTTP client against a local server (inv04 §2.1 external call, §4.4). Request shape,
  * key caching and the 401 rule (fail-closed; a 401 clears the cached key).
  */
-@Ignore("A-07")
 class WhisperClientParityTest {
     private val server = MockWebServer().apply { start() }
     private val http = OkHttpClient.Builder().readTimeout(5, TimeUnit.SECONDS).build()
