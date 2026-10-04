@@ -2,6 +2,13 @@
 
 Newest first. One entry per milestone event, accepted WP, or decision.
 
+## 2026-10-04
+
+- Closed the stray pool session "twitter browser test" on the Jetson (opened by the audit click on 2026-10-03), with Rodrigo's OK. Pool now empty.
+- P-2 retry budget set to 30 s (Rodrigo).
+- Accepted + committed: A-05 (cfc532e), A-03 (9bc23b7), B-01 (922fa23), B-02 (3d54293), B-03 (23c302b), W-03 (8a04a63), W-04 (794264b), W-06 (9dfd468, eea37f1), W-07 (e9192d4), W-10 (26f61a6), A-06 (076ad1a), B-04 (29e576d), W-09 (45cd270), W-11 (ca26b76). Theme default changed to dark on both platforms (D3).
+- Coordinator rulings: reconnect uses spec 12 T-13 backoff (fixed 3 s superseded; 30 s ping kept); voice command queue never drops (V-4 amended); A-06 harness timing fix approved.
+
 ## 2026-10-03
 
 - 17:57 — All 6 running agents (W-03, W-04, W-06, A-03, A-04, B-01) were cut off by an API usage limit (reset 15:40). Resumed W-03, W-04, B-01, A-04 from their saved context; W-06 and A-03 queued. **Lesson:** 6 parallel agents exhausts the session limit; cap lowered to 4 (plan/21 §2).
