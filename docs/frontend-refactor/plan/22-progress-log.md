@@ -2,6 +2,14 @@
 
 Newest first. One entry per milestone event, accepted WP, or decision.
 
+## Open issues (tracked until fixed)
+
+| # | Found | Issue | Owner |
+|---|---|---|---|
+| OI-1 | 2026-10-04 live B-04 check | Android dark theme draws dark status-bar icons (clock/battery nearly invisible); set light system-bar icons in dark theme (edge-to-edge insets controller) | B-03 shell follow-up or B-09 |
+| OI-2 | 2026-10-04 B-04 | Agent approvals can only be answered while that agent's view is open (no temporary-socket path) | B-06 / B-09 |
+| OI-3 | 2026-10-03 audit | Jetson session list shows nothing newer than Aug 28 in both old and new clients — verify backend listing | Rodrigo / backend |
+
 ## 2026-10-04
 
 - Closed the stray pool session "twitter browser test" on the Jetson (opened by the audit click on 2026-10-03), with Rodrigo's OK. Pool now empty.
