@@ -8,13 +8,19 @@
  * is 300 px, rows sit at `index × 100 − scrollTop`.
  */
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initialConversation, type Conversation, type Entry } from '@/protocol';
 import { clearSessionRegistry, createManualScheduler, type ManualScheduler, type SessionStoreHandle } from '@/stores';
 import { ScrollController } from '@/ui/primitives';
 import { ConversationPanel } from '../ConversationPanel';
+import { preloadRich } from '../lazyRich';
 import { MessageList } from '../MessageList';
 import { seedSession, type InertRuntime } from './helpers';
+
+// The rich chunk (markdown, tool cards) loads lazily in the app; tests load it up front.
+beforeAll(async () => {
+  await preloadRich();
+});
 
 const ROW = 100;
 const VIEW = 300;

@@ -28,11 +28,9 @@ export interface UserMessageProps {
   readonly entry: UserEntry;
   /** The ⋮ message actions (rewind / fork). */
   readonly actions?: ReactNode;
-  /** Queue tray item (I-12): not in the timeline yet. */
-  readonly queued?: boolean;
 }
 
-function UserMessageImpl({ entry, actions, queued = false }: UserMessageProps) {
+function UserMessageImpl({ entry, actions }: UserMessageProps) {
   const lines = entry.text.split('\n').length;
   const foldable = lines > FOLD_LINES;
   const [expanded, setExpanded] = useState(false);
@@ -43,7 +41,7 @@ function UserMessageImpl({ entry, actions, queued = false }: UserMessageProps) {
   return (
     <div className={styles.userRow} data-origin={entry.origin}>
       {actions}
-      <div className={cx(styles.bubble, live && styles.bubbleLive, (pending || queued) && styles.bubblePending)}>
+      <div className={cx(styles.bubble, live && styles.bubbleLive, pending && styles.bubblePending)}>
         {tag ? (
           <span className={styles.vtag}>
             <Icon name={tag.icon} size={16} />
@@ -60,12 +58,6 @@ function UserMessageImpl({ entry, actions, queued = false }: UserMessageProps) {
           </button>
         ) : null}
         {pending ? <span className={styles.bubbleMeta}>Sending…</span> : null}
-        {queued ? (
-          <span className={styles.bubbleMeta}>
-            <Icon name="hourglass_top" size={14} />
-            <span>Queued, sends when the reply ends</span>
-          </span>
-        ) : null}
       </div>
     </div>
   );

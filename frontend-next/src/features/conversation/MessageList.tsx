@@ -5,8 +5,10 @@
  *
  * - top: "Scroll up for older messages" / loading while history exists above (inv02 F-11), and the
  *   orchestrator-history footnote (spec 12 §5.7);
- * - bottom: the queue tray (I-12), unmatched tool results (R-9), "Connection lost at …"
+ * - bottom: unmatched tool results (R-9), "Connection lost at …"
  *   (mockups (k); a banner, never an entry, I-15) and the gap "Reload" line (§2.3 `gapPossible`);
+ * Queued prompts (I-12) are NOT rendered here: they live only in the composer's tray (W-11) until
+ *   dispatched, then appear once in the timeline as an ordinary user entry.
  * - below the scroll area: "Jump to latest" while scrolled up. It sits in its own row, so it never
  *   covers message text (fixes visual audit W6).
  */
@@ -18,7 +20,7 @@ import { isLowEnd, formatClockTime } from '@/platform';
 import { Button, Chip } from '@/ui/controls';
 import { Dialog } from '@/ui/overlays';
 import { Icon, ScrollArea, Spinner, cx, type ScrollAreaHandle } from '@/ui/primitives';
-import { AssistantMessage } from './entries/AssistantMessage';
+import { useRichModule, type RichModule } from './lazyRich';
 import { NoticeRow } from './entries/NoticeRow';
 import { UserMessage } from './entries/UserMessage';
 import { MessageActions } from './MessageActions';
@@ -46,6 +48,8 @@ interface RowContext {
   readonly actions: boolean;
   readonly canRewind: boolean;
   readonly isBusy: boolean;
+  /** The assistant-run renderer from the lazy rich chunk. */
+  readonly Assistant: RichModule['RichAssistantMessage'];
 }
 
 const Row = memo(function Row({ entry, ctx, active, onTap }: { entry: Entry; ctx: RowContext; active: boolean; onTap: (id: string) => void }) {
@@ -65,7 +69,7 @@ const Row = memo(function Row({ entry, ctx, active, onTap }: { entry: Entry; ctx
   else if (entry.kind === 'notice') body = <NoticeRow entry={entry} />;
   else
     body = (
-      <AssistantMessage
+      <ctx.Assistant
         entry={entry}
         live={entry.id === ctx.liveId}
         sessionKind={ctx.kind}
@@ -171,20 +175,6 @@ function UnmatchedChip({ localId }: { localId: string }) {
   );
 }
 
-function QueueTray({ localId }: { localId: string }) {
-  const queue = useSession(localId, (s) => s.conv.queue);
-  if (queue.length === 0) return null;
-  return (
-    <div className={styles.queue} aria-label="Queued messages">
-      {queue.map((q, i) => (
-        <div key={`${i}:${q.text}`} className={styles.row}>
-          <UserMessage entry={{ id: `q${i}`, kind: 'user', text: q.text, origin: q.owner === 'local' ? 'local' : 'echo', state: 'sent' }} queued />
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function GapLine({ localId }: { localId: string }) {
   const gap = useSession(localId, (s) => s.conv.gapPossible && !s.conv.reloading);
   if (!gap) return null;
@@ -235,19 +225,23 @@ function MessageListImpl({ localId, store, hidden, empty, cap }: MessageListProp
     canLoadOlder: s.hasMore && !s.loadingOlder && s.hasSdk,
     loadOlder: () => void getSessionRuntime(localId)?.loadOlder(),
   });
-  const ctx = useMemo<RowContext>(
-    () => ({
-      localId,
-      kind: s.kind,
-      liveId: s.liveId,
-      lastId: s.lastId,
-      stalledToolUseId: s.stalledToolUseId,
-      grouping,
-      actions: s.hasSdk,
-      canRewind: s.kind === 'agent' && !s.readOnly,
-      isBusy: s.isBusy,
-    }),
-    [localId, s.kind, s.liveId, s.lastId, s.stalledToolUseId, grouping, s.hasSdk, s.readOnly, s.isBusy],
+  const rich = useRichModule();
+  const Assistant = rich ? rich.RichAssistantMessage : null;
+  const ctx = useMemo<RowContext | null>(
+    () =>
+      Assistant && {
+        Assistant,
+        localId,
+        kind: s.kind,
+        liveId: s.liveId,
+        lastId: s.lastId,
+        stalledToolUseId: s.stalledToolUseId,
+        grouping,
+        actions: s.hasSdk,
+        canRewind: s.kind === 'agent' && !s.readOnly,
+        isBusy: s.isBusy,
+      },
+    [Assistant, localId, s.kind, s.liveId, s.lastId, s.stalledToolUseId, grouping, s.hasSdk, s.readOnly, s.isBusy],
   );
   const { view } = win;
   const isEmpty = view.entries.length === 0 && view.buffered === 0;
@@ -255,13 +249,13 @@ function MessageListImpl({ localId, store, hidden, empty, cap }: MessageListProp
   return (
     <div className={styles.listWrap}>
       <ScrollArea ref={area} className={styles.scroll} onScroll={win.onScroll} aria-label="Conversation" tabIndex={0}>
-        <div ref={content} className={cx(styles.column, isEmpty && styles.columnEmpty)}>
-          {s.loading && isEmpty ? (
+        <div ref={content} className={cx(styles.column, (isEmpty || !ctx) && styles.columnEmpty)}>
+          {(s.loading && isEmpty) || (!ctx && !isEmpty) ? (
             <div className={styles.loading} role="status">
               <Spinner size={24} />
               <span>Loading conversation…</span>
             </div>
-          ) : isEmpty ? (
+          ) : isEmpty || !ctx ? (
             empty
           ) : (
             <>
@@ -273,11 +267,10 @@ function MessageListImpl({ localId, store, hidden, empty, cap }: MessageListProp
               ) : null}
               {s.orchHistory ? <p className={styles.footnote}>Tool calls and background updates are not kept in orchestrator history.</p> : null}
               {view.entries.map((e) => (
-                <Row key={e.id} entry={e} ctx={ctx} active={e.id === activeId} onTap={setActiveId} />
+                <Row key={e.id} entry={e} ctx={ctx as RowContext} active={e.id === activeId} onTap={setActiveId} />
               ))}
             </>
           )}
-          {view.buffered === 0 ? <QueueTray localId={localId} /> : null}
           <UnmatchedChip localId={localId} />
           <GapLine localId={localId} />
           <ConnectionLine localId={localId} store={store} />

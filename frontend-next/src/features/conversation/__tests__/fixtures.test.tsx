@@ -9,11 +9,17 @@
  *   termination card (the view stays).
  */
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Conversation } from '@/protocol';
 import { clearSessionRegistry, createManualScheduler, type ManualScheduler } from '@/stores';
 import { ConversationPanel } from '../ConversationPanel';
+import { preloadRich } from '../lazyRich';
 import { convSequence, domSequence, fixtureRun, seedSession } from './helpers';
+
+// The rich chunk (markdown, tool cards) loads lazily in the app; tests load it up front.
+beforeAll(async () => {
+  await preloadRich();
+});
 
 let scheduler: ManualScheduler;
 
@@ -105,6 +111,24 @@ describe('R7: tool output appears live', () => {
     const t0 = tools[0];
     if (t0 && t0.type === 'tool' && t0.output) expect(first.textContent).toContain(t0.output.split('\n')[0]);
   });
+});
+
+describe('I-12: queued prompts', () => {
+  it.each(['queued_prompt_sender', 'queued_prompt_echoed_twice', 'queued_prompt_observer_no_reecho', 'history_prepend_queued_prompt_dispatch'])(
+    '%s: a queued prompt is never rendered while queued, and exactly once after dispatch',
+    async (name) => {
+      await replay(name, (conv, container) => {
+        const rendered = Array.from(container.querySelectorAll('[data-kind="user"]')).map((r) => r.querySelector('[class*="userText"]')?.textContent ?? '');
+        for (const q of conv.queue) {
+          const inTimeline = conv.entries.filter((e) => e.kind === 'user' && e.text === q.text).length;
+          expect(rendered.filter((t) => t === q.text)).toHaveLength(inTimeline);
+        }
+        for (const e of conv.entries)
+          if (e.kind === 'user')
+            expect(rendered.filter((t) => t === e.text).length).toBe(conv.entries.filter((x) => x.kind === 'user' && x.text === e.text).length);
+      });
+    },
+  );
 });
 
 describe('voice transcripts', () => {

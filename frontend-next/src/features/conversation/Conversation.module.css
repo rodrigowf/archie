@@ -54,21 +54,13 @@
   }
 }
 
-.queue {
-  margin-top: 18px;
-}
-
 /* rows: mockups gap 18 (desktop) / 16 (phone) */
-.row + .row,
-.row + .queue,
-.queue .row + .row {
+.row + .row {
   margin-top: 18px;
 }
 
 @media (--compact) {
-  .row + .row,
-  .row + .queue,
-  .queue .row + .row {
+  .row + .row {
     margin-top: 16px;
   }
 }
@@ -608,7 +600,7 @@
   }
 }
 
-/* ---------- queue tray, unmatched results ---------- */
+/* ---------- unmatched results ---------- */
 .dialogLead {
   margin: 0 0 12px;
 }

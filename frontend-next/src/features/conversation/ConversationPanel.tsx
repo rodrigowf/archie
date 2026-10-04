@@ -13,11 +13,11 @@
  * - `onStartVoice`: the empty Archie conversation's big voice button (W-12); hidden when absent.
  */
 import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { MarkdownPrefsProvider } from '@/features/markdown';
 import { setSessionHidden } from '@/services';
-import { createSessionStore, getSessionEntry, usePrefs, useSession, useSessionRegistryVersion, type SessionStore } from '@/stores';
+import { createSessionStore, getSessionEntry, useSession, useSessionRegistryVersion, type SessionStore } from '@/stores';
 import { initialConversation } from '@/protocol';
-import { AgentApprovalCards, ErrorCards, PermissionCard, StallCard, TerminationCard } from './cards/cards';
+import { ErrorCards, StallCard, TerminationCard } from './cards/cards';
+import { useRichModule } from './lazyRich';
 import { ConversationEmpty } from './ConversationEmpty';
 import { MessageActionHost } from './MessageActionHost';
 import { MessageActionsContext, type MessageActionRequest, type MessageActionsContextValue } from './MessageActions';
@@ -52,12 +52,12 @@ export function useSessionStore(localId: string): SessionStore {
 
 /** Cards above the composer, in a fixed order: errors, stall, permission, ended. */
 export const InlineCards = memo(function InlineCards({ localId }: { localId: string }) {
+  const rich = useRichModule();
   return (
     <div className={styles.cards}>
       <ErrorCards localId={localId} />
       <StallCard localId={localId} />
-      <PermissionCard localId={localId} />
-      <AgentApprovalCards localId={localId} />
+      {rich ? <rich.RichPermissionCards localId={localId} /> : null}
       <TerminationCard localId={localId} />
     </div>
   );
@@ -66,7 +66,6 @@ export const InlineCards = memo(function InlineCards({ localId }: { localId: str
 function ConversationPanelImpl({ localId, hidden, composer, onMessageAction, onStartVoice, onSuggestion }: ConversationPanelProps) {
   const store = useSessionStore(localId);
   const kind = useSession(localId, (s) => s.conv.ref.kind);
-  const syntaxHighlight = usePrefs((p) => p.syntaxHighlighting);
   const [pending, setPending] = useState<MessageActionRequest | null>(null);
 
   useEffect(() => {
@@ -74,12 +73,11 @@ function ConversationPanelImpl({ localId, hidden, composer, onMessageAction, onS
   }, [localId, hidden]);
 
   const actions = useMemo<MessageActionsContextValue>(() => ({ request: onMessageAction ?? setPending }), [onMessageAction]);
-  const mdPrefs = useMemo(() => ({ syntaxHighlight }), [syntaxHighlight]);
   const suggest = onSuggestion ?? ((text: string): void => getSessionEntry(localId)?.handle.setDraft(text));
 
   return (
     <div className={styles.panel} data-hidden={hidden ? '' : undefined} data-kind={kind}>
-      <MarkdownPrefsProvider value={mdPrefs}>
+      <>
         <MessageActionsContext.Provider value={actions}>
           <MessageList
             localId={localId}
@@ -93,7 +91,7 @@ function ConversationPanelImpl({ localId, hidden, composer, onMessageAction, onS
           </div>
           {onMessageAction ? null : <MessageActionHost pending={pending} onDone={() => setPending(null)} />}
         </MessageActionsContext.Provider>
-      </MarkdownPrefsProvider>
+      </>
     </div>
   );
 }

@@ -7,13 +7,19 @@
  * `drop_last_n` (spec 12 §6.5), and the empty states.
  */
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { getSessionEntry, tabsStore } from '@/stores';
 import { openSession, type SessionRuntime } from '@/services';
 import { EMPTY, FakeWebSocket, flushPromises, jsonResponse, setupServices, teardownServices, type Harness } from '../../../services/__tests__/fakes';
 import { ConversationPanel } from '../ConversationPanel';
-import { PLAN_HINT, PLAN_TITLE } from '../cards/cards';
+import { preloadRich } from '../lazyRich';
+import { PLAN_HINT, PLAN_TITLE } from '../cards/copy';
 import { FOLD_LINES } from '../entries/UserMessage';
+
+// The rich chunk (markdown, tool cards) loads lazily in the app; tests load it up front.
+beforeAll(async () => {
+  await preloadRich();
+});
 
 const CHAT = '/api/sessions/chat';
 let h: Harness;

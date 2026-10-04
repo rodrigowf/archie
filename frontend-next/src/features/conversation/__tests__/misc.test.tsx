@@ -1,17 +1,23 @@
 /**
  * Orchestrator view parts and the remaining timeline pieces: agent approvals (spec 12 §6.9, PM-5),
- * the Archie empty state (greeting, voice button, suggestion → draft), the queue tray (I-12),
+ * the Archie empty state (greeting, voice button, suggestion → draft), queued prompts (I-12),
  * unmatched tool results (R-9), the inline visual card, and an axe pass over a busy conversation.
  */
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initialConversation, type Conversation, type Entry, type ToolBlock } from '@/protocol';
 import { catalogStore, setCatalogItems, tabsStore } from '@/stores';
 import { expectNoAxeViolations } from '@/test/axe';
 import { FakeWebSocket, setupServices, teardownServices } from '../../../services/__tests__/fakes';
 import { ConversationPanel } from '../ConversationPanel';
+import { preloadRich } from '../lazyRich';
 import { visualFromTool } from '../entries/VisualCard';
 import { fixtureRun, seedSession } from './helpers';
+
+// The rich chunk (markdown, tool cards) loads lazily in the app; tests load it up front.
+beforeAll(async () => {
+  await preloadRich();
+});
 
 beforeEach(() => {
   setupServices();
@@ -85,14 +91,13 @@ describe('orchestrator view', () => {
 });
 
 describe('timeline extras', () => {
-  it('queued prompts show in the tray, not in the timeline (I-12)', () => {
+  it('queued prompts are not rendered by the view; the dispatched prompt shows once (I-12)', () => {
     const c = initialConversation({ localId: 'Q1', kind: 'agent', sdkId: 's', provider: 'claude', subscribed: true });
     const user: Entry = { id: 'u1', kind: 'user', text: 'first', origin: 'local', state: 'sent' };
     seedSession({ ...c, entries: [user], inTurn: true, status: 'processing', queue: [{ text: 'second', owner: 'local' }] });
     render(<ConversationPanel localId="Q1" hidden={false} />);
-    const tray = screen.getByLabelText('Queued messages');
-    expect(tray.textContent).toContain('second');
-    expect(tray.textContent).toContain('Queued, sends when the reply ends');
+    expect(screen.queryByText('second')).toBeNull(); // only W-11's composer tray shows it
+    expect(screen.queryByLabelText('Queued messages')).toBeNull();
     expect(document.querySelectorAll('[data-entry-id]')).toHaveLength(1);
   });
 

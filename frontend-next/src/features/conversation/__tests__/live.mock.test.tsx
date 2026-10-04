@@ -15,7 +15,13 @@ import { configureServices, openSession, startServices, type ReconnectPolicy, ty
 import { getSessionEntry } from '@/stores';
 import { setupServices, teardownServices, type Harness } from '../../../services/__tests__/fakes';
 import { ConversationPanel } from '../ConversationPanel';
+import { preloadRich } from '../lazyRich';
 import { convSequence, domSequence } from './helpers';
+
+// The rich chunk (markdown, tool cards) loads lazily in the app; tests load it up front.
+beforeAll(async () => {
+  await preloadRich();
+});
 
 let server: MockServer;
 let h: Harness;
