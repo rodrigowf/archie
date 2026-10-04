@@ -17,6 +17,14 @@ object NetworkTuning {
     const val WS_RECONNECT_MAX_DELAY_MS: Long = 15_000L
     const val WS_RECONNECT_JITTER: Double = 0.2
 
+    /**
+     * spec 12 T-16: an upgrade that gets no answer within this time is abandoned and counts as a
+     * failed attempt (backoff applies). The WebSocket client has no read timeout (pings keep an
+     * open socket honest), and nginx on the Jetson proxies the API WebSockets with 24 h timeouts,
+     * so without this a request swallowed during a backend restart hung the reconnect loop.
+     */
+    const val WS_HANDSHAKE_TIMEOUT_MS: Long = 10_000L
+
     /** REST client timeouts (`ApiClient.kt:35-39`). */
     const val REST_CONNECT_TIMEOUT_MS: Long = 10_000L
     const val REST_READ_TIMEOUT_MS: Long = 30_000L

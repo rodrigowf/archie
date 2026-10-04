@@ -277,7 +277,7 @@ class OpenSessionsRepository(
     private fun derive(slot: Slot, st: ConversationState?): WorkspaceItem = when (val k = slot.key) {
         ItemKey.Archie -> WorkspaceItem(
             key = k, kind = ItemKind.ARCHIE,
-            title = history.titleFor(st?.ref?.sdkId, st?.ref?.localId, ARCHIE_PLACEHOLDER),
+            title = archieTitle(history.titleFor(st?.ref?.sdkId, st?.ref?.localId, ARCHIE_PLACEHOLDER)),
             status = statusOf(st), detail = detailOf(st, "Archie"), unread = slot.unread,
             localId = st?.ref?.localId, sdkId = st?.ref?.sdkId,
         )
@@ -300,6 +300,15 @@ class OpenSessionsRepository(
 
     companion object {
         const val ARCHIE_PLACEHOLDER = "Archie"
+        const val NEW_CONVERSATION = "New conversation"
+        private val GENERIC_ARCHIE = Regex("^\\s*(orchestrator|archie)?\\s*$", RegexOption.IGNORE_CASE)
+
+        /**
+         * IA §1 / CR-9: the UI never says "Orchestrator". The backend titles an untitled Archie
+         * conversation "Orchestrator", and the placeholder is "Archie": both show as
+         * "New conversation" (same rule as `SessionTitles.conversationTitle` and the web).
+         */
+        fun archieTitle(raw: String): String = raw.trim().let { if (GENERIC_ARCHIE.matches(it)) NEW_CONVERSATION else it }
         const val AGENT_PLACEHOLDER = "New agent session"
 
         /** ST-3: connecting, subscribed-idle, busy, needs-you, stopped/terminated, disconnected/failed. */

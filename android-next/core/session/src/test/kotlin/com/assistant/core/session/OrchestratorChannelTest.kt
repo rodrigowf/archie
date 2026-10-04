@@ -86,6 +86,49 @@ class OrchestratorChannelTest {
             listOf<ChannelEvent>(ChannelEvent.Adopted(ref, false)), r.events.drain().filter { it !is ChannelEvent.Disconnected })
     }
 
+    @Test fun reconnectToAnEmptyPoolResumesTheConversationThisDeviceHad() = runTest {
+        // Backend restart: the pool is empty when the socket comes back, but the conversation the
+        // device was showing still exists on disk. `start` with its ids resumes it (web parity).
+        val r = Rig(this, autoStart = true)
+        r.pool.script += listOf(listOf(orch()), emptyList(), emptyList())
+        r.channel.connect(url); r.socket.open(); r.settle()
+        r.events.drain(); r.socket.sent.clear()
+
+        r.socket.drop(); r.settle()
+        r.socket.open(); r.settle()
+        advanceTimeBy(SessionTuning.POOL_PROBE_RETRY_MS); runCurrent()
+        val ref = OrchestratorRef("ORCH", "JSONL")
+        assertEquals(
+            listOf(ChannelEvent.Disconnected(true), ChannelEvent.Adopted(ref, true), ChannelEvent.Reconnected(ref)),
+            r.events.drain(),
+        )
+        assertEquals(listOf<ClientFrame>(ClientFrame.Start("ORCH", "JSONL")), r.socket.sent)
+        assertFalse(r.channel.state.value.noOrchestrator)
+    }
+
+    @Test fun conversationOpenedFromHistoryIsResumedAfterABackendRestart() = runTest {
+        // First connect finds no orchestrator; the user then resumes one from History (the
+        // handle sends `start`, the channel learns it from `session_started`). The backend
+        // restarts: the pool is empty again, and the channel must still resume that conversation.
+        val r = Rig(this, autoStart = true)
+        r.pool.script += listOf(emptyList())
+        r.channel.connect(url); r.socket.open(); r.settle()
+        advanceTimeBy(SessionTuning.POOL_PROBE_RETRY_MS); runCurrent()
+        assertEquals(listOf<ChannelEvent>(ChannelEvent.NoOrchestrator), r.events.drain())
+        r.socket.frame(ServerFrame.SessionStarted(sessionId = "PAST", jsonlId = "JPAST")); runCurrent()
+        r.socket.sent.clear()
+
+        r.socket.drop(); r.settle()
+        r.socket.open(); r.settle()
+        advanceTimeBy(SessionTuning.POOL_PROBE_RETRY_MS); runCurrent()
+        val ref = OrchestratorRef("PAST", "JPAST")
+        assertEquals(
+            listOf(ChannelEvent.Disconnected(true), ChannelEvent.Adopted(ref, true), ChannelEvent.Reconnected(ref)),
+            r.events.drain(),
+        )
+        assertEquals(listOf<ClientFrame>(ClientFrame.Start("PAST", "JPAST")), r.socket.sent)
+    }
+
     @Test fun recoveryBacksOff0_500_1000_thenGivesUp() = runTest {
         val r = Rig(this, cursor = { ResumeCursor("st", 9) })
         r.pool.script += listOf(orch("A", "JA"))

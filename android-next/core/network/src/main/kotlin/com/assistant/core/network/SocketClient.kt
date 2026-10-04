@@ -112,6 +112,7 @@ class SocketClient(
     private val reconnectPolicy: ReconnectPolicy = ReconnectPolicy.DEFAULT,
     private val log: NetLog = NetLog.NONE,
     private val tag: String = "ws",
+    private val handshakeTimeoutMs: Long = NetworkTuning.WS_HANDSHAKE_TIMEOUT_MS,
 ) : FrameSocket {
     constructor(stack: HttpStack, scope: CoroutineScope, reconnectPolicy: ReconnectPolicy = ReconnectPolicy.DEFAULT, log: NetLog = NetLog.NONE, tag: String = "ws") :
         this({ url -> stack.wsClient(url) }, scope, reconnectPolicy, log, tag)
@@ -123,6 +124,7 @@ class SocketClient(
     @Volatile private var generation = 0
     private var attempt = 0
     private var reconnectJob: Job? = null
+    private var handshakeJob: Job? = null
     private var reconnectAllowed = true
     private var heldReconnect = false
 
@@ -196,6 +198,16 @@ class SocketClient(
         _state.value = SocketState.Connecting(attempt)
         log.log('D', tag, "connect $target (attempt $attempt)")
         socket = clientFor(target).newWebSocket(Request.Builder().url(target).build(), Listener(gen))
+        // T-16: an upgrade nobody answers is cancelled; the failure then reconnects with backoff.
+        handshakeJob?.cancel()
+        handshakeJob = scope.launch {
+            delay(handshakeTimeoutMs)
+            val stuck = synchronized(lock) { if (gen == generation && _state.value is SocketState.Connecting) socket else null }
+            if (stuck != null) {
+                log.log('W', tag, "handshake timed out after $handshakeTimeoutMs ms")
+                stuck.cancel()
+            }
+        }
     }
 
     private fun onDrop(gen: Int, code: Int?, reason: String?) = synchronized(lock) {
@@ -236,6 +248,7 @@ class SocketClient(
                 }
                 // The backoff is NOT reset on open: only `session_started` proves the server is
                 // healthy (T-13), so a server that accepts then drops keeps backing off.
+                handshakeJob?.cancel(); handshakeJob = null
                 _state.value = SocketState.Open
                 inbox.trySend(SocketEvent.Opened)
             }

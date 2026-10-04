@@ -74,10 +74,10 @@ class HistoryRepository(
     /** MC-2: `list[sdkId]?.title ?: list[localId]?.title ?: pool title ?: placeholder`. */
     fun titleFor(sdkId: String?, localId: String?, placeholder: String): String {
         val list = _sessions.value.value.orEmpty()
-        sdkId?.let { id -> list.firstOrNull { it.sdkId == id }?.title?.takeIf { it.isNotBlank() }?.let { return it } }
-        localId?.let { id -> list.firstOrNull { it.localId == id }?.title?.takeIf { it.isNotBlank() }?.let { return it } }
+        sdkId?.let { id -> list.firstOrNull { it.sdkId == id }?.title?.takeIf(::isRealTitle)?.let { return it } }
+        localId?.let { id -> list.firstOrNull { it.localId == id }?.title?.takeIf(::isRealTitle)?.let { return it } }
         val p = _pool.value.firstOrNull { (localId != null && it.localId == localId) || (sdkId != null && it.sdkId == sdkId) }
-        return p?.title?.takeIf { it.isNotBlank() } ?: placeholder
+        return p?.title?.takeIf(::isRealTitle) ?: placeholder
     }
 
     // ───────────── mutations (§6.6, §6.8) ─────────────
@@ -113,5 +113,13 @@ class HistoryRepository(
 
     companion object {
         const val LIST_DEBOUNCE_MS = 2_000L
+
+        /**
+         * The backend lists a live session that has no history file yet as "(active session)"
+         * (`api/routes/sessions.py`). It is not a title: the caller's placeholder shows instead.
+         */
+        const val ACTIVE_SESSION_PLACEHOLDER = "(active session)"
+
+        fun isRealTitle(t: String): Boolean = t.isNotBlank() && t.trim() != ACTIVE_SESSION_PLACEHOLDER
     }
 }

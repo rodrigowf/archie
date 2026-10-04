@@ -314,6 +314,20 @@ class OrchestratorChannel(
     }
 
     private suspend fun onProbe(found: PoolSession?) {
+        val mine = _state.value.orchestrator
+        if (found == null && mine != null) {
+            // Reconnect with no live orchestrator in the pool, e.g. the backend restarted and its
+            // pool is empty. The conversation this device was showing still exists on disk:
+            // `start` with its ids resumes it, as the web does on every reopen. Without this the
+            // view stayed "Reconnecting…" forever (2026-10-04, POCO X7 Pro). Having a conversation
+            // makes this a reconnect even when the first probe found none and the user then
+            // opened one from History (initialConnectionDone is still false in that case).
+            initialConnectionDone = true
+            emit(ChannelEvent.Adopted(mine, reconnect = true))
+            emit(ChannelEvent.Reconnected(mine))
+            if (config.autoStart) sendStart()
+            return
+        }
         if (found == null) {
             _state.update { it.copy(noOrchestrator = true) }
             emit(ChannelEvent.NoOrchestrator)

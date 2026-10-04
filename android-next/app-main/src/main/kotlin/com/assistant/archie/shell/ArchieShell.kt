@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -594,7 +595,7 @@ private fun WorkspaceStatus(item: WorkspaceItem) {
 /** Nothing open: never a blank screen (A6). No auto-navigation to History (FOCUS-1, inv03 A-1.1). */
 @Composable
 private fun NoSessionContent(state: ShellUiState, onAction: (ShellAction) -> Unit) {
-    Box(Modifier.fillMaxSize().testTag("no-session"), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxSize().padding(horizontal = 16.dp).testTag("no-session"), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
             when (state.connection.phase) {
                 ConnectionStatus.Phase.CONNECTED -> {
@@ -603,7 +604,11 @@ private fun NoSessionContent(state: ShellUiState, onAction: (ShellAction) -> Uni
                         body = "Start one, or pick a past conversation from the menu.",
                         modifier = Modifier.widthIn(max = 520.dp),
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Wraps to two lines on narrow phones instead of running into the screen edges.
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         ArchieButton("New Archie chat", { onAction(ShellAction.NewArchie) }, style = ButtonStyle.Tonal, icon = ArchieIcons.AddComment)
                         ArchieButton("New agent session", { onAction(ShellAction.NewAgent) }, style = ButtonStyle.Outlined, icon = ArchieIcons.Terminal)
                     }

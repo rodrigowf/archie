@@ -18,6 +18,7 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import okio.ByteString
 import okio.ByteString.Companion.encodeUtf8
 import org.junit.After
@@ -139,6 +140,26 @@ class SocketClientTest {
         assertEquals(SocketEvent.Opened, withTimeout(5_000) { events.receive() })
         val waitedMs = (side.upgradeTimes[3] - droppedAt) / 1_000_000
         assertTrue("after reset: ${waitedMs}ms, expected ~1 s", waitedMs in 750L..1_600L)
+    }
+
+    @Test fun unansweredUpgradeTimesOut_thenReconnects_T16() = runBlocking {
+        // A backend mid-restart behind nginx (24 h proxy timeouts) can accept the upgrade and
+        // never answer; with no read timeout on the WS client that attempt used to hang forever.
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+        enqueueUpgrades(1)
+        val c = SocketClient({ stack.wsClient(it) }, scope, ReconnectPolicy { 100L }, handshakeTimeoutMs = 600L)
+        val events = Channel<SocketEvent>(Channel.UNLIMITED)
+        c.collectFrames(Channel(Channel.UNLIMITED), events)
+        val started = System.nanoTime()
+        c.connect(url())
+        val closed = withTimeout(5_000) { events.receive() } as SocketEvent.Closed
+        val waitedMs = (System.nanoTime() - started) / 1_000_000
+        assertTrue("timed out after ${waitedMs}ms, expected ~600 ms", waitedMs in 500L..3_000L)
+        assertTrue("a timed-out handshake must reconnect", closed.willReconnect)
+        assertEquals(SocketEvent.Opened, withTimeout(5_000) { events.receive() })
+        assertEquals(SocketState.Open, c.state.value)
+        delay(900)                                         // the old watchdog must not hit the open socket
+        assertEquals(SocketState.Open, c.state.value)
     }
 
     @Test fun disconnectIsFinal_willReconnectFalse_andSendsNoApplicationFrame() = runBlocking {

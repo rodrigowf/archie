@@ -3,8 +3,10 @@ package com.assistant.archie.feature.sessions
 import androidx.compose.runtime.Immutable
 import com.assistant.core.data.HistoryGroup
 import com.assistant.core.data.HistoryGrouping
+import com.assistant.core.data.HistoryRepository
 import com.assistant.core.data.ItemKey
 import com.assistant.core.data.ItemKind
+import com.assistant.core.data.OpenSessionsRepository
 import com.assistant.core.data.TabStatus
 import com.assistant.core.data.WorkspaceItem
 import com.assistant.core.model.HarnessProvider
@@ -33,7 +35,10 @@ object SessionTitles {
 
     fun conversationTitle(raw: String?, isArchie: Boolean): String {
         val t = raw.orEmpty().trim()
-        return if (isArchie) (if (GENERIC_ARCHIE.matches(t)) NEW_CONVERSATION else t) else t.ifEmpty { "Untitled" }
+        if (isArchie) return if (GENERIC_ARCHIE.matches(t)) NEW_CONVERSATION else t
+        // A live agent session with no history file yet is listed as "(active session)".
+        if (t == HistoryRepository.ACTIVE_SESSION_PLACEHOLDER) return OpenSessionsRepository.AGENT_PLACEHOLDER
+        return t.ifEmpty { "Untitled" }
     }
 
     /** The placeholder titles of B-03 (`OpenSessionsRepository`) are not real titles. */

@@ -170,7 +170,7 @@ private fun ChatItemView(
             if (item.loading) Spinner(size = 18.dp) else ArchieButton("Load older messages", { onAction(ChatAction.LoadOlder) }, style = ButtonStyle.Text)
         }
         ChatItem.HistoryFootnote -> Text(
-            "Tool calls and background updates are not kept in orchestrator history.",
+            "Background updates from agents aren’t kept in history.",
             m.padding(horizontal = 8.dp),
             style = ArchieTheme.typography.labelMedium.copy(letterSpacing = 0.sp),
             color = ArchieTheme.colors.onSurfaceVariant,
