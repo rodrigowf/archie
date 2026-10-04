@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from api.deps import get_pool, get_store
 from api.models import (
@@ -473,3 +473,56 @@ async def close_pool_session(
     # Clean up JSONL only for genuinely new sessions that were never used
     if is_new_unused and sdk_id:
         store.delete_session(sdk_id)
+
+
+@router.post("/{local_id}/permission", status_code=200)
+async def resolve_permission(
+    local_id: str,
+    request: Request,
+    pool: SessionPool = Depends(get_pool),
+):
+    """Answer a pending permission request of a live agent session.
+
+    REST twin of the chat WebSocket's ``permission_response`` frame, so a
+    device can answer an approval without opening that agent's socket
+    (an "Agent approvals" list, a notification action).  First answer wins
+    between user and orchestrator; the manager broadcasts
+    ``permission_resolved`` to every subscriber either way.
+
+    Body: ``{request_id, decision: "allow"|"deny", message?}``.
+    404 when the session is not in the pool; 409 when there is no such
+    pending request (already answered, expired, or unknown).
+    """
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        raise HTTPException(400, detail="body must be a JSON object")
+    request_id = body.get("request_id")
+    decision = body.get("decision")
+    message = body.get("message")
+    if not isinstance(request_id, str) or not request_id:
+        raise HTTPException(400, detail="request_id (non-empty string) is required")
+    if decision not in ("allow", "deny"):
+        raise HTTPException(400, detail="decision must be 'allow' or 'deny'")
+    if message is not None and not isinstance(message, str):
+        raise HTTPException(400, detail="message must be a string")
+
+    if not pool.has(local_id):
+        raise HTTPException(
+            404, detail=f"No live pool session with local_id={local_id!r}",
+        )
+
+    resolved = await pool.resolve_session_permission(
+        local_id,
+        request_id,
+        decision,
+        message=message,
+        responder="user",
+    )
+    if not resolved:
+        raise HTTPException(
+            409, detail=f"No pending permission request {request_id!r}",
+        )
+    return {"ok": True}
