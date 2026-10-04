@@ -126,6 +126,9 @@ def _default_config() -> dict[str, Any]:
         "chrome_extension": False,  # launch sessions with --chrome flag
         "provider": "claude",  # session-harness id (registry-driven)
         "default_model": "claude-sonnet-4-5-20250929",  # default model for orchestrator
+        # Model for Archie turns that carry audio (voice messages). Typed turns
+        # use ``default_model``. Empty string = AUDIO_FALLBACK_MODEL_ID.
+        "default_audio_model": "",
         # Model used to summarize older conversation history into the digest the
         # voice agent reads at session start / reconnect.  Picked separately
         # from ``default_model`` because the chosen voice/text model is often a
@@ -246,6 +249,7 @@ class ConfigUpdate(BaseModel):
     chrome_extension: bool | None = None
     provider: str | None = None  # session provider — "claude" | "qwen"
     default_model: str | None = None  # default model for new orchestrator sessions
+    default_audio_model: str | None = None  # model for voice messages ("" = server default)
     summarizer_model: str | None = None  # model used to summarize older history for the voice prompt
     harness_model: dict[str, str] | None = None  # per-provider harness model ("" = CLI default)
     default_voice_provider: str | None = None  # default provider for voice sessions
@@ -676,6 +680,23 @@ async def update_config(body: ConfigUpdate) -> dict[str, Any]:
             if hint is not None:
                 raise HTTPException(status_code=400, detail=hint)
         config["default_model"] = body.default_model
+
+    if body.default_audio_model is not None:
+        # Empty string = the code-level fallback (AUDIO_FALLBACK_MODEL_ID).
+        audio_id = body.default_audio_model.strip()
+        if audio_id:
+            from orchestrator.config import RETIRED_MODEL_IDS, model_info_for
+
+            info = model_info_for(audio_id)
+            if audio_id in RETIRED_MODEL_IDS or info is None or not info.supports_audio:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"default_audio_model must be a model that takes audio input (got {audio_id!r})",
+                )
+            hint = _check_orchestrator_sdk_available(info.provider.value)
+            if hint is not None:
+                raise HTTPException(status_code=400, detail=hint)
+        config["default_audio_model"] = audio_id
 
     if body.summarizer_model is not None:
         # Empty string is allowed — means "use the code-level default".

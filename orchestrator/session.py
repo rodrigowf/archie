@@ -26,13 +26,14 @@ from utils.paths import get_sessions_dir
 from orchestrator.agent import OrchestratorAgent
 from orchestrator.audio_utils import convert_audio_to_wav
 from orchestrator.config import (
-    AUDIO_FALLBACK_MODEL_ID,
     AVAILABLE_MODELS,
     TEXT_FALLBACK_MODEL_ID,
     OrchestratorConfig,
     Provider,
     get_model_info,
+    model_info_for,
     model_requires_audio,
+    resolve_audio_model,
 )
 from orchestrator.persistence import HistoryLoader, HistoryWriter
 from orchestrator.providers.voice_base import BaseVoiceProvider
@@ -1885,18 +1886,17 @@ class OrchestratorSession:
             OpenAITextProvider, create_audio_message,
         )
 
-        # The model for this clip: the configured one when it takes audio,
-        # otherwise the audio fallback for THIS turn only (gpt-4o does NOT take
-        # audio input; the gpt-audio family does). Switching the session's model
-        # for good would make every later typed turn fail, because the
-        # gpt-audio models refuse text-only requests.
+        # The model for this clip is the Settings audio model (Conversation
+        # model → Audio model, fallback AUDIO_FALLBACK_MODEL_ID), for THIS turn
+        # only: typed turns stay on the conversation's text model. Text models
+        # take no audio input and the gpt-audio models refuse text-only turns,
+        # so switching the session's model for good would break later typed turns.
         # In voice mode set_model() refuses, so the config is forced as before.
+        clip_model = resolve_audio_model()
         if self._voice and not self._config.supports_audio:
-            self._config.set_model(AUDIO_FALLBACK_MODEL_ID)
-            if not self._config.supports_audio:
-                raise RuntimeError("No audio-capable model available")
-        clip_model = self._config.model if self._config.supports_audio else AUDIO_FALLBACK_MODEL_ID
-        if get_model_info(clip_model) is None:
+            self._config.set_model(clip_model)
+        info = model_info_for(clip_model)
+        if info is None or not info.supports_audio:
             raise RuntimeError("No audio-capable model available")
 
         # Convert audio to OpenAI-supported format if needed (wav or mp3)
