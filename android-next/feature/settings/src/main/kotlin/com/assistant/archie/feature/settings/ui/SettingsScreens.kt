@@ -10,11 +10,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -274,7 +279,8 @@ internal fun SettingsHomeList(feature: SettingsFeature, onBack: (() -> Unit)?, s
     val q = query.trim().lowercase()
     fun visible(k: SettingsPageKey) = q.isEmpty() || k.title.lowercase().contains(q) || summaries[k].orEmpty().lowercase().contains(q)
 
-    Column(Modifier.fillMaxSize().testTag("settings-home")) {
+    // Full screen on phones: keep the top bar below the status bar (as Memory/Visuals do).
+    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)).testTag("settings-home")) {
         ArchieTopAppBar(
             "Settings",
             navigationIcon = onBack?.let { back -> { ArchieIconButton(ArchieIcons.ArrowBack, "Back", back) } },
