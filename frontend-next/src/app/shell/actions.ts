@@ -9,7 +9,8 @@
  * and Archie always asks, because closing it stops the orchestrator on every device. Nothing
  * else in the shell (unmount, unload, window-class change, hiding) ever closes a session.
  */
-import { errorMessage, closeTab, getArchieRuntime, openArchie, openSession, renameSession } from '@/services';
+import { requestNewArchie, requestOpenArchie } from '@/features/session-actions';
+import { errorMessage, closeTab, getArchieRuntime, openSession, renameSession } from '@/services';
 import { activateTab, catalogStore, findTab, openTab, showSnackbar, tabsStore, type Tab } from '@/stores';
 import { navigate, type Route } from '../navigation/route';
 import { liveSummary } from '../workspace/tabSummary';
@@ -84,14 +85,14 @@ export async function commitRename(id: string, title: string): Promise<boolean> 
 }
 
 /**
- * New Archie conversation. One Archie per app (inv02 F-25): when one is open it is focused.
- * The "Archie already active → Stop & start new" dialog belongs to W-11's NewMenu.
+ * New Archie conversation (Ctrl+Alt+N, the empty workspace, the switcher, the ＋ New menu).
+ * Spec 12 §6.11 / inv02 F-25 via W-11: with Archie running anywhere the three-action dialog asks
+ * (Open the running one / Stop it and start new / Cancel); otherwise a fresh `start{local_id}`.
  */
 export function newArchie(): void {
-  closeShellOverlays();
-  navigate({ name: 'workspace' });
-  void openArchie({ focus: true }).catch((err: unknown) => {
-    showSnackbar(errorMessage(err), { tone: 'error' });
+  requestNewArchie(() => {
+    closeShellOverlays();
+    navigate({ name: 'workspace' });
   });
 }
 
@@ -101,17 +102,17 @@ export function newAgent(): void {
   openSession({ kind: 'agent', focus: true });
 }
 
-/** Open a past conversation from the history list (interim; W-14's HistoryPane owns it). */
+/**
+ * Open a past conversation from the history list (interim; W-14's HistoryPane owns the list).
+ * Archie (spec 12 §6.11, fixes inv02 §6.3 #11): the resume flow — focus it when it is the running
+ * one, the conflict dialog when another one runs, else `start{local_id: uuid(), resume_sdk_id}`.
+ * Agent sessions reopen live (`start{resume_sdk_id}`, §5.2).
+ */
 export function openFromHistory(sdkId: string, isArchie: boolean): void {
   closeShellOverlays();
   navigate({ name: 'workspace' });
   if (isArchie) {
-    void openArchie({ focus: true, resumeSdkId: sdkId }).then((r) => {
-      if (r.conflict) {
-        // inv02 §6.3 #11: a past Archie conversation opens read-only next to the live one.
-        openSession({ kind: 'archie', sdkId, focus: true, readOnly: true });
-      }
-    });
+    void requestOpenArchie({ mode: 'resume', sdkId });
     return;
   }
   openSession({ kind: 'agent', sdkId, focus: true });
