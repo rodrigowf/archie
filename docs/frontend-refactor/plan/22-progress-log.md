@@ -8,10 +8,13 @@ Newest first. One entry per milestone event, accepted WP, or decision.
 |---|---|---|---|
 | OI-1 | 2026-10-04 live B-04 check | Android dark theme draws dark status-bar icons (clock/battery nearly invisible); set light system-bar icons in dark theme (edge-to-edge insets controller) | B-03 shell follow-up or B-09 |
 | OI-2 | 2026-10-04 B-04 | Agent approvals can only be answered while that agent's view is open (no temporary-socket path) | B-06 / B-09 |
+| OI-4 | 2026-10-04 A-08 | `:core:voice` `stopVoice()` on an already-finished session stays in ENDING (host guards it; fix root cause in A-06 code) | voice follow-up before G-01 |
+| OI-5 | 2026-10-04 | Laptop disk hit 100% (1.7 GB free); freed 7.6 GB by resetting emulator userdata overlays (regenerated on boot). Watch disk before emulator/Gradle-heavy WPs | coordinator |
 | OI-3 | 2026-10-03 audit | Jetson session list shows nothing newer than Aug 28 in both old and new clients — verify backend listing | Rodrigo / backend |
 
 ## 2026-10-04
 
+- Accepted + committed: A-07 (6117005), B-05 (584157a), W-12 (887c887), W-13 (8a573b4), A-08 (34e57a2) — voice rewrite complete (479 parity/unit tests across 4 modules). G-01 pending lite wiring (C-01), release smoke, ELF alignment, scripted lite AVD run.
 - Closed the stray pool session "twitter browser test" on the Jetson (opened by the audit click on 2026-10-03), with Rodrigo's OK. Pool now empty.
 - P-2 retry budget set to 30 s (Rodrigo).
 - Accepted + committed: A-05 (cfc532e), A-03 (9bc23b7), B-01 (922fa23), B-02 (3d54293), B-03 (23c302b), W-03 (8a04a63), W-04 (794264b), W-06 (9dfd468, eea37f1), W-07 (e9192d4), W-10 (26f61a6), A-06 (076ad1a), B-04 (29e576d), W-09 (45cd270), W-11 (ca26b76). Theme default changed to dark on both platforms (D3).
