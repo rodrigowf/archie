@@ -20,6 +20,8 @@ import com.assistant.archie.graph.GraphOwner
 import com.assistant.archie.graph.MainAppGraph
 import com.assistant.core.data.SharePayload
 import com.assistant.core.design.theme.ArchieTheme
+import com.assistant.archie.feature.settings.ui.AuthGate
+import com.assistant.archie.feature.settings.ui.ProvideTextSize
 
 /**
  * The single Activity (spec 14 §2.8). It holds no domain state: everything lives in the
@@ -61,9 +63,14 @@ fun ArchieApp(graph: MainAppGraph) {
     val vm: ShellViewModel = viewModel(factory = viewModelFactory { initializer { ShellViewModel(graph) } })
     val state by vm.state.collectAsStateWithLifecycle()
     val backStack = rememberNavBackStack(Workspace)
-    val destinations = remember(graph) { GraphDestinations(graph) }
-    ArchieTheme(mode = state.themeMode.toDesign()) {
-        ArchieShell(state, vm::onAction, backStack, destinations)
+    val destinations = remember(graph, vm) { GraphDestinations(graph, vm.sessions) }
+    // B-08: Appearance → text size / reduce motion, and the AuthGate over the shell.
+    val settings = rememberSettingsFeature(graph)
+    val appearance by settings.device.appearance.collectAsStateWithLifecycle()
+    ArchieTheme(mode = state.themeMode.toDesign(), reduceMotion = appearance.reduceMotion) {
+        ProvideTextSize(appearance.textSize) {
+            AuthGate(settings) { ArchieShell(state, vm::onAction, backStack, destinations) }
+        }
     }
 }
 

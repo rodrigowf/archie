@@ -161,10 +161,12 @@ class ConversationRepository(
     /**
      * §6.11 resume a past Archie conversation: `start{local_id: uuid, resume_sdk_id: jsonl}` on the
      * one orchestrator socket. `orchestrator_active` comes back as [ConversationEvent.OrchestratorConflict].
+     * With [localId] (B-06 "Open the running one", §6.11 attach / G-15) the `start` reuses the running
+     * orchestrator's pool key, so the server attaches instead of starting a second one.
      */
-    fun resumeArchie(sdkId: String) {
+    fun resumeArchie(sdkId: String, localId: String? = null) {
         orchestrator.markUserIntent()
-        val ref = SessionRef(localId = newId(), sdkId = sdkId, kind = SessionKind.ORCHESTRATOR, provider = null)
+        val ref = SessionRef(localId = localId ?: newId(), sdkId = sdkId, kind = SessionKind.ORCHESTRATOR, provider = null)
         val h = OrchestratorHandle(ConversationKey.ARCHIE, ConversationState.initial(ref))
         install(ConversationKey.ARCHIE, h)
         if (orchestrator.state.value.socket == SocketState.Open) h.post(ConversationInput.SocketOpened)

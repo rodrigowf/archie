@@ -41,6 +41,7 @@ context/
 .claude.json
 .claude.json.backup.*
 debug/
+!android-next/**/src/debug/
 projects/
 todos/
 plugins/

@@ -13,6 +13,9 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeRight
 import androidx.navigation3.runtime.NavKey
+import com.assistant.archie.feature.sessions.SessionDialog
+import com.assistant.archie.feature.sessions.SessionsIntent
+import com.assistant.archie.feature.sessions.SessionsUiState
 import com.assistant.core.data.ItemKey
 import com.assistant.core.design.theme.ArchieTheme
 import org.junit.Assert.assertEquals
@@ -53,7 +56,7 @@ class CompactShellUiTest {
         compose.onNodeWithText("14:20").assertIsDisplayed()
         compose.onNodeWithText("Fix context-sync delete race").performClick()
         compose.waitForIdle()
-        val open = actions.filterIsInstance<ShellAction.OpenHistory>().single()
+        val open = actions.filterIsInstance<ShellAction.Sessions>().map { it.intent }.filterIsInstance<SessionsIntent.OpenHistory>().single()
         assertEquals("h2", open.session.sdkId)
 
         compose.onNodeWithContentDescription("Open navigation").performClick()
@@ -81,16 +84,23 @@ class CompactShellUiTest {
     }
 
     @Test fun closingArchieAsksFirst_thenClosesExplicitly() {
+        // The × goes to the B-06 close flow; nothing closes before the confirmation.
         show()
         compose.onNode(titleInTopBar("Living-room TV")).performClick()
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Close Living-room TV").performClick()
         compose.waitForIdle()
         assertTrue("no close before confirmation", actions.none { it is ShellAction.Close })
+        val req = actions.filterIsInstance<ShellAction.Sessions>().map { it.intent }.filterIsInstance<SessionsIntent.RequestClose>().single()
+        assertEquals(ItemKey.Archie, req.item.key)
+    }
+
+    @Test fun closeConfirmation_fromSessionsState_confirms() {
+        show(ShellFixtures.state().copy(sessions = SessionsUiState(dialog = SessionDialog.Close(ItemKey.Archie, "Living-room TV", archie = true))))
         compose.onNodeWithText("Stop Archie on all devices?").assertIsDisplayed()
-        compose.onNodeWithText("Stop").performClick()
+        compose.onNodeWithText("Stop Archie").performClick()
         compose.waitForIdle()
-        assertEquals(listOf(ShellAction.Close(ItemKey.Archie)), actions.filterIsInstance<ShellAction.Close>())
+        assertEquals(listOf<SessionsIntent>(SessionsIntent.ConfirmClose), actions.filterIsInstance<ShellAction.Sessions>().map { it.intent })
     }
 
     @Test fun horizontalSwipeOnTitle_switchesSessions() {

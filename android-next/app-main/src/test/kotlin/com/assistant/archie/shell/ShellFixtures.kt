@@ -118,7 +118,6 @@ object ShellFixtures {
             }
         }
 
-        @Composable override fun HistoryScreen(onBack: () -> Unit) = PlaceholderScreen("History", "B-06", "History", onBack)
         @Composable override fun MemoryScreen(onBack: () -> Unit, onOpenDoc: (String) -> Unit) = PlaceholderScreen("Memory", "B-07", "Memory", onBack)
         @Composable override fun MemoryDocScreen(path: String, onBack: () -> Unit) = PlaceholderScreen(path, "B-07", path, onBack)
         @Composable override fun VisualsScreen(onBack: () -> Unit, onOpen: (String) -> Unit) = PlaceholderScreen("Visuals", "B-07", "Visuals", onBack)

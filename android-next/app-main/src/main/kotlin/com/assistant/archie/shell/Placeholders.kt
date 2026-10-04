@@ -61,11 +61,10 @@ import com.assistant.core.model.SessionKind
  *
  *   ConversationPlaceholder   → replaced by B-04's ConversationScreen in GraphDestinations; kept only
  *                               because the shell test fixtures (ShellFixtures) render it
- *   HistoryPlaceholder        → B-06 :feature:sessions HistoryScreen
+ *   (History                  → replaced by B-06 :feature:sessions HistoryScreen, rendered by the shell)
  *   MemoryPlaceholder         → B-07 :feature:memory MemoryTreePane / MemoryDocumentScreen
  *   VisualsPlaceholder        → B-07 :feature:visuals VisualsListPane / VisualScreen
- *   SettingsPlaceholder       → B-08 :feature:settings (IA §7 hierarchy)
- *   SessionSettingsPlaceholder→ B-08 (session settings sheet)
+ *   (B-08 settings and session settings are wired in GraphDestinations; no placeholder left)
  */
 
 /**

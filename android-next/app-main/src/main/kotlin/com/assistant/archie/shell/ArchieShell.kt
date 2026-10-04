@@ -59,18 +59,24 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavKey
+import androidx.navigation3.scene.DialogSceneStrategy
+import androidx.compose.ui.window.DialogProperties
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
+import com.assistant.archie.feature.sessions.SessionsIntent
+import com.assistant.archie.feature.sessions.ui.HistoryListState
+import com.assistant.archie.feature.sessions.ui.HistoryScreen
+import com.assistant.archie.feature.sessions.ui.SessionMenuButton
+import com.assistant.archie.feature.sessions.ui.SessionSwitcherContent
+import com.assistant.archie.feature.sessions.ui.SessionsHost
 import com.assistant.core.data.ConnectionStatus
 import com.assistant.core.data.ItemKind
 import com.assistant.core.data.WorkspaceItem
 import com.assistant.core.design.components.ArchieButton
-import com.assistant.core.design.components.ArchieConfirmDialog
 import com.assistant.core.design.components.ArchieDropdownMenu
 import com.assistant.core.design.components.ArchieIconButton
 import com.assistant.core.design.components.ArchieMenuItem
-import com.assistant.core.design.components.ArchieMenuSeparator
 import com.assistant.core.design.components.ArchieTopAppBar
 import com.assistant.core.design.components.ButtonStyle
 import com.assistant.core.design.components.EmptyState
@@ -122,7 +128,36 @@ fun ArchieShell(
             LayoutClass.Compact -> CompactShell(state, onAction, backStack, destinations, overlays)
             else -> WideShell(layout, state, onAction, backStack, destinations, overlays)
         }
+        // B-06: session dialogs (rename, delete, fork, close, the Archie conflict), busy overlay, snackbar.
+        SessionsHost(state.sessions, { onAction(ShellAction.Sessions(it)) })
     }
+}
+
+/** ×, swipe, the ⋮ menu's Close: the B-06 flow decides whether to ask first (§6.7, P-1). */
+private fun requestClose(onAction: (ShellAction) -> Unit): (WorkspaceItem) -> Unit =
+    { item -> onAction(ShellAction.Sessions(SessionsIntent.RequestClose(item))) }
+
+/** The History screen (B-06), fed by the shell state; opening a row returns to the workspace. */
+@Composable
+private fun ShellHistoryScreen(state: ShellUiState, onAction: (ShellAction) -> Unit, onBack: () -> Unit) {
+    HistoryScreen(
+        state = HistoryListState(
+            items = state.items,
+            active = state.active,
+            liveElsewhere = state.liveElsewhere,
+            groups = state.history,
+            loading = state.historyLoading,
+            error = state.historyError,
+            query = state.search,
+        ),
+        onQuery = { onAction(ShellAction.Search(it)) },
+        onSelect = { onAction(ShellAction.Select(it)) },
+        onOpenLive = { onAction(ShellAction.OpenLive(it)) },
+        onIntent = { onAction(ShellAction.Sessions(it)) },
+        onRefresh = { onAction(ShellAction.RefreshHistory) },
+        onBack = onBack,
+        onOpened = onBack,
+    )
 }
 
 // ───────────────────────────── Compact ─────────────────────────────
@@ -140,7 +175,6 @@ private fun CompactShell(
     val drawer = rememberDrawerState(if (overlays.drawerOpen) DrawerValue.Open else DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var switcherOpen by rememberSaveable { mutableStateOf(overlays.switcherOpen) }
-    var confirmClose by remember { mutableStateOf<WorkspaceItem?>(null) }
     val atRoot = backStack.lastOrNull() == Workspace
     val closeDrawer: () -> Unit = { scope.launch { drawer.close() } }
 
@@ -165,13 +199,12 @@ private fun CompactShell(
             }
         },
     ) {
-        ShellNavDisplay(backStack, destinations) {
+        ShellNavDisplay(backStack, destinations, history = { pop -> ShellHistoryScreen(state, onAction, pop) }) {
             CompactWorkspace(
                 state, onAction, destinations,
                 onMenu = { scope.launch { drawer.open() } },
                 onTitle = { switcherOpen = true },
                 switcherOpen = switcherOpen,
-                onRequestClose = { item -> if (needsCloseConfirm(item)) confirmClose = item else onAction(ShellAction.Close(item.key)) },
                 onSessionSettings = { backStack.add(SessionSettings(it)) },
             )
         }
@@ -188,14 +221,19 @@ private fun CompactShell(
             dragHandle = { SheetHandle() },
         ) {
             SessionSwitcherContent(
-                state, onAction,
-                onRequestClose = { item -> if (needsCloseConfirm(item)) confirmClose = item else onAction(ShellAction.Close(item.key)) },
+                items = state.items,
+                active = state.active,
+                liveElsewhere = state.liveElsewhere,
+                onSelect = { onAction(ShellAction.Select(it)) },
+                onOpenLive = { onAction(ShellAction.OpenLive(it)) },
+                onRequestClose = requestClose(onAction),
+                onNewArchie = { onAction(ShellAction.NewArchie) },
+                onNewAgent = { onAction(ShellAction.NewAgent) },
                 onHistory = { backStack.add(History) },
                 onDismiss = { switcherOpen = false },
             )
         }
     }
-    CloseConfirm(confirmClose, onAction) { confirmClose = null }
 }
 
 private fun navigateCompact(nav: ShellNav, backStack: MutableList<NavKey>) {
@@ -227,7 +265,6 @@ private fun CompactWorkspace(
     onMenu: () -> Unit,
     onTitle: () -> Unit,
     switcherOpen: Boolean,
-    onRequestClose: (WorkspaceItem) -> Unit,
     onSessionSettings: (String) -> Unit,
 ) {
     val c = ArchieTheme.colors
@@ -267,7 +304,7 @@ private fun CompactWorkspace(
                 // Speaker state; the voice host (B-09) wires the toggle.
                 ArchieIconButton(ArchieIcons.VolumeUp, "Speaker on", {})
             }
-            SessionMenu(item, onAction, onRequestClose, onSessionSettings)
+            SessionMenuButton(item, { onAction(ShellAction.Sessions(it)) }, onSessionSettings)
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (item != null) destinations.WorkspaceItemContent(item.key, Modifier.fillMaxSize())
@@ -299,11 +336,10 @@ private fun WideShell(
     val c = ArchieTheme.colors
     var rail by rememberSaveable { mutableStateOf(RailDestination.Chats) }
     var overlay by rememberSaveable { mutableStateOf(overlays.listOverlayOpen) }
-    var confirmClose by remember { mutableStateOf<WorkspaceItem?>(null) }
     val expanded = layout == LayoutClass.Expanded
     val paneVisible = expanded && !state.listPaneCollapsed
     val inSettings = backStack.lastOrNull().let { it == SettingsHome || it is SettingsPage }
-    val requestClose: (WorkspaceItem) -> Unit = { item -> if (needsCloseConfirm(item)) confirmClose = item else onAction(ShellAction.Close(item.key)) }
+    val requestClose: (WorkspaceItem) -> Unit = requestClose(onAction)
     val toWorkspace = { while (backStack.size > 1) backStack.removeAt(backStack.lastIndex) }
 
     Box(Modifier.fillMaxSize().background(c.surfaceContainerLow)) {
@@ -336,7 +372,7 @@ private fun WideShell(
                     .background(c.surface)
                     .testTag("workspace"),
             ) {
-                ShellNavDisplay(backStack, destinations) {
+                ShellNavDisplay(backStack, destinations, history = { pop -> ShellHistoryScreen(state, onAction, pop) }) {
                     WideWorkspace(
                         expanded, state, onAction, destinations,
                         showExpandPane = expanded && state.listPaneCollapsed,
@@ -369,7 +405,6 @@ private fun WideShell(
             }
         }
     }
-    CloseConfirm(confirmClose, onAction) { confirmClose = null }
 }
 
 @Composable
@@ -499,7 +534,7 @@ private fun WideWorkspace(
             }
             if (state.items.isNotEmpty()) AllTabsButton(state, onAction)
             if (expanded && item != null) WorkspaceStatus(item)
-            SessionMenu(item, onAction, onRequestClose, onSessionSettings)
+            SessionMenuButton(item, { onAction(ShellAction.Sessions(it)) }, onSessionSettings)
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (item != null) destinations.WorkspaceItemContent(item.key, Modifier.fillMaxSize())
@@ -556,34 +591,6 @@ private fun WorkspaceStatus(item: WorkspaceItem) {
 
 // ───────────────────────────── shared ─────────────────────────────
 
-/** The ⋮ session menu (IA §3): Session settings, Compact context, Close. Rename/Fork/Delete come with B-06. */
-@Composable
-private fun SessionMenu(
-    item: WorkspaceItem?,
-    onAction: (ShellAction) -> Unit,
-    onRequestClose: (WorkspaceItem) -> Unit,
-    onSessionSettings: (String) -> Unit,
-) {
-    var open by remember { mutableStateOf(false) }
-    Box {
-        ArchieIconButton(ArchieIcons.MoreVert, "Session menu", { open = true }, enabled = item != null)
-        ArchieDropdownMenu(open, onDismissRequest = { open = false }) {
-            if (item != null) {
-                val conversation = item.kind == ItemKind.ARCHIE || item.kind == ItemKind.AGENT
-                if (conversation) {
-                    ArchieMenuItem(
-                        "Session settings", { open = false; item.localId?.let(onSessionSettings) },
-                        icon = ArchieIcons.Tune, enabled = item.sdkId != null && item.localId != null,
-                    )
-                    ArchieMenuItem("Compact context", { open = false; onAction(ShellAction.Compact(item.key)) }, icon = ArchieIcons.Compress)
-                    ArchieMenuSeparator()
-                }
-                ArchieMenuItem("Close", { open = false; onRequestClose(item) }, icon = ArchieIcons.Close, destructive = conversation)
-            }
-        }
-    }
-}
-
 /** Nothing open: never a blank screen (A6). No auto-navigation to History (FOCUS-1, inv03 A-1.1). */
 @Composable
 private fun NoSessionContent(state: ShellUiState, onAction: (ShellAction) -> Unit) {
@@ -619,25 +626,12 @@ private fun NoSessionContent(state: ShellUiState, onAction: (ShellAction) -> Uni
     }
 }
 
-@Composable
-private fun CloseConfirm(item: WorkspaceItem?, onAction: (ShellAction) -> Unit, onDone: () -> Unit) {
-    item ?: return
-    val (title, text) = closeConfirmText(item)
-    ArchieConfirmDialog(
-        title = title,
-        text = text,
-        confirmLabel = if (item.kind == ItemKind.ARCHIE) "Stop" else "Close",
-        onConfirm = { onAction(ShellAction.Close(item.key)); onDone() },
-        onDismissRequest = onDone,
-        destructive = true,
-    )
-}
-
 /** The Navigation 3 display shared by every size class; [workspace] renders the root. */
 @Composable
 private fun ShellNavDisplay(
     backStack: MutableList<NavKey>,
     destinations: ShellDestinations,
+    history: @Composable (onBack: () -> Unit) -> Unit,
     workspace: @Composable () -> Unit,
 ) {
     val pop: () -> Unit = { if (backStack.size > 1) backStack.removeAt(backStack.lastIndex) }
@@ -648,16 +642,20 @@ private fun ShellNavDisplay(
             rememberSaveableStateHolderNavEntryDecorator(),
             rememberViewModelStoreNavEntryDecorator(),
         ),
+        // B-08: session settings is a sheet over the conversation, so it renders as a dialog scene.
+        sceneStrategies = listOf(DialogSceneStrategy()),
         entryProvider = entryProvider {
             entry<Workspace> { workspace() }
-            entry<History> { destinations.HistoryScreen(onBack = pop) }
+            entry<History> { history(pop) }
             entry<MemoryTree> { destinations.MemoryScreen(onBack = pop, onOpenDoc = { backStack.add(MemoryDoc(it)) }) }
             entry<MemoryDoc> { k -> destinations.MemoryDocScreen(k.path, onBack = pop) }
             entry<VisualsList> { destinations.VisualsScreen(onBack = pop, onOpen = { backStack.add(VisualDoc(it)) }) }
             entry<VisualDoc> { k -> destinations.VisualScreen(k.path, onBack = pop) }
             entry<SettingsHome> { destinations.SettingsScreen(onBack = pop, onOpenPage = { backStack.add(SettingsPage(it)) }) }
             entry<SettingsPage> { k -> destinations.SettingsPageScreen(k.id, onBack = pop) }
-            entry<SessionSettings> { k -> destinations.SessionSettingsScreen(k.localId, onBack = pop) }
+            entry<SessionSettings>(metadata = DialogSceneStrategy.dialog(DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false))) { k ->
+                destinations.SessionSettingsScreen(k.localId, onBack = pop)
+            }
         },
     )
 }

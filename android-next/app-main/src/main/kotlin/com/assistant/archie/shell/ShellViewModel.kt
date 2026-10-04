@@ -3,10 +3,14 @@ package com.assistant.archie.shell
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.assistant.archie.feature.sessions.HistoryList
+import com.assistant.archie.feature.sessions.RepositorySessionsBackend
+import com.assistant.archie.feature.sessions.SessionsController
+import com.assistant.archie.feature.sessions.SessionsIntent
+import com.assistant.archie.feature.sessions.SessionsUiState
 import com.assistant.archie.graph.MainAppGraph
 import com.assistant.core.data.ConnectionStatus
 import com.assistant.core.data.HistoryGroup
-import com.assistant.core.data.HistoryGrouping
 import com.assistant.core.data.ItemKey
 import com.assistant.core.data.WorkspaceItem
 import com.assistant.core.model.PoolSession
@@ -14,10 +18,12 @@ import com.assistant.core.model.SessionSummary
 import com.assistant.core.model.ThemeMode
 import com.assistant.core.voice.ports.SessionPhase
 import com.assistant.core.voice.ports.VoiceSessionState
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Clock
@@ -37,6 +43,8 @@ data class ShellUiState(
     val voice: VoiceSessionState = VoiceSessionState(),
     val listPaneCollapsed: Boolean = false,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    /** B-06: session dialogs, busy overlay and snackbar. */
+    val sessions: SessionsUiState = SessionsUiState(),
 ) {
     val activeItem: WorkspaceItem? get() = items.firstOrNull { it.key == active }
     val voiceActive: Boolean get() = voice.phase != SessionPhase.OFF && voice.phase != SessionPhase.ERROR
@@ -59,19 +67,38 @@ sealed interface ShellAction {
     data class OpenMemoryDoc(val path: String) : ShellAction
     data class OpenVisual(val path: String) : ShellAction
     data class Compact(val key: ItemKey) : ShellAction
+
+    /** B-06 session flows (menus, dialogs, history rows, snackbar). */
+    data class Sessions(val intent: SessionsIntent) : ShellAction
 }
 
 /**
  * The `WorkspaceViewModel` of spec 14 §2.1: maps [com.assistant.core.data.OpenSessionsRepository]
  * (tabs / switcher), the session directory (drawer history, grouped by local day with UTC-correct
  * parsing), the connection and the voice presence to [ShellUiState]. Domain state stays in the
- * process-scoped repositories; this only maps it.
+ * process-scoped repositories; this only maps it. The session flows (B-06: every Archie entry point
+ * through the §6.11 conflict dialog, new agent, rename / duplicate / fork / close / delete) run in
+ * [sessions].
  */
 class ShellViewModel(
     private val graph: MainAppGraph,
     private val clock: Clock = Clock.systemDefaultZone(),
 ) : ViewModel() {
     private val search = MutableStateFlow("")
+
+    /** B-06 flows over the process-scoped repositories. */
+    val sessions = SessionsController(
+        RepositorySessionsBackend(graph.conversations, graph.openSessions, graph.history, graph.orchestrator, graph.api),
+        viewModelScope,
+    )
+
+    /** Date groups and stamps follow the clock (web: a minute clock). */
+    private val minute = flow {
+        while (true) {
+            emit(clock.instant())
+            delay(60_000)
+        }
+    }
 
     private val base = combine(
         graph.openSessions.items,
@@ -90,14 +117,20 @@ class ShellViewModel(
         )
     }
 
-    val state: StateFlow<ShellUiState> = combine(base, graph.history.sessions, search, graph.settings.settings) { b, list, q, s ->
+    private val withHistory = combine(base, graph.history.sessions, search, minute) { b, list, q, now ->
         b.copy(
-            history = HistoryGrouping.group(HistoryGrouping.filter(list.value.orEmpty(), q), clock.instant(), clock.zone),
+            history = HistoryList.groups(list.value.orEmpty(), b.items, b.liveElsewhere, q, now, clock.zone),
             historyLoading = list.loading,
             historyError = list.error,
             search = q,
+        )
+    }
+
+    val state: StateFlow<ShellUiState> = combine(withHistory, graph.settings.settings, sessions.state) { b, s, ui ->
+        b.copy(
             listPaneCollapsed = s?.listPaneCollapsed == true,
             themeMode = s?.themeMode ?: ThemeMode.SYSTEM,
+            sessions = ui,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ShellUiState())
 
@@ -106,10 +139,10 @@ class ShellViewModel(
         when (a) {
             is ShellAction.Select -> open.select(a.key)
             is ShellAction.SelectRelative -> open.selectRelative(a.delta)
-            is ShellAction.OpenHistory -> open.openSession(a.session)
+            is ShellAction.OpenHistory -> sessions.openFromHistory(a.session)
             is ShellAction.OpenLive -> open.openLive(a.session)
-            ShellAction.NewArchie -> open.newArchieConversation()
-            ShellAction.NewAgent -> open.newAgentSession()
+            ShellAction.NewArchie -> sessions.requestNewArchie()
+            ShellAction.NewAgent -> sessions.onIntent(SessionsIntent.NewAgent)
             is ShellAction.Close -> viewModelScope.launch { open.close(a.key) }
             is ShellAction.Search -> search.value = a.query
             ShellAction.ToggleListPane -> viewModelScope.launch {
@@ -119,11 +152,8 @@ class ShellViewModel(
             ShellAction.Reconnect -> graph.connection.connect()
             is ShellAction.OpenMemoryDoc -> open.openMemory(a.path)
             is ShellAction.OpenVisual -> open.openVisual(a.path)
-            is ShellAction.Compact -> when (val k = a.key) {
-                ItemKey.Archie -> graph.conversations.compact(com.assistant.core.data.ConversationKey.ARCHIE)
-                is ItemKey.Agent -> graph.conversations.compact(k.conversation)
-                else -> Unit
-            }
+            is ShellAction.Compact -> sessions.onIntent(SessionsIntent.Compact(a.key))
+            is ShellAction.Sessions -> sessions.onIntent(a.intent)
         }
     }
 }

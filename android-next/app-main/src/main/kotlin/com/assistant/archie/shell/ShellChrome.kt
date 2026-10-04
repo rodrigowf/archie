@@ -22,13 +22,10 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.assistant.core.data.ConnectionStatus
-import com.assistant.core.data.HistoryRow
 import com.assistant.core.data.ItemKind
 import com.assistant.core.data.TabStatus
 import com.assistant.core.data.WorkspaceItem
-import com.assistant.core.design.components.ArchieMark
 import com.assistant.core.design.components.DotTone
-import com.assistant.core.design.components.ListLeadingIcon
 import com.assistant.core.design.components.LiveStatus
 import com.assistant.core.design.components.StatusDot
 import com.assistant.core.design.components.TabLead
@@ -74,21 +71,6 @@ internal fun ItemKind.icon(): ImageVector = when (this) {
 
 internal fun WorkspaceItem.tabLead(): TabLead =
     if (kind == ItemKind.ARCHIE) TabLead.Archie else TabLead.Icon(kind.icon())
-
-/** 24 dp leading slot: the Archie mark or the item's type icon. */
-@Composable
-internal fun ItemLeading(kind: ItemKind, markSize: androidx.compose.ui.unit.Dp = 24.dp) {
-    if (kind == ItemKind.ARCHIE) ArchieMark(size = markSize) else ListLeadingIcon(kind.icon())
-}
-
-@Composable
-internal fun HistoryLeading(row: HistoryRow) {
-    if (row.summary.isOrchestrator) {
-        Box(Modifier.padding(2.dp)) { ArchieMark(size = 20.dp) }
-    } else {
-        ListLeadingIcon(ArchieIcons.Terminal)
-    }
-}
 
 /** "Connected to jetson" / "Reconnecting…" / "Offline" with its dot (drawer header, server group). */
 @Composable
