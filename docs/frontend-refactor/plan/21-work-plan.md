@@ -9,7 +9,7 @@ Owner of this plan: coordinator (Claude). Progress is tracked in `22-progress-lo
 |---|---|---|
 | **M0 Specs** | inventory, specs 11–14, tokens, fixtures, mockups, decisions | ✅ structure, mockups and tokens approved (2026-10-03) |
 | **M1 Foundations** | backend changes; web W-01/02/05/08; Android A-01/02/04, B-01/02 | review backend diff before Jetson deploy |
-| **M2 Web preview** | web waves 2–4 → new web app live at `/next/` + `/next-compat/` on the Jetson | **try it on desktop, phone, iPad** |
+| **M2 Web preview** ✅ deployed 2026-10-04 | web waves 2–4 → new web app live at `/next/` + `/next-compat/` on the Jetson | **try it on desktop, phone, iPad** |
 | **M3 Android main** | Android waves 2–5 (main app) after the voice-parity gate G-01 | **install Archie on the POCO** |
 | **M4 Lite** | C-01 + field tests on the A300M (48 h soak) | **live with it on the A300M** |
 | **M5 Cutover** | W-15 / D-01: replace `frontend/`, `frontend-compat/`, `android/`; update skills/docs | **sign-off** |

@@ -14,6 +14,8 @@ Newest first. One entry per milestone event, accepted WP, or decision.
 
 ## 2026-10-04
 
+- **M2 web preview deployed to the Jetson (08:07)** with Rodrigo's OK: backend commit cherry-picked onto `local` as b77b0f7 and pushed; Jetson `git pull`; current `frontend/dist` + `frontend-compat/dist` rebuilt (thinking-in-history fix) and rsynced; `frontend-next/dist-preview/{main,compat}` rsynced; nginx `client_max_body_size 200m` in both server blocks (backup `~/nginx-server.conf.bak-2026-10-04`), config tested, reloaded; `agentic-backend.service` restarted. Verified: `/`, `/compat/`, `/next/`, `/next-compat/`, API 200; pool empty; no errors in logs. Cast probe: unavailable (no Fire TV on adb) → Show on TV hidden until the TV is connected.
+- Accepted + committed: W-14 + shared slot wiring (78d7970) — **all web WPs W-01..W-14 done**, full gate green (1581 tests); B-06 + B-08 (0053357); C-01 lite app (1638f18).
 - Accepted + committed: A-07 (6117005), B-05 (584157a), W-12 (887c887), W-13 (8a573b4), A-08 (34e57a2) — voice rewrite complete (479 parity/unit tests across 4 modules). G-01 pending lite wiring (C-01), release smoke, ELF alignment, scripted lite AVD run.
 - Closed the stray pool session "twitter browser test" on the Jetson (opened by the audit click on 2026-10-03), with Rodrigo's OK. Pool now empty.
 - P-2 retry budget set to 30 s (Rodrigo).
