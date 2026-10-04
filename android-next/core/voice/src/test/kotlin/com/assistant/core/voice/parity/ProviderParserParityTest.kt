@@ -31,14 +31,12 @@ import com.assistant.core.voice.ports.ProviderSignal.UserTranscript
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Ignore
 import org.junit.Test
 
 /**
  * Provider event parsers (inv04 §2.2 table, §2.3; RS-05, RS-15, RS-18, RS-19, RS-20; fixes B1).
  * Signal order within one event follows the old code: phase first, then the event.
  */
-@Ignore("A-06")
 class ProviderParserParityTest {
     private fun parse(kind: ParserKind, json: String, current: ProviderPhase = ACTIVE): List<ProviderSignal> =
         voiceCore.parser(kind).parse(obj(json), current)

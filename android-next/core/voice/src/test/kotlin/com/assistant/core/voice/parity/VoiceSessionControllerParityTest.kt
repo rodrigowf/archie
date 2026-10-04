@@ -42,7 +42,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /**
@@ -50,7 +49,6 @@ import org.junit.Test
  * session"; ports the old `VoiceControllerParityTest`; RS-01, RS-09…RS-17, RS-19, RS-27, RS-29, RS-30).
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-@Ignore("A-06")
 class VoiceSessionControllerParityTest {
 
     private class Rig(private val ts: TestScope) {

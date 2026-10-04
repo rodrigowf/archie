@@ -14,14 +14,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /**
  * `session.update` delivery (inv04 §3.2 sub-machine; RS-01…RS-04; fixes B2). Ports the intent of the
  * old `PendingBackendCommandsParityTest`.
  */
-@Ignore("A-06")
 class CommandDeliveryParityTest {
     private val log = RecordingLog()
     private val update = obj("""{"type":"session.update","session":{"voice":"cedar","instructions":"You are Archie"}}""")

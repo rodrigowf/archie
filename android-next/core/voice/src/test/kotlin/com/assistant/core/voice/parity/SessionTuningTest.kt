@@ -1,6 +1,5 @@
 package com.assistant.core.voice.parity
 
-import org.junit.Ignore
 import org.junit.Test
 
 /**
@@ -8,7 +7,6 @@ import org.junit.Test
  * volume live in `AudioTuning` (`:core:audio`); the pool probe, recovery backoff and socket timings
  * in `:core:session` / `:core:network` (`ChannelTuningTest` in `:core:voice-host`).
  */
-@Ignore("A-06")
 class SessionTuningTest {
     private val pins = voicePins()
 

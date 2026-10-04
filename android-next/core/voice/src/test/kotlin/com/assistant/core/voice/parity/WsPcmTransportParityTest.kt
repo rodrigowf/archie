@@ -28,7 +28,6 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /**
@@ -36,7 +35,6 @@ import org.junit.Test
  * mic/track (inv04 §2.3, §3.3 WS table, §4.7; RS-15, RS-18, RS-21, RS-22, RS-24). Needs A-05 too.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-@Ignore("A-06")
 class WsPcmTransportParityTest {
 
     private class Rig(private val ts: TestScope, kind: ParserKind = ParserKind.GEMINI, permission: Boolean = true, sdkInt: Int = 22) {
@@ -129,10 +127,14 @@ class WsPcmTransportParityTest {
         r.advanceTo(500)
         r.speakerChunk()
         r.advanceTo(520)
+        // Chunks are stamped at send time, after FakeMic's 30 ms read (480 frames @ 16 kHz): advance past the queried chunk.
+        r.advanceTo(560)
         assertEquals(50, r.chunkPeakAt(530))
         assertTrue(r.log.contains("[MIC_STATE] DUCK"))
         r.transport.setEchoDuckingGain(0f)
         r.advanceTo(600)
+        // Chunks are stamped at send time, after FakeMic's 30 ms read (480 frames @ 16 kHz): advance past the queried chunk.
+        r.advanceTo(640)
         assertEquals(0, r.chunkPeakAt(610))
     }
 
@@ -171,6 +173,8 @@ class WsPcmTransportParityTest {
         r.transport.handleProviderEvent(obj("""{"serverContent":{"interrupted":true}}"""))
         r.advanceTo(410)
         assertEquals(listOf("pause", "flush", "play"), r.tracks.last.ops.filter { it in setOf("pause", "flush", "play") })
+        // Chunks are stamped at send time, after FakeMic's 30 ms read (480 frames @ 16 kHz): advance past the queried chunk.
+        r.advanceTo(450)
         assertEquals(1000, r.chunkPeakAt(420))
         assertTrue(r.log.contains("RESTORE_IMMEDIATE(flush)"))
     }
@@ -184,6 +188,8 @@ class WsPcmTransportParityTest {
         r.advanceTo(320)
         r.transport.handleProviderEvent(obj("""{"type":"input_audio_buffer.speech_started"}"""))
         r.advanceTo(340)
+        // Chunks are stamped at send time, after FakeMic's 30 ms read (480 frames @ 16 kHz): advance past the queried chunk.
+        r.advanceTo(380)
         assertEquals(1000, r.chunkPeakAt(350))
     }
 

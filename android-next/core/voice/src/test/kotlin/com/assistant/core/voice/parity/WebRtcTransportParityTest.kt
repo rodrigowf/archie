@@ -28,7 +28,6 @@ import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /**
@@ -36,7 +35,6 @@ import org.junit.Test
  * RS-06, RS-07, RS-08, RS-23). Teardown order and threading are asserted on the fake's op log.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-@Ignore("A-06")
 class WebRtcTransportParityTest {
 
     private class Rig(private val ts: TestScope, sdkInt: Int = 26) {

@@ -7,11 +7,9 @@ import com.assistant.core.voice.ports.OpenAiDuckPolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /** OpenAI WebRTC ducking (inv04 §3.3 WebRTC table; RS-23). */
-@Ignore("A-06")
 class OpenAiDuckParityTest {
     private val clock = FakeClock()
     private val log = RecordingLog()

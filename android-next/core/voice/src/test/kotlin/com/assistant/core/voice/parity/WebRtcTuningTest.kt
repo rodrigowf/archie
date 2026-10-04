@@ -1,6 +1,5 @@
 package com.assistant.core.voice.parity
 
-import org.junit.Ignore
 import org.junit.Test
 
 /**
@@ -8,7 +7,6 @@ import org.junit.Test
  * AEC/NS/AGC on, goog* constraints) are asserted on what the transport hands the RTC platform, in
  * `WebRtcTransportParityTest`.
  */
-@Ignore("A-06")
 class WebRtcTuningTest {
     private val pins = voicePins()
 
