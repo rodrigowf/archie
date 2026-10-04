@@ -556,6 +556,11 @@ def _convert_assistant_message(msg: dict[str, Any]) -> list[dict[str, Any]]:
 # OpenAI Text Provider
 # ---------------------------------------------------------------------------
 
+# Models that need ``reasoning_effort: "none"`` to accept function tools on
+# Chat Completions (learned at runtime, see OpenAITextProvider._open_stream).
+_NO_REASONING_WITH_TOOLS: set[str] = set()
+
+
 class OpenAITextProvider:
     """Model provider using OpenAI Chat Completions API with streaming.
 
@@ -596,6 +601,28 @@ class OpenAITextProvider:
         """Whether the current model supports audio input."""
         return self._model_enum is not None and self._model_enum.supports_audio
 
+    async def _open_stream(self, kwargs: dict[str, Any]) -> Any:
+        """Create the completion stream.
+
+        The newest reasoning models (gpt-5.6, gpt-6.x, verified 2026-10-04)
+        reject function tools on Chat Completions unless reasoning is off
+        ("Function tools with reasoning_effort are not supported"). On that
+        error the request is retried once with ``reasoning_effort: "none"``,
+        and the model is remembered so later turns send it directly. Other
+        models refuse "none", so it is never sent up front.
+        """
+        if self._model in _NO_REASONING_WITH_TOOLS:
+            kwargs["reasoning_effort"] = "none"
+        try:
+            return await self._client.chat.completions.create(**kwargs)
+        except openai.BadRequestError as e:
+            if "reasoning_effort" in kwargs or not kwargs.get("tools") or "reasoning_effort" not in str(e):
+                raise
+            logger.info("%s rejects tools with reasoning; retrying with reasoning_effort=none", self._model)
+            _NO_REASONING_WITH_TOOLS.add(self._model)
+            kwargs["reasoning_effort"] = "none"
+            return await self._client.chat.completions.create(**kwargs)
+
     async def create_message(
         self,
         messages: list[dict[str, Any]],
@@ -614,7 +641,9 @@ class OpenAITextProvider:
         # Build request kwargs
         kwargs: dict[str, Any] = {
             "model": self._model,
-            "max_tokens": self._max_tokens,
+            # max_completion_tokens, not max_tokens: GPT-5 and newer reject
+            # max_tokens; every chat model (gpt-4o, gpt-audio, o-series) takes it.
+            "max_completion_tokens": self._max_tokens,
             "messages": openai_messages,
             "stream": True,
             "stream_options": {"include_usage": True},
@@ -631,7 +660,7 @@ class OpenAITextProvider:
         output_tokens = 0
 
         try:
-            stream = await self._client.chat.completions.create(**kwargs)
+            stream = await self._open_stream(kwargs)
 
             async for chunk in stream:
                 # Handle usage in final chunk

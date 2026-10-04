@@ -260,6 +260,40 @@ def configured_default_model() -> str | None:
     return _usable_model_id(model_id, "assistant_config.json default_model")
 
 
+def model_info_for(model_id: str) -> ModelInfo | None:
+    """Static registry entry, else the info inferred from the id's prefix."""
+    return get_model_info(model_id) or _infer_model_info(model_id)
+
+
+def _read_config_key(key: str) -> object:
+    path = _paths.PROJECT_ROOT / "assistant_config.json"
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    return data.get(key) if isinstance(data, dict) else None
+
+
+def configured_audio_model() -> str | None:
+    """``default_audio_model`` from ``assistant_config.json`` (Settings → Conversation
+    model → Audio model), or None when missing, unknown, retired or not audio-capable.
+    Read on every call, so a change applies to the next voice message."""
+    model_id = _usable_model_id(_read_config_key("default_audio_model"), "assistant_config.json default_audio_model")
+    if model_id is None:
+        return None
+    info = model_info_for(model_id)
+    if info is None or not info.supports_audio:
+        logger.warning("Ignoring default_audio_model %r: the model takes no audio input", model_id)
+        return None
+    return model_id
+
+
+def resolve_audio_model() -> str:
+    """Model for a turn that carries audio (a voice message): Settings, then
+    :data:`AUDIO_FALLBACK_MODEL_ID`."""
+    return configured_audio_model() or AUDIO_FALLBACK_MODEL_ID
+
+
 def env_default_model() -> str | None:
     """Env ``ORCHESTRATOR_MODEL``, with the same validation."""
     return _usable_model_id(os.environ.get("ORCHESTRATOR_MODEL"), "env ORCHESTRATOR_MODEL")

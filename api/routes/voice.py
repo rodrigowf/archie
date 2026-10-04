@@ -17,7 +17,7 @@ import httpx
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 
 from orchestrator.config import (
-    get_audio_capable_models, get_available_models, resolve_default_model,
+    get_audio_capable_models, get_available_models, resolve_audio_model, resolve_default_model,
 )
 from orchestrator.providers.discovery import (
     list_orchestrator_models,
@@ -248,8 +248,10 @@ async def list_models() -> dict:
     return {
         "models": [m.to_dict() for m in models],
         "audio_capable_models": [m.model_id for m in audio_models],
-        # The model a new orchestrator session starts on (O-7).
+        # The model a new orchestrator session starts on (O-7); typed turns.
         "default_model": resolve_default_model(),
+        # The model for turns that carry audio (voice messages).
+        "default_audio_model": resolve_audio_model(),
     }
 
 
