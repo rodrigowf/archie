@@ -152,8 +152,27 @@ class DefaultVoiceSessionController(
         startVoice()
     }
 
-    /** User stop: ask the backend to end voice, show ENDING until `voice_ended` or the 5 s timeout (RS-16). */
+    /**
+     * User stop: ask the backend to end voice, show ENDING until `voice_ended` or the 5 s timeout (RS-16).
+     *
+     * With no live session (never started, or already finalized) this is a no-op: no `voice_stop`,
+     * no ENDING (OI-4). The ENDING exit is the timeout's [finalize], which is idempotent per session,
+     * so an ENDING entered after finalize would never leave. The old app only reached the stop from
+     * an active voice button, so it never hit this path.
+     */
     override fun stopVoice() {
+        val (live, staleOwner) = synchronized(lock) {
+            val local = owner || startJob?.isActive == true || transport != null
+            (!finalized && local) to (finalized && owner)
+        }
+        if (!live) {
+            // The backend re-reported this device as owner (`session_started`) after the local teardown:
+            // tell it to stop, but there is nothing local to end, so no ENDING.
+            if (staleOwner) deps.wire.sendVoiceStop() else log.d(TAG, "stopVoice ignored — no live voice session")
+            // A bare markConnecting() (wake flip before startVoice) has nothing to stop: drop the flip.
+            _state.update { if (it.phase == SessionPhase.CONNECTING) it.copy(phase = SessionPhase.OFF) else it }
+            return
+        }
         deps.wire.sendVoiceStop()
         synchronized(lock) { resetLinkLocked() }
         publishLink(null)

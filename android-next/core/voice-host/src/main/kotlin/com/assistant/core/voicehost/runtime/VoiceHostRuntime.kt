@@ -344,6 +344,8 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
      * User stop. With no live session (OFF / ERROR, e.g. the P-2 failure state) nothing is sent: the
      * call only dismisses the failure banner. (`session.stopVoice()` on a finalized session would sit
      * in ENDING forever, because its 5 s timeout finalize is a no-op once finalized.)
+     * Root cause fixed in `:core:voice` (OI-4): the session's own `stopVoice()` is now a no-op without a
+     * live session; this guard stays as defence in depth.
      */
     override fun stopVoice() {
         val phase = session.state.value.phase
