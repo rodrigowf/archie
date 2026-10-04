@@ -16,7 +16,6 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /**
@@ -24,7 +23,6 @@ import org.junit.Test
  * Ports the intent of `PauseResumeAckParityTest`, `MicUnavailableParityTest` (notification side).
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-@Ignore("A-08")
 class WakeServiceParityTest {
 
     private class Rig(private val ts: TestScope, stored: WakeServiceConfig? = null) {

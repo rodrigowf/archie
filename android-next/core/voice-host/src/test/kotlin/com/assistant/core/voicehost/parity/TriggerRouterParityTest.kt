@@ -11,14 +11,12 @@ import com.assistant.core.voicehost.ports.TriggerRouter
 import com.assistant.core.wakeword.ports.WakeLoopEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /**
  * Trigger ingress (spec 14 §2.5: wake → cue → voice without an Activity; inv04 §3.1 broadcast
  * contract; RS-42, RS-45; fixes B5).
  */
-@Ignore("A-08")
 class TriggerRouterParityTest {
     private val order = OrderLog()
     private val voice = FakeVoiceSessionController(order)

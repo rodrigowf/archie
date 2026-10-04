@@ -4,11 +4,9 @@ import com.assistant.core.testing.PinsConstant
 import com.assistant.core.voicehost.ports.WakeStartKey
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /** Wake start dedupe (inv04 §3.5, §4.5; ports `StartWakeWordParityTest`; RS-34). */
-@Ignore("A-08")
 class WakeStartDedupeParityTest {
     private val key = WakeStartKey("my friend", "wake up", 1.0f)
 

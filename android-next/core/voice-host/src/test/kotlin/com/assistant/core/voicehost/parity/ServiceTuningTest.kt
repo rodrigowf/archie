@@ -1,13 +1,11 @@
 package com.assistant.core.voicehost.parity
 
-import org.junit.Ignore
 import org.junit.Test
 
 /**
  * inv04 §10.1 `ServiceTuningTest` (inv04 §4.5, §4.10). The pref keys are the on-disk contract of
  * `assistant_service_prefs` (the lite app inherits the A300M's file in place).
  */
-@Ignore("A-08")
 class ServiceTuningTest {
     private val pins = hostPins()
 

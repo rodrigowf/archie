@@ -15,4 +15,6 @@ dependencies {
     implementation(libs.androidx.core.ktx.legacy)
     // A-04: parity fakes + virtual-time helpers (spec 14 §6.1). Test classpath only.
     testImplementation(project(":core:testing"))
+    // A-08: VoiceHostService under Robolectric (FGS start paths, notification, binder).
+    testImplementation(libs.robolectric)
 }
