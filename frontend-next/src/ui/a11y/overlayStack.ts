@@ -70,9 +70,12 @@ function stateDepth(state: unknown): number {
 }
 
 function pushEntry(): void {
-  browserDepth += 1;
   const prev = window.history.state as Record<string, unknown> | null;
   const base = prev && typeof prev === 'object' ? prev : {};
+  // Mark the entry we leave as ours too, so a silent pop back onto it is recognisably an
+  // overlay traversal (the hash sync must not treat its now-stale URL as a typed navigation).
+  if (!(STATE_KEY in base)) window.history.replaceState({ ...base, [STATE_KEY]: browserDepth }, '');
+  browserDepth += 1;
   window.history.pushState({ ...base, [STATE_KEY]: browserDepth }, '');
 }
 
