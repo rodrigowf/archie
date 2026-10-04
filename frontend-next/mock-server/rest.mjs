@@ -108,14 +108,16 @@ export function createRest(engine, opts = {}) {
     const rows = [];
     const seen = new Set();
     for (const run of engine.liveRuns()) {
-      const sid = run.sdkId ?? run.localId;
+      if (!run.sdkId) continue; // like the backend: a session is listed once its JSONL exists (first turn)
+      const sid = run.sdkId;
       seen.add(sid);
+      const stored = sessions.find((s) => s.session_id === sid); // a resumed past session keeps its title
       rows.push({
         session_id: sid,
         started_at: run.startedAt,
         last_activity: run.lastActivity,
-        title: titles.get(sid) ?? run.title(),
-        message_count: run.history.length,
+        title: titles.get(sid) ?? stored?.title ?? run.title(),
+        message_count: (pastOf(run)?.length ?? 0) + run.history.length,
         is_orchestrator: run.kind === 'orchestrator',
         provider: run.provider ?? 'claude',
         local_id: run.localId,
@@ -140,9 +142,34 @@ export function createRest(engine, opts = {}) {
   }
 
   /** History for an sdk id: a live run / scenario, else the static data. */
+  // A closed run keeps its transcript and its history row, like the backend's JSONL file.
+  engine.onRunClosed = (run) => {
+    if (run.fixture || !run.sdkId) return;
+    messages.set(run.sdkId, (pastOf(run) ?? []).concat(run.history));
+    if (!sessions.some((s) => s.session_id === run.sdkId))
+      sessions.unshift({
+        session_id: run.sdkId,
+        started_at: run.startedAt,
+        last_activity: run.lastActivity,
+        title: run.title(),
+        message_count: messages.get(run.sdkId).length,
+        is_orchestrator: run.kind === 'orchestrator',
+        provider: run.provider ?? 'claude',
+        local_id: null,
+      });
+  };
+
+  /** The stored transcript a live run resumed (`start{resume_sdk_id}` of a past session), like the backend's JSONL. */
+  function pastOf(run) {
+    return !run.fixture && run.sdkId ? messages.get(run.sdkId) : undefined;
+  }
+
   function historyPage(id, limit, before) {
     const run = engine.runForSdk(id);
-    if (run) return run.historyPage(limit, before);
+    if (run) {
+      const past = pastOf(run);
+      return past ? pageMessages(past.concat(run.history), limit, before) : run.historyPage(limit, before);
+    }
     const scn = id.startsWith('scn-') ? engine.scenarios.get(id.slice(4)) : undefined;
     if (scn) return scn.initial_history ?? null;
     const all = messages.get(id);
@@ -224,7 +251,8 @@ export function createRest(engine, opts = {}) {
         const n = body?.drop_last_n;
         if (!Number.isInteger(n) || n < 0) return json(res, 400, { detail: 'drop_last_n must be a non-negative integer' });
         if (sub === 'truncate' && engine.runForSdk(id)) return json(res, 409, { detail: 'Session is currently open. Close the tab before rewinding.' });
-        const all = messages.get(id);
+        const liveRun = engine.runForSdk(id); // forking a live session copies what its JSONL holds now
+        const all = liveRun && !liveRun.fixture ? (pastOf(liveRun) ?? []).concat(liveRun.history) : messages.get(id);
         if (!all) return notFound(res, `Session '${id}' not found`);
         const visible = all.map((x, i) => [x, i]).filter(([x]) => x.role === 'assistant' || !(x.blocks?.length && x.blocks.every((b) => b.type === 'tool_result')));
         if (n > visible.length) return notFound(res, 'drop_last_n out of range');

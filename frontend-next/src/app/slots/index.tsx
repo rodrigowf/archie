@@ -10,10 +10,10 @@
  *
  * | Slot                 | Owner | Used by                                       |
  * |----------------------|-------|-----------------------------------------------|
- * | ConversationPanel    | W-09  | PanelHost (chat tabs); composes the composer  |
- * | Composer             | W-11  | inside ConversationPanel                       |
- * | SessionMenu          | W-11  | workspace top bar / compact app bar (⋮)        |
- * | NewMenuItems         | W-11  | rail "＋ New" menu                             |
+ * | ConversationPanel    | W-09  | PanelHost (chat tabs); composes the composer  | wired
+ * | Composer             | W-11  | inside ConversationPanel                       | wired
+ * | SessionMenu          | W-11  | workspace top bar / compact app bar (⋮)        | wired
+ * | NewMenuItems         | W-11  | rail "＋ New" menu                             | wired
  * | HistoryPane          | W-14  | list pane (Chats), drawer body, History screen |
  * | MemoryPane           | W-14  | list pane (Memory), Memory screen              |
  * | MemoryDocument       | W-14  | PanelHost (memory tabs), compact doc screen    |
@@ -23,33 +23,47 @@
  * | AuthGate             | W-13  | App root                                       |
  * | VoiceAction          | W-12  | compact app bar trailing voice/speaker state   |
  */
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
+import { Composer, startVoice } from '@/features/composer';
+import { ConversationPanel as ConversationView } from '@/features/conversation';
+import { NewMenu, SessionActionsHost, SessionMenu as SessionMenuView } from '@/features/session-actions';
 import { EmptyState } from '@/ui/controls';
-import { MenuItem } from '@/ui/overlays';
+import { navigate } from '../navigation/route';
 import { ArchieMark } from '../shell/ArchieMark';
-import { newAgent, newArchie } from '../shell/actions';
+import { newAgent, requestCloseTab, requestRename } from '../shell/actions';
+import { closeShellOverlays } from '../shell/shellState';
 import { SlotNote } from './SlotNote';
 import styles from './placeholders.module.css';
 
-export { ConversationPanel, Composer } from './ConversationPlaceholder';
-export { SessionMenu } from './SessionMenuPlaceholder';
+export { Composer } from '@/features/composer';
 export { HistoryPane } from './HistoryPanePlaceholder';
 export { SlotNote } from './SlotNote';
 
+/* ------------------------------------------------------------- W-09 + W-11 */
 
-/* ------------------------------------------------------------- W-11 NewMenu */
+/** W-09's conversation view with W-11's composer in its slot (W-12's VoiceDock takes it over while voice is active). */
+export function ConversationPanel({ localId, hidden }: { localId: string; hidden: boolean }) {
+  const composer = useMemo(() => <Composer localId={localId} />, [localId]);
+  const onStartVoice = useMemo(() => () => startVoice(localId), [localId]);
+  return <ConversationView localId={localId} hidden={hidden} composer={composer} onStartVoice={onStartVoice} />;
+}
 
-/** PLACEHOLDER (W-11 `NewMenu`): the two "new" actions; W-11 adds the "Archie already active" dialog (F-25). */
+/** W-11 ⋮ session menu; Rename and Close run the shell's flows (W-07). Session settings: wire W-13's sheet here. */
+export function SessionMenu({ localId }: { localId: string }) {
+  return <SessionMenuView localId={localId} onRename={requestRename} onClose={requestCloseTab} />;
+}
+
+/** W-11 "＋ New" items: New Archie asks first when Archie is already running (§6.11, F-25). */
 export function NewMenuItems() {
   return (
-    <>
-      <MenuItem leading={<ArchieMark size={20} />} shortcut="Ctrl+Alt+N" onSelect={newArchie}>
-        New Archie conversation
-      </MenuItem>
-      <MenuItem icon="terminal" shortcut="Ctrl+Alt+Shift+N" onSelect={newAgent}>
-        New agent session
-      </MenuItem>
-    </>
+    <NewMenu
+      archieMark={<ArchieMark size={20} />}
+      prepare={() => {
+        closeShellOverlays();
+        navigate({ name: 'workspace' });
+      }}
+      onNewAgent={newAgent}
+    />
   );
 }
 
@@ -120,9 +134,17 @@ export function SettingsScreen({ page }: { page?: string | null }) {
   );
 }
 
-/** PLACEHOLDER (W-13 `AuthGate`): renders the app; W-13 adds the sign-in screen. */
+/**
+ * PLACEHOLDER (W-13 `AuthGate`): renders the app; W-13 adds the sign-in screen.
+ * Keep W-11's `SessionActionsHost` (session dialogs, busy overlay, F2) mounted beside the app.
+ */
 export function AuthGate({ children }: { children: ReactNode }) {
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      <SessionActionsHost onRename={requestRename} />
+    </>
+  );
 }
 
 /* ------------------------------------------------------------- W-12 */

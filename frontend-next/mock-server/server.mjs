@@ -36,6 +36,11 @@ const MODEL_INFO = {
   supports_audio: false,
   model_info: { provider: 'anthropic', model_id: 'claude-sonnet-4-5-20250929', display_name: 'Claude Sonnet 4.5', supports_audio: false, supports_vision: true, supports_tools: true, max_tokens: 8192, context_window: 200000 },
 };
+/** `set_model` answer: the catalog's capabilities for the chosen model (audio models accept `send_audio`). */
+function modelInfoFor(model) {
+  const audio = /audio/.test(String(model));
+  return { ...MODEL_INFO, model, provider: audio ? 'openai' : MODEL_INFO.provider, supports_audio: audio, model_info: { ...MODEL_INFO.model_info, model_id: model, display_name: String(model), supports_audio: audio } };
+}
 const VOICE_FIELDS = {
   voice_provider: 'qwen',
   voice_model: 'qwen3.5-omni-plus-realtime',
@@ -585,6 +590,7 @@ class Engine {
     for (const ws of run.sockets) ws.run = null;
     run.sockets.clear();
     this.runs.delete(localId);
+    this.onRunClosed?.(run); // the transcript outlives the pool session (the backend's JSONL)
     this.watcherEvent({ type: 'agent_session_closed', session_id: localId, is_orchestrator: run.kind === 'orchestrator' });
   }
 
@@ -696,7 +702,7 @@ class Engine {
         ws.run = null;
         return send({ type: 'session_stopped' });
       case 'set_model':
-        return run.broadcast({ type: 'model_changed', model_info: { ...MODEL_INFO, model: msg.model } });
+        return run.broadcast({ type: 'model_changed', model_info: modelInfoFor(msg.model) });
       case 'get_model':
         return send({ type: 'model_info', model_info: MODEL_INFO });
       case 'voice_stop':
