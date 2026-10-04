@@ -153,12 +153,12 @@ class ChatListFlattener(
         gap: (Gap) -> Gap,
     ) {
         val descriptors = run.map { describe(it, state.kind) }
-        fun cardExpanded(b: ToolBlock): Boolean =
-            options.cardToggles[ChatItem.toolKey(entryId, b)] ?: (liveRun || b.executing)
+        fun cardExpanded(b: ToolBlock, d: ToolDescriptor): Boolean =
+            options.cardToggles[ChatItem.toolKey(entryId, b)] ?: (d.defaultOpen || liveRun || b.executing)
 
         if (run.size < 2 || !options.grouping) {
             run.forEachIndexed { k, b ->
-                out += ChatItem.ToolCard(entryId, b, descriptors[k], GroupPosition.Solo, cardExpanded(b), gap(Gap.Item))
+                out += ChatItem.ToolCard(entryId, b, descriptors[k], GroupPosition.Solo, cardExpanded(b, descriptors[k]), gap(Gap.Item))
             }
             return
         }
@@ -184,7 +184,7 @@ class ChatListFlattener(
                 run.lastIndex -> GroupPosition.Last
                 else -> GroupPosition.Middle
             }
-            out += ChatItem.ToolCard(entryId, b, descriptors[k], pos, cardExpanded(b), if (k == 0) Gap.Group else Gap.Tight)
+            out += ChatItem.ToolCard(entryId, b, descriptors[k], pos, cardExpanded(b, descriptors[k]), if (k == 0) Gap.Group else Gap.Tight)
         }
     }
 

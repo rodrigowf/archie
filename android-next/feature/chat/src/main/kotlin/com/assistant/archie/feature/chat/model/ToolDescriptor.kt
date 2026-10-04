@@ -25,6 +25,8 @@ data class ToolDescriptor(
     val name: String,
     val summary: String,
     val renderer: String,
+    /** Open by default even outside the live tail (TodoWrite, web `defaultOpen: 'always'`); a user toggle still wins. */
+    val defaultOpen: Boolean = false,
 )
 
 /**

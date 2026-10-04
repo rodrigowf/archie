@@ -10,6 +10,7 @@ import com.assistant.archie.feature.chat.ConversationViewModel
 import com.assistant.archie.feature.chat.PresenceChatVoice
 import com.assistant.archie.feature.chat.RepositoryChatBackend
 import com.assistant.archie.feature.chat.conversationViewModelFactory
+import com.assistant.archie.feature.chat.ui.CatalogToolCardRenderer
 import com.assistant.archie.feature.chat.ui.ConversationCallbacks
 import com.assistant.archie.feature.chat.ui.ConversationScreen
 import com.assistant.archie.graph.MainAppGraph
@@ -68,12 +69,14 @@ class GraphDestinations(private val graph: MainAppGraph) : ShellDestinations {
             factory = conversationViewModelFactory(
                 backend = { RepositoryChatBackend(key, graph.conversations, graph.uploads) },
                 voice = PresenceChatVoice(graph.voice),
+                toolCards = CatalogToolCardRenderer,
                 title = { graph.openSessions.items.value.firstOrNull { it.key == item }?.title },
             ),
         )
         ConversationScreen(
             viewModel = vm,
             modifier = modifier,
+            toolCards = CatalogToolCardRenderer,
             callbacks = ConversationCallbacks(
                 onOpenAgent = { localId -> graph.openSessions.select(ItemKey.Agent(ConversationKey.agent(localId))) },
                 onOpenSession = { ref -> graph.openSessions.openRef(ref) },
