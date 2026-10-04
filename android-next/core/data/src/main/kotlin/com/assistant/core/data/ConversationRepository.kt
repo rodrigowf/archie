@@ -268,6 +268,24 @@ class ConversationRepository(
         return CutResult.Done(ref)
     }
 
+    /**
+     * §6.13 "Continue in a new view" after `session_terminated` (B-04): replaces the view **in place**
+     * (same key, same kind, A-8.5) with a new `localId` resuming [sdkId], canonical cold open. An
+     * Archie view resumes through the orchestrator socket ([resumeArchie]), never the agent endpoint
+     * (fixes inv03 §8 bug 5).
+     */
+    fun continueInNewView(key: ConversationKey, sdkId: String): SessionRef? {
+        val h = handle(key) ?: return null
+        if (h.kind == SessionKind.ORCHESTRATOR) {
+            resumeArchie(sdkId)
+            return current(ConversationKey.ARCHIE)?.ref
+        }
+        val ref = h.state.value.ref.copy(localId = newId(), sdkId = sdkId, live = false, liveStatus = null)
+        install(key, AgentHandle(key, ConversationState.initial(ref)))
+        history.refreshListSoon()
+        return ref
+    }
+
     /** §6.5 fork: a new session; the caller opens it (focused: user-initiated). */
     suspend fun fork(key: ConversationKey, targetEntryId: String): CutResult {
         val h = handle(key) ?: return CutResult.Failed("Conversation is not open")
