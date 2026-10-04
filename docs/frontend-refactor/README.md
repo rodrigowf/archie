@@ -59,7 +59,8 @@ contract (only small, justified fixes allowed).
 | `spec/14-android-architecture.md` | Android architecture (main + lite + core) + work packages A/B/C/D | done |
 | `plan/20-decisions-and-backend-changes.md` | All pending/approved decisions + backend changes | live |
 | `plan/21-work-plan.md` | Milestones, merged waves, operating model, locks, gates | live |
-| `plan/22-progress-log.md` | Progress log | live |
+| `plan/22-progress-log.md` | Progress log + open issues | live |
+| `plan/23-coordinator-handoff.md` | **Resume here after compaction**: snapshot, WP→commit table, remaining work, runbooks (deploy, testing, briefs, review), coordinator rulings CR-1..23, learnings | live |
 
 ## Phases
 
