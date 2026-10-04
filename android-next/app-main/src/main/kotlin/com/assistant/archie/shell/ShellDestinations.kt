@@ -4,11 +4,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.assistant.archie.feature.chat.ConversationViewModel
+import com.assistant.archie.feature.chat.PresenceChatVoice
+import com.assistant.archie.feature.chat.RepositoryChatBackend
+import com.assistant.archie.feature.chat.conversationViewModelFactory
+import com.assistant.archie.feature.chat.ui.ConversationCallbacks
+import com.assistant.archie.feature.chat.ui.ConversationScreen
 import com.assistant.archie.graph.MainAppGraph
-import com.assistant.core.conversation.ConversationState
 import com.assistant.core.data.ConversationKey
 import com.assistant.core.data.ItemKey
 
@@ -52,15 +56,29 @@ class GraphDestinations(private val graph: MainAppGraph) : ShellDestinations {
         }
     }
 
+    /**
+     * B-04's conversation screen (`:feature:chat`), one ViewModel per conversation key, fed by B-03's
+     * process-scoped repositories. Voice is state-only ([PresenceChatVoice]) until B-09 wires the host.
+     */
     @Composable
     private fun Conversation(key: ConversationKey, archie: Boolean, modifier: Modifier) {
-        val state: ConversationState? by graph.conversations.state(key).collectAsStateWithLifecycle()
-        ConversationPlaceholder(
-            state = state,
-            isArchie = archie,
-            onSend = { graph.conversations.send(key, it) },
-            onStop = { graph.conversations.interrupt(key) },
+        val item = if (archie) ItemKey.Archie else ItemKey.Agent(key)
+        val vm: ConversationViewModel = viewModel(
+            key = "conversation:${key.value}",
+            factory = conversationViewModelFactory(
+                backend = { RepositoryChatBackend(key, graph.conversations, graph.uploads) },
+                voice = PresenceChatVoice(graph.voice),
+                title = { graph.openSessions.items.value.firstOrNull { it.key == item }?.title },
+            ),
+        )
+        ConversationScreen(
+            viewModel = vm,
             modifier = modifier,
+            callbacks = ConversationCallbacks(
+                onOpenAgent = { localId -> graph.openSessions.select(ItemKey.Agent(ConversationKey.agent(localId))) },
+                onOpenSession = { ref -> graph.openSessions.openRef(ref) },
+                onNewAgentSession = { graph.openSessions.newAgentSession() },
+            ),
         )
     }
 

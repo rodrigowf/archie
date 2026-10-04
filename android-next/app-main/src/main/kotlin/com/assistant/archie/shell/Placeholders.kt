@@ -59,7 +59,8 @@ import com.assistant.core.model.SessionKind
  * builds the real screen replaces the body of the matching ShellDestinations method (GraphDestinations)
  * and deletes the placeholder here. Nothing in the shell depends on their internals.
  *
- *   ConversationPlaceholder   → B-04 :feature:chat ConversationScreen(sessionKey)
+ *   ConversationPlaceholder   → replaced by B-04's ConversationScreen in GraphDestinations; kept only
+ *                               because the shell test fixtures (ShellFixtures) render it
  *   HistoryPlaceholder        → B-06 :feature:sessions HistoryScreen
  *   MemoryPlaceholder         → B-07 :feature:memory MemoryTreePane / MemoryDocumentScreen
  *   VisualsPlaceholder        → B-07 :feature:visuals VisualsListPane / VisualScreen
