@@ -123,9 +123,16 @@ export interface SessionListItem {
 }
 
 /** MC-2: titles are derived from the session list, never stored on the view. */
+/**
+ * The backend lists a live session that has no history file yet as "(active session)"
+ * (`api/routes/sessions.py`). It is not a title: the placeholder shows instead.
+ */
+export const ACTIVE_SESSION_PLACEHOLDER = '(active session)';
+
 export function deriveTitle(list: readonly SessionListItem[], ref: Pick<SessionRef, 'sdkId' | 'localId'>, placeholder: string): string {
+  const real = (t: string | undefined): string | null => (t && t.trim() !== ACTIVE_SESSION_PLACEHOLDER ? t : null);
   const bySdk = ref.sdkId ? list.find((s) => s.session_id === ref.sdkId) : undefined;
-  if (bySdk) return bySdk.title;
+  if (bySdk) return real(bySdk.title) ?? placeholder;
   const byLocal = list.find((s) => s.local_id === ref.localId);
-  return byLocal ? byLocal.title : placeholder;
+  return real(byLocal?.title) ?? placeholder;
 }

@@ -5,6 +5,7 @@
  * the store's kind placeholder ("Archie") with "New conversation". The UI never says
  * "Orchestrator": the Archie mark and the "Archie" subtitle convey the kind.
  */
+import { ACTIVE_SESSION_PLACEHOLDER } from '@/protocol';
 import { catalogStore, tabTitle, type CatalogState, type Tab } from '@/stores';
 
 export const NEW_CONVERSATION = 'New conversation';
@@ -15,6 +16,7 @@ const GENERIC_ARCHIE = /^\s*(orchestrator|archie)?\s*$/i;
 export function conversationTitle(raw: string | null | undefined, isArchie: boolean): string {
   const t = (raw ?? '').trim();
   if (isArchie) return GENERIC_ARCHIE.test(t) ? NEW_CONVERSATION : t;
+  if (t === ACTIVE_SESSION_PLACEHOLDER) return 'New agent session'; // live, no history file yet
   return t || 'Untitled';
 }
 

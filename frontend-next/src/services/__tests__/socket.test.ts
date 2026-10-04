@@ -37,6 +37,26 @@ describe('ArchieSocket', () => {
     expect(s.isOpen).toBe(false);
   });
 
+  it('an upgrade with no answer is abandoned after 10 s and reported as an abnormal close (T-16)', () => {
+    vi.useFakeTimers();
+    const events: string[] = [];
+    const s = new ArchieSocket(CHAT_WS_PATH, { onOpen: () => events.push('open'), onFrame: () => undefined, onClose: (i) => events.push(`close ${i.code} ${i.reason}`) });
+    s.connect();
+    const stuck = FakeWebSocket.last();
+    vi.advanceTimersByTime(9_999);
+    expect(events).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(events).toEqual(['close 1006 handshake timeout']);
+    expect(stuck.closedByClient).toBe(true);
+    expect(s.isConnecting).toBe(false);
+    // The next attempt opens normally and its timer never fires against the open socket.
+    s.connect();
+    FakeWebSocket.last().open();
+    vi.advanceTimersByTime(20_000);
+    expect(events).toEqual(['close 1006 handshake timeout', 'open']);
+    expect(s.isOpen).toBe(true);
+  });
+
   it('close() sends nothing and reports no close event', () => {
     const closes: number[] = [];
     const s = new ArchieSocket(CHAT_WS_PATH, { onOpen: () => undefined, onFrame: () => undefined, onClose: (i) => closes.push(i.code) });

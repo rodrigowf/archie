@@ -86,7 +86,7 @@ export function useConnection<T>(selector: (s: ConnectionState) => T): T {
 
 const KIND_PLACEHOLDER: Record<Tab['kind'], string> = {
   archie: 'Archie',
-  agent: 'New session',
+  agent: 'New agent session',
   memory: 'Memory',
   visual: 'Visual',
 };

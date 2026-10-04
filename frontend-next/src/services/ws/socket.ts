@@ -6,6 +6,9 @@
  * - The client **always sends text frames** (T-2: a binary frame makes the server drop the socket).
  * - Undecodable frames are logged and dropped (T-3); they never reach the reducer.
  * - Close and error become typed events, never raw strings in the UI (W-6.2 "websocket_error").
+ * - An upgrade with no answer after {@link WS_HANDSHAKE_TIMEOUT_MS} is abandoned and reported as an
+ *   abnormal close, so the reconnect backoff runs (T-16). Browsers wait a long time on their own, and
+ *   nginx on the Jetson proxies the API WebSockets with 24 h timeouts.
  *
  * LOAD-BEARING inv02 F-01 (frontend/src/api/websocket.ts:12-52): URL from the page scheme,
  * arraybuffer frames, malformed frames ignored, sends only while OPEN.
@@ -14,6 +17,9 @@ import { decodeFrame, encodeClientMessage, type ClientMessage, type ServerFrame 
 import { getEnv, wsUrl, type WebSocketLike } from '../env';
 
 export const WS_OPEN = 1;
+
+/** spec 12 T-16. */
+export const WS_HANDSHAKE_TIMEOUT_MS = 10_000;
 
 export interface SocketHandlers {
   onOpen(): void;
@@ -35,6 +41,7 @@ function normaliseData(data: unknown): unknown {
 export class ArchieSocket {
   private ws: WebSocketLike | null = null;
   private closedByUs = false;
+  private handshakeTimer: ReturnType<typeof setTimeout> | null = null;
   readonly url: string;
 
   constructor(
@@ -52,8 +59,17 @@ export class ArchieSocket {
     const ws = new env.WebSocket(this.url);
     ws.binaryType = 'arraybuffer';
     this.ws = ws;
+    this.handshakeTimer = setTimeout(() => {
+      this.handshakeTimer = null;
+      if (this.ws !== ws || ws.readyState !== 0) return;
+      getEnv().log('warn', `handshake timed out after ${WS_HANDSHAKE_TIMEOUT_MS} ms`);
+      this.detach();
+      this.handlers.onClose({ code: 1006, reason: 'handshake timeout', clean: false });
+    }, WS_HANDSHAKE_TIMEOUT_MS);
     ws.onopen = () => {
-      if (this.ws === ws) this.handlers.onOpen();
+      if (this.ws !== ws) return;
+      this.clearHandshakeTimer();
+      this.handlers.onOpen();
     };
     ws.onmessage = (ev) => {
       if (this.ws !== ws) return;
@@ -69,6 +85,7 @@ export class ArchieSocket {
     };
     ws.onclose = (ev) => {
       if (this.ws !== ws) return;
+      this.clearHandshakeTimer();
       this.ws = null;
       if (this.closedByUs) return;
       this.handlers.onClose({ code: ev.code ?? 1006, reason: ev.reason ?? '', clean: ev.wasClean === true });
@@ -104,7 +121,13 @@ export class ArchieSocket {
     this.detach();
   }
 
+  private clearHandshakeTimer(): void {
+    if (this.handshakeTimer !== null) clearTimeout(this.handshakeTimer);
+    this.handshakeTimer = null;
+  }
+
   private detach(): void {
+    this.clearHandshakeTimer();
     const ws = this.ws;
     this.ws = null;
     if (!ws) return;

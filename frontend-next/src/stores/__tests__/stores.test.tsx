@@ -284,7 +284,7 @@ describe('tabs', () => {
 
   it('titles are derived from the session list (sdk id, then local id, then hint/placeholder)', () => {
     const a: Tab = { id: 'L1', kind: 'agent', localId: 'L1', sdkId: 'sdk-1', unseen: false, openedBySync: false, everFocused: true };
-    expect(tabTitle(a)).toBe('New session');
+    expect(tabTitle(a)).toBe('New agent session');
     setCatalogItems('sessions', [
       { session_id: 'sdk-1', title: 'By sdk', local_id: null } as never,
       { session_id: 'x', title: 'By local', local_id: 'L2' } as never,
@@ -373,7 +373,7 @@ describe('hooks', () => {
       sched.flush();
     });
     expect(renders.length - n).toBe(1);
-    expect(renders.at(-1)).toBe('2|1|New session');
+    expect(renders.at(-1)).toBe('2|1|New agent session');
     act(() => handle.setHidden(true));
     const m = renders.length;
     act(() => {

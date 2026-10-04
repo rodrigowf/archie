@@ -4,6 +4,7 @@
  * Today / Yesterday / Previous 7 days / Earlier in local time. Pure, so it is tested with a fixed
  * clock.
  */
+import { ACTIVE_SESSION_PLACEHOLDER } from '@/protocol';
 import type { SessionInfo } from '@/services';
 import { HISTORY_GROUPS, historyGroupOf, parseServerTime, type HistoryGroup } from './time';
 
@@ -15,6 +16,7 @@ const GENERIC_ARCHIE = /^\s*(orchestrator|archie)?\s*$/i;
 export function conversationTitle(raw: string | null | undefined, isArchie: boolean): string {
   const t = (raw ?? '').trim();
   if (isArchie) return GENERIC_ARCHIE.test(t) ? NEW_CONVERSATION : t;
+  if (t === ACTIVE_SESSION_PLACEHOLDER) return 'New agent session'; // live, no history file yet
   return t || 'Untitled';
 }
 

@@ -265,7 +265,7 @@ function MessageListImpl({ localId, store, hidden, empty, cap }: MessageListProp
                   <span>{s.loadingOlder ? 'Loading older messages…' : 'Scroll up for older messages'}</span>
                 </div>
               ) : null}
-              {s.orchHistory ? <p className={styles.footnote}>Tool calls and background updates are not kept in orchestrator history.</p> : null}
+              {s.orchHistory ? <p className={styles.footnote}>Background updates from agents aren’t kept in history.</p> : null}
               {view.entries.map((e) => (
                 <Row key={e.id} entry={e} ctx={ctx as RowContext} active={e.id === activeId} onTap={setActiveId} />
               ))}

@@ -48,6 +48,7 @@ export {
   type CheckpointStore,
 } from './resume/checkpoint';
 export {
+  ACTIVE_SESSION_PLACEHOLDER,
   contextUsage,
   deriveTitle,
   groupToolSteps,

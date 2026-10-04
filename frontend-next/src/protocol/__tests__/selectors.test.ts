@@ -91,6 +91,10 @@ describe('conversation selectors', () => {
     expect(deriveTitle(list, { sdkId: 'sdk-1', localId: 'x' }, 'New')).toBe('By sdk');
     expect(deriveTitle(list, { sdkId: null, localId: 'L2' }, 'New')).toBe('By local');
     expect(deriveTitle(list, { sdkId: 'zz', localId: 'zz' }, 'New')).toBe('New');
+    // A live session with no history file yet is listed as "(active session)": not a title.
+    const live = [{ session_id: 'L3', local_id: 'L3', title: '(active session)' }];
+    expect(deriveTitle(live, { sdkId: 'L3', localId: 'L3' }, 'New agent session')).toBe('New agent session');
+    expect(deriveTitle(live, { sdkId: null, localId: 'L3' }, 'New agent session')).toBe('New agent session');
   });
 });
 

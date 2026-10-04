@@ -291,6 +291,7 @@ sendStart(conv):
 - **T-13.** Reconnect with exponential backoff: delay = min(15 s, 1 s × 2^attempt) ± 20 % jitter, unlimited attempts while the view is open and the app is visible. Reset `attempt` on a successful `session_started`.
 - **T-14.** Web: no reconnect attempts while `document.hidden`. On becoming visible, reconnect immediately (02 §7.2). Android: no attempts while the app is in the background, except the orchestrator socket while this device owns voice or the wake-word service needs it. Android MUST also reconnect immediately when `ConnectivityManager` reports a network becoming available.
 - **T-15.** Changing the server URL (Android) MUST tear down all sockets, reset per-server state (orchestrator `localId`, pool cache, conversations), and **connect to the new server** (A-8.3, A-dead-code `teardownForServerUrlChange`).
+- **T-16.** Handshake timeout: an upgrade that is not open 10 s after the attempt starts MUST be abandoned and handled like an abnormal close (code 1006, `willReconnect` while wanted), so T-13 backoff continues. Added 2026-10-04 after the Android app hung forever on an attempt made while the Jetson backend restarted: the WebSocket clients have no read timeout (T-4 pings guard open sockets only) and nginx proxies the API sockets with 24 h timeouts.
 
 ### 3.5 Visibility and foreground
 
@@ -398,7 +399,7 @@ onWatcherEvent(e):               // only arrives on the orchestrator WS, even un
 - **WATCH-1.** A conversation that itself receives `agent_session_closed` with its own `localId` and the matching `is_orchestrator` flag (FOCUS-2) MUST treat it as a server `session_stopped`: `status = stopped` (a `terminated` status is kept), `endTurn`, `endVoice`. The view stays open (FOCUS-3). In practice this is the orchestrator conversation, whose socket receives the watcher events. *Rationale:* `pool.stop_orchestrator()` clears the orchestrator's subscribers without sending them any frame and only notifies watchers (`api/pool.py:591-602`). Every orchestrator socket is a watcher (`api/routes/orchestrator.py:127-128`), so this frame is the orchestrator view's only signal that its session ended elsewhere. Fixture `orchestrator_closed_by_pool`.
 - **FOCUS-3.** A view the user has interacted with MUST NOT be closed by a server event. It shows `stopped` with a "Session ended" state and a Resume action (`start` with a new `localId` and `resume_sdk_id`).
 - **MC-1.** Mutations are not broadcast (G-27). After rename, delete, duplicate, rewind, fork, close and config writes, the acting client refreshes its own stores. Other clients see changes on their next `refreshList()` (visible, watcher event, or any `turn_complete`).
-- **MC-2.** Titles are derived, not stored on the view (02 §1.6 load-bearing): `title = list.find(s => s.session_id == sdkId)?.title ?? list.find(s => s.local_id == localId)?.title ?? placeholder`. `refreshList()` runs after every `endTurn` of any view (debounced to 1 per 2 s).
+- **MC-2.** Titles are derived, not stored on the view (02 §1.6 load-bearing): `title = list.find(s => s.session_id == sdkId)?.title ?? list.find(s => s.local_id == localId)?.title ?? placeholder`. The backend's `"(active session)"` (a live session with no history file yet) counts as no title: the placeholder shows (2026-10-04). Placeholders: Archie → "New conversation" (CR-9), agent → "New agent session" on both platforms. `refreshList()` runs after every `endTurn` of any view (debounced to 1 per 2 s).
 
 ---
 
@@ -1201,7 +1202,7 @@ Reconcile never adds, removes or reorders entries. It only fills tool results. I
 
 | Loss | Cause | Client behaviour |
 |---|---|---|
-| Orchestrator tool calls, results and background notifications are missing; a text-mode turn's text is one joined message | G-8, `manager/claude/adapter.py:81`, `orchestrator/session.py:1884-1893` | Load REST only on cold open or explicit Reload. Never replace a live orchestrator view with REST automatically (A-4.4.1). A history-loaded orchestrator conversation shows a one-line footnote at the top of the loaded range: "Tool calls and background updates are not kept in orchestrator history." |
+| Orchestrator tool calls, results and background notifications are missing; a text-mode turn's text is one joined message | G-8, `manager/claude/adapter.py:81`, `orchestrator/session.py:1884-1893` | Load REST only on cold open or explicit Reload. Never replace a live orchestrator view with REST automatically (A-4.4.1). A history-loaded orchestrator conversation shows a one-line footnote at the top of the loaded range: "Background updates from agents aren’t kept in history." (2026-10-04: backend O-1 now keeps tool calls and results; background notifications are still not in REST history; the UI never says "orchestrator", CR-9.) |
 | Claude thinking blocks are absent (empty assistant lines are dropped) | G-9 | Show nothing; never fabricate. After the optional backend fix they arrive as `thinking` blocks (§5.1 handles it). |
 | Qwen/Gemini thinking appears as ordinary text | G-9 | Accepted until the backend fix. |
 | Voice and audio turns carry text prefixes | G-11 | `classifyUserLine` strips them and sets `origin`. |
