@@ -63,7 +63,7 @@ The wrappers at the project root (`install.sh`, `install-with-agent.sh`, `instal
 > 7. **Never skip the API key reminders.**  Step 12 warns about missing keys for the axes the user picked — do the same warning.
 > 7b. **Help the user actually obtain keys when they're missing.**  This is where you add value over the deterministic installer.  For each missing key you'd warn about: tell the user *what* it's for, *where* to get it, and offer to walk them through the signup / console flow.  Voice especially — Vertex AI vs. AI Studio is a real choice with real trade-offs (see "Voice provider selection (Gemini Live)" further down this file).  Don't just say "set `GEMINI_API_KEY`"; ask what they want voice for, propose the right backend, and stay with them through the console clicks.  Re-run `install/probe-gemini-voice.py` after the user pastes a key — its JSON output tells you immediately whether the new key works, and if not, the `reason` field has the actionable next step (billing, ADC, allowlist enablement) you should surface verbatim.  The deterministic installer runs the probe once at Step 12b; you should run it again whenever the user changes a relevant env var so the verdict tracks reality.
 > 8. **Windows-specific**: if you're on Windows, check whether symlink creation works before attempting any link steps (the installer's `Test-Symlinks` does this).  If it fails, tell the user about Developer Mode before falling back to junctions + copies.  Path mangling for the CLI project dirs replaces both `\` and `:` with `-`.
-> 9. **When everything is done**, ask the user if they'd like you to start the backend (`context/scripts/run.sh -m uvicorn api.app:create_app --factory --host 0.0.0.0 --port 8765` on POSIX, or `.venv\Scripts\python.exe -m uvicorn api.app:create_app --factory --port 8765` on Windows) and/or the frontend (`cd frontend && npm run dev`) in the background.  If yes, launch them in background mode so they survive your exit, then tell the user the install is complete and they can press Ctrl-C to exit this session.  Confirm the services are reachable before declaring victory.
+> 9. **When everything is done**, ask the user if they'd like you to start the backend (`context/scripts/run.sh -m uvicorn api.app:create_app --factory --host 0.0.0.0 --port 8765` on POSIX, or `.venv\Scripts\python.exe -m uvicorn api.app:create_app --factory --port 8765` on Windows) and/or the frontend (`cd apps/web && npm run dev`) in the background.  If yes, launch them in background mode so they survive your exit, then tell the user the install is complete and they can press Ctrl-C to exit this session.  Confirm the services are reachable before declaring victory.
 >
 > A few additional rules:
 >
@@ -79,7 +79,7 @@ The wrappers at the project root (`install.sh`, `install-with-agent.sh`, `instal
 ## Prerequisites
 
 - **Python 3.12+**
-- **Node.js 22.12+** for the web frontend's toolchain (`frontend/package.json` `engines`); Qwen Code and Gemini CLI also depend on Node
+- **Node.js 22.12+** for the web frontend's toolchain (`apps/web/package.json` `engines`); Qwen Code and Gemini CLI also depend on Node
 - **npm** (comes with Node)
 - **git**
 
@@ -208,9 +208,9 @@ Run the per-OS prereq checker (`install/linux/install-prerequisites.sh`, `instal
 
 Then create the symlink trees:
 
-- `context/skills/` — symlinks to every `default-skills/*/`
-- `context/scripts/` — symlinks to every `default-scripts/*`
-- `context/agents/` — symlinks to every `default-agents/*`
+- `context/skills/` — symlinks to every `shared/skills/*/`
+- `context/scripts/` — symlinks to every `shared/scripts/*`
+- `context/agents/` — symlinks to every `shared/agents/*`
 
 These let `context/` reach the public framework while keeping personal additions in the same directory.
 
@@ -281,11 +281,11 @@ Then conditionally (use the venv pip path matching your OS):
 ### Step 7: Frontend deps
 
 ```bash
-cd frontend && npm install
-cd ..
+(cd apps/web && npm install)
+(cd apps/design-tokens && npm install)   # the web build's token gate needs it
 ```
 
-`frontend/` is one project with two builds: `npm run build` writes `frontend/dist` (served at `/`) and `frontend/dist-compat` (Safari 12 / iOS 12 build, served at `/compat/`). The previous web apps are kept under `_old/frontend/` and `_old/frontend-compat/` (served at `/legacy/` and `/legacy_compat/` once built); they are optional — install their deps (`npm install` in each) only if you want those builds.
+`apps/web/` is one project with two builds: `npm run build` writes `apps/web/dist` (served at `/`) and `apps/web/dist-compat` (Safari 12 / iOS 12 build, served at `/compat/`). The previous web apps are kept under `legacy/frontend/` and `legacy/frontend-compat/` (served at `/legacy/` and `/legacy_compat/` once built); they are optional — install their deps (`npm install` in each) only if you want those builds.
 
 ### Step 7b: Agent CLI install + first-run login
 
@@ -353,7 +353,7 @@ The probe respects existing user choices: it only writes `default_voice_endpoint
 context/scripts/run.sh -m uvicorn api.app:create_app --factory --host 0.0.0.0 --port 8765
 
 # Terminal 2 — Frontend
-cd frontend && npm run dev
+cd apps/web && npm run dev
 ```
 
 **Windows:**
@@ -363,10 +363,10 @@ cd frontend && npm run dev
 .venv\Scripts\python.exe -m uvicorn api.app:create_app --factory --port 8765
 
 # Terminal 2 — Frontend
-cd frontend; npm run dev
+cd apps/web; npm run dev
 ```
 
-Open **https://localhost:5450** (the Vite dev server; plain `http://` when no certificate is present in `context/certs/`) and start chatting. The Safari 12 build has its own dev server: `npm run dev:compat` (port 5451). Alternatively, `cd frontend && npm run build` once and use the backend directly at `http://localhost:8765/` (it serves `frontend/dist` at `/` and `frontend/dist-compat` at `/compat/`).
+Open **https://localhost:5450** (the Vite dev server; plain `http://` when no certificate is present in `context/certs/`) and start chatting. The Safari 12 build has its own dev server: `npm run dev:compat` (port 5451). Alternatively, `cd apps/web && npm run build` once and use the backend directly at `http://localhost:8765/` (it serves `apps/web/dist` at `/` and `apps/web/dist-compat` at `/compat/`).
 
 If you used the conversational installer, the agent can offer to start both in the background for you.
 

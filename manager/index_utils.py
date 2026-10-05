@@ -2,7 +2,7 @@
 
 Single-writer discipline: never open chromadb.PersistentClient directly
 from this module. Instead, route every read/write through
-default-scripts/index_client.IndexFacade, which talks to the warm
+shared/scripts/index_client.IndexFacade, which talks to the warm
 search-server when one is running, and falls back to a direct chroma
 open only when the lockfile is unheld (so no other writer can race us).
 """
@@ -17,7 +17,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 PROJECT_DIR = Path(__file__).parent.parent.resolve()
-SCRIPTS_DIR = PROJECT_DIR / "default-scripts"
+SCRIPTS_DIR = PROJECT_DIR / "shared" / "scripts"
 
 
 def get_index_dir() -> Path:

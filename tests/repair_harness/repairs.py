@@ -149,7 +149,7 @@ T1_SCRIPT = textwrap.dedent('''
 
 def tier1_per_file(chroma_dir: Path, collection_name: str, src_dir: Path) -> str:
     project_path = str(Path(__file__).resolve().parent.parent.parent)
-    scripts_path = str(Path(project_path) / "default-scripts")
+    scripts_path = str(Path(project_path) / "shared" / "scripts")
     script = T1_SCRIPT.format(
         project_path=project_path,
         scripts_path=scripts_path,
@@ -303,7 +303,7 @@ T3_SCRIPT = textwrap.dedent('''
 
 def tier3_full_reembed(chroma_dir: Path, collection_name: str, src_dir: Path) -> str:
     project_path = str(Path(__file__).resolve().parent.parent.parent)
-    scripts_path = str(Path(project_path) / "default-scripts")
+    scripts_path = str(Path(project_path) / "shared" / "scripts")
     script = T3_SCRIPT.format(
         project_path=project_path,
         scripts_path=scripts_path,

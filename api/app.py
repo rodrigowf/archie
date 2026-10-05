@@ -146,17 +146,17 @@ async def lifespan(app: FastAPI):
 def _spa_dirs() -> list[tuple[str, Path]]:
     """SPA builds served under a path prefix (cutover, spec 13 §1.7).
 
-    ``frontend/`` is the current web app: ``dist/`` is served at ``/`` by the
+    ``apps/web/`` is the current web app: ``dist/`` is served at ``/`` by the
     root catch-all in :func:`create_app`, ``dist-compat/`` (Safari 12 / iOS 12)
-    at ``/compat/``.  The previous apps live on, untouched, under ``_old/``:
-    ``_old/frontend/dist`` at ``/legacy/`` and ``_old/frontend-compat/dist``
+    at ``/compat/``.  The previous apps live on, untouched, under ``legacy/``:
+    ``legacy/frontend/dist`` at ``/legacy/`` and ``legacy/frontend-compat/dist``
     at ``/legacy_compat/`` (built with those Vite bases).
     """
     root = Path(__file__).resolve().parent.parent
     return [
-        ("compat", root / "frontend" / "dist-compat"),
-        ("legacy", root / "_old" / "frontend" / "dist"),
-        ("legacy_compat", root / "_old" / "frontend-compat" / "dist"),
+        ("compat", root / "apps" / "web" / "dist-compat"),
+        ("legacy", root / "legacy" / "frontend" / "dist"),
+        ("legacy_compat", root / "legacy" / "frontend-compat" / "dist"),
     ]
 
 
@@ -339,7 +339,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404)
 
     # Serve the production frontend build if it exists
-    frontend_dist = project_root / "frontend" / "dist"
+    frontend_dist = project_root / "apps" / "web" / "dist"
     if frontend_dist.exists():
         app.mount("/assets", StaticFiles(directory=frontend_dist / "assets"), name="assets")
 

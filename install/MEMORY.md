@@ -23,7 +23,7 @@ important context across sessions.
 
 2. Start the frontend (new terminal):
 
-       cd frontend && npm run dev
+       cd apps/web && npm run dev
 
 3. Open https://localhost:5450 (Vite dev server; http:// when no certificate is in context/certs/)
 

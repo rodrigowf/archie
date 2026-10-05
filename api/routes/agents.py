@@ -19,7 +19,7 @@ def _get_agents_dir() -> Path:
     ctx_agents = PROJECT_ROOT / "context" / "agents"
     if ctx_agents.is_dir():
         return ctx_agents
-    return PROJECT_ROOT / "default-agents"
+    return PROJECT_ROOT / "shared" / "agents"
 
 
 def _load_agent_info(agent_file: Path) -> dict[str, Any] | None:
