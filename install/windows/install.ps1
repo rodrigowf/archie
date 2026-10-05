@@ -463,9 +463,9 @@ if ($ContextSetupNeeded) {
             # Skill / script / agent symlinks (or junctions / copies as fallback).
             # All three loops are identical except for the source dir.
             $bundles = @(
-                @{ Public = 'default-skills';  Private = 'context\skills';  Kind = 'directory'; Label = 'skill'  },
-                @{ Public = 'default-scripts'; Private = 'context\scripts'; Kind = 'any';       Label = 'script' },
-                @{ Public = 'default-agents';  Private = 'context\agents';  Kind = 'any';       Label = 'agent'  }
+                @{ Public = 'shared\skills';  Private = 'context\skills';  Kind = 'directory'; Label = 'skill'  },
+                @{ Public = 'shared\scripts'; Private = 'context\scripts'; Kind = 'any';       Label = 'script' },
+                @{ Public = 'shared\agents';  Private = 'context\agents';  Kind = 'any';       Label = 'agent'  }
             )
             foreach ($b in $bundles) {
                 Write-Step "Creating $($b.Label) symlinks..."
@@ -520,9 +520,9 @@ if ($ContextSetupNeeded) {
             }
 
             $bundles = @(
-                @{ Public = 'default-skills';  Private = 'context\skills';  Kind = 'directory' },
-                @{ Public = 'default-scripts'; Private = 'context\scripts'; Kind = 'any'       },
-                @{ Public = 'default-agents';  Private = 'context\agents';  Kind = 'any'       }
+                @{ Public = 'shared\skills';  Private = 'context\skills';  Kind = 'directory' },
+                @{ Public = 'shared\scripts'; Private = 'context\scripts'; Kind = 'any'       },
+                @{ Public = 'shared\agents';  Private = 'context\agents';  Kind = 'any'       }
             )
             Write-Step "Ensuring default symlinks..."
             foreach ($b in $bundles) {
@@ -896,12 +896,18 @@ if ($OpenAIAxis) {
 # Step 7: Install frontend dependencies
 # ─────────────────────────────────────────────────────────────────────────────
 Write-Step "Installing frontend dependencies..."
-Push-Location 'frontend'
+Push-Location 'apps\web'
 & npm install --silent
 $npmStatus = $LASTEXITCODE
 Pop-Location
 if ($npmStatus -ne 0) { Write-Err "npm install (frontend) failed" }
 Write-Info "Installed/updated frontend node_modules\"
+# The web build checks the design tokens (apps\design-tokens), which has its own dependency.
+Push-Location 'apps\design-tokens'
+& npm install --silent
+$npmStatus = $LASTEXITCODE
+Pop-Location
+if ($npmStatus -ne 0) { Write-Err "npm install (design tokens) failed" }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 7b: Install + authenticate agent CLIs
@@ -1098,7 +1104,7 @@ if ($ClaudeAxis)    { Test-OptionalSdk 'claude_agent_sdk' '-WithClaude'    'requ
 if ($AnthropicAxis) { Test-OptionalSdk 'anthropic'        '-WithAnthropic' 'requirements-anthropic.txt' }
 if ($OpenAIAxis)    { Test-OptionalSdk 'openai'           '-WithOpenAI'    'requirements-openai.txt' }
 
-if (Test-Path 'frontend\package.json') {
+if (Test-Path 'apps\web\package.json') {
     Write-Info "Frontend package.json OK"
 } else {
     Write-Warn "Frontend package.json not found"
@@ -1232,7 +1238,7 @@ Write-Host "     .venv\Scripts\python.exe -m uvicorn api.app:create_app --factor
 Write-Host ""
 
 Write-Host "  $($step+1). " -NoNewline; Write-Host "Start the frontend (new terminal):" -ForegroundColor Green
-Write-Host "     cd frontend; npm run dev" -ForegroundColor Blue
+Write-Host "     cd apps\web; npm run dev" -ForegroundColor Blue
 Write-Host ""
 
 Write-Host "  $($step+2). " -NoNewline; Write-Host "Open " -ForegroundColor Green -NoNewline

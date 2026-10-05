@@ -34,23 +34,27 @@ This project separates **public framework** from **private data** for easy shari
 
 ```
 assistant/                    # PUBLIC - shareable framework
-├── default-skills/           # General-purpose skills (actual files)
-├── default-scripts/          # General-purpose scripts (actual files)
-├── default-agents/           # General-purpose agents (actual files)
-├── install/                  # Templates for a fresh installation
-├── .claude_config/           # Claude Code SDK config (when --with-claude)
-│   └── skills → ../context/skills  # SDK skill discovery
+├── api/                      # FastAPI server (REST + WebSocket)
 ├── manager/                  # Session managers (Claude / Qwen)
 ├── orchestrator/             # Orchestrator agent — controls chat sessions
 │   └── providers/            # Model providers (Anthropic, OpenAI, voice)
-├── api/                      # FastAPI server (REST + WebSocket)
-├── frontend/                 # Web app (React + Vite): one project, two builds — dist/ (served at /) + dist-compat/ (Safari 12 / iOS 12, served at /compat/)
-├── android/                  # Android project (Gradle multi-module): :app-main (main phone app) + :app-lite (voice-first app for old devices, API 21)
-├── android-device/           # Companion device app
-├── design/tokens/            # Shared design-token source → CSS variables (web) + Kotlin theme (Android)
-├── shared/protocol-fixtures/ # Client-protocol conformance fixtures shared by web + Android tests
-├── _old/                     # Previous web, compat and Android apps (web served at /legacy/ and /legacy_compat/)
 ├── utils/                    # Shared Python utilities (paths.py)
+├── apps/                     # Client apps
+│   ├── web/                  # Web app (React + Vite): one project, two builds — dist/ (served at /) + dist-compat/ (Safari 12 / iOS 12, served at /compat/)
+│   ├── android/              # Android project (Gradle multi-module): :app-main (main phone app) + :app-lite (voice-first app for old devices, API 21)
+│   ├── android-device/       # Companion device app
+│   ├── browser-extension/    # Chrome MV3 extension (loaded unpacked) for driving a logged-in browser
+│   ├── design-tokens/        # Shared design-token source → CSS variables (web) + Kotlin theme (Android)
+│   └── protocol-fixtures/    # Client-protocol conformance fixtures shared by web + Android tests
+├── shared/                   # General-purpose, shareable agent tooling (actual files)
+│   ├── skills/               # General-purpose skills
+│   ├── scripts/              # General-purpose scripts (run.sh, setup-context.sh, ...)
+│   └── agents/               # General-purpose agents
+├── legacy/                   # Previous web, compat and Android apps (web served at /legacy/ and /legacy_compat/)
+├── docs/                     # Design docs, history, assets
+├── install/                  # Installers and templates for a fresh installation (install.sh / install.ps1 at the root are the entry points)
+├── .claude_config/           # Claude Code SDK config (when --with-claude)
+│   └── skills → ../context/skills  # SDK skill discovery
 ├── tests/                    # Test suite
 ├── index/                    # Vector search index (gitignored)
 └── .venv/                    # Python virtual environment
@@ -61,23 +65,24 @@ context/                      # PRIVATE - Standalone git repo, gitignored here
 ├── <uuid>/                   # SDK state directories (subagents, tool-results)
 ├── memory/                   # Memory markdown files
 ├── public/                   # Static files served at URL root (downloads, visualizations, etc.)
-├── skills/                   # Symlinks to default-skills + personalized skills
-├── scripts/                  # Symlinks to default-scripts + personalized scripts
-├── agents/                   # Symlinks to default-agents + personalized agents
+├── skills/                   # Symlinks to shared/skills + personalized skills
+├── scripts/                  # Symlinks to shared/scripts + personalized scripts
+├── agents/                   # Symlinks to shared/agents + personalized agents
 ├── secrets/                  # OAuth credentials and tokens
 ├── certs/                    # SSL certificates
 └── .env                      # Environment variables
 ```
 
 **Public/Private separation:**
-- `default-skills/`, `default-scripts/`, and `default-agents/` contain general-purpose tools (shareable)
+- `shared/skills/`, `shared/scripts/`, and `shared/agents/` contain general-purpose tools (shareable)
 - `context/` is a standalone git repo, gitignored by the parent
-- `context/skills/` has symlinks to `default-skills/*` plus personalized skill folders
-- `context/scripts/` has symlinks to `default-scripts/*` plus personalized scripts
-- `context/agents/` has symlinks to `default-agents/*` plus personalized agents
+- `context/skills/` has symlinks to `shared/skills/*` plus personalized skill folders
+- `context/scripts/` has symlinks to `shared/scripts/*` plus personalized scripts
+- `context/agents/` has symlinks to `shared/agents/*` plus personalized agents
+- `shared/scripts/setup-context.sh` creates/refreshes those symlinks
 - Swap the `context/` directory (clone a different context repo in its place) to migrate to a new environment
 
-`CLAUDE_CONFIG_DIR` is set to `.claude_config/` by `context/scripts/run.sh`. All code references `context/` directly via `utils/paths.py`.
+`CLAUDE_CONFIG_DIR` is set to `.claude_config/` by `context/scripts/run.sh` (a symlink to `shared/scripts/run.sh`). All code references `context/` directly via `utils/paths.py`.
 
 ---
 
@@ -91,7 +96,7 @@ The wrapper (api + manager + orchestrator + frontend) provides a multi-tab web i
 
 Start the backend: `context/scripts/run.sh -m uvicorn api.app:create_app --factory --host 0.0.0.0 --port 8765`
 
-Start the frontend: `cd frontend && npm run dev` (main build, port 5450) or `npm run dev:compat` (Safari 12 build, port 5451). `npm run mock` starts a mock backend; `npm run verify` runs lint, typecheck, tests and both builds.
+Start the frontend: `cd apps/web && npm run dev` (main build, port 5450) or `npm run dev:compat` (Safari 12 build, port 5451). `npm run mock` starts a mock backend; `npm run verify` runs lint, typecheck, tests and both builds.
 
 Or use `/debug-app` which handles both and provides browser automation.
 
@@ -103,14 +108,14 @@ Or use `/debug-app` which handles both and provides browser automation.
 
 The assistant supports multiple frontend surfaces beyond the main web interface:
 
-**Compat build** — `frontend/` also builds `frontend/dist-compat` (base `/compat/`, served at `/compat/`) for legacy browsers (Safari 12, iOS 12), from the same source tree; `npm run build` produces both builds. The previous standalone compat app is in `_old/frontend-compat/` (served at `/legacy_compat/`), the previous main web app in `_old/frontend/` (served at `/legacy/`).
+**Compat build** — `apps/web/` also builds `apps/web/dist-compat` (base `/compat/`, served at `/compat/`) for legacy browsers (Safari 12, iOS 12), from the same source tree; `npm run build` produces both builds. The previous standalone compat app is in `legacy/frontend-compat/` (served at `/legacy_compat/`), the previous main web app in `legacy/frontend/` (served at `/legacy/`).
 
-**Android apps** (`android/`) — Gradle multi-module project (Kotlin, Compose + Navigation 3, shared `core/*` and `feature/*` modules). Both apps connect to the same backend WebSocket/REST API as the web frontend:
+**Android apps** (`apps/android/`) — Gradle multi-module project (Kotlin, Compose + Navigation 3, shared `core/*` and `feature/*` modules). Both apps connect to the same backend WebSocket/REST API as the web frontend:
 
-- `:app-main` (`com.assistant.archie`, minSdk 26) — the main phone app: chat, sessions, orchestrator, WebRTC voice, memory, visualizations. APK: `android/app-main/build/outputs/apk/debug/app-main-debug.apk`
-- `:app-lite` (`com.assistant.peripheral`, minSdk 21, plain Views) — voice-first app for old devices (wake word + talk). It keeps the old peripheral app's package and installs over it when signed with the same key (`android/keystore.properties`, gitignored). APK: `android/app-lite/build/outputs/apk/debug/app-lite-debug.apk`
-- Build: `cd android && ./gradlew :app-main:assembleDebug` (or `:app-lite:assembleDebug`); full gate `./gradlew check`
-- The previous single-module app is in `_old/android/`
+- `:app-main` (`com.assistant.archie`, minSdk 26) — the main phone app: chat, sessions, orchestrator, WebRTC voice, memory, visualizations. APK: `apps/android/app-main/build/outputs/apk/debug/app-main-debug.apk`
+- `:app-lite` (`com.assistant.peripheral`, minSdk 21, plain Views) — voice-first app for old devices (wake word + talk). It keeps the old peripheral app's package and installs over it when signed with the same key (`apps/android/keystore.properties`, gitignored). APK: `apps/android/app-lite/build/outputs/apk/debug/app-lite-debug.apk`
+- Build: `cd apps/android && ./gradlew :app-main:assembleDebug` (or `:app-lite:assembleDebug`); full gate `./gradlew check`
+- The previous single-module app is in `legacy/android/`
 - Use `/android-dev` for building, deploying, and debugging
 
 ### Memory System
@@ -126,8 +131,8 @@ context/
 │   ├── MEMORY.md      # Authoritative index (keep under 200 lines)
 │   └── *.md           # Detailed topic files
 ├── public/            # Static files served at URL root
-├── skills/            # Symlinks to default-skills/* + personalized folders
-├── scripts/           # Symlinks to default-scripts/* + personalized files
+├── skills/            # Symlinks to shared/skills/* + personalized folders
+├── scripts/           # Symlinks to shared/scripts/* + personalized files
 ├── secrets/           # OAuth credentials and tokens
 ├── certs/             # SSL certificates
 └── .env               # Environment variables
@@ -180,11 +185,11 @@ The orchestrator supports a realtime voice mode powered by the OpenAI Realtime A
 - `api/routes/voice.py` — Ephemeral token endpoint (exchanges `OPENAI_API_KEY` for a short-lived token)
 - `orchestrator/providers/openai_voice.py` — `OpenAIVoiceProvider` that translates OpenAI Realtime events into `OrchestratorEvent`s
 - `orchestrator/session.py` — Voice session lifecycle, tool execution, JSONL persistence
-- `frontend/src/voice/core/VoiceController.ts` — Voice signaling state machine (bridges the transport and the orchestrator WebSocket)
-- `frontend/src/voice/transports/` — `webrtc.ts` (SDP exchange, mic, data channel) and `wsRelay.ts` (audio over the backend WebSocket relay)
-- `frontend/src/features/voice/` — Voice UI (`VoiceDock.tsx`, `VoiceSlot.tsx`)
-- `frontend/src/services/http/endpoints/voice.ts` — API client for ephemeral token and SDP exchange
-- Android: `android/core/voice`, `android/core/voice-host`, `android/core/wakeword`, `android/core/audio`
+- `apps/web/src/voice/core/VoiceController.ts` — Voice signaling state machine (bridges the transport and the orchestrator WebSocket)
+- `apps/web/src/voice/transports/` — `webrtc.ts` (SDP exchange, mic, data channel) and `wsRelay.ts` (audio over the backend WebSocket relay)
+- `apps/web/src/features/voice/` — Voice UI (`VoiceDock.tsx`, `VoiceSlot.tsx`)
+- `apps/web/src/services/http/endpoints/voice.ts` — API client for ephemeral token and SDP exchange
+- Android: `apps/android/core/voice`, `apps/android/core/voice-host`, `apps/android/core/wakeword`, `apps/android/core/audio`
 
 **Environment:** Requires `OPENAI_API_KEY` set in the environment. Default model: `gpt-realtime`.
 
@@ -199,15 +204,15 @@ You can extend and modify your own capabilities:
 - **Skills** (`context/skills/`): Create with `/scaffold-skill`, modify existing ones directly
 - **Agents** (`context/agents/`): Create with `/scaffold-agent` for specialized subagents
 - **Scripts** (`context/scripts/`): Shared tools any skill can reference
-- **Wrapper** (`api/`, `manager/`, `orchestrator/`, `frontend/`): The application code itself
-- **Android apps** (`android/`): Native mobile clients — use `/android-dev` to build, deploy, and debug
+- **Wrapper** (`api/`, `manager/`, `orchestrator/`, `apps/web/`): The application code itself
+- **Android apps** (`apps/android/`): Native mobile clients — use `/android-dev` to build, deploy, and debug
 
 Run Python scripts through the venv: `context/scripts/run.sh context/scripts/<script>.py [args]`
 
 **General vs Personalized:**
-- General-purpose items live in `default-skills/`, `default-scripts/`, and `default-agents/`
+- General-purpose items live in `shared/skills/`, `shared/scripts/`, and `shared/agents/`
 - Personalized ones live directly in `context/skills/`, `context/scripts/`, and `context/agents/`
-- The context folders have symlinks to the defaults, so all are accessible from one place
+- The context folders have symlinks to the general-purpose items, so all are accessible from one place
 
 ### Skill and Script Maintenance
 
@@ -276,7 +281,7 @@ The send loop also recovers from a related SDK bug: some `claude-cli` versions d
 
 ### Warm Search Server
 
-Loading PyTorch + sentence-transformers + the embedding model takes ~100s on low-power hardware, so `default-scripts/search-server.py` runs as a persistent subprocess that loads the model once and serves queries over stdin/stdout (JSON-line protocol). `orchestrator/tools/search.py` manages the singleton with auto-recovery and a cold fallback. The server is pre-warmed during API startup (`api/app.py`) so the first query is fast too. `default-scripts/run.sh` sets `LD_PRELOAD=libgomp.so.1` on aarch64 to fix the "cannot allocate memory in static TLS block" ImportError. Searches went from ~68–103s to ~1–3s.
+Loading PyTorch + sentence-transformers + the embedding model takes ~100s on low-power hardware, so `shared/scripts/search-server.py` runs as a persistent subprocess that loads the model once and serves queries over stdin/stdout (JSON-line protocol). `orchestrator/tools/search.py` manages the singleton with auto-recovery and a cold fallback. The server is pre-warmed during API startup (`api/app.py`) so the first query is fast too. `shared/scripts/run.sh` sets `LD_PRELOAD=libgomp.so.1` on aarch64 to fix the "cannot allocate memory in static TLS block" ImportError. Searches went from ~68–103s to ~1–3s.
 
 ### Testing
 
@@ -292,7 +297,7 @@ Chrome DevTools MCP provides full browser control. Use `/debug-app` for integrat
 
 ### Skills & Integrations
 
-The default skill set provides a broad range of integrations. Run `/help` inside the assistant to list them, or browse `default-skills/` directly.
+The default skill set provides a broad range of integrations. Run `/help` inside the assistant to list them, or browse `shared/skills/` directly.
 
 Categories include:
 - **Code/dev tooling** — `/debug-app`, `/scaffold-skill`, `/scaffold-agent`, `/android-dev`, `/tv-dev`

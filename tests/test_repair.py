@@ -1,4 +1,4 @@
-"""Tests for default-scripts/repair.py — validator and WAL replay.
+"""Tests for shared/scripts/repair.py — validator and WAL replay.
 
 The validator runs a probe in a subprocess so chroma SIGSEGV is a clean
 exit code. We test:
@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
-SCRIPTS_DIR = PROJECT_DIR / "default-scripts"
+SCRIPTS_DIR = PROJECT_DIR / "shared" / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import repair  # noqa: E402

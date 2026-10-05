@@ -1,4 +1,4 @@
-"""Tests for default-scripts/index_client.IndexFacade.
+"""Tests for shared/scripts/index_client.IndexFacade.
 
 Verifies:
   - The facade can talk to a running warm server via socket
@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
-SCRIPTS_DIR = PROJECT_DIR / "default-scripts"
+SCRIPTS_DIR = PROJECT_DIR / "shared" / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 pytestmark = [pytest.mark.slow, pytest.mark.timeout(240)]

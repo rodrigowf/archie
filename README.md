@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="Assistant logo" width="160" />
+  <img src="docs/assets/logo.svg" alt="Assistant logo" width="160" />
 </p>
 
 # Personal Assistant

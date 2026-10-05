@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-# Make default-scripts/ importable (embed.py, search.py, etc. live here).
-SCRIPTS_DIR = Path(__file__).parent.parent / "default-scripts"
+# Make shared/scripts/ importable (embed.py, search.py, etc. live here).
+SCRIPTS_DIR = Path(__file__).parent.parent / "shared" / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 

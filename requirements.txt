@@ -21,7 +21,7 @@ httpx>=0.27.0
 #   - 1.5.x has a Rust-based HNSW reader that can SIGSEGV on corrupt
 #     segments rather than recover (see chroma#7069, #6975).
 #   - We tune hnsw:sync_threshold=200 and rely on the single-writer
-#     warm search-server (default-scripts/search-server.py) to avoid
+#     warm search-server (shared/scripts/search-server.py) to avoid
 #     concurrent PersistentClient opens, which the maintainers state
 #     is not safe (chroma#3792).
 # Different machines have shipped with different versions historically

@@ -19,7 +19,7 @@ def _get_skills_dir() -> Path:
     ctx_skills = PROJECT_ROOT / "context" / "skills"
     if ctx_skills.is_dir():
         return ctx_skills
-    return PROJECT_ROOT / "default-skills"
+    return PROJECT_ROOT / "shared" / "skills"
 
 
 def _load_skill_info(skill_dir: Path) -> dict[str, Any] | None:

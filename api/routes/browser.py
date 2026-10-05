@@ -1,6 +1,6 @@
 """WebSocket endpoint for the browser-control Chrome extension.
 
-The extension (``browser-extension/``) connects here and waits for commands;
+The extension (``apps/browser-extension/``) connects here and waits for commands;
 the backend drives it. This is the transport layer only — command semantics
 (navigate, snapshot, click, …) live in the extension's own command registry.
 
@@ -17,7 +17,7 @@ Every command gets exactly one ``result`` frame keyed by its request ``id``, so
 **Auth fails closed.** The extension has ``<all_urls>`` host access and (from
 Phase 6) unrestricted JS execution in a logged-in profile, so anything that can
 reach this socket can act as Rodrigo on every site he is signed into. If no
-token is configured, no connection is accepted. See ``browser-extension/SPEC.md``
+token is configured, no connection is accepted. See ``apps/browser-extension/SPEC.md``
 §5.2.
 
 Note: frames are sent as *text*, not bytes. A browser ``WebSocket`` delivers a

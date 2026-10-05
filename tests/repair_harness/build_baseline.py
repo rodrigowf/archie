@@ -19,7 +19,7 @@ from pathlib import Path
 
 HARNESS_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = HARNESS_DIR.parent.parent
-sys.path.insert(0, str(PROJECT_DIR / "default-scripts"))
+sys.path.insert(0, str(PROJECT_DIR / "shared" / "scripts"))
 
 import embed  # noqa: E402
 

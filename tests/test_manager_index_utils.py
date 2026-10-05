@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_DIR / "default-scripts"))
+sys.path.insert(0, str(PROJECT_DIR / "shared" / "scripts"))
 
 from manager import index_utils  # noqa: E402
 

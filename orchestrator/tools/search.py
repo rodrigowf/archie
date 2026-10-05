@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 
 # Paths (defined upfront so enrichment helpers below can reference them).
 _PROJECT_DIR = Path(__file__).resolve().parent.parent.parent
-_SEARCH_SERVER = _PROJECT_DIR / "default-scripts" / "search-server.py"
-_SEARCH_SCRIPT = _PROJECT_DIR / "default-scripts" / "search.py"
+_SEARCH_SERVER = _PROJECT_DIR / "shared" / "scripts" / "search-server.py"
+_SEARCH_SCRIPT = _PROJECT_DIR / "shared" / "scripts" / "search.py"
 _RUN_SH = _PROJECT_DIR / "context" / "scripts" / "run.sh"
 
 # Frontmatter parser — simple YAML subset (no nested structures except a list

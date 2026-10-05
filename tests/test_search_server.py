@@ -20,8 +20,8 @@ from pathlib import Path
 import pytest
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
-SERVER_SCRIPT = PROJECT_DIR / "default-scripts" / "search-server.py"
-SCRIPTS_DIR = PROJECT_DIR / "default-scripts"
+SERVER_SCRIPT = PROJECT_DIR / "shared" / "scripts" / "search-server.py"
+SCRIPTS_DIR = PROJECT_DIR / "shared" / "scripts"
 
 pytestmark = [pytest.mark.slow, pytest.mark.timeout(240)]
 
