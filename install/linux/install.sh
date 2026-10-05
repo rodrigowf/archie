@@ -1283,7 +1283,7 @@ echo "  ${GREEN}$((STEP + 1)).${NC} Start the frontend (new terminal):"
 echo "     ${BLUE}cd frontend && npm run dev${NC}"
 echo ""
 
-echo "  ${GREEN}$((STEP + 2)).${NC} Open ${BLUE}https://localhost:5432${NC} in your browser"
+echo "  ${GREEN}$((STEP + 2)).${NC} Open ${BLUE}https://localhost:5450${NC} in your browser"
 echo ""
 
 echo -e "${CYAN}Tip:${NC} Use ${BOLD}/help${NC} in the assistant to see available commands."
