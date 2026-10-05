@@ -29,7 +29,7 @@ manager/ (claude-agent-sdk wrapper)
 
 Key entry points:
 - API: `context/scripts/run.sh -m uvicorn api.app:create_app --factory --port 8765`
-- Frontend: `cd frontend && npm run dev` (Vite dev server on port 5432)
+- Frontend: `cd frontend && npm run dev` (Vite dev server on port 5450; `npm run dev:compat` → Safari 12 build on 5451; `npm run mock` → mock backend)
 - Tests: `context/scripts/run.sh -m pytest tests/ -v`
 
 ## Debugging Workflow
@@ -51,7 +51,7 @@ When debugging, start servers with verbose output to capture logs:
 Use Chrome DevTools MCP tools to interact with the running application:
 
 **Navigation and Snapshots:**
-- `navigate_page` to load the app (typically https://localhost:5432)
+- `navigate_page` to load the app (typically https://localhost:5450, or http:// when `context/certs/` has no certificate)
 - `take_snapshot` to get the current page structure and element UIDs
 - `take_screenshot` to capture visual state
 
@@ -122,9 +122,11 @@ Use Chrome DevTools MCP tools to interact with the running application:
 - `api/connections.py` — ConnectionManager for WebSocket tracking
 
 **Frontend:**
-- `frontend/src/hooks/useChat.ts` — Chat state management
-- `frontend/src/hooks/useWebSocket.ts` — WebSocket connection
-- `frontend/src/components/ChatPanel.tsx` — Main chat UI
+- `frontend/src/protocol/reducer/machine.ts` — Conversation state machine (pure reducer)
+- `frontend/src/services/sessions/SessionRuntime.ts` / `ArchieRuntime.ts` — Per-session runtime (agent / orchestrator)
+- `frontend/src/services/ws/socket.ts` — WebSocket connection
+- `frontend/src/features/conversation/ConversationPanel.tsx` — Main chat UI
+- The pre-cutover app is in `_old/frontend/src/` (served at `/legacy/`)
 
 ## Output Format
 

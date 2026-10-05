@@ -43,12 +43,16 @@ Start the Vite dev server from the frontend directory. Same `setsid` pattern:
 
 Replace TIMESTAMP with `$(date +%Y%m%d_%H%M%S)`.
 
+`npm run dev` serves the main build on port 5450. For the Safari 12 / iOS 12 compat build use `npm run dev:compat` (port 5451, base `/compat/`). Both proxy `/api`, `/memory`, `/uploads` and `/projects` to the backend at `http://localhost:8765` (override with the `ARCHIE_BACKEND` env var). Without a backend, `npm run mock` starts a mock server (port 8799). The ports are strict: if one is taken, Vite exits instead of picking another.
+
+The pre-cutover web apps live in `_old/frontend/` (dev port 5432, base `/legacy/`) and `_old/frontend-compat/` (dev port 5433, base `/legacy_compat/`); start them the same way only when debugging the legacy apps.
+
 ### Verify Startup
 
 After starting both servers:
 1. Wait a few seconds for servers to initialize
 2. Check that processes are running with ps aux filtered for uvicorn and vite
-3. Backend should be on port 8765, frontend on port 5432
+3. Backend should be on port 8765, frontend on port 5450 (compat dev server: 5451)
 
 ---
 
@@ -58,7 +62,7 @@ Use these MCP tools to automate browser interaction with the frontend.
 
 ### Opening the Application
 
-Use the new_page tool to open a browser tab at the frontend URL. If SSL certs exist in context/certs/, the URL is https://localhost:5432; otherwise it's http://localhost:5432. Check the frontend log output to confirm which protocol is being served.
+Use the new_page tool to open a browser tab at the frontend URL. If SSL certs exist in context/certs/ (key.pem + cert.pem), the URL is https://localhost:5450; otherwise (or with FN_HTTPS=0) it's http://localhost:5450. The backend itself also serves the last production build at http://localhost:8765/ (and /compat/, /legacy/, /legacy_compat/). Check the frontend log output to confirm which protocol is being served.
 
 ### Taking Snapshots
 
@@ -188,6 +192,6 @@ For real-time output, use tail with the follow flag on the log file. Run in back
 
 **Kill servers**: Use pkill or kill with the process IDs found above.
 
-**Check port usage**: Use lsof or ss to verify ports 8765 and 5432.
+**Check port usage**: Use lsof or ss to verify ports 8765 and 5450 (5451 for compat, 8799 for the mock).
 
 **Restart cleanly**: Kill existing processes, then start fresh with new log files.

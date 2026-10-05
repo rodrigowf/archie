@@ -79,7 +79,7 @@ The wrappers at the project root (`install.sh`, `install-with-agent.sh`, `instal
 ## Prerequisites
 
 - **Python 3.12+**
-- **Node.js 20+** (Qwen Code and Gemini CLI both depend on Node)
+- **Node.js 22.12+** for the web frontend's toolchain (`frontend/package.json` `engines`); Qwen Code and Gemini CLI also depend on Node
 - **npm** (comes with Node)
 - **git**
 
@@ -282,9 +282,10 @@ Then conditionally (use the venv pip path matching your OS):
 
 ```bash
 cd frontend && npm install
-cd frontend-compat && npm install
 cd ..
 ```
+
+`frontend/` is one project with two builds: `npm run build` writes `frontend/dist` (served at `/`) and `frontend/dist-compat` (Safari 12 / iOS 12 build, served at `/compat/`). The previous web apps are kept under `_old/frontend/` and `_old/frontend-compat/` (served at `/legacy/` and `/legacy_compat/` once built); they are optional — install their deps (`npm install` in each) only if you want those builds.
 
 ### Step 7b: Agent CLI install + first-run login
 
@@ -365,7 +366,7 @@ cd frontend && npm run dev
 cd frontend; npm run dev
 ```
 
-Open **https://localhost:5432** and start chatting.
+Open **https://localhost:5450** (the Vite dev server; plain `http://` when no certificate is present in `context/certs/`) and start chatting. The Safari 12 build has its own dev server: `npm run dev:compat` (port 5451). Alternatively, `cd frontend && npm run build` once and use the backend directly at `http://localhost:8765/` (it serves `frontend/dist` at `/` and `frontend/dist-compat` at `/compat/`).
 
 If you used the conversational installer, the agent can offer to start both in the background for you.
 
