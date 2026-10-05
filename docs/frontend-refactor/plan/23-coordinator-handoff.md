@@ -4,6 +4,30 @@ Written 2026-10-04 by the coordinator (Claude) at the end of the implementation 
 Read this first when resuming; then `README.md` (charter), `plan/20` (decisions), `plan/21`
 (operating model), `plan/22` (progress log + open issues).
 
+## 00. CUTOVER DONE (2026-10-05 ~19:45) — read this before §0
+
+- **Layout:** `frontend/` (was frontend-next) and `android/` (was android-next) are the apps; legacy `frontend`,
+  `frontend-compat`, `android` and the old `legacy/` notes live in `_old/` (`_old/notes`). Commits `4da2f2b` (cutover),
+  `212354a` (legacy viz symlink), `9112fad` (docs); context repo `a854103` (AGENTS.md, skills, memory —
+  `memory/assistant/infrastructure/repo_layout_cutover_2026_10.md`; context **not pushed**).
+- **Routes** (`api/app.py` `_spa_dirs`): `/` new main, `/compat/` new compat, `/legacy/` and `/legacy_compat/` old builds
+  (Vite bases changed; no SW under /legacy/), `/next*` → 307 to `/` / `/compat/`. nginx unchanged (proxies everything).
+- **Deployed:** `local` @ `190058c` (merge of the branch; `local` tree == branch), pushed; Jetson pulled, 4 dists rsynced
+  (`frontend/dist`, `frontend/dist-compat`, `_old/frontend/dist`, `_old/frontend-compat/dist`), restarted via systemd 19:42.
+  Verified: every route 200/307, right build per path, assets load, Chrome: `/` and `/legacy/` boot with no console errors,
+  both phones reconnected. Jetson backup of the old dists: `~/deploy-backup-2026-10-05/dists-before-cutover.tgz`.
+  Rollback: Jetson `git reset --hard 9cbfbaf` + untar + restart. systemd warns the unit file changed on disk (pre-existing; daemon-reload not run).
+- **Gates at cutover:** backend 1209 passed; web verify green; android check green.
+- **Fixed today:** `1e3fffe` both apps follow an Archie conversation opened elsewhere (`agent_session_opened`) + cues
+  never played (MODE_STATIC state check); `cacde53` lite face shows the conversation (live frames + history on attach).
+  A300M lite app installed (2.0.0/100) — see `plan/field-a300m.md` (L-F2 ✅, Q8 drop ✅, G-01a "wake up" ✅ 19:19, L-F1 152 MB armed debug).
+  POCO main app installed 19:15 with `1e3fffe` (follow verified live after the restart).
+- **Open:** BUG-3 talk-trigger false starts (Rodrigo to choose: full phrase before "Recording" (recommended) / rarer phrases / keep);
+  Whisper "MBC 뉴스 이덕영입니다" hallucination on silent voice input (backend/OpenAI input transcription — separate);
+  viz scripts + install scripts still print `:5432` URLs; the A300M `peripheral-data.ab` backup is truncated (settings not in it);
+  context repo commit not pushed; `context/secrets/android/` untracked (114 MB, not committed); release builds + remaining
+  L-F/F tests; lite `versionCode ≥ 11` comments stale (100 on device).
+
 ## 0. RESUME HERE — state at the 2nd compaction (2026-10-05 ~19:00)
 
 Read this section first; §1–§9 below are the 2026-10-04 baseline (still valid unless overridden here).
