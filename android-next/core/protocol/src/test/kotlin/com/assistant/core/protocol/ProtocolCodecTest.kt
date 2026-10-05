@@ -56,6 +56,7 @@ class ProtocolCodecTest {
         ServerFrame.Error("send_failed", "boom"),
         ServerFrame.UserMessage("second", queued = true),
         ServerFrame.UserMessage("[shared text]\nBuy milk", source = "shared_inject"),
+        ServerFrame.UserMessage("", source = "voice_message"),
         ServerFrame.TextDelta("Hel", 1, "L1:1"),
         ServerFrame.TextComplete("Hello", 2, "L1:1"),
         ServerFrame.ThinkingDelta("Hm", 3, "L1:1"),

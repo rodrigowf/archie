@@ -171,11 +171,17 @@ object HistoryMerger {
     private val AUDIO = Regex("^\\[audio:[A-Za-z0-9]+\\] ?")
     private val COMMAND = Regex("^<(command-name|command-message|command-args|local-command-stdout|local-command-stderr|local-command-caveat)>")
 
+    /** What the backend persists after the `[audio:<fmt>] ` prefix when a voice message had no prompt. */
+    private const val AUDIO_NO_PROMPT = "(audio message)"
+
     /** §5.1 `classifyUserLine`: strips the backend's / CLI's text prefixes (G-11, §5.7). */
     fun classifyUserLine(text: String): UserLine {
         if (text.startsWith("[voice] ")) return UserLine.User(text.substring(8), UserOrigin.VOICE)
         VOICE_RECORDING.find(text)?.let { return UserLine.User(text.substring(it.value.length), UserOrigin.VOICE) }
-        AUDIO.find(text)?.let { return UserLine.User(text.substring(it.value.length), UserOrigin.AUDIO) }
+        AUDIO.find(text)?.let {
+            val prompt = text.substring(it.value.length)
+            return UserLine.User(if (prompt == AUDIO_NO_PROMPT) "" else prompt, UserOrigin.AUDIO)
+        }
         if (text.startsWith("[shared file] ") || text.startsWith("[shared text]")) return UserLine.User(text, UserOrigin.INJECT)
         if (text.startsWith("[Request interrupted by user")) return UserLine.Notice(NoticeKind.INTERRUPTED, "")
         if (text.startsWith("This session is being continued from a previous conversation")) {

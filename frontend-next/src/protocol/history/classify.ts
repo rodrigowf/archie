@@ -10,6 +10,8 @@ export type ClassifiedLine =
 
 const VOICE_RECORDING = /^\[voice, recording: [^\]]*\] ?/;
 const AUDIO = /^\[audio:[A-Za-z0-9]+\] ?/;
+/** What the backend persists after the `[audio:<fmt>] ` prefix when a voice message had no prompt. */
+const AUDIO_NO_PROMPT = '(audio message)';
 const COMMAND = /^<(command-name|command-message|command-args|local-command-stdout|local-command-stderr|local-command-caveat)>/;
 
 function user(text: string, origin: UserOrigin): ClassifiedLine {
@@ -26,7 +28,10 @@ export function classifyUserLine(text: string): ClassifiedLine {
   let m = VOICE_RECORDING.exec(text);
   if (m) return user(text.slice(m[0].length), 'voice');
   m = AUDIO.exec(text);
-  if (m) return user(text.slice(m[0].length), 'audio');
+  if (m) {
+    const prompt = text.slice(m[0].length);
+    return user(prompt === AUDIO_NO_PROMPT ? '' : prompt, 'audio');
+  }
   if (text.startsWith('[shared file] ') || text.startsWith('[shared text]')) return user(text, 'inject');
   if (text.startsWith('[Request interrupted by user')) return notice('interrupted', '');
   if (text.startsWith('This session is being continued from a previous conversation')) return notice('compaction', text);

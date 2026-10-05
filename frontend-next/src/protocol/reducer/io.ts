@@ -20,7 +20,8 @@ export type ConversationInput =
   | { readonly type: 'datachannel_event'; readonly event: Readonly<Record<string, unknown>> }
   // user actions (§4.3 local_*, §6)
   | { readonly type: 'local_send'; readonly text: string }
-  | { readonly type: 'local_send_audio' }
+  /** `text`: the optional prompt sent with the clip (the composer note); `""` when none. */
+  | { readonly type: 'local_send_audio'; readonly text?: string }
   | { readonly type: 'local_inject'; readonly text: string }
   | { readonly type: 'local_interrupt' }
   | { readonly type: 'local_compact' }

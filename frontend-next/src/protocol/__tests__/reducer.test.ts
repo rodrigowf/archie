@@ -141,6 +141,12 @@ describe('turns, errors, compaction (TL-*, §4.4.4)', () => {
     expect(texts(c)).toEqual(['U(audio):', 'N(error):bad']);
   });
 
+  it('orchestrator voice message (VM-1): the local bubble carries the prompt; an echo from another device is an audio entry', () => {
+    expect(texts(feed(orch(), { type: 'local_send_audio', text: 'about this' }).conv)).toEqual(['U(audio):about this']);
+    const c = feed(orch(), { type: 'user_message', text: '', source: 'voice_message' }, { type: 'status', status: 'streaming' }, { type: 'text_complete', text: 'ok' }).conv;
+    expect(texts(c)).toEqual(['U(audio):', 'A[text:ok]']);
+  });
+
   it('orchestrator interrupt: status and error interrupted give one notice; nested streaming depth (TL-4)', () => {
     let c = feed(orch(), { type: 'local_send', text: 'a' }, { type: 'status', status: 'streaming' }, { type: 'status', status: 'streaming' }).conv;
     expect(c.turnDepth).toBe(2);

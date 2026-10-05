@@ -90,6 +90,9 @@ describe('classifyUserLine and normalizeOutput', () => {
     expect(classifyUserLine('hello')).toEqual({ kind: 'user', text: 'hello', origin: 'history' });
     expect(classifyUserLine('[shared text] Note\nbody')).toEqual({ kind: 'user', text: '[shared text] Note\nbody', origin: 'inject' });
     expect(classifyUserLine('<local-command-stdout>x</local-command-stdout>')).toMatchObject({ kind: 'notice', notice: 'command' });
+    // VM-1: a voice message without a prompt reloads like the live one (empty text)
+    expect(classifyUserLine('[audio:wav] (audio message)')).toEqual({ kind: 'user', text: '', origin: 'audio' });
+    expect(classifyUserLine('[audio:webm] what is this?')).toEqual({ kind: 'user', text: 'what is this?', origin: 'audio' });
   });
 
   it('R-3 output normalisation', () => {

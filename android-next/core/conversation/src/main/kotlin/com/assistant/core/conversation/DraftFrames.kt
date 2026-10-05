@@ -85,6 +85,11 @@ private fun Draft.onUserMessage(f: ServerFrame.UserMessage) {
         appendEntry(UserEntry(newEntryId(), f.text, UserOrigin.INJECT, UserState.SENT))
         return
     }
+    // Another device's voice message (`send_audio`); the sender's own socket gets no echo.
+    if (f.source == "voice_message") {
+        appendEntry(UserEntry(newEntryId(), f.text, UserOrigin.AUDIO, UserState.SENT))
+        return
+    }
     // A pre-O-6 backend re-echoes a queued prompt at dispatch, after status{processing} already moved
     // it from the tray into the timeline. It is not a new prompt, so it is swallowed BEFORE the
     // "observer of an interrupted turn" rule below (which would otherwise end the just-started turn).

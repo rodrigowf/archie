@@ -202,7 +202,7 @@ class Machine extends Draft {
       case 'local_send':
         return this.localSend(x.text);
       case 'local_send_audio':
-        this.appendEntry(this.userEntry('', 'audio', 'sent'));
+        this.appendEntry(this.userEntry(x.text ?? '', 'audio', 'sent'));
         this.s.localTurnsPending += 1;
         return;
       case 'local_inject':
@@ -879,6 +879,8 @@ class Machine extends Draft {
           }
           return this.appendEntry(this.userEntry(f.text, 'inject', 'sent'));
         }
+        // another device's voice message (send_audio); the sender's own socket gets no echo
+        if (f.source === 'voice_message') return this.appendEntry(this.userEntry(f.text, 'audio', 'sent'));
         // a pre-O-6 re-echo of a prompt already moved out of the tray is swallowed BEFORE endTurn (which clears it)
         const d = this.s.dispatchedFromTray.indexOf(f.text);
         if (d >= 0) {

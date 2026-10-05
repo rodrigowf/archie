@@ -180,7 +180,7 @@ export class ArchieRuntime extends ConversationRuntime implements ChannelClient,
   /** §6.16 talk-mode audio message, on the orchestrator WS only (A-8.6). */
   sendAudio(audio: string, format: string, text?: string): void {
     if (this.readOnly) return;
-    this.step({ type: 'local_send_audio' });
+    this.step({ type: 'local_send_audio', text: text ?? '' });
     this.audioTurnPending = true;
     this.sendWhenSubscribed(text ? { type: 'send_audio', audio, format, text } : { type: 'send_audio', audio, format });
   }

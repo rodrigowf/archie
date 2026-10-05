@@ -82,7 +82,10 @@ sealed interface ServerFrame {
 
     // ───────────── prompts and content ─────────────
 
-    /** `{text}`, `{text, queued: true}` (chat) or `{text, source: "shared_inject"}` (orchestrator voice). */
+    /**
+     * `{text}`, `{text, queued: true}` (chat), `{text, source: "shared_inject"}` (orchestrator voice) or
+     * `{text, source: "voice_message"}` (orchestrator: another device's `send_audio`; `text` = its prompt or "").
+     */
     data class UserMessage(
         val text: String,
         val queued: Boolean = false,

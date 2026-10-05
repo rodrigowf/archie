@@ -156,7 +156,7 @@ UserEntry = {
   origin: "local"     // typed or sent by this client
         | "echo"      // user_message from another client / REST inject
         | "voice"     // speech transcript (live or "[voice] …" history line)
-        | "audio"     // talk-mode audio message (send_audio, "[audio:fmt] …" history line)
+        | "audio"     // voice message (local send_audio, user_message{source:"voice_message"}, "[audio:fmt] …" history line)
         | "inject"    // shared text / uploaded file link (inject_text, "[shared …]" history line)
         | "history",  // any other user line loaded from REST
   state: "sent" | "pending",      // "pending": local inject awaiting its echo
@@ -697,6 +697,9 @@ function reduce(f) {
       if (i >= 0) { pendingInjects.splice(i, 1); markInjectSent(f.text); return }
       appendEntry({ kind: "user", text: f.text, origin: "inject", state: "sent" }); return
     }
+    if (f.source == "voice_message") {                          // another device's voice message (VM-1);
+      appendEntry({ kind: "user", text: f.text, origin: "audio", state: "sent" }); return  // never sent to its sender
+    }
     const d = dispatchedFromTray.indexOf(f.text)               // pre-O-6 backends still echo a dispatched
     if (d >= 0) { dispatchedFromTray.splice(d, 1); return }     // queued prompt once more: already shown
                                                                // (checked BEFORE endTurn, which clears dispatchedFromTray)
@@ -864,7 +867,8 @@ function local_send(text) {
     localTurnsPending += 1
   }
 }
-function local_send_audio()  { appendEntry({ kind: "user", text: "", origin: "audio", state: "sent" }); localTurnsPending += 1 }
+function local_send_audio(text = "") { appendEntry({ kind: "user", text, origin: "audio", state: "sent" }); localTurnsPending += 1 }
+                               // text: the prompt sent with the clip (web composer note); Android sends none
 function local_inject(text) {                                  // orchestrator only (§6.15)
   if (voiceActive) { appendEntry({ kind: "user", text, origin: "inject", state: "pending" }); pendingInjects.push(text) }
   else { appendEntry({ kind: "user", text, origin: "inject", state: "sent" }); localTurnsPending += 1 }
@@ -911,9 +915,9 @@ exception path:   status{streaming} → … → error{send_failed|send_audio_fai
 
 #### 4.4.3 Background and unprompted turns (orchestrator)
 
-The orchestrator does not echo typed prompts to other devices (G-22), and background-agent wake turns stream a reply with no prompt at all (01 §5.1). `background_notification` lines exist only in the JSONL and are never sent live (`orchestrator/session.py:1654-1670`).
+Before backend O-3 the orchestrator did not echo typed prompts to other devices (G-22); it now echoes typed prompts and voice messages (VM-1). Background-agent wake turns stream a reply with no prompt at all (01 §5.1). `background_notification` lines exist only in the JSONL and are never sent live (`orchestrator/session.py:1654-1670`).
 
-- **BG-1.** When the first assistant content of an orchestrator text turn arrives, the turn was not started by this client (`turnIsLocal == false`), **and the entry immediately before the new run is not a user entry** (since backend O-3, prompts typed on other devices arrive as `user_message` echoes and are visible prompts, not background), the reducer appends `notice{background}` before the run (`maybeBackgroundNotice`). UI copy: "Background update" with the explanation "The orchestrator replied to a background task or to another device." This keeps the reply in its own run and visibly unprompted.
+- **BG-1.** When the first assistant content of an orchestrator text turn arrives, the turn was not started by this client (`turnIsLocal == false`), **and the entry immediately before the new run is not a user entry** (since backend O-3, prompts typed on other devices arrive as `user_message` echoes and voice messages as `user_message{source:"voice_message"}` echoes (VM-1); both are visible prompts, not background), the reducer appends `notice{background}` before the run (`maybeBackgroundNotice`). UI copy: "Background update" with the explanation "The orchestrator replied to a background task or to another device." This keeps the reply in its own run and visibly unprompted.
 - **BG-2.** History lines `<task-notification>…` (Claude Code background tasks) become `notice{background, text: <line>}` (§5.1).
 
 #### 4.4.4 Errors
@@ -1106,7 +1110,7 @@ function classifyUserLine(text): Entry {
   let m
   if (text.startsWith("[voice] "))                       return user(text.slice(8), "voice")
   if (m = /^\[voice, recording: [^\]]*\] ?/.exec(text))  return user(text.slice(m[0].length), "voice")
-  if (m = /^\[audio:[A-Za-z0-9]+\] ?/.exec(text))        return user(text.slice(m[0].length), "audio")
+  if (m = /^\[audio:[A-Za-z0-9]+\] ?/.exec(text))        return user(audioPrompt(text.slice(m[0].length)), "audio")
   if (text.startsWith("[shared file] ") || text.startsWith("[shared text]")) return user(text, "inject")
   if (text.startsWith("[Request interrupted by user"))   return notice("interrupted", "")
   if (text.startsWith("This session is being continued from a previous conversation")) return notice("compaction", text)
@@ -1116,6 +1120,8 @@ function classifyUserLine(text): Entry {
   return user(text, "history")
 }
 // user(t, o) = { kind: "user", text: t, origin: o, state: "sent" };  notice(n, t) = { kind: "notice", notice: n, text: t }
+// audioPrompt(t) = t == "(audio message)" ? "" : t   — the backend's placeholder for a voice message
+//                  without a prompt, so a reloaded voice message matches the live one (VM-1)
 ```
 
 The prefixes are the backend's own (`orchestrator/voice_persister.py` writes `[voice] `; `orchestrator/session.py` writes `[audio:<fmt>] `; the Android share flow writes `[shared file] ` / `[shared text]`, §6.15) or the Claude CLI's (surveyed in `context/*.jsonl` on 2026-10-03). The regexes avoid lookbehind and named groups (Safari 12, 02 §5.4).
@@ -1232,7 +1238,7 @@ Sending while busy is allowed and queues server-side (web parity; Android must a
 local_send(text); WS→ {type:"send", text}
 ⇐ status{streaming} … turn_complete … status{idle}
 ```
-The server serialises turns; there is no tray for the orchestrator. Other devices see the reply after `notice{background}` (BG-1).
+The server serialises turns; there is no tray for the orchestrator. Other devices receive `user_message{text}` (O-3) before the turn, so the reply is not a background run (BG-1).
 
 ### 6.3 Interrupt / Stop
 
@@ -1420,10 +1426,14 @@ The formats are the Android ones (`AssistantViewModel.kt:262-332`); the web gain
 
 ```
 record (max 60 s; mic with echoCancellation + noiseSuppression) → base64 + format ("webm"|"ogg"|"mp4"|"wav")
-local_send_audio(); WS→ {type:"send_audio", audio, format, text?}   ON THE ORCHESTRATOR WS ONLY (A-8.6)
+local_send_audio(text ?? ""); WS→ {type:"send_audio", audio, format, text?}   ON THE ORCHESTRATOR WS ONLY (A-8.6)
 ⇐ status{streaming} … turn_complete … status{idle}      (or error{invalid_audio|send_audio_failed})
+other devices: user_message{text: text ?? "", source:"voice_message"} ⇒ audio entry, then the same turn
 ```
 Shown only on orchestrator views and only when the selected orchestrator model or any audio-capable model exists (`GET /api/orchestrator/models.audio_capable_models`, Appendix B Q5). The server may switch the model to `gpt-audio` permanently without `model_changed` (01 §7.8); the client SHOULD re-send `get_model` after the turn. Not available on compat (no `MediaRecorder` on Safari 12). Android's wake-word talk capture uses the same frame.
+
+- **VM-1.** A voice message is a visible prompt on every subscriber, exactly once. The sender shows its own bubble at `local_send_audio` (with the accompanying prompt, if any). After decoding the clip, the server broadcasts `user_message{text, source:"voice_message"}` (`text` = the accompanying prompt or `""`) to every **other** orchestrator subscriber (`api/routes/orchestrator.py` `_handle_send_audio`, `exclude` = the sending socket), before `status{streaming}`. The receivers append `UserEntry{origin:"audio"}`, so the reply follows a user entry and BG-1 adds no notice. No echo reaches the sending socket, so the sender needs no dedupe; a client MUST therefore send `send_audio` on the same socket that feeds its Archie view. An undecodable clip (`error{invalid_audio}`) is not echoed. The UI shows an audio entry as a "Voice message" bubble, with the prompt text when it is not empty. History stores the same turn as `[audio:<fmt>] <prompt>` (`[audio:<fmt>] (audio message)` without one), which §5.1 classifies to the same entry. Fixtures `orchestrator_voice_message_echo_no_background_notice`, `orchestrator_voice_message_sender_and_history`.
+- `POST /api/orchestrator/audio` starts no turn (it only broadcasts an `audio_upload` frame that nothing consumes, G-36), so it has no echo. Clients MUST NOT use it. If it ever starts turns, it MUST echo like VM-1 and carry a client-generated id in the echo so the uploading device can recognise its own echo (a REST caller has no socket to exclude).
 
 ---
 
@@ -1708,6 +1718,8 @@ IDs: **W-n** = item n of 02 §6.3; **W-6.1 / W-6.2** = the lists in 02 §6.1 / �
 | `compaction` | auto + manual compaction notices, I-2 |
 | `background_notification_wake_turn` | BG-1, TL-5 |
 | `orchestrator_echoed_prompt_no_background_notice` | BG-1 (O-3 echo is a visible prompt) |
+| `orchestrator_voice_message_echo_no_background_notice` | VM-1, BG-1 (another device's voice message is a visible prompt) |
+| `orchestrator_voice_message_sender_and_history` | VM-1 (sender: one local bubble, no echo), §5.1 `[audio:<fmt>]` lines |
 | `history_prepend_queued_prompt_dispatch` | H-6 (prepend keeps `promptSinceTurnEnd`), I-12 |
 | `history_prepend_voice_anchor_shift` | H-6 (anchor shift, open transcript survives a prepend), I-9 |
 | `orchestrator_closed_by_pool` | WATCH-1, FOCUS-2 |
@@ -1762,7 +1774,7 @@ Only fixes that a client cannot reasonably work around. Everything else in 01 §
 |---|---|---|
 | O-1 | Orchestrator history: fold `tool_use`/`tool_result` JSONL lines into REST blocks; persist each text block at `TextComplete` (G-8) | §5.7 footnote; no auto reload |
 | O-2 | `manager/protocol.py`: read `block["thinking"]`, emit `type:"thinking"` (G-9) | missing thinking after reload (W-16) |
-| O-3 | Orchestrator: `jsonl_id` in `session_started`; broadcast `user_message` for typed `send` (excluding the sender); broadcast a `background_notification` frame before wake turns (G-14, G-22) | BG-1 inference; `pool/live` lookups |
+| O-3 | Orchestrator: `jsonl_id` in `session_started`; broadcast `user_message` for typed `send` and `user_message{source:"voice_message"}` for `send_audio` (excluding the sender, VM-1); broadcast a `background_notification` frame before wake turns (G-14, G-22) | BG-1 inference; `pool/live` lookups |
 | O-4 | Relay fatal failure → `end_voice("error")` (G-21) | §7.7 `voice_stop` + 5 s timeout |
 | O-5 | Do not stamp `session_stalled` with the previous seq (G-18) | SEQ-2 exemption |
 | O-6 | Skip the second `user_message` for prompts already announced as `queued` (G-5) | tray matching in `user_message` |

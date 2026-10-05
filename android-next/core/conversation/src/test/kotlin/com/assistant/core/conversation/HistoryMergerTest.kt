@@ -41,6 +41,7 @@ class HistoryMergerTest {
         assertEquals(HistoryMerger.UserLine.User("hi there", UserOrigin.VOICE), c("[voice, recording: O1 120-2400ms] hi there"))
         assertEquals(HistoryMerger.UserLine.User("say", UserOrigin.AUDIO), c("[audio:webm] say"))
         assertEquals(HistoryMerger.UserLine.User("", UserOrigin.AUDIO), c("[audio:wav]"))
+        assertEquals(HistoryMerger.UserLine.User("", UserOrigin.AUDIO), c("[audio:wav] (audio message)"))  // VM-1
         assertEquals(HistoryMerger.UserLine.User("[shared file] a.pdf (1 KB)", UserOrigin.INJECT), c("[shared file] a.pdf (1 KB)"))
         assertEquals(HistoryMerger.UserLine.User("[shared text]\nx", UserOrigin.INJECT), c("[shared text]\nx"))
         assertEquals(HistoryMerger.UserLine.Notice(NoticeKind.INTERRUPTED, ""), c("[Request interrupted by user for tool use]"))
