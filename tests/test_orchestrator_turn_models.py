@@ -229,3 +229,19 @@ async def test_provider_sends_max_completion_tokens_and_retries_without_reasonin
     async for _ in p.create_message([{"role": "user", "content": "hi"}], tools, "sys"):
         pass
     assert [c.get("reasoning_effort") for c in calls] == ["none"]
+
+
+@pytest.mark.asyncio
+async def test_voice_message_history_line_keeps_only_the_users_text() -> None:
+    """Drained notifications reach the model but are persisted as their own lines, not in the
+    `[audio:…]` user line (a reloaded voice-message bubble must not show them)."""
+    s, agent = _session("gpt-audio-mini")
+    s._notifications = MagicMock()
+    s._notifications.drain.return_value = [MagicMock()]
+    with patch("orchestrator.session.resolve_audio_model", lambda: "gpt-audio-mini"), \
+            patch("orchestrator.session._render_notifications", lambda pending: "[SESSION x event: done]"), \
+            patch("orchestrator.session.convert_audio_to_wav", lambda d, f: (d, "wav")):
+        await _drain(s.send_audio(CLIP, "wav", "note"))
+    users = [c.args[0] for c in s._writer.append.call_args_list if c.args[0].get("type") == "user"]
+    assert [u["message"]["content"] for u in users] == ["[audio:wav] note"]
+    assert any(c.args[0].get("type") == "background_notification" for c in s._writer.append.call_args_list)
