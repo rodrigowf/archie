@@ -1,0 +1,1746 @@
+{
+  "source_commit": "e871d05",
+  "generated_by": "android/tools/parity/extract_old_constants.py",
+  "inventory": "docs/frontend-refactor/inventory/04-android-voice-and-device.md §4",
+  "count": 133,
+  "constants": [
+    {
+      "id": "wake.sample_rate_hz",
+      "module": "wakeword",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        211
+      ],
+      "type": "int",
+      "value": 16000,
+      "new": "com.assistant.core.wakeword.WakeTuning#SAMPLE_RATE_HZ"
+    },
+    {
+      "id": "wake.rms_threshold",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        239
+      ],
+      "type": "double",
+      "value": 70.0,
+      "new": "com.assistant.core.wakeword.WakeTuning#RMS_THRESHOLD"
+    },
+    {
+      "id": "wake.activity_hold_ms",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        243
+      ],
+      "type": "long",
+      "value": 30,
+      "new": "com.assistant.core.wakeword.WakeTuning#ACTIVITY_HOLD_MS"
+    },
+    {
+      "id": "wake.pre_buffer_ms",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        397
+      ],
+      "type": "int",
+      "value": 500,
+      "new": "com.assistant.core.wakeword.WakeTuning#PRE_BUFFER_MS"
+    },
+    {
+      "id": "wake.monitor_buffer_min_bytes",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        648
+      ],
+      "type": "int",
+      "value": 3200,
+      "new": "com.assistant.core.wakeword.WakeTuning#MONITOR_BUFFER_MIN_BYTES"
+    },
+    {
+      "id": "wake.mic_retry_ms",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        688,
+        702,
+        723
+      ],
+      "type": "long",
+      "value": 500,
+      "new": "com.assistant.core.wakeword.WakeTuning#MIC_RETRY_MS"
+    },
+    {
+      "id": "wake.mic_retry_warn_threshold",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        377
+      ],
+      "type": "int",
+      "value": 8,
+      "new": "com.assistant.core.wakeword.WakeTuning#MIC_RETRY_WARN_THRESHOLD"
+    },
+    {
+      "id": "wake.post_wakeword_delay_ms",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        261
+      ],
+      "type": "long",
+      "value": 3000,
+      "new": "com.assistant.core.wakeword.WakeTuning#POST_WAKEWORD_DELAY_MS"
+    },
+    {
+      "id": "wake.post_recognition_base_ms",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        269
+      ],
+      "type": "long",
+      "value": 1000,
+      "new": "com.assistant.core.wakeword.WakeTuning#POST_RECOGNITION_BASE_MS"
+    },
+    {
+      "id": "wake.post_recognition_max_ms",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        270
+      ],
+      "type": "long",
+      "value": 30000,
+      "new": "com.assistant.core.wakeword.WakeTuning#POST_RECOGNITION_MAX_MS"
+    },
+    {
+      "id": "wake.post_vosk_nomatch_ms",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        296
+      ],
+      "type": "long",
+      "value": 500,
+      "new": "com.assistant.core.wakeword.WakeTuning#POST_VOSK_NOMATCH_MS"
+    },
+    {
+      "id": "wake.speech_floor_rms",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        258
+      ],
+      "type": "double",
+      "value": 30.0,
+      "new": "com.assistant.core.wakeword.WakeTuning#SPEECH_FLOOR_RMS"
+    },
+    {
+      "id": "wake.command_abs_speech_floor",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        137
+      ],
+      "type": "double",
+      "value": 30.0,
+      "new": "com.assistant.core.wakeword.WakeTuning#COMMAND_ABS_SPEECH_FLOOR"
+    },
+    {
+      "id": "wake.adaptive_voice_floor_min",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        182
+      ],
+      "type": "double",
+      "value": 30.0,
+      "new": "com.assistant.core.wakeword.WakeTuning#ADAPTIVE_VOICE_FLOOR_MIN"
+    },
+    {
+      "id": "wake.silence_floor_attack",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        159
+      ],
+      "type": "double",
+      "value": 0.3,
+      "new": "com.assistant.core.wakeword.WakeTuning#SILENCE_FLOOR_ATTACK"
+    },
+    {
+      "id": "wake.silence_floor_release",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        160
+      ],
+      "type": "double",
+      "value": 0.02,
+      "new": "com.assistant.core.wakeword.WakeTuning#SILENCE_FLOOR_RELEASE"
+    },
+    {
+      "id": "wake.default_talk_silence_sensitivity",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        174
+      ],
+      "type": "double",
+      "value": 2.0,
+      "new": "com.assistant.core.wakeword.WakeTuning#DEFAULT_TALK_SILENCE_SENSITIVITY"
+    },
+    {
+      "id": "wake.seed_floor_min_preroll",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        1205,
+        1207
+      ],
+      "type": "behaviour",
+      "value": "seed = min non-zero per-frame RMS of the wake-phrase pre-roll, else unseeded (-1)",
+      "new": null
+    },
+    {
+      "id": "wake.onset_sustain_ms",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        192
+      ],
+      "type": "long",
+      "value": 300,
+      "new": "com.assistant.core.wakeword.WakeTuning#ONSET_SUSTAIN_MS"
+    },
+    {
+      "id": "wake.command_silence_ms",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        123
+      ],
+      "type": "long",
+      "value": 1000,
+      "new": "com.assistant.core.wakeword.WakeTuning#COMMAND_SILENCE_MS"
+    },
+    {
+      "id": "wake.command_max_ms",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        200
+      ],
+      "type": "long",
+      "value": 12000,
+      "new": "com.assistant.core.wakeword.WakeTuning#COMMAND_MAX_MS"
+    },
+    {
+      "id": "wake.command_speech_onset_timeout_ms",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        209
+      ],
+      "type": "long",
+      "value": 4000,
+      "new": "com.assistant.core.wakeword.WakeTuning#COMMAND_SPEECH_ONSET_TIMEOUT_MS"
+    },
+    {
+      "id": "wake.capture_frame_samples",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        1211
+      ],
+      "type": "int",
+      "value": 3200,
+      "new": "com.assistant.core.wakeword.WakeTuning#CAPTURE_FRAME_SAMPLES"
+    },
+    {
+      "id": "wake.mic_source_by_sdk",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        656,
+        657,
+        659
+      ],
+      "type": "behaviour",
+      "value": "VOICE_RECOGNITION below API 24, VOICE_COMMUNICATION from 24 (same as the call)",
+      "new": null
+    },
+    {
+      "id": "wake.variant_parse",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WakeWordDetector.kt",
+      "lines": [
+        307,
+        468,
+        470
+      ],
+      "type": "behaviour",
+      "value": "comma-split, trim, drop empty, lowercase, distinct; no phonetic substitutions",
+      "new": null
+    },
+    {
+      "id": "vosk.recognition_timeout_ms",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoskRecognitionEngine.kt",
+      "lines": [
+        54
+      ],
+      "type": "long",
+      "value": 5000,
+      "new": "com.assistant.core.wakeword.WakeTuning#VOSK_RECOGNITION_TIMEOUT_MS"
+    },
+    {
+      "id": "vosk.rms_started_threshold",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoskRecognitionEngine.kt",
+      "lines": [
+        62
+      ],
+      "type": "double",
+      "value": 30.0,
+      "new": "com.assistant.core.wakeword.WakeTuning#VOSK_RMS_STARTED_THRESHOLD"
+    },
+    {
+      "id": "vosk.read_samples",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoskRecognitionEngine.kt",
+      "lines": [
+        171
+      ],
+      "type": "int",
+      "value": 6400,
+      "new": "com.assistant.core.wakeword.WakeTuning#VOSK_READ_SAMPLES"
+    },
+    {
+      "id": "vosk.match_tail_ms",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoskRecognitionEngine.kt",
+      "lines": [
+        70
+      ],
+      "type": "long",
+      "value": 400,
+      "new": "com.assistant.core.wakeword.WakeTuning#MATCH_TAIL_MS"
+    },
+    {
+      "id": "vosk.max_confirm_window_ms",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoskRecognitionEngine.kt",
+      "lines": [
+        78
+      ],
+      "type": "long",
+      "value": 2000,
+      "new": "com.assistant.core.wakeword.WakeTuning#MAX_CONFIRM_WINDOW_MS"
+    },
+    {
+      "id": "vosk.min_prefix_words",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoskWakeWordEngine.kt",
+      "lines": [
+        132
+      ],
+      "type": "int",
+      "value": 2,
+      "new": "com.assistant.core.wakeword.WakeTuning#MIN_PREFIX_WORDS"
+    },
+    {
+      "id": "vosk.grammar_unk",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoskWakeWordEngine.kt",
+      "lines": [
+        245
+      ],
+      "type": "behaviour",
+      "value": "JSON array of distinct (talk + wake) phrases followed by \"[unk]\"",
+      "new": null
+    },
+    {
+      "id": "vosk.match_precedence",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoskWakeWordEngine.kt",
+      "lines": [
+        173,
+        176
+      ],
+      "type": "behaviour",
+      "value": "wake (realtime) variants before talk variants; substring contains on lowercased text",
+      "new": null
+    },
+    {
+      "id": "vosk.reset_after_match",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoskWakeWordEngine.kt",
+      "lines": [
+        91
+      ],
+      "type": "behaviour",
+      "value": "recognizer.reset() after every match",
+      "new": null
+    },
+    {
+      "id": "vosk.fresh_recognizer_per_cycle",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoskRecognitionEngine.kt",
+      "lines": [
+        130,
+        232
+      ],
+      "type": "behaviour",
+      "value": "new Recognizer per recognition cycle, closed at the end of the cycle",
+      "new": null
+    },
+    {
+      "id": "vosk.model_asset_root",
+      "module": "wakeword",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoskModelLoader.kt",
+      "lines": [
+        42
+      ],
+      "type": "string",
+      "value": "vosk-model-small-en-us-0.15",
+      "new": "com.assistant.core.wakeword.WakeTuning#VOSK_MODEL_ASSET_ROOT"
+    },
+    {
+      "id": "vosk.model_extract_dir",
+      "module": "wakeword",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoskModelLoader.kt",
+      "lines": [
+        45
+      ],
+      "type": "string",
+      "value": "vosk-model",
+      "new": "com.assistant.core.wakeword.WakeTuning#VOSK_MODEL_DIR"
+    },
+    {
+      "id": "vosk.model_stamp",
+      "module": "wakeword",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoskModelLoader.kt",
+      "lines": [
+        52
+      ],
+      "type": "string",
+      "value": "vosk-model-small-en-us-0.15",
+      "new": "com.assistant.core.wakeword.WakeTuning#VOSK_MODEL_STAMP"
+    },
+    {
+      "id": "vosk.stamp_file",
+      "module": "wakeword",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoskModelLoader.kt",
+      "lines": [
+        216
+      ],
+      "type": "string",
+      "value": ".stamp",
+      "new": "com.assistant.core.wakeword.WakeTuning#VOSK_STAMP_FILE"
+    },
+    {
+      "id": "vosk.no_compress",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/build.gradle.kts",
+      "lines": [
+        46
+      ],
+      "type": "string",
+      "value": "vosk-model-small-en-us-0.15",
+      "new": null,
+      "note": "the model directory must be stored uncompressed (Model(path) needs raw files)"
+    },
+    {
+      "id": "vosk.android_version",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/build.gradle.kts",
+      "lines": [
+        122
+      ],
+      "type": "string",
+      "value": "0.3.47",
+      "new": "catalog#vosk",
+      "note": "patched libvosk.so must match the AAR version"
+    },
+    {
+      "id": "sr.hang_watchdog_ms",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/SpeechRecognizerEngine.kt",
+      "lines": [
+        63
+      ],
+      "type": "long",
+      "value": 10000,
+      "new": "com.assistant.core.wakeword.WakeTuning#SR_HANG_WATCHDOG_MS"
+    },
+    {
+      "id": "sr.refresh_after_n",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/SpeechRecognizerEngine.kt",
+      "lines": [
+        66
+      ],
+      "type": "int",
+      "value": 20,
+      "new": "com.assistant.core.wakeword.WakeTuning#SR_REFRESH_AFTER_N"
+    },
+    {
+      "id": "sr.refresh_no_speech_spike",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/SpeechRecognizerEngine.kt",
+      "lines": [
+        69
+      ],
+      "type": "int",
+      "value": 2,
+      "new": "com.assistant.core.wakeword.WakeTuning#SR_REFRESH_NO_SPEECH_SPIKE"
+    },
+    {
+      "id": "sr.no_speech_health_threshold",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/SpeechRecognizerEngine.kt",
+      "lines": [
+        73
+      ],
+      "type": "int",
+      "value": 8,
+      "new": "com.assistant.core.wakeword.WakeTuning#SR_NO_SPEECH_HEALTH_THRESHOLD"
+    },
+    {
+      "id": "sr.client_error_delay_ms",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/SpeechRecognizerEngine.kt",
+      "lines": [
+        76
+      ],
+      "type": "long",
+      "value": 1000,
+      "new": "com.assistant.core.wakeword.WakeTuning#SR_CLIENT_ERROR_DELAY_MS"
+    },
+    {
+      "id": "sr.no_speech_error_code",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/SpeechRecognizerEngine.kt",
+      "lines": [
+        400
+      ],
+      "type": "int",
+      "value": 6,
+      "new": "com.assistant.core.wakeword.WakeTuning#SR_ERROR_NO_SPEECH"
+    },
+    {
+      "id": "sr.recognizer_extras",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/SpeechRecognizerEngine.kt",
+      "lines": [
+        320,
+        321,
+        322,
+        323,
+        324,
+        325,
+        326,
+        327,
+        328,
+        329,
+        330
+      ],
+      "type": "behaviour",
+      "value": {
+        "EXTRA_LANGUAGE_MODEL": "free_form",
+        "EXTRA_CALLING_PACKAGE": "<packageName>",
+        "EXTRA_MAX_RESULTS": 5,
+        "EXTRA_PARTIAL_RESULTS": true,
+        "EXTRA_LANGUAGE": "en-US",
+        "EXTRA_LANGUAGE_PREFERENCE": "en-US",
+        "EXTRA_PREFER_OFFLINE": true,
+        "android.speech.extra.DICTATION_MODE": true,
+        "EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS": 200,
+        "EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS": 1500,
+        "EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS": 1000
+      },
+      "new": null
+    },
+    {
+      "id": "sr.beep_streams",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/SpeechRecognizerEngine.kt",
+      "lines": [
+        91,
+        92,
+        93,
+        94
+      ],
+      "type": "behaviour",
+      "value": [
+        "RING",
+        "NOTIFICATION",
+        "SYSTEM",
+        "MUSIC"
+      ],
+      "new": null
+    },
+    {
+      "id": "sr.beep_mute_method",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/SpeechRecognizerEngine.kt",
+      "lines": [
+        293,
+        296
+      ],
+      "type": "behaviour",
+      "value": "adjustStreamVolume(ADJUST_MUTE) on API 23+, setStreamMute(true) below",
+      "new": null
+    },
+    {
+      "id": "sr.audio_mode_single_owner",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/SpeechRecognizerEngine.kt",
+      "lines": [
+        147,
+        213,
+        249,
+        285
+      ],
+      "type": "behaviour",
+      "value": "revert MODE_IN_COMMUNICATION only if this engine set it; a match hands ownership to the call",
+      "new": null
+    },
+    {
+      "id": "whisper.timeout_ms",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WhisperConfirmer.kt",
+      "lines": [
+        54
+      ],
+      "type": "long",
+      "value": 10000,
+      "new": "com.assistant.core.wakeword.WakeTuning#WHISPER_TIMEOUT_MS"
+    },
+    {
+      "id": "whisper.model",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WhisperConfirmer.kt",
+      "lines": [
+        222
+      ],
+      "type": "string",
+      "value": "whisper-1",
+      "new": "com.assistant.core.wakeword.WakeTuning#WHISPER_MODEL"
+    },
+    {
+      "id": "whisper.temperature",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WhisperConfirmer.kt",
+      "lines": [
+        133
+      ],
+      "type": "string",
+      "value": "0",
+      "new": "com.assistant.core.wakeword.WakeTuning#WHISPER_TEMPERATURE"
+    },
+    {
+      "id": "whisper.language",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WhisperConfirmer.kt",
+      "lines": [
+        127
+      ],
+      "type": "string",
+      "value": "en",
+      "new": "com.assistant.core.wakeword.WakeTuning#WHISPER_LANGUAGE"
+    },
+    {
+      "id": "whisper.response_format",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WhisperConfirmer.kt",
+      "lines": [
+        123
+      ],
+      "type": "string",
+      "value": "json",
+      "new": "com.assistant.core.wakeword.WakeTuning#WHISPER_RESPONSE_FORMAT"
+    },
+    {
+      "id": "whisper.upload_filename",
+      "module": "wakeword",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WhisperConfirmer.kt",
+      "lines": [
+        119
+      ],
+      "type": "string",
+      "value": "wake.wav",
+      "new": "com.assistant.core.wakeword.WakeTuning#WHISPER_UPLOAD_FILENAME"
+    },
+    {
+      "id": "whisper.endpoint",
+      "module": "wakeword",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WhisperConfirmer.kt",
+      "lines": [
+        218
+      ],
+      "type": "string",
+      "value": "https://api.openai.com/v1/audio/transcriptions",
+      "new": "com.assistant.core.wakeword.WakeTuning#WHISPER_TRANSCRIPTIONS_URL"
+    },
+    {
+      "id": "whisper.normalize",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WhisperConfirmer.kt",
+      "lines": [
+        216
+      ],
+      "type": "behaviour",
+      "value": "lowercase, non-[a-z0-9\\s] -> space, collapse whitespace, trim",
+      "new": null
+    },
+    {
+      "id": "whisper.boilerplate",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WhisperConfirmer.kt",
+      "lines": [
+        233,
+        234,
+        235,
+        236,
+        237,
+        238,
+        239,
+        240,
+        241,
+        242,
+        243,
+        244
+      ],
+      "type": "string_set",
+      "value": [
+        "you",
+        "thank you",
+        "thank you very much",
+        "thanks for watching",
+        "thanks for watching the video",
+        "please subscribe",
+        "bye",
+        "bye bye",
+        "so",
+        "the",
+        "okay",
+        "i m sorry"
+      ],
+      "new": "com.assistant.core.wakeword.WakeTuning#WHISPER_HALLUCINATION_BOILERPLATE"
+    },
+    {
+      "id": "whisper.fail_closed",
+      "module": "wakeword",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WhisperConfirmer.kt",
+      "lines": [
+        84,
+        141,
+        145
+      ],
+      "type": "behaviour",
+      "value": "timeout / error / no key reject; HTTP 401 clears the cached key",
+      "new": null
+    },
+    {
+      "id": "service.wake_start_dedupe_window_ms",
+      "module": "voice-host",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/service/AssistantService.kt",
+      "lines": [
+        122
+      ],
+      "type": "long",
+      "value": 3000,
+      "new": "com.assistant.core.voicehost.HostTuning#WAKE_START_DEDUPE_WINDOW_MS"
+    },
+    {
+      "id": "service.dedupe_strict_lt",
+      "module": "voice-host",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/service/AssistantService.kt",
+      "lines": [
+        143
+      ],
+      "type": "behaviour",
+      "value": "strict < on elapsedRealtime",
+      "new": null
+    },
+    {
+      "id": "service.dedupe_key",
+      "module": "voice-host",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/service/AssistantService.kt",
+      "lines": [
+        584
+      ],
+      "type": "behaviour",
+      "value": "key = (talk, wake, gain); serverUrl and talkSilenceSensitivity are NOT part of it",
+      "new": null
+    },
+    {
+      "id": "service.screen_rearm_debounce_ms",
+      "module": "voice-host",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/service/AssistantService.kt",
+      "lines": [
+        361
+      ],
+      "type": "long",
+      "value": 300,
+      "new": "com.assistant.core.voicehost.HostTuning#SCREEN_REARM_DEBOUNCE_MS"
+    },
+    {
+      "id": "service.foreground_wake_lock_ms",
+      "module": "voice-host",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/service/AssistantService.kt",
+      "lines": [
+        212
+      ],
+      "type": "long",
+      "value": 3000,
+      "new": "com.assistant.core.voicehost.HostTuning#FOREGROUND_WAKE_LOCK_MS"
+    },
+    {
+      "id": "service.recents_long_press_ms",
+      "module": "voice-host",
+      "label": "UX",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/service/AssistantService.kt",
+      "lines": [
+        625
+      ],
+      "type": "long",
+      "value": 600,
+      "new": "com.assistant.core.voicehost.HostTuning#RECENTS_LONG_PRESS_MS"
+    },
+    {
+      "id": "service.accessibility_long_press_ms",
+      "module": "voice-host",
+      "label": "UX",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/service/ButtonAccessibilityService.kt",
+      "lines": [
+        23
+      ],
+      "type": "long",
+      "value": 600,
+      "new": "com.assistant.core.voicehost.HostTuning#RECENTS_LONG_PRESS_MS"
+    },
+    {
+      "id": "service.notification_id",
+      "module": "voice-host",
+      "label": "plumb",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/service/AssistantService.kt",
+      "lines": [
+        43
+      ],
+      "type": "int",
+      "value": 1001,
+      "new": "com.assistant.core.voicehost.HostTuning#NOTIFICATION_ID"
+    },
+    {
+      "id": "service.notification_channel",
+      "module": "voice-host",
+      "label": "plumb",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/service/AssistantService.kt",
+      "lines": [
+        44
+      ],
+      "type": "string",
+      "value": "assistant_service_channel",
+      "new": "com.assistant.core.voicehost.HostTuning#NOTIFICATION_CHANNEL_ID"
+    },
+    {
+      "id": "service.prefs_name",
+      "module": "voice-host",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/service/AssistantService.kt",
+      "lines": [
+        99
+      ],
+      "type": "string",
+      "value": "assistant_service_prefs",
+      "new": "com.assistant.core.voicehost.HostTuning#PREFS_NAME"
+    },
+    {
+      "id": "service.pref_enabled",
+      "module": "voice-host",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/service/AssistantService.kt",
+      "lines": [
+        100
+      ],
+      "type": "string",
+      "value": "wake_word_enabled",
+      "new": "com.assistant.core.voicehost.HostTuning#PREF_ENABLED"
+    },
+    {
+      "id": "service.pref_talk_word",
+      "module": "voice-host",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/service/AssistantService.kt",
+      "lines": [
+        101
+      ],
+      "type": "string",
+      "value": "turn_talk_word",
+      "new": "com.assistant.core.voicehost.HostTuning#PREF_TALK_WORD"
+    },
+    {
+      "id": "service.pref_wake_word",
+      "module": "voice-host",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/service/AssistantService.kt",
+      "lines": [
+        102
+      ],
+      "type": "string",
+      "value": "realtime_wake_word",
+      "new": "com.assistant.core.voicehost.HostTuning#PREF_WAKE_WORD"
+    },
+    {
+      "id": "service.pref_wake_mic_gain",
+      "module": "voice-host",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/service/AssistantService.kt",
+      "lines": [
+        103
+      ],
+      "type": "string",
+      "value": "wake_word_mic_gain",
+      "new": "com.assistant.core.voicehost.HostTuning#PREF_WAKE_MIC_GAIN"
+    },
+    {
+      "id": "service.pref_talk_silence_sensitivity",
+      "module": "voice-host",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/service/AssistantService.kt",
+      "lines": [
+        104
+      ],
+      "type": "string",
+      "value": "talk_silence_sensitivity",
+      "new": "com.assistant.core.voicehost.HostTuning#PREF_TALK_SILENCE_SENSITIVITY"
+    },
+    {
+      "id": "service.pref_server_url",
+      "module": "voice-host",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/service/AssistantService.kt",
+      "lines": [
+        105
+      ],
+      "type": "string",
+      "value": "server_url",
+      "new": "com.assistant.core.voicehost.HostTuning#PREF_SERVER_URL"
+    },
+    {
+      "id": "service.pref_button_trigger_enabled",
+      "module": "voice-host",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/service/ButtonAccessibilityService.kt",
+      "lines": [
+        46
+      ],
+      "type": "string",
+      "value": "button_trigger_enabled",
+      "new": "com.assistant.core.voicehost.HostTuning#PREF_BUTTON_TRIGGER_ENABLED"
+    },
+    {
+      "id": "service.mic_stalled_text",
+      "module": "voice-host",
+      "label": "UX",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/service/AssistantService.kt",
+      "lines": [
+        714
+      ],
+      "type": "string",
+      "value": "Wake word stalled — mic held by another app",
+      "new": "com.assistant.core.voicehost.HostTuning#MIC_STALLED_TEXT"
+    },
+    {
+      "id": "settings.default_talk_word",
+      "module": "voice-host",
+      "label": "UX",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/data/Models.kt",
+      "lines": [
+        425
+      ],
+      "type": "string",
+      "value": "my friend",
+      "new": "com.assistant.core.voicehost.HostTuning#DEFAULT_TALK_WORD"
+    },
+    {
+      "id": "settings.default_wake_word",
+      "module": "voice-host",
+      "label": "UX",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/data/Models.kt",
+      "lines": [
+        426
+      ],
+      "type": "string",
+      "value": "wake up",
+      "new": "com.assistant.core.voicehost.HostTuning#DEFAULT_WAKE_WORD"
+    },
+    {
+      "id": "cue.reconnect_beep_stream",
+      "module": "voice-host",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/viewmodel/AssistantViewModel.kt",
+      "lines": [
+        601
+      ],
+      "type": "string",
+      "value": "MUSIC",
+      "new": "com.assistant.core.voicehost.HostTuning#CUE_STREAM",
+      "note": "STREAM_NOTIFICATION is muted during call audio on the A300M (b586e4b)"
+    },
+    {
+      "id": "cue.wake_ack_tones",
+      "module": "voice-host",
+      "label": "UX",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/viewmodel/AssistantViewModel.kt",
+      "lines": [
+        494
+      ],
+      "type": "behaviour",
+      "value": "660 Hz then 880 Hz, 90 ms each, 30 ms gap, amplitude 0.45",
+      "new": null
+    },
+    {
+      "id": "cue.talk_ack_tone",
+      "module": "voice-host",
+      "label": "UX",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/viewmodel/AssistantViewModel.kt",
+      "lines": [
+        503
+      ],
+      "type": "behaviour",
+      "value": "440 Hz, 150 ms",
+      "new": null
+    },
+    {
+      "id": "session.ending_ack_timeout_ms",
+      "module": "voice",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoiceController.kt",
+      "lines": [
+        107
+      ],
+      "type": "long",
+      "value": 5000,
+      "new": "com.assistant.core.voice.VoiceTuning#ENDING_ACK_TIMEOUT_MS"
+    },
+    {
+      "id": "session.mic_release_delay_ms",
+      "module": "voice",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoiceController.kt",
+      "lines": [
+        109
+      ],
+      "type": "long",
+      "value": 1500,
+      "new": "com.assistant.core.voice.VoiceTuning#MIC_RELEASE_DELAY_MS"
+    },
+    {
+      "id": "session.wake_word_ack_timeout_ms",
+      "module": "voice",
+      "label": "plumb",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoiceController.kt",
+      "lines": [
+        111
+      ],
+      "type": "long",
+      "value": 2000,
+      "new": "com.assistant.core.voice.VoiceTuning#WAKE_WORD_ACK_TIMEOUT_MS"
+    },
+    {
+      "id": "session.route_reapply_delays_ms",
+      "module": "voice",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoiceManager.kt",
+      "lines": [
+        356
+      ],
+      "type": "long_list",
+      "value": [
+        1000,
+        3000,
+        5000
+      ],
+      "new": "com.assistant.core.voice.VoiceTuning#ROUTE_REAPPLY_DELAYS_MS",
+      "note": "SEQUENTIAL delays (delay(1000); delay(3000); delay(5000)) => re-applies at +1 s, +4 s, +9 s after focus; the inventory's '+1/+3/+5 s' describes the literals, not the schedule"
+    },
+    {
+      "id": "session.audio_focus",
+      "module": "voice",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoiceManager.kt",
+      "lines": [
+        491,
+        494,
+        495,
+        504,
+        505
+      ],
+      "type": "behaviour",
+      "value": "GAIN_TRANSIENT_EXCLUSIVE; USAGE_VOICE_COMMUNICATION + CONTENT_TYPE_SPEECH via AudioFocusRequest on O+; STREAM_VOICE_CALL pre-O",
+      "new": null
+    },
+    {
+      "id": "session.call_volume_raise_fraction",
+      "module": "audio",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoiceManager.kt",
+      "lines": [
+        524
+      ],
+      "type": "double",
+      "value": 0.75,
+      "new": "com.assistant.core.audio.AudioTuning#CALL_VOLUME_RAISE_FRACTION"
+    },
+    {
+      "id": "session.default_mic_gain",
+      "module": "audio",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoiceManager.kt",
+      "lines": [
+        74
+      ],
+      "type": "float",
+      "value": 1.0,
+      "new": "com.assistant.core.audio.AudioTuning#DEFAULT_MIC_GAIN"
+    },
+    {
+      "id": "session.mic_gain_max",
+      "module": "audio",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoiceManager.kt",
+      "lines": [
+        453
+      ],
+      "type": "float",
+      "value": 2.0,
+      "new": "com.assistant.core.audio.AudioTuning#MIC_GAIN_MAX"
+    },
+    {
+      "id": "session.default_echo_ducking_gain",
+      "module": "audio",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoiceManager.kt",
+      "lines": [
+        75
+      ],
+      "type": "float",
+      "value": 0.05,
+      "new": "com.assistant.core.audio.AudioTuning#DEFAULT_ECHO_DUCKING_GAIN"
+    },
+    {
+      "id": "session.echo_ducking_gain_max",
+      "module": "audio",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoiceManager.kt",
+      "lines": [
+        460
+      ],
+      "type": "float",
+      "value": 1.0,
+      "new": "com.assistant.core.audio.AudioTuning#ECHO_DUCKING_GAIN_MAX"
+    },
+    {
+      "id": "session.pool_probe_retry_ms",
+      "module": "session",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/connection/OrchestratorConnectionController.kt",
+      "lines": [
+        85
+      ],
+      "type": "long",
+      "value": 400,
+      "new": "com.assistant.core.session.SessionTuning#POOL_PROBE_RETRY_MS"
+    },
+    {
+      "id": "session.recovery_backoff_ms",
+      "module": "session",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/connection/OrchestratorConnectionController.kt",
+      "lines": [
+        82,
+        267
+      ],
+      "type": "long_list",
+      "value": [
+        0,
+        500,
+        1000
+      ],
+      "new": "com.assistant.core.session.SessionTuning#RECOVERY_BACKOFF_MS",
+      "note": "attempt 0: no delay; attempt n>0: 500 shl (n-1) => 0/500/1000 with the cap of 3 (the code comment and inv04 say 2000)"
+    },
+    {
+      "id": "network.ws_ping_interval_ms",
+      "module": "network",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/network/WebSocketManager.kt",
+      "lines": [
+        47
+      ],
+      "type": "long",
+      "value": 30000,
+      "new": "com.assistant.core.network.NetworkTuning#WS_PING_INTERVAL_MS"
+    },
+    {
+      "id": "network.ws_reconnect_delay_ms",
+      "module": "network",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/network/WebSocketManager.kt",
+      "lines": [
+        42
+      ],
+      "type": "long",
+      "value": 3000,
+      "new": "com.assistant.core.network.NetworkTuning#WS_RECONNECT_BASE_DELAY_MS",
+      "note": "superseded by spec 12 T-13 (A-3.3): exponential min(15 s, 1 s x 2^attempt) +/-20 % jitter, reset on session_started; the LB label of this inv04 row (f77cd62) belongs to the 30 s ping, which is kept",
+      "superseded": "spec 12 T-13 (A-3.3)"
+    },
+    {
+      "id": "protocol.voice_initiator_default",
+      "module": "protocol",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/network/WebSocketManager.kt",
+      "lines": [
+        342
+      ],
+      "type": "behaviour",
+      "value": false,
+      "new": null
+    },
+    {
+      "id": "voice.default_provider",
+      "module": "voice",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoiceProvider.kt",
+      "lines": [
+        75
+      ],
+      "type": "string",
+      "value": "openai",
+      "new": "com.assistant.core.voice.VoiceTuning#DEFAULT_PROVIDER"
+    },
+    {
+      "id": "voice.default_model",
+      "module": "voice",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoiceProvider.kt",
+      "lines": [
+        76
+      ],
+      "type": "string",
+      "value": "gpt-realtime",
+      "new": "com.assistant.core.voice.VoiceTuning#DEFAULT_MODEL"
+    },
+    {
+      "id": "voice.default_voice",
+      "module": "voice",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoiceProvider.kt",
+      "lines": [
+        77
+      ],
+      "type": "string",
+      "value": "cedar",
+      "new": "com.assistant.core.voice.VoiceTuning#DEFAULT_VOICE"
+    },
+    {
+      "id": "voice.default_sample_rate_hz",
+      "module": "voice",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/network/ApiClient.kt",
+      "lines": [
+        443,
+        445
+      ],
+      "type": "int",
+      "value": 24000,
+      "new": "com.assistant.core.voice.VoiceTuning#DEFAULT_SAMPLE_RATE_HZ"
+    },
+    {
+      "id": "voice.ws_default_sample_rate_hz",
+      "module": "voice",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WebSocketPcmProvider.kt",
+      "lines": [
+        118,
+        119
+      ],
+      "type": "int",
+      "value": 24000,
+      "new": "com.assistant.core.voice.VoiceTuning#DEFAULT_SAMPLE_RATE_HZ"
+    },
+    {
+      "id": "voice.default_sdp_endpoint",
+      "module": "voice",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/OpenAIVoiceProvider.kt",
+      "lines": [
+        117
+      ],
+      "type": "string",
+      "value": "https://api.openai.com/v1/realtime/calls?model=gpt-realtime",
+      "new": "com.assistant.core.voice.VoiceTuning#DEFAULT_SDP_ENDPOINT"
+    },
+    {
+      "id": "voice.provider_selection",
+      "module": "voice",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/VoiceManager.kt",
+      "lines": [
+        468,
+        469,
+        470,
+        478,
+        479
+      ],
+      "type": "behaviour",
+      "value": "openai->WebRTC, qwen->Qwen, google->Gemini, unknown: WEBRTC->OpenAI, WEBSOCKET->Qwen parser",
+      "new": null
+    },
+    {
+      "id": "audio.mic_chunk_frames",
+      "module": "audio",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/MicCapture.kt",
+      "lines": [
+        217
+      ],
+      "type": "int",
+      "value": 480,
+      "new": "com.assistant.core.audio.AudioTuning#MIC_CHUNK_FRAMES"
+    },
+    {
+      "id": "audio.agent_speech_stale_ms",
+      "module": "audio",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/MicCapture.kt",
+      "lines": [
+        224
+      ],
+      "type": "long",
+      "value": 800,
+      "new": "com.assistant.core.audio.AudioTuning#AGENT_SPEECH_STALE_MS"
+    },
+    {
+      "id": "audio.mic_buffer_formula",
+      "module": "audio",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/MicCapture.kt",
+      "lines": [
+        74
+      ],
+      "type": "behaviour",
+      "value": "max(minBuf*4, rate*2/5)",
+      "new": null
+    },
+    {
+      "id": "audio.speaker_buffer_formula",
+      "module": "audio",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/PcmPlayback.kt",
+      "lines": [
+        149
+      ],
+      "type": "behaviour",
+      "value": "max(minBuf*4, bytesPerSecond*1.5) = 72000 at 24 kHz",
+      "new": null
+    },
+    {
+      "id": "audio.write_policy",
+      "module": "audio",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/PcmPlayback.kt",
+      "lines": [
+        195,
+        200,
+        203,
+        205
+      ],
+      "type": "behaviour",
+      "value": "WRITE_NON_BLOCKING on M+, blocking 3-arg write on API 21/22, catch Throwable",
+      "new": null
+    },
+    {
+      "id": "audio.full_buffer_retry_ms",
+      "module": "audio",
+      "label": "plumb",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/PcmPlayback.kt",
+      "lines": [
+        219
+      ],
+      "type": "long",
+      "value": 10,
+      "new": "com.assistant.core.audio.AudioTuning#PLAYBACK_FULL_RETRY_MS"
+    },
+    {
+      "id": "audio.barge_in_flush",
+      "module": "audio",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/PcmPlayback.kt",
+      "lines": [
+        113,
+        114,
+        115,
+        119
+      ],
+      "type": "behaviour",
+      "value": "pause -> flush -> play, reset totalFramesWritten",
+      "new": null
+    },
+    {
+      "id": "audio.legacy_track_streams",
+      "module": "audio",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/PcmPlayback.kt",
+      "lines": [
+        339,
+        340
+      ],
+      "type": "behaviour",
+      "value": "API < 23: AudioTrack(stream) with CALL->STREAM_VOICE_CALL, MEDIA->STREAM_MUSIC",
+      "new": null
+    },
+    {
+      "id": "audio.hal_settle_ms",
+      "module": "audio",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WebSocketPcmProvider.kt",
+      "lines": [
+        251
+      ],
+      "type": "long",
+      "value": 200,
+      "new": "com.assistant.core.audio.AudioTuning#HAL_SETTLE_MS"
+    },
+    {
+      "id": "audio.mic_before_speaker",
+      "module": "audio",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/WebSocketPcmProvider.kt",
+      "lines": [
+        255,
+        256
+      ],
+      "type": "behaviour",
+      "value": "mic starts before the speaker",
+      "new": null
+    },
+    {
+      "id": "audio.mic_source_switch_sdk",
+      "module": "audio",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/MicCapture.kt",
+      "lines": [
+        79
+      ],
+      "type": "int",
+      "value": 24,
+      "new": "com.assistant.core.audio.AudioTuning#MIC_SOURCE_SWITCH_SDK",
+      "note": "Build.VERSION_CODES.N = 24; same switch in WakeWordDetector.kt:656 and OpenAIVoiceProvider.kt:354"
+    },
+    {
+      "id": "duck.restore_tail_ms",
+      "module": "audio",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/EchoDuckController.kt",
+      "lines": [
+        301
+      ],
+      "type": "long",
+      "value": 1000,
+      "new": "com.assistant.core.audio.AudioTuning#MIC_RESTORE_TAIL_MS"
+    },
+    {
+      "id": "duck.drain_poll_ms",
+      "module": "audio",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/EchoDuckController.kt",
+      "lines": [
+        305
+      ],
+      "type": "long",
+      "value": 80,
+      "new": "com.assistant.core.audio.AudioTuning#MIC_RESTORE_DRAIN_POLL_MS"
+    },
+    {
+      "id": "duck.writes_quiet_ms",
+      "module": "audio",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/EchoDuckController.kt",
+      "lines": [
+        310
+      ],
+      "type": "long",
+      "value": 400,
+      "new": "com.assistant.core.audio.AudioTuning#MIC_RESTORE_WRITES_QUIET_MS"
+    },
+    {
+      "id": "duck.no_drain_timeout",
+      "module": "audio",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/EchoDuckController.kt",
+      "lines": [
+        216
+      ],
+      "type": "behaviour",
+      "value": "the drain loop has no overall timeout (2ccee40)",
+      "new": null
+    },
+    {
+      "id": "duck.head_stuck_fallback",
+      "module": "audio",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/EchoDuckController.kt",
+      "lines": [
+        257
+      ],
+      "type": "behaviour",
+      "value": "writes quiet AND head unchanged for 400 ms counts as drained",
+      "new": null
+    },
+    {
+      "id": "duck.unsigned_head",
+      "module": "audio",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/EchoDuckController.kt",
+      "lines": [
+        206,
+        225
+      ],
+      "type": "behaviour",
+      "value": "head position read as unsigned 32-bit",
+      "new": null
+    },
+    {
+      "id": "webrtc.connection_timeout_ms",
+      "module": "voice",
+      "label": "plumb",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/OpenAIVoiceProvider.kt",
+      "lines": [
+        58
+      ],
+      "type": "long",
+      "value": 15000,
+      "new": "com.assistant.core.voice.VoiceTuning#CONNECTION_TIMEOUT_MS"
+    },
+    {
+      "id": "webrtc.restore_delay_ms",
+      "module": "voice",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/OpenAIVoiceProvider.kt",
+      "lines": [
+        253,
+        750,
+        757
+      ],
+      "type": "long",
+      "value": 2000,
+      "new": "com.assistant.core.voice.VoiceTuning#OPENAI_RESTORE_DELAY_MS"
+    },
+    {
+      "id": "webrtc.sw_aec_ns_agc",
+      "module": "voice",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/OpenAIVoiceProvider.kt",
+      "lines": [
+        335,
+        336,
+        337
+      ],
+      "type": "behaviour",
+      "value": "WebRTC software AEC, NS and AGC enabled",
+      "new": null
+    },
+    {
+      "id": "webrtc.hw_aec_ns_off",
+      "module": "voice",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/OpenAIVoiceProvider.kt",
+      "lines": [
+        360,
+        361
+      ],
+      "type": "behaviour",
+      "value": "hardware AEC and NS disabled",
+      "new": null
+    },
+    {
+      "id": "webrtc.goog_constraints",
+      "module": "voice",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/OpenAIVoiceProvider.kt",
+      "lines": [
+        375,
+        376,
+        377,
+        378,
+        379,
+        380,
+        381,
+        382,
+        383,
+        384,
+        385,
+        386
+      ],
+      "type": "string_list",
+      "value": [
+        "echoCancellation",
+        "noiseSuppression",
+        "autoGainControl",
+        "googEchoCancellation",
+        "googEchoCancellation2",
+        "googDAEchoCancellation",
+        "googAutoGainControl",
+        "googAutoGainControl2",
+        "googNoiseSuppression",
+        "googNoiseSuppression2",
+        "googHighpassFilter",
+        "googTypingNoiseDetection"
+      ],
+      "new": null,
+      "note": "all twelve mandatory audio constraints are \"true\""
+    },
+    {
+      "id": "webrtc.initialize_once",
+      "module": "voice",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/OpenAIVoiceProvider.kt",
+      "lines": [
+        61,
+        340,
+        345
+      ],
+      "type": "behaviour",
+      "value": "PeerConnectionFactory.initialize once per process",
+      "new": null
+    },
+    {
+      "id": "webrtc.data_channel_label",
+      "module": "voice",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/OpenAIVoiceProvider.kt",
+      "lines": [
+        471
+      ],
+      "type": "string",
+      "value": "oai-events",
+      "new": "com.assistant.core.voice.VoiceTuning#DATA_CHANNEL_LABEL"
+    },
+    {
+      "id": "webrtc.data_channel_ordered",
+      "module": "voice",
+      "label": "wire",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/OpenAIVoiceProvider.kt",
+      "lines": [
+        470
+      ],
+      "type": "behaviour",
+      "value": true,
+      "new": null
+    },
+    {
+      "id": "webrtc.unified_plan_max_bundle",
+      "module": "voice",
+      "label": "plumb",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/OpenAIVoiceProvider.kt",
+      "lines": [
+        395,
+        396,
+        467
+      ],
+      "type": "behaviour",
+      "value": "unified plan, max-bundle, one send track + one recv-only audio transceiver",
+      "new": null
+    },
+    {
+      "id": "route.system_default_normal_call",
+      "module": "audio",
+      "label": "LB",
+      "file": "_old/android/app/src/main/java/com/assistant/peripheral/voice/AudioRouter.kt",
+      "lines": [
+        117,
+        126,
+        380,
+        381
+      ],
+      "type": "behaviour",
+      "value": "SystemDefault and BluetoothMedia use MODE_NORMAL; only BluetoothMedia tags MEDIA, everything else (incl. SystemDefault) CALL",
+      "new": null
+    }
+  ]
+}

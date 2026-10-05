@@ -16,7 +16,7 @@ __pycache__/
 /.manager.json
 /assistant_config.json
 
-# Frontend build output
+# Frontend build output (frontend/ has its own .gitignore too)
 frontend/dist/
 frontend/node_modules/
 
@@ -41,7 +41,7 @@ context/
 .claude.json
 .claude.json.backup.*
 debug/
-!android-next/**/src/debug/
+!android/**/src/debug/
 projects/
 todos/
 plugins/
@@ -56,14 +56,14 @@ certs/
 .ruff_cache/
 .mypy_cache/
 
-# Android
-android/.gradle/
-android/app/build/
-android/app/.cxx/
-android/build/
-android/local.properties
-android/**/*.apk
-android/**/*.aab
+# Old Android app, kept under _old/ since the 2026-10 cutover
+_old/android/.gradle/
+_old/android/app/build/
+_old/android/app/.cxx/
+_old/android/build/
+_old/android/local.properties
+_old/android/**/*.apk
+_old/android/**/*.aab
 
 # Android Device companion app
 android-device/.gradle/
@@ -75,5 +75,5 @@ android-device/**/*.aab
 sync/config.env
 docs/frontend-refactor/audit/screenshots/
 
-# Android rebuild (android-next/): signing paths/passwords, never committed (spec 14 §1.8)
-android-next/keystore.properties
+# Android apps (android/, own .gitignore): signing paths/passwords, never committed (spec 14 §1.8)
+android/keystore.properties

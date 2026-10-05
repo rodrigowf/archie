@@ -24,6 +24,8 @@ Status: ✅ pass · ❌ fail (bug link) · ⏭️ waived by Rodrigo · ⏳ not r
 | F1 | "wake up" ×10, arm's length, quiet room | ✅ 2026-10-05 (Rodrigo) | "All work properly" after restarting the app. Some instability at the very start (server still starting / app connecting?) — no logs kept (the laptop rebooted and the logcat capture died); watch for it in later runs |
 | F3 | "hello my friend, what time is it" in one breath | ⏳ | Bug found by Rodrigo: the talk-phrase message showed "Archie started on its own" — main app never posted `LocalSendAudio` (`MainTranscriptSink.voiceMessageSent` was a no-op). Fixed: `ConversationRepository.voiceMessageSent()`; retest |
 | F4 | Talk phrase then silence (phantom) | ⏳ | |
+| BUG | Archie conversation opened on the web not picked up while the app runs | 🔧 fixed `1e3fffe` (installed 19:15) | `recv agent_session_opened` ignored at 19:07:42; retest: app open with no conversation → open one on the web → the app follows it |
+| BUG | Talk acknowledgement beep silent | 🔧 fixed `1e3fffe` | `VoiceCues: AudioTrack init failed state=2` |
 | F5 | 5 talk turns, each with an audible reply | ⏳ | |
 | F6 | Screen off → talk phrase + command | ⏳ | |
 | F7 | Screen off → "wake up", 3 cycles | ⏳ | |

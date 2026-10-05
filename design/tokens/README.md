@@ -1,8 +1,8 @@
 # Design tokens
 
 The single source for color, type, shape, spacing, elevation, motion and state
-layers, shared by the web apps (`frontend-next/`, compat build) and the Android
-apps (`android-next/`, lite app). Decisions D3 and D6 in
+layers, shared by the web apps (`frontend/`, compat build) and the Android
+apps (`android/`, lite app). Decisions D3 and D6 in
 `docs/frontend-refactor/README.md`.
 
 ```
@@ -91,7 +91,7 @@ PascalCase/camelCase.
 
 ## Consuming the output
 
-### Web (`frontend-next/` and the Safari 12 compat build)
+### Web (`frontend/` and the Safari 12 compat build)
 
 Import `design/tokens/dist/tokens.css` once at the root (copy it in a build step or
 import it by relative path). Theme selection is an attribute on `<html>`:
@@ -118,7 +118,7 @@ For JS (charts, canvas, inline styles), import `dist/tokens.ts`:
 `tokens.color.dark.primary`, `cssVar.tool('read', 'tint')`,
 `cssVar.type('bodyLarge', 'size')`.
 
-### Android (`android-next/`, lite app)
+### Android (`android/`, lite app)
 
 Copy or source-set-link `dist/Tokens.kt` into the shared design module (package
 `com.assistant.design`). It needs Compose Material3 1.3+ and has been compiled

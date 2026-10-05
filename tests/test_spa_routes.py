@@ -1,4 +1,5 @@
-"""Tests for the frontend-next preview routes (/next/, /next-compat/) — BX-1."""
+"""Tests for the prefixed SPA routes (/compat/, /legacy/, /legacy_compat/) and the
+retired /next* preview redirects — cutover, spec 13 §1.7 (was BX-1)."""
 
 from pathlib import Path
 
@@ -6,6 +7,8 @@ import pytest
 from starlette.testclient import TestClient
 
 import api.app as app_module
+
+PREFIXES = ("compat", "legacy", "legacy_compat")
 
 
 def _make_build(root: Path, marker: str) -> None:
@@ -16,82 +19,93 @@ def _make_build(root: Path, marker: str) -> None:
 
 
 @pytest.fixture
-def preview_client(tmp_path, monkeypatch):
-    main = tmp_path / "dist-preview" / "main"
-    compat = tmp_path / "dist-preview" / "compat"
-    _make_build(main, "next-main")
-    _make_build(compat, "next-compat")
+def spa_client(tmp_path, monkeypatch):
+    dirs = []
+    for prefix in PREFIXES:
+        root = tmp_path / "builds" / prefix
+        _make_build(root, f"build-{prefix}")
+        dirs.append((prefix, root))
     (tmp_path / "secret.txt").write_text("top secret")
-    monkeypatch.setattr(
-        app_module, "_next_preview_dirs",
-        lambda: [("next", main), ("next-compat", compat)],
-    )
+    monkeypatch.setattr(app_module, "_spa_dirs", lambda: dirs)
     # No lifespan: static routes need none.
     return TestClient(app_module.create_app())
 
 
-@pytest.mark.parametrize("prefix,marker", [
-    ("next", "next-main"), ("next-compat", "next-compat"),
-])
-def test_index_served_with_no_cache(preview_client, prefix, marker):
+@pytest.mark.parametrize("prefix", PREFIXES)
+def test_index_served_with_no_cache(spa_client, prefix):
     for path in (f"/{prefix}", f"/{prefix}/"):
-        resp = preview_client.get(path, follow_redirects=False)
+        resp = spa_client.get(path, follow_redirects=False)
         assert resp.status_code == 200
-        assert marker in resp.text
+        assert f"build-{prefix}" in resp.text
         assert "no-cache" in resp.headers["cache-control"]
 
 
-@pytest.mark.parametrize("prefix,marker", [
-    ("next", "next-main"), ("next-compat", "next-compat"),
-])
-def test_assets_and_files_served(preview_client, prefix, marker):
-    resp = preview_client.get(f"/{prefix}/assets/app-abc123.js")
+@pytest.mark.parametrize("prefix", PREFIXES)
+def test_assets_and_files_served(spa_client, prefix):
+    resp = spa_client.get(f"/{prefix}/assets/app-abc123.js")
     assert resp.status_code == 200
-    assert marker in resp.text
-    resp = preview_client.get(f"/{prefix}/icon.svg")
+    assert f"build-{prefix}" in resp.text
+    resp = spa_client.get(f"/{prefix}/icon.svg")
     assert resp.status_code == 200
     assert resp.text == "<svg/>"
 
 
-def test_spa_fallback(preview_client):
-    resp = preview_client.get("/next/some/client/route")
+@pytest.mark.parametrize("prefix", PREFIXES)
+def test_spa_fallback(spa_client, prefix):
+    resp = spa_client.get(f"/{prefix}/some/client/route")
     assert resp.status_code == 200
-    assert "next-main" in resp.text
+    assert f"build-{prefix}" in resp.text
     assert "no-cache" in resp.headers["cache-control"]
-    resp = preview_client.get("/next-compat/whatever")
-    assert "next-compat" in resp.text
 
 
-def test_traversal_rejected(preview_client):
-    resp = preview_client.get("/next/..%2F..%2Fsecret.txt")
+@pytest.mark.parametrize("prefix", PREFIXES)
+def test_traversal_rejected(spa_client, prefix):
+    resp = spa_client.get(f"/{prefix}/..%2F..%2F..%2Fsecret.txt")
     assert resp.status_code == 404
     assert "top secret" not in resp.text
-    resp = preview_client.get("/next-compat/..%2F..%2Fsecret.txt")
-    assert resp.status_code == 404
 
 
-def test_existing_routes_not_shadowed(preview_client):
-    """Preview routes come after every /api route and only claim /next*."""
-    paths = [getattr(r, "path", "") for r in preview_client.app.routes]
-    next_idx = [i for i, p in enumerate(paths) if p.startswith("/next")]
+def test_legacy_does_not_capture_legacy_compat(spa_client):
+    resp = spa_client.get("/legacy_compat/")
+    assert "build-legacy_compat" in resp.text
+    resp = spa_client.get("/legacy_compat/assets/app-abc123.js")
+    assert "build-legacy_compat" in resp.text
+
+
+@pytest.mark.parametrize("path,target", [
+    ("/next", "/"), ("/next/", "/"), ("/next/index.html", "/"),
+    ("/next-compat", "/compat/"), ("/next-compat/", "/compat/"), ("/next-compat/a/b", "/compat/"),
+])
+def test_retired_preview_paths_redirect(spa_client, path, target):
+    resp = spa_client.get(path, follow_redirects=False)
+    assert resp.status_code == 307
+    assert resp.headers["location"] == target
+
+
+def test_retired_redirect_ignores_query(spa_client):
+    resp = spa_client.get("/next/?target=https://example.com", follow_redirects=False)
+    assert resp.headers["location"] == "/"
+
+
+def test_existing_routes_not_shadowed(spa_client):
+    """Prefixed routes come after every /api route and only claim their own prefix."""
+    paths = [getattr(r, "path", "") for r in spa_client.app.routes]
+    spa_idx = [i for i, p in enumerate(paths) if p.startswith(tuple(f"/{p}" for p in PREFIXES + ("next",)))]
     api_idx = [i for i, p in enumerate(paths) if p.startswith("/api/")]
-    assert next_idx and api_idx
-    assert min(next_idx) > max(api_idx)
-    assert all(
-        p in ("/next", "/next/", "/next-compat", "/next-compat/")
-        or p.startswith(("/next/", "/next-compat/"))
-        for p in (paths[i] for i in next_idx)
-    )
-    # A root path that merely starts with "next" is not captured.
-    resp = preview_client.get("/nextish-file.html")
-    assert "next-main" not in resp.text
+    assert spa_idx and api_idx
+    assert min(spa_idx) > max(api_idx)
+    # A root path that merely starts with a prefix is not captured.
+    resp = spa_client.get("/legacyish-file.html")
+    assert "build-legacy" not in resp.text
+    resp = spa_client.get("/nextish-file.html", follow_redirects=False)
+    assert resp.status_code != 307
 
 
 def test_routes_absent_when_build_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        app_module, "_next_preview_dirs",
-        lambda: [("next", tmp_path / "nope"), ("next-compat", tmp_path / "nope2")],
+        app_module, "_spa_dirs",
+        lambda: [(p, tmp_path / f"nope-{p}") for p in PREFIXES],
     )
     app = app_module.create_app()
     paths = {getattr(r, "path", None) for r in app.routes}
-    assert not any(p and p.startswith("/next") for p in paths)
+    assert not any(p and p.startswith(("/compat", "/legacy")) for p in paths)
