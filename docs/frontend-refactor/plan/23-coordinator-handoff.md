@@ -4,6 +4,19 @@ Written 2026-10-04 by the coordinator (Claude) at the end of the implementation 
 Read this first when resuming; then `README.md` (charter), `plan/20` (decisions), `plan/21`
 (operating model), `plan/22` (progress log + open issues).
 
+## 000. ROOT REORGANIZED (2026-10-05 ~20:50) — paths below this section are pre-reorg
+
+Final layout (commit `9bbd48a`, `local` @ `2cfb128` deployed + restarted 20:47, all routes verified):
+`apps/web` (was frontend/), `apps/android` (was android/), `apps/android-device`, `apps/browser-extension`,
+`apps/design-tokens` (was design/tokens), `apps/protocol-fixtures` (was shared/protocol-fixtures);
+`shared/{skills,scripts,agents}` (were default-*; `context/*` symlinks → `../../shared/*`, scripts find the repo root
+two levels up); `legacy/` (was _old/); `docs/history/` (old root handoff/plan files); `docs/assets/logo.svg`.
+Context repo `bd5c229` (docs + symlinks; `memory/assistant/infrastructure/repo_layout_cutover_2026_10.md` is the map).
+Gates: backend 1209, web verify (1600), android check — all green. Jetson leftovers removed.
+**Left for Rodrigo** (the auto-mode safety check blocked them): delete Jetson `~/assistant/logs/voice/` (2.2 GB) and the
+laptop's stale `remote_console.log`; commit `context/secrets/android/peripheral-signing.keystore`; re-load the Chrome
+extension from `apps/browser-extension/` (unpacked ID follows the path; pinning a manifest `key` was also blocked).
+
 ## 00. CUTOVER DONE (2026-10-05 ~19:45) — read this before §0
 
 - **Layout:** `frontend/` (was frontend-next) and `android/` (was android-next) are the apps; legacy `frontend`,
