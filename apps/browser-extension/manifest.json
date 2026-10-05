@@ -1,5 +1,6 @@
 {
   "manifest_version": 3,
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA287vtum/WIwodEehjOdJCahNC5FY8DvfOaKlKg2+hBdGMSA/KZr+LLszqBFco0kEbuG8jth+ohQWICu7+eOE6WqYid9711/MmEUGwr6kSWpWoJIv34c6V42KWDhwAjoyvCDwK+cfedDtW1xk2B4io4unjMjvET4wBs1jFzp/skWL+qcOaSRk3MvAbmV4b/jK0xDgMC0CuJKu0YQuIdtiln9bT2ouEI5e+yk54u3RBvC/vbBpbjPXzDTkmSR4cFp+HWifZYnAlK/KyhTj5VBTI4tgmCahg5A7RBbcm4H4D/lBr72NLVDLFik2KeS1xsMm/2aX1loVYOtSl5DlDg/IbQIDAQAB",
   "name": "Archie Browser Control",
   "version": "0.1.0",
   "description": "Lets Archie drive this logged-in Chrome profile: navigate tabs, click elements, and fill forms.",
