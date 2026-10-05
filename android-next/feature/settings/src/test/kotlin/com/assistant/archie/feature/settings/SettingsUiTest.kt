@@ -193,6 +193,17 @@ class SettingsUiTest {
         waitText("Saved")
     }
 
+    @Test fun phrases_saveWhenThePageIsLeftWithoutDone() {
+        val h = h()
+        val open = androidx.compose.runtime.mutableStateOf(true)
+        compose.setContent { ArchieTheme { if (open.value) SettingsPageScreen(h.feature, SettingsPageKey.WAKE_WORD, onBack = {}) } }
+        compose.waitForIdle()
+        compose.onNodeWithTag("talk-phrases").performTextReplacement("my friend, hey friend, listen up")
+        open.value = false                              // Back without pressing Done
+        compose.waitForIdle()
+        eventually { h.settings.settings.value?.talkWord == "my friend, hey friend, listen up" }
+    }
+
     @Test fun home_serverRowsDisabledWhenOffline() {
         val h = h()
         h.connection.state.value = h.connection.state.value.copy(phase = ConnectionStatus.Phase.OFFLINE)

@@ -16,11 +16,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -481,6 +483,10 @@ private fun PhraseField(label: String, saved: String, placeholder: String, help:
             if (phrases(text).isEmpty()) error = "Enter at least one phrase" else { error = null; onSave(text) }
         }
     }
+    // Leaving the page (Back, or the keyboard hidden then Back) must not drop an edit: Done and
+    // focus loss are not the only ways out (found on the POCO X7 Pro, 2026-10-05).
+    val latestCommit by rememberUpdatedState(commit)
+    DisposableEffect(Unit) { onDispose { latestCommit() } }
     FieldBlock {
         ArchieTextField(
             text, { text = it; error = null }, label,
