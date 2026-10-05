@@ -237,6 +237,7 @@ async def orchestrator_ws(ws: WebSocket):
                     msg.get("audio", ""),
                     msg.get("format", "webm"),
                     msg.get("text"),
+                    sender=ws,
                 )
 
             elif msg_type == "set_model":
@@ -1105,8 +1106,17 @@ async def _handle_send_audio(
     audio_base64: str,
     audio_format: str,
     text_prompt: str | None,
+    *,
+    sender: WebSocket | None = None,
 ) -> None:
-    """Process audio input through the multimodal model."""
+    """Process audio input through the multimodal model.
+
+    Like a typed ``send`` (O-3), the voice message is echoed to the other
+    subscribers as ``user_message{source: "voice_message", text}`` (``text`` is
+    the optional accompanying prompt, else ``""``) so they show it as a user
+    bubble, not as a turn Archie started on its own. *sender* (the socket the
+    clip came from) is excluded: it already rendered its own bubble.
+    """
     try:
         # Decode base64 audio
         try:
@@ -1119,6 +1129,10 @@ async def _handle_send_audio(
             })
             return
 
+        await pool.broadcast_orchestrator(
+            {"type": "user_message", "text": text_prompt or "", "source": "voice_message"},
+            exclude=sender,
+        )
         await pool.broadcast_orchestrator({"type": "status", "status": "streaming"})
 
         async for event in session.send_audio(audio_bytes, audio_format, text_prompt):

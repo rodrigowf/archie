@@ -1844,6 +1844,7 @@ class OrchestratorSession:
         # Audio mode also drains notifications — prepend them to the audio's
         # accompanying text prompt so the LLM sees them first in this turn.
         async with self._busy_lock:
+            user_text = text_prompt  # persisted as typed; notifications get their own lines
             pending = self._notifications.drain()
             if pending:
                 for n in pending:
@@ -1864,7 +1865,7 @@ class OrchestratorSession:
                 rendered = _render_notifications(pending)
                 text_prompt = (rendered + "\n\n" + text_prompt) if text_prompt else rendered
 
-            async for event in self._send_audio_inner(audio_data, audio_format, text_prompt):
+            async for event in self._send_audio_inner(audio_data, audio_format, text_prompt, user_text=user_text):
                 yield event
 
     async def _send_audio_inner(
@@ -1872,6 +1873,8 @@ class OrchestratorSession:
         audio_data: bytes | str,
         audio_format: str,
         text_prompt: str | None,
+        *,
+        user_text: str | None = None,
     ) -> AsyncIterator[OrchestratorEvent]:
         """The original send_audio body, called inside the busy_lock.
 
@@ -1912,7 +1915,9 @@ class OrchestratorSession:
             "type": "user",
             "message": {
                 "role": "user",
-                "content": f"[audio:{audio_format}] {text_prompt or '(audio message)'}",
+                # Only what the user sent: drained notifications are in text_prompt for the
+                # model but are persisted as their own background_notification lines (as send()).
+                "content": f"[audio:{audio_format}] {(user_text if user_text is not None else text_prompt) or '(audio message)'}",
             },
             "source": "audio_input",
             "audio_format": audio_format,
