@@ -18,6 +18,7 @@ import com.assistant.core.voice.ports.ProviderSignal
 import com.assistant.core.voice.ports.SessionPhase
 import com.assistant.core.voice.ports.VoiceConnection
 import com.assistant.core.voice.ports.VoiceInbound
+import com.assistant.core.voice.ports.VoiceLevels
 import com.assistant.core.voice.ports.VoiceSessionController
 import com.assistant.core.voice.ports.VoiceSessionDeps
 import com.assistant.core.voice.ports.VoiceSessionEvent
@@ -26,6 +27,7 @@ import com.assistant.core.voice.ports.VoiceStartConfig
 import com.assistant.core.voice.ports.VoiceStartRequest
 import com.assistant.core.voice.ports.VoiceTransport
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
@@ -37,9 +39,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -96,6 +102,14 @@ class DefaultVoiceSessionController(
     override val events: SharedFlow<VoiceSessionEvent> = _events.asSharedFlow()
     override val link: StateFlow<VoiceLinkState> = _link.asStateFlow()
     override val linkEvents: SharedFlow<VoiceLinkEvent> = _linkEvents.asSharedFlow()
+
+    /** Mirrors [transport] for [levels] only (observation; never read by the session logic). */
+    private val levelSource = MutableStateFlow<VoiceTransport?>(null)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    override val levels: StateFlow<VoiceLevels?> = levelSource
+        .flatMapLatest { t -> t?.levels ?: flowOf(null) }
+        .stateIn(scope, SharingStarted.WhileSubscribed(0, 0), null)
 
     // ── guarded by [lock] ──────────────────────────────────────────────────────────────────────
     private val lock = Any()
@@ -216,7 +230,7 @@ class DefaultVoiceSessionController(
             listOfNotNull(startJob, endingJob, reapplyJob, resumeJob, linkJob).forEach { it.cancel() }
             collectors.forEach { it.cancel() }
             collectors = emptyList()
-            (transport to focusToken).also { transport = null }
+            (transport to focusToken).also { transport = null; levelSource.value = null }
         }
         relay.detach()
         scope.cancel()
@@ -418,7 +432,7 @@ class DefaultVoiceSessionController(
         // The DC-open / echo self-heal re-asserts the cached session.update (RS-03).
         t.setSessionUpdateFallback { relay.cachedSessionUpdate }
         val adopted = synchronized(lock) {
-            if (finalized) false else { transport = t; true }
+            if (finalized) false else { transport = t; levelSource.value = t; true }
         }
         if (!adopted) return log.i(TAG, "start: session ended while starting — dropping the transport")
         observe(t)
@@ -557,6 +571,7 @@ class DefaultVoiceSessionController(
             collectors = emptyList()
             t = transport
             transport = null
+            levelSource.value = null
             token = focusToken
             if (!keepLink) resetLinkLocked()
         }

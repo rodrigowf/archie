@@ -9,6 +9,7 @@ import com.assistant.core.voice.ports.RtcPeer
 import com.assistant.core.voice.ports.RtcPeerObserver
 import com.assistant.core.voice.ports.RtcPeerOptions
 import com.assistant.core.voice.ports.RtcPlatform
+import com.assistant.core.voice.ports.RtcStat
 import java.nio.ByteBuffer
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -23,6 +24,7 @@ import org.webrtc.MediaStream
 import org.webrtc.MediaStreamTrack
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
+import org.webrtc.RTCStatsCollectorCallback
 import org.webrtc.RtpReceiver
 import org.webrtc.RtpTransceiver
 import org.webrtc.SdpObserver
@@ -143,6 +145,17 @@ class AndroidRtcPlatform(
         }
 
         override fun setSendTrackEnabled(enabled: Boolean) { track.setEnabled(enabled) }
+
+        /** Only the entries the speaker level reads; the members map is libwebrtc's own. */
+        override fun requestStats(onResult: (List<RtcStat>) -> Unit): Boolean {
+            pc.getStats(
+                RTCStatsCollectorCallback { report ->
+                    onResult(report.statsMap.values.filter { it.type == "inbound-rtp" || it.type == "track" }.map { RtcStat(it.type, it.members) })
+                },
+            )
+            return true
+        }
+
         override fun closeDataChannel() = dc.close()
         override fun disposeSendTrack() = track.dispose()
         override fun close() = pc.close()

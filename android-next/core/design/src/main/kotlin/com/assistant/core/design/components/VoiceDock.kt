@@ -26,9 +26,13 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -57,7 +61,10 @@ private val BarH = floatArrayOf(14f, 28f, 22f, 12f)
 
 /**
  * The voice level orb (mockup `.orb`, 100-unit viewBox): two pulsing halos, a solid core and four
- * level bars. [level] (0..1) drives the bars from the live audio level; null animates them.
+ * level bars. [level] reads the live visual level (0..1; mic while listening, speaker while Archie
+ * speaks): while it answers non-null the bars are a small equalizer and the halos grow with it
+ * ([OrbLevels]); null (no provider, or thinking / no live session) keeps the timed pulse. It is
+ * sampled ~15 Hz in a frame loop and read only when drawing, so levels never recompose.
  * Reconnecting is dimmed and warning-toned with flat bars. Still under reduce motion or [still].
  */
 @Composable
@@ -65,7 +72,7 @@ fun VoiceOrb(
     tone: OrbTone,
     modifier: Modifier = Modifier,
     size: Dp = 60.dp,
-    level: Float? = null,
+    level: (() -> Float?)? = null,
     still: Boolean = false,
 ) {
     val c = ArchieTheme.colors
@@ -84,20 +91,22 @@ fun VoiceOrb(
     val p2 = t.pulse(pulseMs, 300, 0.84f, 1f)
     val dim = if (recon) t.pulse(1600, 0, 0.4f, 0.75f, still = 0.6f) else null
     val bars = (0 until 4).map { i -> t.pulse(1100, 150 * i, 0.55f, 1f) }
+    val meter = if (animate && level != null && !recon && tone != OrbTone.Idle) rememberOrbMeter(level) else null
     Canvas(modifier.size(size)) {
         val k = this.size.minDimension / 100f
         scale(k, k, pivot = Offset.Zero) {
             val center = Offset(50f, 50f)
             val haloAlpha1 = 0.14f
             val haloAlpha2 = if (recon) 0.26f else 0.28f
-            drawCircle(base.copy(alpha = haloAlpha1), radius = 48f * p1.value, center = center)
-            drawCircle(base.copy(alpha = haloAlpha2), radius = 39f * p2.value, center = center)
+            val live = meter?.takeIf { it.live }
+            drawCircle(base.copy(alpha = haloAlpha1), radius = 48f * (live?.outerHalo ?: p1.value), center = center)
+            drawCircle(base.copy(alpha = haloAlpha2), radius = 39f * (live?.innerHalo ?: p2.value), center = center)
             val coreAlpha = if (recon) (dim?.value ?: 0.6f) else 1f
             drawCircle(base.copy(alpha = coreAlpha), radius = 29f, center = center)
             for (i in 0 until 4) {
                 val sy = when {
                     recon -> 0.28f
-                    level != null -> 0.35f + 0.65f * level.coerceIn(0f, 1f)
+                    live != null -> live.bar(i)
                     else -> bars[i].value
                 }
                 val h = BarH[i] * sy
@@ -110,6 +119,28 @@ fun VoiceOrb(
             }
         }
     }
+}
+
+/** Samples [level] every [OrbLevels.TICK_MS] and eases the drawn values every frame. */
+@Composable
+private fun rememberOrbMeter(level: () -> Float?): OrbMeter {
+    val meter = remember { OrbMeter() }
+    val source by rememberUpdatedState(level)
+    LaunchedEffect(meter) {
+        var lastTick = -1L
+        var lastFrame = -1L
+        while (true) {
+            withFrameMillis { now ->
+                if (lastTick < 0 || now - lastTick >= OrbLevels.TICK_MS) {
+                    lastTick = now
+                    meter.tick(source())
+                }
+                if (lastFrame >= 0) meter.frame(now - lastFrame)
+                lastFrame = now
+            }
+        }
+    }
+    return meter
 }
 
 /** An infinite [from]↔[to] pulse (CSS `ease`, alternate), or [still] when motion is off. */
@@ -132,16 +163,16 @@ private fun InfiniteTransition?.pulse(periodMs: Int, delayMs: Int, from: Float, 
 enum class VoiceDockState(val label: String) { Listening("Listening"), Speaking("Speaking"), Thinking("Thinking"), UsingTools("Using tools") }
 
 /**
- * Voice dock (IA §6, mockup `.dock`): the composer becomes this while voice is on — level orb,
- * state word and hint, then controls ([controls]: mic mute, speaker mute, end). r32 on
- * surface-container-high, 84 dp tall.
+ * Voice dock (IA §6, mockup `.dock`): the composer becomes this while voice is on — level orb
+ * (live when [level] answers, see [VoiceOrb]), state word and hint, then controls ([controls]: mic
+ * mute, speaker mute, end). r32 on surface-container-high, 84 dp tall.
  */
 @Composable
 fun VoiceDock(
     state: VoiceDockState,
     hint: String,
     modifier: Modifier = Modifier,
-    level: Float? = null,
+    level: (() -> Float?)? = null,
     controls: @Composable RowScope.() -> Unit,
 ) {
     val tone = if (state == VoiceDockState.Speaking) OrbTone.Speaking else OrbTone.Listening

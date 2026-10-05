@@ -208,7 +208,9 @@ export function VoiceDock({ localId }: { localId: string }) {
   const level = useCallback(() => {
     if (!c) return 0;
     const l = c.levels();
-    return c.snapshot.status === 'speaking' ? l.speaker : l.mic;
+    const snap = c.snapshot;
+    // A muted side is flat (as the legacy VolumeBars): the speaker analyser still hears muted audio.
+    return snap.status === 'speaking' ? (snap.speakerMuted ? 0 : l.speaker) : snap.micMuted ? 0 : l.mic;
   }, [c]);
   const actions = useMemo<VoiceDockActions>(
     () => ({

@@ -21,12 +21,16 @@ import com.assistant.core.voice.ports.RtcPeer
 import com.assistant.core.voice.ports.RtcPeerObserver
 import com.assistant.core.voice.ports.RtcPeerOptions
 import com.assistant.core.voice.ports.RtcPlatform
+import com.assistant.core.voice.ports.RtcStat
 import com.assistant.core.voice.ports.VoiceConnection
+import com.assistant.core.voice.ports.VoiceLevels
 import com.assistant.core.voice.ports.VoiceTransport
 import com.assistant.core.voice.ports.WebRtcDeps
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.resume
 import kotlin.math.sqrt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -35,11 +39,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 
@@ -86,6 +93,8 @@ class WebRtcTransport(private val deps: WebRtcDeps) : VoiceTransport {
     @Volatile private var muted = false
     private var duckTimer: Job? = null
     @Volatile private var rmsCounter = 0
+    private val micLevel = MicLevel()
+    private val meters = AtomicInteger(0)
 
     private sealed interface Input {
         data class Ice(val state: IceState) : Input
@@ -135,6 +144,25 @@ class WebRtcTransport(private val deps: WebRtcDeps) : VoiceTransport {
     override fun handleProviderEvent(event: JsonObject) = Unit
 
     override fun pushSpeakerChunk(audioB64: String) = Unit
+
+    /**
+     * Mic: the pre-gain RMS of each ADM record buffer (peak-held between polls; only computed while
+     * collected). Speaker: `getStats()` inbound audio level, polled with the same period.
+     */
+    override val levels: Flow<VoiceLevels> = flow {
+        meters.incrementAndGet()
+        val speaker = StatsSpeakerLevel()
+        try {
+            while (true) {
+                val stats = pollStats()
+                val mic = micLevel.take()
+                emit(VoiceLevels(if (muted) 0f else mic, stats?.let(speaker::update) ?: 0f))
+                delay(VoiceLevels.PERIOD_MS)
+            }
+        } finally {
+            meters.decrementAndGet()
+        }
+    }
 
     override suspend fun connect(info: VoiceConnection, mirrorEvent: (JsonObject) -> Unit, sendMicChunk: (String) -> Unit) {
         val now = _phase.value.phase
@@ -301,11 +329,38 @@ class WebRtcTransport(private val deps: WebRtcDeps) : VoiceTransport {
 
     /** ADM record hook (record thread): the gain, incl. the duck gain, before WebRTC processing. */
     private fun onRecordedAudio(buffer: ByteBuffer) {
+        if (meters.get() > 0) micLevel.offer(rms(buffer))
         val gain = duck.currentMicGain
         if (gain != 1.0f) applyGain(buffer, gain)
         if (++rmsCounter >= VoiceTuning.RMS_LOG_INTERVAL) {
             rmsCounter = 0
             log.d(TAG, "${VoiceLogMarkers.AUDIO_RMS} rms=${rms(buffer).toInt()} gain=$gain agentPlaying=${duck.agentPlaying}")
+        }
+    }
+
+    /**
+     * One `getStats()` of the live peer, or null (no open session, unsupported, no answer in time).
+     * Requested under [lock] so it can never reach a peer that teardown is disposing.
+     */
+    private suspend fun pollStats(): List<RtcStat>? {
+        val session = current ?: return null
+        return withTimeoutOrNull(STATS_TIMEOUT_MS) {
+            suspendCancellableCoroutine { cont ->
+                val asked = synchronized(lock) {
+                    val peer = session.peer
+                    val open = session.dcOpen.isCompleted && !session.tornDown
+                    if (!open || peer == null) {
+                        false
+                    } else {
+                        try {
+                            peer.requestStats { stats -> if (cont.isActive) cont.resume(stats) }
+                        } catch (e: Exception) {
+                            false
+                        }
+                    }
+                }
+                if (!asked) cont.resume(null)
+            }
         }
     }
 
@@ -350,6 +405,7 @@ class WebRtcTransport(private val deps: WebRtcDeps) : VoiceTransport {
 
     companion object {
         private const val TAG = "OpenAIVoiceProvider"
+        private const val STATS_TIMEOUT_MS = 250L
 
         /** `PeerConnectionFactory.initialize` is process-wide: at most once (`2a33e8d`, RS-08). */
         private val globalsInitialized = AtomicBoolean(false)

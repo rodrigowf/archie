@@ -122,7 +122,14 @@ function ComposerStub() {
 }
 
 function Dock({ state }: { state: State }) {
-  const level = useMemo(() => () => 0.06, []);
+  // Speech-like RMS (syllables inside phrases) so the orb's equalizer and rings can be judged live.
+  const level = useMemo(
+    () => () => {
+      const t = Date.now() / 1000;
+      return 0.01 + 0.11 * Math.abs(Math.sin(t * 7.3)) * Math.max(0, Math.sin(t * 1.3));
+    },
+    [],
+  );
   if (!state.snap) {
     return (
       <>

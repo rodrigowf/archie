@@ -83,6 +83,7 @@ fun ComposerArea(
     onAttach: () -> Unit,
     modifier: Modifier = Modifier,
     clock: () -> Long = System::currentTimeMillis,
+    voiceLevel: (() -> Float?)? = null,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (queue.isNotEmpty()) QueueTray(queue)
@@ -91,6 +92,7 @@ fun ComposerArea(
                 state = dockState(voice.phase),
                 hint = dockHint(voice.phase, voice.micMuted),
                 modifier = Modifier.testTag("voice-dock"),
+                level = voiceLevel,
             ) {
                 VoiceDockControls(
                     micMuted = voice.micMuted,

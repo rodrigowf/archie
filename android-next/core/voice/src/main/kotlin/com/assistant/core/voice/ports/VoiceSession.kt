@@ -176,6 +176,9 @@ interface VoiceSessionController {
     val state: StateFlow<VoiceSessionState>
     val events: SharedFlow<VoiceSessionEvent>
 
+    /** The current transport's [VoiceLevels] while subscribed; null without a transport. Observation only. */
+    val levels: StateFlow<VoiceLevels?> get() = VoiceLevels.None
+
     /** Synchronous UI flip to CONNECTING on wake detection, before any network work (RS-45). */
     fun markConnecting()
     fun startVoice()

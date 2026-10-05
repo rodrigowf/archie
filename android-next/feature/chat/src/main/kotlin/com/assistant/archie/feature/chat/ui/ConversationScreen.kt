@@ -48,6 +48,7 @@ import com.assistant.archie.feature.chat.ChatAction
 import com.assistant.archie.feature.chat.ChatEffect
 import com.assistant.archie.feature.chat.ConversationUiState
 import com.assistant.archie.feature.chat.ConversationViewModel
+import com.assistant.archie.feature.chat.VoiceUi
 import com.assistant.core.design.components.ArchieConfirmDialog
 import com.assistant.core.design.components.ArchieListItem
 import com.assistant.core.design.components.ArchieSnackbarHost
@@ -99,6 +100,8 @@ fun ConversationScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val draft by viewModel.draftText.collectAsStateWithLifecycle()
+    // Only while the dock is up: observing the level is what turns the transport's meters on.
+    val voiceLevel = if (state.voice is VoiceUi.Active) viewModel.voiceLevel.collectAsStateWithLifecycle() else null
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(viewModel) {
         viewModel.effectFlow.collect { e ->
@@ -123,6 +126,7 @@ fun ConversationScreen(
         onAttach = { picker.launch("*/*") },
         snackbar = snackbar,
         suggestions = suggestions,
+        voiceLevel = voiceLevel?.let { l -> { l.value } },
     )
 }
 
@@ -160,6 +164,8 @@ fun ConversationContent(
     suggestions: List<Suggestion> = DefaultSuggestions,
     hour: Int = remember { Calendar.getInstance().get(Calendar.HOUR_OF_DAY) },
     clock: () -> Long = System::currentTimeMillis,
+    /** The voice orb's live level (read only by the orb's frame loop); null keeps its pulse. */
+    voiceLevel: (() -> Float?)? = null,
 ) {
     val uri = LocalUriHandler.current
     val onLink: (String) -> Unit = callbacks.onLink ?: { href -> runCatching { uri.openUri(href) } }
@@ -202,7 +208,7 @@ fun ConversationContent(
         ) {
             Column(Modifier.widthIn(max = MessageColumnMaxWidth - 24.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 InlineCardsArea(state.cards, onAction, onLink)
-                ComposerArea(state.composer, state.voice, state.counters, state.queue, draft, onAction, onAttach, clock = clock)
+                ComposerArea(state.composer, state.voice, state.counters, state.queue, draft, onAction, onAttach, clock = clock, voiceLevel = voiceLevel)
             }
         }
     }

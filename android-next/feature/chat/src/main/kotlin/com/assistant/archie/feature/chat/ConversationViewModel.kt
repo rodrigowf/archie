@@ -111,6 +111,9 @@ class ConversationViewModel(
     private val draft = MutableStateFlow(saved.get<String>(KEY_DRAFT) ?: "")
     val draftText: StateFlow<String> = draft
 
+    /** The voice dock orb's live level, kept out of [state] so 15 Hz levels never recompose the screen. */
+    val voiceLevel: StateFlow<Float?> get() = voice.level
+
     private val groupToggles = MutableStateFlow(readToggles(KEY_GROUPS))
     private val cardToggles = MutableStateFlow(readToggles(KEY_CARDS))
     private val loadingOlder = MutableStateFlow(false)

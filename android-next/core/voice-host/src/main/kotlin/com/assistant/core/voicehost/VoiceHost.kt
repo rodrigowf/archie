@@ -4,6 +4,7 @@ import android.app.Activity
 import com.assistant.core.audio.ports.OutputChoice
 import com.assistant.core.model.AudioOutput
 import com.assistant.core.model.DeviceSettings
+import com.assistant.core.voice.ports.VoiceLevels
 import com.assistant.core.voice.ports.VoiceSessionState
 import com.assistant.core.voice.session.VoiceLinkState
 import com.assistant.core.voicehost.cue.CueKind
@@ -22,6 +23,12 @@ import kotlinx.coroutines.flow.StateFlow
 interface VoiceHost {
     val state: StateFlow<VoiceUiState>
     val events: Flow<VoiceUiEvent>
+
+    /**
+     * Live mic/speaker levels of this device's voice session while subscribed (~15 Hz), null
+     * without one. For the dock's level orb only; observing it changes nothing in the session.
+     */
+    val levels: StateFlow<VoiceLevels?> get() = VoiceLevels.None
 
     /** Connect the orchestrator channel to the configured server (idempotent). */
     fun connect()

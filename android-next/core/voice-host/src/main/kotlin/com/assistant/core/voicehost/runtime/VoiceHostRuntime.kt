@@ -19,6 +19,7 @@ import com.assistant.core.voice.ports.SessionPhase
 import com.assistant.core.voice.ports.TranscriptSink
 import com.assistant.core.voice.ports.VoiceBackendApi
 import com.assistant.core.voice.ports.VoiceInbound
+import com.assistant.core.voice.ports.VoiceLevels
 import com.assistant.core.voice.ports.VoiceSessionDeps
 import com.assistant.core.voice.ports.VoiceSessionEvent
 import com.assistant.core.voice.ports.VoiceStartRequest
@@ -148,6 +149,9 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
 
     private val _state = MutableStateFlow(VoiceUiState())
     override val state: StateFlow<VoiceUiState> = _state.asStateFlow()
+
+    /** The session's own levels (already shared and subscription-gated). */
+    override val levels: StateFlow<VoiceLevels?> get() = session.levels
 
     // ── wake ────────────────────────────────────────────────────────────────────────────────────
     val micGate = MicGate()

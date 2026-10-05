@@ -9,7 +9,9 @@ import com.assistant.core.audio.ports.ProviderKind
 import com.assistant.core.audio.ports.SpeakerMode
 import com.assistant.core.audio.ports.VoiceLog
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.JsonObject
 
@@ -67,6 +69,9 @@ interface VoiceTransport {
 
     /** Non-phase signals; hot, buffered, never drops. */
     val signals: SharedFlow<ProviderSignal>
+
+    /** Cold: mic/speaker levels every [VoiceLevels.PERIOD_MS] while collected (the dock orb only). */
+    val levels: Flow<VoiceLevels> get() = emptyFlow()
 
     /** Getter for the cached `session.update`, used for the DC-open / echo self-heal (RS-03). */
     fun setSessionUpdateFallback(fallback: () -> JsonObject?)

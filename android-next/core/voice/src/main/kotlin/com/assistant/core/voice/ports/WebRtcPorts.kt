@@ -60,6 +60,9 @@ interface RtcFactory {
     fun dispose()
 }
 
+/** One `getStats()` entry: its `type` ("inbound-rtp", "track", …) and members by W3C name. */
+data class RtcStat(val type: String, val members: Map<String, Any?>)
+
 interface RtcPeer {
     /** createOffer + setLocalDescription; returns the local SDP. */
     suspend fun createOffer(): String
@@ -67,6 +70,12 @@ interface RtcPeer {
     val isDataChannelOpen: Boolean
     fun sendOnDataChannel(text: String): Boolean
     fun setSendTrackEnabled(enabled: Boolean)
+
+    /**
+     * `getStats()` for the level orb (observation only). [onResult] arrives on a WebRTC thread and
+     * must only hand the list over. Returns false when not requested (unsupported).
+     */
+    fun requestStats(onResult: (List<RtcStat>) -> Unit): Boolean = false
     fun closeDataChannel()
     fun disposeSendTrack()
     fun close()

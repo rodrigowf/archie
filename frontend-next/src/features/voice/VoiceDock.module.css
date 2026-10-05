@@ -250,6 +250,17 @@
   animation: none;
 }
 
+/* live level: the rings follow the audio (inline scale from LevelOrb) instead of pulsing */
+.orbLiveRings .o1,
+.orbLiveRings .o2 {
+  animation: none;
+  transition: transform 90ms linear;
+}
+
+.orbLive .bar {
+  transition: transform 60ms linear;
+}
+
 /* reconnecting (P-2): warning tone, dimmed, slower pulse, flat bars */
 .orbRecon .o1,
 .orbRecon .o2,

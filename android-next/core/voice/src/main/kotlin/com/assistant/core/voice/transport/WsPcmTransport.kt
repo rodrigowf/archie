@@ -17,18 +17,22 @@ import com.assistant.core.voice.ports.ProviderPhase
 import com.assistant.core.voice.ports.ProviderPhaseState
 import com.assistant.core.voice.ports.ProviderSignal
 import com.assistant.core.voice.ports.VoiceConnection
+import com.assistant.core.voice.ports.VoiceLevels
 import com.assistant.core.voice.ports.VoiceTransport
 import com.assistant.core.voice.ports.WsPcmDeps
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -80,6 +84,12 @@ class WsPcmTransport(
     private var captureJob: Job? = null
     private var tickJob: Job? = null
 
+    // Level orb taps (observation only).
+    private val micLevel = MicLevel()
+    private val playout = PlayoutLevels()
+    private val meters = AtomicInteger(0)
+    @Volatile private var outRateHz = 0
+
     override fun setSessionUpdateFallback(fallback: () -> JsonObject?) = Unit // the backend relay applies session.update
     override fun setMicGain(level: Float) = ducker.setMicGain(level)
     override fun setEchoDuckingGain(gain: Float) = ducker.setEchoDuckingGain(gain)
@@ -114,6 +124,8 @@ class WsPcmTransport(
         }
         val inRate = info.inSampleRateHz
         val outRate = info.outSampleRateHz
+        outRateHz = outRate
+        playout.clear()
         log.i(tag, "Connecting $providerId voice: in=${inRate}Hz out=${outRate}Hz model=${info.model} voice=${info.voice}")
         _phase.value = ProviderPhaseState(ProviderPhase.CONNECTING)
         muted = false
@@ -187,6 +199,27 @@ class WsPcmTransport(
             agentSpeaking = true
             ducker.duck()
         }
+        val rate = outRateHz
+        if (meters.get() > 0 && rate > 0) {
+            playout.add(lastSpeakerChunkAtMs, pcm.size / 2 * 1000L / rate, PlayoutLevels.rmsPcm16Le(pcm))
+        }
+    }
+
+    /**
+     * Mic: the pre-gain RMS the capture loop already computes for `[MIC_PROBE]` (muted chunks never
+     * reach it, so muted reads 0). Speaker: the RMS of each `voice_audio_out` chunk on its playout
+     * timeline (computed only while collected).
+     */
+    override val levels: Flow<VoiceLevels> = flow {
+        meters.incrementAndGet()
+        try {
+            while (true) {
+                emit(VoiceLevels(micLevel.take(), playout.levelAt(deps.clock.nowMs())))
+                delay(VoiceLevels.PERIOD_MS)
+            }
+        } finally {
+            meters.decrementAndGet()
+        }
     }
 
     // ── internals ──────────────────────────────────────────────────────────────────────────────
@@ -254,6 +287,7 @@ class WsPcmTransport(
                     bytes[2 * i + 1] = ((s shr 8) and 0xff).toByte()
                 }
                 val (rms, peak) = deps.audio.pcm.rmsAndPeakPcm16Le(bytes, 0, len)
+                micLevel.offer(rms)
                 probeRms += rms
                 if (peak > probePeak) probePeak = peak
                 if (++probeChunks >= AudioTuning.MIC_PROBE_WINDOW_CHUNKS) {
@@ -295,6 +329,7 @@ class WsPcmTransport(
     private fun flushSpeaker() {
         if (!running) return
         val dropped = player?.flush() ?: 0
+        playout.clear()
         if (dropped > 0) log.d(tag, "Barge-in: dropped $dropped queued speaker chunks")
         agentSpeaking = false
         ducker.restoreImmediately("flush")
@@ -313,6 +348,7 @@ class WsPcmTransport(
         job?.cancel()
         ticks?.cancel()
         pb?.cleanup()
+        playout.clear()
         // Mid-duck: return to the saved gain so a re-connect doesn't start attenuated.
         ducker.cleanup()
         agentSpeaking = false

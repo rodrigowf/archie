@@ -13,7 +13,10 @@ import kotlinx.coroutines.flow.StateFlow
 interface ChatVoice {
     val state: StateFlow<VoiceSessionState>
 
-    /** Live mic level 0..1 for the orb bars, or null (the orb animates on its own). */
+    /**
+     * Live visual level 0..1 for the dock orb (mic while listening, speaker while Archie speaks),
+     * or null when nothing live is measured (the orb keeps its own pulse).
+     */
     val level: StateFlow<Float?>
     val speakerMuted: StateFlow<Boolean>
 

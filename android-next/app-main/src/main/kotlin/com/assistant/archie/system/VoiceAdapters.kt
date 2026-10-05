@@ -3,7 +3,10 @@ package com.assistant.archie.system
 import com.assistant.archie.feature.chat.ChatVoice
 import com.assistant.archie.feature.settings.VoiceStatusSource
 import com.assistant.core.data.VoicePresence
+import com.assistant.core.voice.ports.SessionPhase
+import com.assistant.core.voice.ports.VoiceLevels
 import com.assistant.core.voice.ports.VoiceSessionState
+import com.assistant.core.voice.session.VoiceLinkState
 import com.assistant.core.voicehost.VoiceHost
 import com.assistant.core.voicehost.VoiceUiState
 import com.assistant.core.voicehost.WakeHealth
@@ -12,6 +15,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
@@ -41,7 +45,10 @@ class HostChatVoice(
     scope: CoroutineScope,
 ) : ChatVoice {
     override val state: StateFlow<VoiceSessionState> = host.state.slice(scope) { it.session }
-    override val level: StateFlow<Float?> = MutableStateFlow(null)
+
+    /** Measured only while the dock observes it (the transports meter nothing unobserved). */
+    override val level: StateFlow<Float?> = combine(host.levels, host.state) { lv, s -> dockLevel(lv, s) }
+        .stateIn(scope, SharingStarted.WhileSubscribed(0, 0), null)
     override val speakerMuted: StateFlow<Boolean> = host.state.slice(scope) { it.speakerMuted }
 
     /** The server does not name the owning device yet; the dock falls back to "another device". */
@@ -57,6 +64,22 @@ class HostChatVoice(
 
     override fun toggleRecording() {
         if (host.state.value.pushToTalk) host.stopPushToTalk(send = true) else mic.withMicrophone { host.startPushToTalk() }
+    }
+
+    companion object {
+        /**
+         * The orb's visual level by turn: the speaker while Archie speaks, the mic while it is the
+         * user's turn (0 when that side is muted); null — the orb's own pulse — without a local
+         * session, while thinking / using tools, or while the link is down.
+         */
+        fun dockLevel(levels: VoiceLevels?, s: VoiceUiState): Float? {
+            if (levels == null || s.link !is VoiceLinkState.Up) return null
+            return when (s.session.phase) {
+                SessionPhase.SPEAKING -> if (s.speakerMuted) 0f else VoiceLevels.visual(levels.speaker)
+                SessionPhase.ACTIVE -> if (s.session.isMuted) 0f else VoiceLevels.visual(levels.mic)
+                else -> null
+            }
+        }
     }
 }
 
