@@ -44,9 +44,12 @@ assistant/                    # PUBLIC - shareable framework
 ├── orchestrator/             # Orchestrator agent — controls chat sessions
 │   └── providers/            # Model providers (Anthropic, OpenAI, voice)
 ├── api/                      # FastAPI server (REST + WebSocket)
-├── frontend/                 # React multi-tab chat interface (Node/Vite)
-├── frontend-compat/          # React 18 compat build for legacy browsers, served at /compat/
-├── android/                  # Native Android app peripheral (Kotlin + Jetpack Compose)
+├── frontend/                 # Web app (React + Vite): one project, two builds — dist/ (served at /) + dist-compat/ (Safari 12 / iOS 12, served at /compat/)
+├── android/                  # Android project (Gradle multi-module): :app-main (main phone app) + :app-lite (voice-first app for old devices, API 21)
+├── android-device/           # Companion device app
+├── design/tokens/            # Shared design-token source → CSS variables (web) + Kotlin theme (Android)
+├── shared/protocol-fixtures/ # Client-protocol conformance fixtures shared by web + Android tests
+├── _old/                     # Previous web, compat and Android apps (web served at /legacy/ and /legacy_compat/)
 ├── utils/                    # Shared Python utilities (paths.py)
 ├── tests/                    # Test suite
 ├── index/                    # Vector search index (gitignored)
@@ -88,7 +91,7 @@ The wrapper (api + manager + orchestrator + frontend) provides a multi-tab web i
 
 Start the backend: `context/scripts/run.sh -m uvicorn api.app:create_app --factory --host 0.0.0.0 --port 8765`
 
-Start the frontend: `cd frontend && npm run dev`
+Start the frontend: `cd frontend && npm run dev` (main build, port 5450) or `npm run dev:compat` (Safari 12 build, port 5451). `npm run mock` starts a mock backend; `npm run verify` runs lint, typecheck, tests and both builds.
 
 Or use `/debug-app` which handles both and provides browser automation.
 
@@ -100,12 +103,14 @@ Or use `/debug-app` which handles both and provides browser automation.
 
 The assistant supports multiple frontend surfaces beyond the main web interface:
 
-**frontend-compat** — React 18 compat build served at `/compat/`. Targets legacy browsers (Safari 12, iOS 12). Built separately.
+**Compat build** — `frontend/` also builds `frontend/dist-compat` (base `/compat/`, served at `/compat/`) for legacy browsers (Safari 12, iOS 12), from the same source tree; `npm run build` produces both builds. The previous standalone compat app is in `_old/frontend-compat/` (served at `/legacy_compat/`), the previous main web app in `_old/frontend/` (served at `/legacy/`).
 
-**Android app** (`android/`) — Full native Android peripheral app (Kotlin + Jetpack Compose). Provides chat, session management, and WebRTC realtime voice. Connects to the same backend WebSocket/REST API as the web frontend. Targets API 21+ (Android 5.0).
+**Android apps** (`android/`) — Gradle multi-module project (Kotlin, Compose + Navigation 3, shared `core/*` and `feature/*` modules). Both apps connect to the same backend WebSocket/REST API as the web frontend:
 
-- Build: `cd android && ./gradlew assembleDebug`
-- APK output: `app/build/outputs/apk/debug/app-debug.apk`
+- `:app-main` (`com.assistant.archie`, minSdk 26) — the main phone app: chat, sessions, orchestrator, WebRTC voice, memory, visualizations. APK: `android/app-main/build/outputs/apk/debug/app-main-debug.apk`
+- `:app-lite` (`com.assistant.peripheral`, minSdk 21, plain Views) — voice-first app for old devices (wake word + talk). It keeps the old peripheral app's package and installs over it when signed with the same key (`android/keystore.properties`, gitignored). APK: `android/app-lite/build/outputs/apk/debug/app-lite-debug.apk`
+- Build: `cd android && ./gradlew :app-main:assembleDebug` (or `:app-lite:assembleDebug`); full gate `./gradlew check`
+- The previous single-module app is in `_old/android/`
 - Use `/android-dev` for building, deploying, and debugging
 
 ### Memory System
@@ -175,10 +180,11 @@ The orchestrator supports a realtime voice mode powered by the OpenAI Realtime A
 - `api/routes/voice.py` — Ephemeral token endpoint (exchanges `OPENAI_API_KEY` for a short-lived token)
 - `orchestrator/providers/openai_voice.py` — `OpenAIVoiceProvider` that translates OpenAI Realtime events into `OrchestratorEvent`s
 - `orchestrator/session.py` — Voice session lifecycle, tool execution, JSONL persistence
-- `frontend/src/hooks/useVoiceSession.ts` — WebRTC connection management (SDP exchange, mic, data channel)
-- `frontend/src/hooks/useVoiceOrchestrator.ts` — Bridges the WebRTC session and orchestrator WebSocket
-- `frontend/src/components/VoiceButton.tsx` — Mic toggle UI with states: off, connecting, active, speaking, thinking, tool_use, error
-- `frontend/src/api/voice.ts` — API client for ephemeral token and SDP exchange
+- `frontend/src/voice/core/VoiceController.ts` — Voice signaling state machine (bridges the transport and the orchestrator WebSocket)
+- `frontend/src/voice/transports/` — `webrtc.ts` (SDP exchange, mic, data channel) and `wsRelay.ts` (audio over the backend WebSocket relay)
+- `frontend/src/features/voice/` — Voice UI (`VoiceDock.tsx`, `VoiceSlot.tsx`)
+- `frontend/src/services/http/endpoints/voice.ts` — API client for ephemeral token and SDP exchange
+- Android: `android/core/voice`, `android/core/voice-host`, `android/core/wakeword`, `android/core/audio`
 
 **Environment:** Requires `OPENAI_API_KEY` set in the environment. Default model: `gpt-realtime`.
 
@@ -193,8 +199,8 @@ You can extend and modify your own capabilities:
 - **Skills** (`context/skills/`): Create with `/scaffold-skill`, modify existing ones directly
 - **Agents** (`context/agents/`): Create with `/scaffold-agent` for specialized subagents
 - **Scripts** (`context/scripts/`): Shared tools any skill can reference
-- **Wrapper** (`api/`, `manager/`, `frontend/`): The application code itself
-- **Android app** (`android/`): Native mobile peripheral — use `/android-dev` to build, deploy, and debug
+- **Wrapper** (`api/`, `manager/`, `orchestrator/`, `frontend/`): The application code itself
+- **Android apps** (`android/`): Native mobile clients — use `/android-dev` to build, deploy, and debug
 
 Run Python scripts through the venv: `context/scripts/run.sh context/scripts/<script>.py [args]`
 
@@ -264,7 +270,7 @@ The bundled Claude Code CLI fires a permission gate for tools like `ExitPlanMode
 
 ### Stall Watchdog
 
-When the bundled `claude` subprocess goes silent mid-tool (most often `WebFetch` waiting on an unresponsive endpoint), the SDK never emits a `ResultMessage`. The session manager's `send()` drains the SDK receiver via a worker task and pulls from a queue with `asyncio.wait_for`; on timeout it yields a `SessionStalled` event naming the in-flight tool, then keeps waiting. First notice at 120s of silence, repeats every 60s. The frontend shows a yellow banner above the input with an Interrupt button while a stall is reported and the session is still streaming. `SessionStalled` is advisory — it does NOT abort the stream.
+When the bundled `claude` subprocess goes silent mid-tool (most often `WebFetch` waiting on an unresponsive endpoint), the SDK never emits a `ResultMessage`. The session manager's `send()` drains the SDK receiver via a worker task and pulls from a queue with `asyncio.wait_for`; on timeout it yields a `SessionStalled` event naming the in-flight tool, then keeps waiting. First notice at 120s of silence, repeats every 60s. While a stall is reported and the session is still streaming, the web frontend marks the named tool card as waiting. `SessionStalled` is advisory — it does NOT abort the stream.
 
 The send loop also recovers from a related SDK bug: some `claude-cli` versions deliver bundled-tool output as a plain string instead of the documented dict. The old code dropped the `ToolResult` entirely and left the UI's tool block stuck on "running"; the loop now treats the string as the tool output and recovers `tool_use_id` from `parent_tool_use_id` on the `UserMessage`.
 
