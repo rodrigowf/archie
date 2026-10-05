@@ -255,6 +255,14 @@ class ConversationRepository(
         archieHandle()?.post(ConversationInput.DataChannelEvent(event))
     }
 
+    /**
+     * The voice host shipped a talk-phrase capture (`send_audio`) on the orchestrator socket: a
+     * "Voice message" bubble, and the turn it starts is this device's (not a BG-1 background run).
+     */
+    fun voiceMessageSent() {
+        archieHandle()?.post(ConversationInput.LocalSendAudio)
+    }
+
     /** §5.3 older page; a page that does not abut triggers a canonical reload (A-4.4.6). */
     fun loadOlder(key: ConversationKey) {
         val h = handle(key) ?: return

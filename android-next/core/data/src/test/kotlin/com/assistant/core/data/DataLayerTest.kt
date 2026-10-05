@@ -92,6 +92,25 @@ class DataLayerTest {
         assertEquals(ConnectionStatus.Phase.CONNECTED, g.connection.status.value.phase)
     }
 
+    @Test fun talkPhraseVoiceMessage_isThisDevicesTurn_notABackgroundRun() {
+        val b = backend()
+        b.poolJson = orchPool
+        val g = graph(b.url)
+        g.connection.start()
+        eventually { g.conversations.current(ConversationKey.ARCHIE)?.connection == com.assistant.core.model.ConnectionState.SUBSCRIBED }
+
+        g.conversations.voiceMessageSent()          // what the voice host reports after send_audio
+        eventually(message = { "entries=${g.conversations.current(ConversationKey.ARCHIE)?.entries}" }) {
+            g.conversations.current(ConversationKey.ARCHIE)?.entries?.any {
+                it is com.assistant.core.conversation.UserEntry && it.origin == com.assistant.core.conversation.UserOrigin.AUDIO
+            } == true
+        }
+        val entries = g.conversations.current(ConversationKey.ARCHIE)!!.entries
+        assertTrue("no BG-1 notice for this device's own voice message", entries.none {
+            it is com.assistant.core.conversation.NoticeEntry && it.notice == com.assistant.core.conversation.NoticeKind.BACKGROUND
+        })
+    }
+
     @Test fun watcherEventOpensBackgroundTab_withoutStealingFocus_P6() {
         val b = backend()
         b.poolJson = orchPool

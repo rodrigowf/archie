@@ -30,7 +30,7 @@ object MainVoiceHost {
                 trampolineActivity = VoiceTrampolineActivity::class.java,
                 smallIcon = R.drawable.ic_stat_archie,
             ),
-            transcripts = MainTranscriptSink,
+            transcripts = MainTranscriptSink(onVoiceMessageSent = graph.conversations::voiceMessageSent),
             channel = graph.orchestrator,
             scope = graph.scope,
             // Spec 12 §4.7 / VT-2: the OpenAI owner's own transcripts (no server mirror) → Archie timeline.
@@ -47,12 +47,16 @@ object MainVoiceHost {
  * (WebRTC) owner via `dataChannelTap` → `ConversationRepository.voiceDataChannelEvent` (live deltas
  * streaming, the final transcript replacing them). Feeding them here too would duplicate them.
  */
-internal object MainTranscriptSink : TranscriptSink {
-    private const val TAG = "ArchieVoice"
+internal class MainTranscriptSink(private val onVoiceMessageSent: () -> Unit) : TranscriptSink {
     override fun userTranscript(text: String, final: Boolean) { if (final) Log.d(TAG, "user transcript (${text.length} chars)") }
     override fun assistantTranscript(text: String, final: Boolean) { if (final) Log.d(TAG, "assistant transcript (${text.length} chars)") }
     override fun system(text: String) = Unit.also { Log.i(TAG, text) }
-    override fun voiceMessageSent() = Unit
+    /** A talk-phrase capture went out: the Archie timeline shows it as this device's voice message. */
+    override fun voiceMessageSent() = onVoiceMessageSent()
     override fun turnComplete() = Unit
     override fun voiceEnded() = Unit
+
+    private companion object {
+        const val TAG = "ArchieVoice"
+    }
 }

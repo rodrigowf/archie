@@ -20,8 +20,8 @@ Status: ✅ pass · ❌ fail (bug link) · ⏭️ waived by Rodrigo · ⏳ not r
 | ID | Scenario | Status | Notes |
 |---|---|---|---|
 | M-F6 | Agent permission request → notification → Approve works | ✅ 2026-10-04 | Heads-up on channel "Approvals", lock screen public; Approve → `permission_resolved allow/user`, notification withdrawn. HyperOS shade did not let Rodrigo expand it (buttons visible only in the heads-up / full-width state) — check again in F-tests |
-| F1 | "wake up" ×10, arm's length, quiet room | ⏳ | |
-| F3 | "hello my friend, what time is it" in one breath | ⏳ | |
+| F1 | "wake up" ×10, arm's length, quiet room | ✅ 2026-10-05 (Rodrigo) | "All work properly" after restarting the app. Some instability at the very start (server still starting / app connecting?) — no logs kept (the laptop rebooted and the logcat capture died); watch for it in later runs |
+| F3 | "hello my friend, what time is it" in one breath | ⏳ | Bug found by Rodrigo: the talk-phrase message showed "Archie started on its own" — main app never posted `LocalSendAudio` (`MainTranscriptSink.voiceMessageSent` was a no-op). Fixed: `ConversationRepository.voiceMessageSent()`; retest |
 | F4 | Talk phrase then silence (phantom) | ⏳ | |
 | F5 | 5 talk turns, each with an audible reply | ⏳ | |
 | F6 | Screen off → talk phrase + command | ⏳ | |
