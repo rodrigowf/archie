@@ -4,6 +4,96 @@ Written 2026-10-04 by the coordinator (Claude) at the end of the implementation 
 Read this first when resuming; then `README.md` (charter), `plan/20` (decisions), `plan/21`
 (operating model), `plan/22` (progress log + open issues).
 
+## 0. RESUME HERE — state at the 2nd compaction (2026-10-05 ~19:00)
+
+Read this section first; §1–§9 below are the 2026-10-04 baseline (still valid unless overridden here).
+
+### 0.1 Where we are, exactly
+- **In progress when compacted:** installing the **lite app on the Samsung A300M** (adb serial `06e4f224`, SM-A300M,
+  **API 21 / Android 5.0.2 confirmed**, 540×960). Done so far: old app `com.assistant.peripheral` v1.0.9 (versionCode 10,
+  DEBUGGABLE, installed 2026-04-16) backed up to `context/secrets/android/a300m-backup-2026-10-05/`
+  (`peripheral-v1.0.9-base.apk` 74 MB + `peripheral-data.ab` 40 MB full `adb backup`, confirmed on the device; `run-as` does not
+  work on this Samsung). Companion `com.assistant.device` also installed (leave it alone, D2).
+  **Next step:** build `:app-lite:assembleDebug` (versionCode ≥ 100, same debug key → installs over v10), `adb -s 06e4f224 install -r`,
+  then verify L-F2 (settings, wake phrases, accessibility grant, Vosk model kept — no re-extract log) and run the G-01 remaining
+  items: real "wake up"/talk recordings, scripted lite run (`android-next/app-lite/tools/g01/`), Q8 `/dev/input` grep
+  (`android-next/core/voice-host/docs/q8-dev-input-recents.md`), release smoke, `check_elf_alignment`. Rollback = `adb install -r -d` the
+  backed-up APK + `adb restore peripheral-data.ab`.
+- **Then:** continue the POCO field tests with Rodrigo (tracker `docs/frontend-refactor/plan/field-poco.md`); he still has to
+  retest **F3** (talk phrase → own "Voice message" bubble, no "Archie started on its own") and look at the **new reacting orb**.
+- **Then (Rodrigo asked, plan agreed in principle — confirm the details):** the **final delivery / cutover** (§0.4).
+
+### 0.2 Deployed state
+- Branch `frontend-refactory` HEAD `30a2c23`, clean tree (never pushed; commit per WP).
+- Jetson backend: `local` @ `9cbfbaf` (cherry-picks of c4af742, 19949c5, 114c91d, fa7cca2 on top of b77b0f7), restarted
+  2026-10-05 ~18:50 **via `sudo systemctl restart agentic-backend.service`** (Rodrigo insists on the service), healthy.
+- Jetson `assistant_config.json`: `default_model: gpt-4o`, `default_audio_model: ""` (= gpt-audio); backup
+  `~/assistant_config.json.bak-2026-10-04`. Laptop config: same default_model; working dir fixed to `/home/rodrigo/assistant`
+  ("Laptop (local)"; the April value `~/Projects/assistant` is an empty leftover).
+- `/next/` + `/next-compat/` = latest `frontend-next` build. Old apps still at `/` and `/compat/`.
+- POCO X7 **Pro** (serial `HAOF4P8XLJ9DQCPJ`, Android 15/HyperOS 2): `com.assistant.archie` latest debug build installed,
+  wake word ON, talk phrases "my friend, hey friend, listen up", wake "wake up", saved servers "Server (Tailscale)"
+  `ws://100.97.139.113:80` and "Laptop (Tailscale)" `ws://100.111.80.128:8765` (copied from the legacy app). Old app
+  `com.assistant.peripheral` still installed there (don't open it during tests: mic contention). Notifications/mic/BT granted.
+- `.claude_config/settings.json` = `{"autoMemoryEnabled": false}` on BOTH machines (Claude Code auto-memory had overwritten
+  `context/memory/MEMORY.md`; restored from context commit c18817b + 2 new entries).
+
+### 0.3 What was done since the 1st compaction (commits)
+88fe229 web: Settings could not be closed (overlay history entry unmarked) · c4af742 backend: typed vs audio turns routed per
+turn (gpt-audio refuses text-only; text models refuse audio) · 41183ee Android Settings under status bar · f3c6ea4 web: T-16
+handshake timeout, "(active session)" placeholder, footnote · 0b4c8d2 Android: resume Archie after backend restart, T-16,
+titles, empty-state gutter · 19949c5 backend: `default_audio_model` + `max_completion_tokens` + reasoning_effort=none retry
+(gpt-5.6/6.x) · d2aa214 Settings: Text model + Audio model pickers (web + Android) · 114c91d backend `POST
+/api/sessions/{local_id}/permission` · d09ebed clients: approvals from anywhere (OI-2) + Android "Approvals" notifications
+(OI-6, Approve needs unlock — Rodrigo agreed) + WebView pool leak fix (Chromium keeps AutofillManager→Activity; build on
+Application context) · 30f1a42 Android: "connecting" forever after the orchestrator closed (noOrchestrator) · 1132898 Android:
+talk-phrase voice message posted LocalSendAudio (was "Archie started on its own") · a62c4ac voice orb follows live audio
+(equalizer bars + rings grow with level; Android transports publish observation-only levels; `PEAK_TO_RMS`=0.3 in
+`LevelMeters.kt` is an unmeasured estimate — tune from Rodrigo's feedback) · fa7cca2 backend echoes voice messages
+(`user_message{source:"voice_message"}`, sender excluded) + audio history line keeps only the user's text · 179b402 clients:
+VM-1, fixtures 39–40 · 30a2c23 Android: phrase edits saved when the page is left.
+Gates at HEAD: backend 1195 passed; web `npm run verify` 1600; Android `./gradlew check` green.
+Device-verified: M-F6 (approval notification → Approve → resolved, notification withdrawn), F1 (Rodrigo), reconnect after
+backend restart, both Tailscale servers added, Conversation-model page live.
+
+### 0.4 Final delivery / cutover — Rodrigo's direction (2026-10-05)
+"Cleanup of the root folder by moving these legacy parts inside a folder named `_old` (or something like that), and leave it
+accessible from **/legacy/** and **/legacy_compat/** as well as through the legacy app already installed on the phones."
+Plan to propose/confirm, then execute (likely one sub-agent + coordinator deploy):
+1. `git mv frontend frontend-compat android → _old/` (folder name: Rodrigo said `_old`; confirm), `android-next → android`,
+   `frontend-next → frontend` (or keep names and only re-point; decide with Rodrigo).
+2. Backend static routes: new web at `/` and `/compat/` (from the new build outputs), legacy builds at `/legacy/` and
+   `/legacy_compat/` (rebuild the legacy dists with Vite `base` `/legacy/` and `/legacy_compat/`), keep `/next/` as an alias or drop.
+   Check `api/app.py` static mounts, the BX-1 preview routes, nginx (`~/nginx-server.conf`) and any hard-coded `/compat/` users
+   (iPad bookmark, remote-console `[compat]` logs, viz/markdown_reader links).
+3. Legacy Android app keeps working unchanged (it only uses the API). The new main app replaces it on the POCO later
+   (Rodrigo uninstalls when happy); the lite app replaces it on the A300M (same package).
+4. Update CLAUDE.md (stale sections), `android-dev` + server/deploy skills, `context/memory` architecture docs, deploy notes;
+   archive old APKs; merge `frontend-refactory` → `local` (ask before pushing), deploy, verify every route.
+
+### 0.5 Rulings / decisions added this session
+- CR-24 Per-turn model routing (no Chat Completions model takes both text and audio); Settings has separate Text/Audio models.
+- CR-25 T-16 handshake timeout 10 s on both platforms (nginx WS proxy timeouts are 24 h).
+- CR-26 Reopen with an empty pool resumes this device's current Archie conversation (web parity).
+- CR-27 "(active session)" is not a title; agent placeholder "New agent session" on both platforms (MC-2).
+- CR-28 Approvals: REST endpoint first; notification Approve requires unlock, Deny does not; no full-screen intent (AN-1..4).
+- CR-29 Voice messages echo to other subscribers (VM-1); REST `/api/orchestrator/audio` must not start turns.
+- Rodrigo: talk phrases = legacy ones for now (he'll add "Archie" variants later).
+
+### 0.6 Learnings this session
+- **Resources:** a full `./gradlew check` + `npm run build:preview` in parallel (load ~11) crashed the VS Code session. Heavy gates
+  only one at a time: `nice -n 15 ./gradlew check --max-workers=2`, `nice -n 10 npm run verify`; sub-agents never run full gates.
+- **The laptop rebooted overnight** → `/tmp` (scratchpad helpers, `/tmp/archie-locks/`) wiped. `flock` on a missing lock file fails
+  and the command silently does not run → `mkdir -p /tmp/archie-locks && touch /tmp/archie-locks/{gradle,npm,testenv}.lock` first.
+  Scratchpad helpers (`shot.sh`, `ui.sh`, `xiaomi_install_watcher.sh`) were recreated; if missing again, recreate (see transcript).
+- **Phone privacy:** never screenshot without checking `topResumedActivity` is `com.assistant.archie`; never screenshot the
+  notification shade (captured WhatsApp/notifications twice — deleted). Device tests take over Rodrigo's screen → ask first.
+- **HyperOS:** needs "Install via USB" + "USB debugging (Security settings)"; installs show a prompt (watcher script taps it);
+  the first tap after an app launch is often lost; the keyboard moves dialogs (re-read bounds after each step); after an app
+  update the wake-word FGS only restarts when the app is opened (Android background-mic rule).
+- **Samsung A300M:** if it shows only as MTP, `adb kill-server && adb start-server` made it appear.
+- Rodrigo prefers driving the real app over instrumented suites; asks for parallel sub-agents for independent fixes.
+
 ## 1. Snapshot
 
 | Item | State |
