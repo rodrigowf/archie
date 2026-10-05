@@ -1236,7 +1236,7 @@ Write-Host "     cd frontend; npm run dev" -ForegroundColor Blue
 Write-Host ""
 
 Write-Host "  $($step+2). " -NoNewline; Write-Host "Open " -ForegroundColor Green -NoNewline
-Write-Host "https://localhost:5432" -ForegroundColor Blue -NoNewline
+Write-Host "https://localhost:5450" -ForegroundColor Blue -NoNewline
 Write-Host " in your browser" -ForegroundColor Green
 Write-Host ""
 

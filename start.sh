@@ -30,7 +30,7 @@ BACKEND_PID=$!
 sleep 2
 
 # # Start frontend in background
-# echo -e "${GREEN}Starting frontend (port 5432)...${NC}"
+# echo -e "${GREEN}Starting frontend (port 5450)...${NC}"
 # cd frontend
 # setsid npm run dev > "$SCRIPT_DIR/logs/frontend_${TIMESTAMP}.log" 2>&1 &
 # FRONTEND_PID=$!
@@ -38,7 +38,7 @@ sleep 2
 
 echo ""
 echo -e "${GREEN}✓ Backend running at:${NC}  http://localhost:8765"
-# echo -e "${GREEN}✓ Frontend running at:${NC} https://localhost:5432"
+# echo -e "${GREEN}✓ Frontend running at:${NC} https://localhost:5450"
 echo -e "${BLUE}Logs:${NC} logs/api_${TIMESTAMP}.log"
 echo ""
 echo "Press Ctrl+C to stop the server"
