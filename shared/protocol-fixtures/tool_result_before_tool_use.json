@@ -1,0 +1,91 @@
+{
+  "name": "tool_result_before_tool_use",
+  "description": "Orchestrator: a result arrives before its tool_use (cross-task interleaving / reconnect). It is held in orphan_results and attaches when the tool_use arrives. A result whose tool_use never arrives stays reachable in orphan_results.",
+  "source": "synthetic",
+  "session": {
+    "kind": "orchestrator",
+    "provider": null,
+    "local_id": "O1",
+    "sdk_id": "O1"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "streaming"
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "c5",
+      "output": "early",
+      "is_error": false
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "c99",
+      "output": "stray",
+      "is_error": false
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "c5",
+      "tool_name": "list_agent_sessions",
+      "tool_input": {}
+    },
+    {
+      "type": "text_complete",
+      "text": "Checked."
+    },
+    {
+      "type": "turn_complete",
+      "input_tokens": 2000,
+      "output_tokens": 40
+    },
+    {
+      "type": "status",
+      "status": "idle"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "send",
+      "text": "check"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "check",
+        "origin": "local",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "c5",
+            "tool_name": "list_agent_sessions",
+            "tool_input": {},
+            "status": "done",
+            "output": "early"
+          },
+          {
+            "type": "text",
+            "text": "Checked.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "orphan_results": [
+      {
+        "tool_use_id": "c99",
+        "output": "stray",
+        "is_error": false
+      }
+    ]
+  }
+}

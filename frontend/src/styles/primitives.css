@@ -1,0 +1,200 @@
+/*
+ * Primitives as global classes (spec 13 §2.1, §2.2). The React components in src/ui/primitives
+ * render these classes; plain-HTML producers (markdown, galleries) may use them directly.
+ *
+ * NO flex `gap` anywhere (Safari 14.1+). Spacing is the "owl" (`> * + *`) or half-margins, driven
+ * by custom properties so one instance can change its spacing without new CSS:
+ *   --stack-space, --inline-space, --cluster-space, --split-space, --box-padding,
+ *   --center-max, --center-gutter.
+ * Text-node trap (inv02 §5.3, commit 8b8fb9c): `* + *` never matches text nodes. The React
+ * components wrap string children in <span>; CSS-only users must do the same.
+ */
+
+/* ---------- layout ---------- */
+
+.stack {
+  --stack-space: var(--app-space-4);
+
+  display: flex;
+  flex-direction: column;
+}
+
+.stack > * + * {
+  margin-top: var(--stack-space);
+}
+
+.inline {
+  --inline-space: var(--app-space-2);
+
+  display: flex;
+  align-items: center;
+}
+
+.inline > * + * {
+  margin-left: var(--inline-space);
+}
+
+/*
+ * Cluster: wrapping row. The negative margin lives on an inner element, so the outer element can
+ * still take owl margins from a parent Stack or Inline.
+ */
+.cluster {
+  --cluster-space: var(--app-space-2);
+
+  display: block;
+}
+
+.cluster-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: calc(var(--cluster-space) / -2);
+}
+
+.cluster-inner > * {
+  margin: calc(var(--cluster-space) / 2);
+}
+
+.center {
+  --center-max: 840px;
+  --center-gutter: 0px;
+
+  box-sizing: content-box;
+  max-width: var(--center-max);
+  margin-right: auto;
+  margin-left: auto;
+  padding-right: var(--center-gutter);
+  padding-left: var(--center-gutter);
+}
+
+.box {
+  --box-padding: var(--app-space-4);
+
+  padding: var(--box-padding);
+}
+
+.split {
+  --split-space: var(--app-space-2);
+
+  display: flex;
+  align-items: center;
+}
+
+.split > * + * {
+  margin-left: var(--split-space);
+}
+
+.split > :last-child:not(:first-child) {
+  margin-left: auto;
+}
+
+/* ---------- state layers (spec 13 §2.2) ---------- */
+
+/*
+ * The layer is `currentColor` at the M3 state opacity, over any container color, so it needs no
+ * color-mix(). Two forms:
+ *   .has-state-layer            the host's own ::before is the layer (no extra DOM)
+ *   .state-host > .state-layer  a child <StateLayer/>, for hosts whose ::before is taken
+ * `data-state="hover|focus|pressed|dragged"` forces a state (galleries, drag sources).
+ */
+.has-state-layer,
+.state-host {
+  position: relative;
+}
+
+.has-state-layer::before,
+.state-layer {
+  content: "";
+  position: absolute;
+  inset: 0; /* lowered to top/right/bottom/left for Safari 12 by postcss-preset-env */
+  border-radius: inherit;
+  background: currentcolor;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
+}
+
+@media (--hover) {
+  .has-state-layer:hover::before,
+  .state-host:hover > .state-layer {
+    opacity: var(--md-sys-state-hover-opacity);
+  }
+}
+
+.has-state-layer[data-state="hover"]::before,
+.state-host[data-state="hover"] > .state-layer {
+  opacity: var(--md-sys-state-hover-opacity);
+}
+
+.has-state-layer:focus-visible::before,
+.state-host:focus-visible > .state-layer,
+.has-state-layer[data-state="focus"]::before,
+.state-host[data-state="focus"] > .state-layer {
+  opacity: var(--md-sys-state-focus-opacity);
+}
+
+.has-state-layer:active::before,
+.state-host:active > .state-layer,
+.has-state-layer[data-state="pressed"]::before,
+.state-host[data-state="pressed"] > .state-layer {
+  opacity: var(--md-sys-state-pressed-opacity);
+}
+
+.has-state-layer[data-state="dragged"]::before,
+.state-host[data-state="dragged"] > .state-layer {
+  opacity: var(--md-sys-state-dragged-opacity);
+}
+
+.has-state-layer:disabled::before,
+.has-state-layer[aria-disabled="true"]::before,
+.state-host:disabled > .state-layer,
+.state-host[aria-disabled="true"] > .state-layer {
+  display: none;
+}
+
+/* ---------- focus ring ---------- */
+
+/*
+ * <FocusRing/> draws the keyboard focus ring as a child element, for hosts where an outline is
+ * clipped (overflow: hidden parents) or must follow a large radius. The host gets
+ * .focus-ring-host, which replaces the default outline from base.css.
+ */
+.focus-ring-host {
+  position: relative;
+}
+
+.focus-ring-host:focus-visible {
+  outline: none;
+}
+
+.focus-ring {
+  display: none;
+  position: absolute;
+  inset: -5px;
+  border: 3px solid var(--md-sys-color-secondary);
+  border-radius: var(--focus-ring-radius, var(--md-sys-shape-corner-full));
+  pointer-events: none;
+}
+
+.focus-ring.focus-ring-inward {
+  inset: 2px;
+}
+
+.focus-ring-host:focus-visible > .focus-ring,
+.focus-ring-host[data-state="focus"] > .focus-ring {
+  display: block;
+}
+
+/* ---------- visually hidden ---------- */
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}

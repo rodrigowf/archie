@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Window / splash colors (spec 14 §2.4: no purple/white launch flash, inv03 §8 bug 10).
+  Mirrors design/tokens: light `surface`, `primaryContainer`, `onPrimaryContainer`, `tertiary` of the
+  DARK scheme for the launcher mark (the mark is the same on both themes). SplashColorsMatchTokensTest
+  fails if these drift from Tokens.kt.
+-->
+<resources>
+    <color name="archie_window_background">#FFFBF8FB</color>
+    <color name="archie_mark_tile">#FF31476E</color>
+    <color name="archie_mark_arch">#FFD7E3FF</color>
+    <color name="archie_mark_dot">#FFDDBCE0</color>
+</resources>

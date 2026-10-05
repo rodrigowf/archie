@@ -1,0 +1,103 @@
+{
+  "name": "orchestrator_agent_approvals_and_jsonl_id",
+  "description": "ID-4 + PM-5: session_started.jsonl_id becomes the orchestrator's sdkId (backend O-3). Agent permission requests mirrored as nested_session_event go to agentApprovals (never the timeline), once per (localId, request_id), and leave it when resolved.",
+  "source": "synthetic",
+  "session": {
+    "kind": "orchestrator",
+    "provider": null,
+    "local_id": "O1",
+    "sdk_id": null
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "session_started",
+      "session_id": "O1",
+      "voice": false,
+      "model_info": {
+        "model": "claude-sonnet-4-5-20250929",
+        "provider": "anthropic",
+        "max_tokens": 8192,
+        "supports_audio": false,
+        "model_info": null
+      },
+      "jsonl_id": "J-orch-1"
+    },
+    {
+      "type": "nested_session_event",
+      "session_id": "L5",
+      "event_type": "permission_request",
+      "event_data": {
+        "type": "permission_request",
+        "request_id": "r1",
+        "tool_name": "ExitPlanMode",
+        "tool_input": {
+          "plan": "1. Build\n2. Test"
+        },
+        "seq": 3,
+        "stream_id": "L5:1759500000000"
+      }
+    },
+    {
+      "type": "nested_session_event",
+      "session_id": "L6",
+      "event_type": "permission_request",
+      "event_data": {
+        "type": "permission_request",
+        "request_id": "r2",
+        "tool_name": "ExitPlanMode",
+        "tool_input": {
+          "plan": "1. Build\n2. Test"
+        },
+        "seq": 7,
+        "stream_id": "L6:1759500000000"
+      }
+    },
+    {
+      "type": "nested_session_event",
+      "session_id": "L6",
+      "event_type": "permission_request",
+      "event_data": {
+        "type": "permission_request",
+        "request_id": "r2",
+        "tool_name": "ExitPlanMode",
+        "tool_input": {
+          "plan": "1. Build\n2. Test"
+        },
+        "seq": 7,
+        "stream_id": "L6:1759500000000"
+      }
+    },
+    {
+      "type": "nested_session_event",
+      "session_id": "L5",
+      "event_type": "permission_resolved",
+      "event_data": {
+        "type": "permission_resolved",
+        "request_id": "r1",
+        "decision": "allow",
+        "responder": "user",
+        "message": null,
+        "seq": 4,
+        "stream_id": "L5:1759500000000"
+      }
+    }
+  ],
+  "expected": {
+    "entries": [],
+    "state": {
+      "sdk_id": "J-orch-1",
+      "status": "idle",
+      "agent_approvals": [
+        {
+          "local_id": "L6",
+          "request_id": "r2",
+          "tool_name": "ExitPlanMode",
+          "tool_input": {
+            "plan": "1. Build\n2. Test"
+          }
+        }
+      ]
+    }
+  }
+}

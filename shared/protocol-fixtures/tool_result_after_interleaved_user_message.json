@@ -1,0 +1,90 @@
+{
+  "name": "tool_result_after_interleaved_user_message",
+  "description": "Orchestrator voice: another device shares a file (silent inject echoed as user_message) between a tool call and its result. The result still attaches to the earlier card; the next tool opens a new run below the inject.",
+  "source": "synthetic",
+  "session": {
+    "kind": "orchestrator",
+    "provider": null,
+    "local_id": "O1",
+    "sdk_id": "O1",
+    "voice_active": true
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "tool_use",
+      "tool_use_id": "call_1",
+      "tool_name": "send_to_agent_session",
+      "tool_input": {
+        "session_id": "L9",
+        "message": "run the tests"
+      }
+    },
+    {
+      "type": "user_message",
+      "text": "[shared file] report.pdf (1.2 MB, application/pdf) — /uploads/20261003T120000000000-report.pdf\nLocal path: /home/rodrigo/assistant/context/uploads/20261003T120000000000-report.pdf",
+      "source": "shared_inject"
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "call_1",
+      "output": "{\"turn_id\": \"turn-1\", \"session_id\": \"L9\", \"status\": \"running\"}",
+      "is_error": false
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "call_2",
+      "tool_name": "read_agent_session",
+      "tool_input": {
+        "session_id": "L9"
+      }
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "call_2",
+      "output": "tests passed",
+      "is_error": false
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "call_1",
+            "tool_name": "send_to_agent_session",
+            "tool_input": {
+              "session_id": "L9",
+              "message": "run the tests"
+            },
+            "status": "done",
+            "output": "{\"turn_id\": \"turn-1\", \"session_id\": \"L9\", \"status\": \"running\"}"
+          }
+        ]
+      },
+      {
+        "kind": "user",
+        "text": "[shared file] report.pdf (1.2 MB, application/pdf) — /uploads/20261003T120000000000-report.pdf\nLocal path: /home/rodrigo/assistant/context/uploads/20261003T120000000000-report.pdf",
+        "origin": "inject",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "call_2",
+            "tool_name": "read_agent_session",
+            "tool_input": {
+              "session_id": "L9"
+            },
+            "status": "done",
+            "output": "tests passed"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,157 @@
+/*
+ * Dialog (mockups `.dlg`): surface-container-high, radius 28, padding 24, title 24/32, supporting
+ * text body-medium on-surface-variant, actions right-aligned. The layer centers it with flexbox
+ * (no `inset`, no gap).
+ */
+/* stylelint-disable declaration-block-no-redundant-longhand-properties -- explicit top/right/bottom/left, never `inset` (Safari 12; inv02 §5.4 #3) */
+.layer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.dialog {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 280px;
+  max-height: 100%;
+  padding: 24px;
+  border-radius: var(--md-sys-shape-corner-extra-large);
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  box-shadow: var(--md-sys-elevation-level3);
+  animation: dialog-in var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized-decelerate);
+}
+
+.dialog:focus {
+  outline: none;
+}
+
+.dialog > * + * {
+  margin-top: 16px;
+}
+
+.title {
+  flex: none;
+  margin: 0;
+  font-size: var(--md-sys-typescale-headline-small-size);
+  font-weight: var(--md-sys-typescale-headline-small-weight);
+  line-height: var(--md-sys-typescale-headline-small-line-height);
+}
+
+.hero {
+  text-align: center;
+}
+
+.heroIcon {
+  flex: none;
+  align-self: center;
+  color: var(--md-sys-color-secondary);
+}
+
+.body {
+  flex: 0 1 auto;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: var(--md-sys-typescale-body-medium-line-height);
+  letter-spacing: var(--md-sys-typescale-body-medium-tracking);
+}
+
+.hero .body {
+  text-align: left;
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  margin-right: -8px;
+}
+
+.actions > * + * {
+  margin-left: 8px;
+}
+
+.dialog > .actions {
+  margin-top: 24px;
+}
+
+/* ---------- full-screen (M3; Compact) ---------- */
+
+.full {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  min-width: 0;
+  max-width: none;
+  padding: 0;
+  padding-bottom: env(safe-area-inset-bottom);
+  border-radius: 0;
+  background: var(--md-sys-color-surface);
+  box-shadow: none;
+  animation-name: dialog-full-in;
+}
+
+.full > * + * {
+  margin-top: 0;
+}
+
+.fullBar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: 64px;
+  padding: 0 4px;
+  padding-top: env(safe-area-inset-top);
+}
+
+.fullTitle {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0 0 0 12px;
+  overflow: hidden;
+  font-size: var(--md-sys-typescale-title-large-size);
+  font-weight: var(--md-sys-typescale-title-large-weight);
+  line-height: var(--md-sys-typescale-title-large-line-height);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fullActions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  margin-right: 8px;
+}
+
+.fullActions > * + * {
+  margin-left: 4px;
+}
+
+.fullBody {
+  flex: 1 1 auto;
+  padding: 8px 24px 24px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+
+@keyframes dialog-full-in {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+}

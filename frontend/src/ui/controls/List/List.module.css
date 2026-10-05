@@ -1,0 +1,211 @@
+/*
+ * List rows (mockups `.li`): 14/20 headline, 12/16 supporting, 24 dp leading slot with a 20 dp
+ * icon, pill-shaped rows (radius = half the one/two-line height). Selected: secondary container.
+ * Spacing between slots is margins (no gap). `.large` = settings rows (`.li.big`).
+ */
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.list > * + * {
+  margin-top: 2px;
+}
+
+.item {
+  display: flex;
+  position: relative;
+  align-items: center;
+  border-radius: 24px;
+  color: var(--md-sys-color-on-surface);
+}
+
+.main {
+  display: flex;
+  position: relative;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+  min-height: 48px;
+  padding: 6px 12px 6px 16px;
+  border-radius: inherit;
+  color: inherit;
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: 20px;
+  letter-spacing: var(--md-sys-typescale-body-medium-tracking);
+  text-align: left;
+  text-decoration: none;
+}
+
+.main[data-state="focus"] {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
+}
+
+/* Rows sit flush in scrolling panes, so the ring is drawn inside. */
+.main:focus-visible {
+  outline-offset: -2px;
+}
+
+.interactive {
+  width: 100%;
+  cursor: pointer;
+}
+
+.lines2 {
+  border-radius: 30px;
+}
+
+.lines2 .main {
+  min-height: 60px;
+}
+
+.lines3 {
+  border-radius: 20px;
+}
+
+.lines3 .main {
+  align-items: flex-start;
+  min-height: 88px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.leading {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.headline,
+.overline {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.overline {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-label-small-size);
+  font-weight: var(--md-sys-typescale-label-small-weight);
+  line-height: 16px;
+  letter-spacing: var(--md-sys-typescale-label-small-tracking);
+}
+
+.supporting {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: 16px;
+  letter-spacing: var(--md-sys-typescale-body-small-tracking);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.supporting > * + * {
+  margin-left: 6px;
+}
+
+/* Three-line: supporting text wraps to two lines. */
+.lines3 .supporting {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+}
+
+.meta {
+  flex: none;
+  margin-left: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.trailing {
+  display: flex;
+  flex: none;
+  align-items: center;
+  margin-left: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.withAction .main {
+  padding-right: 4px;
+}
+
+.action {
+  display: flex;
+  flex: none;
+  align-items: center;
+  margin-right: 4px;
+}
+
+/* ---------- selected ---------- */
+
+.selected {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.selected .supporting,
+.selected .leading,
+.selected .trailing,
+.selected .meta {
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+/* ---------- large (settings) ---------- */
+
+.large {
+  border-radius: 20px;
+}
+
+.large .main {
+  min-height: 64px;
+  padding-left: 12px;
+  font-size: var(--md-sys-typescale-body-large-size);
+  line-height: 22px;
+}
+
+.large .leading {
+  width: 40px;
+  height: 40px;
+  margin-right: 16px;
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-container-highest);
+}
+
+.large .supporting {
+  font-size: var(--md-sys-typescale-body-small-size);
+}
+
+/* ---------- disabled ---------- */
+
+.disabled,
+.disabled .supporting,
+.disabled .leading,
+.disabled .meta,
+.disabled .trailing {
+  color: var(--md-sys-color-on-surface-disabled);
+}
+
+.disabled .main {
+  cursor: default;
+}

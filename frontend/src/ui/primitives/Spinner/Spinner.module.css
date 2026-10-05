@@ -1,0 +1,39 @@
+/* Small inline activity spinner (mockups: `.spin`, 14/18 px, primary, open right side). */
+.spinner {
+  --spinner-size: 14px;
+
+  display: inline-block;
+  flex: none;
+  width: var(--spinner-size);
+  height: var(--spinner-size);
+  border: 2px solid var(--md-sys-color-primary);
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: middle;
+  animation: spinner-turn 900ms linear infinite;
+}
+
+.large {
+  border-width: 3px;
+}
+
+@keyframes spinner-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/*
+ * Exempt from low-end / reduced-motion "animation: none" (src/styles/motion.css): a frozen spinner
+ * reads as a hang. Rotation is a composited transform; reduced motion turns it at half speed.
+ */
+:global(html.low-end) .spinner {
+  animation: spinner-turn 900ms linear infinite !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner,
+  :global(html.low-end) .spinner {
+    animation: spinner-turn 1800ms linear infinite !important;
+  }
+}

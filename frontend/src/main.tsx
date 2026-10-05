@@ -1,17 +1,34 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import './index.css'
-import App from './App.tsx'
+/**
+ * Entry (spec 13 §3.1): compat polyfills → platform init → createRoot(<App/>).
+ * `@/platform/polyfills` must stay the first import (ES modules evaluate in import order).
+ */
+import '@/platform/polyfills';
+import '@/styles';
+import { StrictMode, Suspense, lazy } from 'react';
+import { createRoot } from 'react-dom/client';
+import { App } from '@/app/App';
+import { initPlatform } from '@/platform';
 
-// Detect low-end devices and add a class to disable animations
-const cores = navigator.hardwareConcurrency ?? 4;
-const memory = (navigator as { deviceMemory?: number }).deviceMemory ?? 4;
-if (cores <= 2 || memory <= 1) {
-  document.documentElement.classList.add('low-end');
-}
+initPlatform();
 
-createRoot(document.getElementById('root')!).render(
+// Dev gallery of UI primitives and components (W-02), loaded lazily on #/dev/gallery. Only in the
+// dev server or a `VITE_GALLERY=1` build (`npm run build:gallery`, for device QA): both flags are
+// replaced at build time, so a normal production build drops the import and ships no gallery chunk.
+const GALLERY_ENABLED = import.meta.env.DEV || import.meta.env.VITE_GALLERY === '1';
+const Gallery = GALLERY_ENABLED ? lazy(() => import('@/dev/gallery').then((m) => ({ default: m.Gallery }))) : null;
+const isGallery = Gallery !== null && window.location.hash.indexOf('#/dev/gallery') === 0;
+
+const container = document.getElementById('root');
+if (!container) throw new Error('#root element missing from index.html');
+
+createRoot(container).render(
   <StrictMode>
-    <App />
+    {isGallery && Gallery ? (
+      <Suspense fallback={null}>
+        <Gallery />
+      </Suspense>
+    ) : (
+      <App />
+    )}
   </StrictMode>,
-)
+);

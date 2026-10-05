@@ -1,0 +1,17 @@
+/* stylelint-disable declaration-block-no-redundant-longhand-properties -- explicit top/right/bottom/left, never `inset` (Safari 12; inv02 §5.4 #3) */
+.scrim {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: var(--md-sys-color-scrim-overlay);
+  -webkit-tap-highlight-color: transparent;
+  animation: scrim-in var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+}

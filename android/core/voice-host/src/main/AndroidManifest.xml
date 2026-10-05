@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  :core:voice-host (A-08). Merged into both apps; B-09 (main) and C-01 (lite) own the app manifests
+  and may refine these entries with tools:replace / tools:node.
+  - The FGS types follow spec 14 §2.6: microphone (while-in-use) + specialUse (the degraded,
+    background-restarted state). Both attributes are ignored below the API that defines them, so
+    the same declaration serves the API 21/22 lite app.
+  - RECORD_AUDIO is declared here because the microphone FGS type requires it (lint
+    ForegroundServicePermission); the apps own the runtime request UX. INTERNET is the apps'.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application>
+        <service
+            android:name="com.assistant.core.voicehost.service.VoiceHostService"
+            android:exported="false"
+            android:foregroundServiceType="microphone|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="persistent assistant connection" />
+        </service>
+    </application>
+</manifest>

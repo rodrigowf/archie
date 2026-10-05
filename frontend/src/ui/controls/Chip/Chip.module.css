@@ -1,0 +1,166 @@
+/*
+ * Chips (mockups `.chip`, `.chip.lg`, `.prov`, `.scope`): 32 dp, 8 dp radius, outline-variant
+ * outline, label-large. Selected filter: secondary container, no outline. Icon spacing is a margin.
+ */
+.chip {
+  display: inline-flex;
+  position: relative;
+  flex: none;
+  align-items: center;
+  max-width: 100%;
+  height: 32px;
+  padding: 0 16px;
+  border-radius: var(--md-sys-shape-corner-small);
+  box-shadow: inset 0 0 0 1px var(--md-sys-color-outline-variant);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  line-height: var(--md-sys-typescale-label-large-line-height);
+  letter-spacing: var(--md-sys-typescale-label-large-tracking);
+  white-space: nowrap;
+  vertical-align: middle;
+  user-select: none;
+}
+
+/* 48 dp touch target around the 32 dp visual. */
+button.chip::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 48px;
+  margin-top: -24px;
+}
+
+.chip[data-state="focus"] {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.icon {
+  margin-right: var(--app-space-2);
+}
+
+.trailing {
+  margin-left: var(--app-space-2);
+}
+
+.withIcon {
+  padding-left: 8px;
+}
+
+.withTrailing {
+  padding-right: 8px;
+}
+
+.selected {
+  background: var(--md-sys-color-secondary-container);
+  box-shadow: none;
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+/* Suggestion: the empty-state chips (mockups `.chip.lg`). */
+.suggestion {
+  height: 40px;
+  padding: 0 16px;
+  border-radius: var(--md-sys-shape-corner-medium);
+  color: var(--md-sys-color-on-surface);
+}
+
+.suggestion.withIcon {
+  padding-left: 12px;
+}
+
+.suggestion .icon {
+  color: var(--md-sys-color-primary);
+}
+
+/* Input chip: text + a remove button. */
+.input {
+  padding-right: 4px;
+}
+
+.remove {
+  display: inline-flex;
+  position: relative;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: 4px;
+  border-radius: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.remove::after {
+  content: "";
+  position: absolute;
+  inset: -12px -8px;
+}
+
+/* ---------- disabled ---------- */
+
+.disabled,
+.disabled .icon,
+.disabled .remove {
+  color: var(--md-sys-color-on-surface-disabled);
+}
+
+.disabled {
+  box-shadow: inset 0 0 0 1px var(--md-sys-color-on-surface-disabled-container);
+}
+
+.selected.disabled {
+  background: var(--md-sys-color-on-surface-disabled-container);
+  box-shadow: none;
+}
+
+/* ---------- tags ---------- */
+
+.provider {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  font-size: var(--md-sys-typescale-label-small-size);
+  font-weight: var(--md-sys-typescale-label-small-weight);
+  line-height: 16px;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.scope {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px 0 8px;
+  border-radius: 14px;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-label-medium-size);
+  font-weight: var(--md-sys-typescale-label-medium-weight);
+  line-height: var(--md-sys-typescale-label-medium-line-height);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.provider .tagIcon {
+  margin-right: 4px;
+}
+
+.scope .tagIcon {
+  margin-right: 6px;
+}

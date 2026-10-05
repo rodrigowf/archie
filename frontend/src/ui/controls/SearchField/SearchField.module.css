@@ -1,0 +1,76 @@
+/* Search bar (mockups `.search`): 52 dp, full radius, surface-container-high. */
+.root {
+  display: flex;
+  position: relative;
+  align-items: center;
+  min-width: 0;
+  height: 52px;
+  padding: 0 6px 0 16px;
+  border-radius: 26px;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  transition: box-shadow var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+}
+
+.root:focus-within,
+.root[data-state="focus"] {
+  box-shadow: inset 0 0 0 2px var(--md-sys-color-primary);
+}
+
+@media (--hover) {
+  .root:hover {
+    background: var(--md-sys-color-surface-container-highest);
+  }
+}
+
+.root[data-state="hover"] {
+  background: var(--md-sys-color-surface-container-highest);
+}
+
+.lead {
+  margin-right: 12px;
+}
+
+.input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  margin: 0;
+  padding: 0 10px 0 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--md-sys-color-on-surface);
+  font-family: var(--md-sys-typescale-body-large-font);
+  font-size: var(--md-sys-typescale-body-large-size);
+  line-height: var(--md-sys-typescale-body-large-line-height);
+  letter-spacing: var(--md-sys-typescale-body-large-tracking);
+  caret-color: var(--md-sys-color-primary);
+  appearance: none;
+}
+
+.input::placeholder {
+  color: var(--md-sys-color-on-surface-variant);
+  opacity: 1;
+}
+
+/* The native cancel/decoration would duplicate the clear button (and differs per browser). */
+.input::-webkit-search-cancel-button,
+.input::-webkit-search-decoration {
+  appearance: none;
+}
+
+.clear {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.disabled {
+  color: var(--md-sys-color-on-surface-disabled);
+  /* stylelint-disable-next-line color-function-alias-notation -- the -rgb token is a comma list; rgba() is the Safari 12 form */
+  background: rgba(var(--md-sys-color-on-surface-rgb), 0.04);
+}
+
+.disabled .input,
+.disabled .input::placeholder {
+  color: var(--md-sys-color-on-surface-disabled);
+}

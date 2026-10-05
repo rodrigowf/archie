@@ -1,0 +1,194 @@
+/*
+ * Switch (mockups `.sw`): 52 × 32 track. Off: surface-container-highest, 2 dp outline, 16 dp
+ * outline-colored handle. On: primary track, 24 dp on-primary handle. Pressed: 28 dp handle.
+ * The state layer is a 40 dp halo around the handle (the handle's ::before).
+ */
+/* stylelint-disable no-descending-specificity -- state rules are ordered by precedence (base, hover, focus, error, disabled), not by specificity */
+.switch {
+  display: inline-block;
+  position: relative;
+  flex: none;
+  width: 52px;
+  height: 32px;
+  border-radius: 16px;
+  background: var(--md-sys-color-surface-container-highest);
+  box-shadow: inset 0 0 0 2px var(--md-sys-color-outline);
+  vertical-align: middle;
+  transition: background-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+}
+
+/* 48 dp touch target. */
+.switch::after {
+  content: "";
+  position: absolute;
+  inset: -8px 0;
+}
+
+.switch[data-state="focus"] {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+.handle {
+  display: flex;
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--md-sys-color-outline);
+  color: var(--md-sys-color-on-primary-container);
+  transition:
+    left var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+    top var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+    width var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+    height var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+
+/* State-layer halo: 40 dp, centered on the handle. */
+.handle::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 40px;
+  height: 40px;
+  margin: -20px 0 0 -20px;
+  border-radius: 50%;
+  background: var(--md-sys-color-on-surface);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
+}
+
+.on {
+  background: var(--md-sys-color-primary);
+  box-shadow: none;
+}
+
+.on .handle {
+  top: 4px;
+  left: 24px;
+  width: 24px;
+  height: 24px;
+  background: var(--md-sys-color-on-primary);
+}
+
+.on .handle::before {
+  background: var(--md-sys-color-primary);
+}
+
+@media (--hover) {
+  .switch:hover .handle {
+    background: var(--md-sys-color-on-surface-variant);
+  }
+
+  .on:hover .handle {
+    background: var(--md-sys-color-primary-container);
+  }
+
+  .switch:hover .handle::before {
+    opacity: var(--md-sys-state-hover-opacity);
+  }
+}
+
+.switch[data-state="hover"] .handle {
+  background: var(--md-sys-color-on-surface-variant);
+}
+
+.on[data-state="hover"] .handle {
+  background: var(--md-sys-color-primary-container);
+}
+
+.switch[data-state="hover"] .handle::before {
+  opacity: var(--md-sys-state-hover-opacity);
+}
+
+.switch:focus-visible .handle::before,
+.switch[data-state="focus"] .handle::before {
+  opacity: var(--md-sys-state-focus-opacity);
+}
+
+.switch:active .handle,
+.switch[data-state="pressed"] .handle {
+  top: 2px;
+  left: 2px;
+  width: 28px;
+  height: 28px;
+  background: var(--md-sys-color-on-surface-variant);
+}
+
+.on:active .handle,
+.on[data-state="pressed"] .handle {
+  left: 22px;
+  background: var(--md-sys-color-primary-container);
+}
+
+.switch:active .handle::before,
+.switch[data-state="pressed"] .handle::before {
+  opacity: var(--md-sys-state-pressed-opacity);
+}
+
+/* aria-disabled: no state changes, 38 % (mockups `.sw.dis`). */
+.disabled {
+  opacity: 0.38;
+}
+
+.disabled .handle::before {
+  display: none;
+}
+
+.disabled:active .handle,
+.disabled[data-state="pressed"] .handle {
+  top: 8px;
+  left: 8px;
+  width: 16px;
+  height: 16px;
+}
+
+.on.disabled:active .handle {
+  top: 4px;
+  left: 24px;
+  width: 24px;
+  height: 24px;
+}
+
+@media (--hover) {
+  .disabled:hover .handle {
+    background: var(--md-sys-color-outline);
+  }
+
+  .on.disabled:hover .handle {
+    background: var(--md-sys-color-on-primary);
+  }
+}
+
+/* ---------- labelled row ---------- */
+
+.row {
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
+}
+
+.label {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--md-sys-color-on-surface);
+  font-size: var(--md-sys-typescale-body-large-size);
+  line-height: var(--md-sys-typescale-body-large-line-height);
+  letter-spacing: var(--md-sys-typescale-body-large-tracking);
+  cursor: pointer;
+}
+
+.row > * + * {
+  margin-left: var(--app-space-4);
+}
+
+.rowDisabled .label {
+  color: var(--md-sys-color-on-surface-disabled);
+  cursor: default;
+}

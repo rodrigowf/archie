@@ -1,0 +1,182 @@
+/*
+ * Placeholder slot styles (W-07). Deleted with the placeholders when W-09/W-11/W-13/W-14 land.
+ * Spacing with margins only (no flex gap, Safari 12).
+ */
+.note {
+  margin: 16px 0 0;
+  color: var(--md-sys-color-outline);
+  font-size: var(--md-sys-typescale-label-small-size);
+  line-height: var(--md-sys-typescale-label-small-line-height);
+  text-align: center;
+}
+
+.pane {
+  padding: 24px 16px;
+}
+
+.doc,
+.viewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.doc {
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 0 16px;
+  overflow-wrap: break-word;
+}
+
+.doc * {
+  max-width: 100%;
+}
+
+.frame {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: var(--md-sys-color-surface-container-lowest);
+}
+
+.viewer .note {
+  margin: 8px 0;
+}
+
+/* ---------- conversation ---------- */
+
+.conversation {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.column {
+  box-sizing: border-box;
+  max-width: 840px;
+  margin: 0 auto;
+  padding: 8px 28px 12px;
+}
+
+.column > * + * {
+  margin-top: 18px;
+}
+
+.columnEmpty {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 100%;
+}
+
+@media (--compact) {
+  .column {
+    padding: 8px 16px 12px;
+  }
+}
+
+.user {
+  width: fit-content;
+  max-width: 80%;
+  margin-left: auto;
+  padding: 10px 16px;
+  border-radius: 20px 20px 6px;
+  background: var(--md-sys-color-surface-container-high);
+  font-size: var(--md-sys-typescale-body-large-size);
+  line-height: var(--md-sys-typescale-body-large-line-height);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.assistant {
+  margin-bottom: 0;
+  font-size: var(--md-sys-typescale-body-large-size);
+  line-height: var(--md-sys-typescale-body-large-line-height);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.meta {
+  margin-bottom: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-family: var(--md-sys-typescale-code-font);
+  font-size: var(--md-sys-typescale-body-small-size);
+}
+
+.composerWrap {
+  flex: none;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 840px;
+  margin: 0 auto;
+  padding: 4px 28px 20px;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom));
+}
+
+@media (--compact) {
+  .composerWrap {
+    padding: 4px 12px 12px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+}
+
+.composer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-sizing: border-box;
+  min-height: 56px;
+  padding: 0 20px;
+  border-radius: 28px;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-large-size);
+}
+
+.composerNote {
+  color: var(--md-sys-color-outline);
+  font-size: var(--md-sys-typescale-label-small-size);
+}
+
+/* ---------- history ---------- */
+
+.history {
+  display: flex;
+  flex-direction: column;
+}
+
+.history > * + * {
+  margin-top: 2px;
+}
+
+.search {
+  flex: none;
+  margin-bottom: 4px;
+}
+
+.supportText {
+  margin-left: 6px;
+}
+
+.error {
+  margin: 8px 16px;
+  color: var(--md-sys-color-error);
+  font-size: var(--md-sys-typescale-body-small-size);
+}
+
+.emptyLine {
+  margin: 16px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.historyDrawer .note {
+  margin-top: 8px;
+}

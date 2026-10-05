@@ -1,0 +1,324 @@
+/*
+ * Tabs. `strip` follows the mockups' top-bar tabs (`.tabs`, `.tb`, `.x`, `.alltabs`): 44 px pills,
+ * radius 22, label-large 14/20/500, on-surface-variant; hover = on-surface state tone; active =
+ * surface-container-highest + on-surface + primary lead icon; close 28 × 28 shown on active,
+ * hover and focus. Tone only, no borders (R1). No flex gap: owl margins.
+ */
+/* stylelint-disable declaration-block-no-redundant-longhand-properties -- explicit top/right/bottom/left, never `inset` (Safari 12; inv02 §5.4 #3) */
+
+/* ---------------------------------------------------------------- strip */
+
+.strip {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+}
+
+.stripList {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+  padding: 4px 0;
+  overflow: auto hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.stripList::-webkit-scrollbar {
+  display: none;
+}
+
+.stripList > * + * {
+  margin-left: 4px;
+}
+
+.fadeEnd {
+  mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
+}
+
+.fadeStart {
+  mask-image: linear-gradient(to left, #000 calc(100% - 36px), transparent);
+}
+
+.fadeStart.fadeEnd {
+  mask-image: linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent);
+}
+
+.tab {
+  position: relative;
+  box-sizing: border-box;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  max-width: 320px;
+  height: 44px;
+  padding: 0 14px;
+  border-radius: 22px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  line-height: var(--md-sys-typescale-label-large-line-height);
+  letter-spacing: var(--md-sys-typescale-label-large-tracking);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+.closable {
+  padding-right: 6px;
+}
+
+@media (--hover) {
+  .tab:hover {
+    background: var(--md-sys-color-on-surface-hover);
+  }
+}
+
+.active,
+.active:hover {
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface);
+}
+
+.dragging {
+  z-index: 2;
+  background: var(--md-sys-color-surface-container-highest);
+  box-shadow: var(--md-sys-elevation-level2);
+  cursor: grabbing;
+}
+
+.disabledTab {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.tabButton {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: inherit;
+}
+
+/* The whole pill is the button's hit area; the close × sits above it. */
+.tabButton::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: inherit;
+}
+
+.tab .tabButton::after {
+  border-radius: 22px;
+}
+
+.tabButton:focus-visible {
+  outline: none;
+}
+
+.tabButton:focus-visible::after {
+  box-shadow: 0 0 0 2px var(--md-sys-color-primary);
+}
+
+.lead {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  margin-right: 8px;
+}
+
+.leadIcon {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.active .leadIcon {
+  color: var(--md-sys-color-primary);
+}
+
+.title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meta,
+.status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  margin-left: 8px;
+}
+
+.unseen {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 3px;
+  background: var(--md-sys-color-primary);
+}
+
+.close {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: 6px;
+  border-radius: 14px;
+  color: var(--md-sys-color-on-surface-variant);
+  opacity: 0;
+  transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+
+.active .close,
+.tab:hover .close,
+.tab:focus-within .close {
+  opacity: 1;
+}
+
+@media (--hover) {
+  .close:hover {
+    background: var(--md-sys-color-on-surface-hover);
+  }
+}
+
+.allTabs {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 36px;
+  margin-left: 4px;
+  padding: 0 6px 0 12px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.allTabsCount {
+  margin-right: 2px;
+}
+
+.menuStatus {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+}
+
+/* ---------------------------------------------------------------- M3 primary / secondary */
+
+.m3 {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.scrollable {
+  overflow: auto hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.scrollable::-webkit-scrollbar {
+  display: none;
+}
+
+.m3Tab {
+  display: flex;
+  flex: 1 1 0;
+  align-items: stretch;
+  justify-content: center;
+  min-width: 0;
+  height: 48px;
+  padding: 0 16px;
+  border: 0;
+  background: none;
+  color: var(--md-sys-color-on-surface-variant);
+  font: inherit;
+  font-size: var(--md-sys-typescale-title-small-size);
+  font-weight: var(--md-sys-typescale-title-small-weight);
+  line-height: var(--md-sys-typescale-title-small-line-height);
+  letter-spacing: var(--md-sys-typescale-title-small-tracking);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.scrollable .m3Tab {
+  flex: none;
+  min-width: 90px;
+}
+
+.m3Tab:focus-visible {
+  outline-offset: -2px;
+}
+
+.m3Content {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.m3Icon {
+  flex: none;
+  margin-right: 8px;
+}
+
+.m3Label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.indicator {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--md-sys-color-primary);
+}
+
+.primary .selected {
+  color: var(--md-sys-color-primary);
+}
+
+.secondary .selected {
+  color: var(--md-sys-color-on-surface);
+}
+
+/* Secondary: a 2 px indicator across the whole tab. */
+.secondary .m3Tab {
+  position: relative;
+}
+
+.secondary .m3Content {
+  position: static;
+}
+
+.secondary .indicator {
+  height: 2px;
+  border-radius: 0;
+}

@@ -1,0 +1,68 @@
+{
+  "name": "start_failed_releases_held_frames",
+  "description": "SEQ-5 exception + SEQ-8: after a reconnect, frames held while waiting for session_started are not lost when the start fails. A protocol error is applied at once but keeps the wait; the start error ends it, shows the connection banner (never an entry, I-15) and dispatches the held frames in order.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "user_message",
+      "text": "from another tab"
+    },
+    {
+      "type": "error",
+      "error": "invalid_json"
+    },
+    {
+      "type": "user_message",
+      "text": "and another"
+    },
+    {
+      "type": "error",
+      "error": "start_failed",
+      "detail": "Claude Code is not authenticated"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "ws_closed"
+    },
+    {
+      "at": 0,
+      "type": "ws_open"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "from another tab",
+        "origin": "echo",
+        "state": "sent"
+      },
+      {
+        "kind": "user",
+        "text": "and another",
+        "origin": "echo",
+        "state": "sent"
+      }
+    ],
+    "state": {
+      "connection_banner": {
+        "code": "start_failed",
+        "detail": "Claude Code is not authenticated"
+      },
+      "last_start": {
+        "type": "start",
+        "local_id": "L1",
+        "resume_sdk_id": "sdk-1"
+      }
+    }
+  }
+}

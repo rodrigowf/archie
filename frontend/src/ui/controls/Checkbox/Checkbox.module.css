@@ -1,0 +1,174 @@
+/*
+ * Checkbox: 18 dp box (2 dp radius, 2 dp border), 40 dp state layer, 48 dp native input on top
+ * (transparent). Checked/indeterminate: primary fill. Spacing to the label is a margin.
+ */
+/* stylelint-disable no-descending-specificity -- state rules are ordered by precedence (base, hover, focus, error, disabled), not by specificity */
+.root {
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
+  color: var(--md-sys-color-on-surface);
+  font-size: var(--md-sys-typescale-body-large-size);
+  line-height: var(--md-sys-typescale-body-large-line-height);
+  letter-spacing: var(--md-sys-typescale-body-large-tracking);
+  vertical-align: middle;
+}
+
+label.root {
+  cursor: pointer;
+}
+
+.control {
+  display: inline-flex;
+  position: relative;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin: 4px;
+}
+
+.input {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  z-index: 1;
+  width: 48px;
+  height: 48px;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.input:disabled {
+  cursor: default;
+}
+
+.layer {
+  position: absolute;
+  inset: 0; /* lowered to top/right/bottom/left for Safari 12 by postcss-preset-env */
+  border-radius: 50%;
+  background: var(--md-sys-color-on-surface);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
+}
+
+.input:checked ~ .layer,
+.input:indeterminate ~ .layer {
+  background: var(--md-sys-color-primary);
+}
+
+@media (--hover) {
+  .root:hover .layer {
+    opacity: var(--md-sys-state-hover-opacity);
+  }
+}
+
+.root[data-state="hover"] .layer {
+  opacity: var(--md-sys-state-hover-opacity);
+}
+
+.input:focus-visible ~ .layer,
+.root[data-state="focus"] .layer {
+  opacity: var(--md-sys-state-focus-opacity);
+}
+
+.input:active ~ .layer,
+.root[data-state="pressed"] .layer {
+  opacity: var(--md-sys-state-pressed-opacity);
+}
+
+.input:focus-visible ~ .box,
+.root[data-state="focus"] .box {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 4px;
+}
+
+.box {
+  display: flex;
+  position: relative;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--md-sys-color-on-surface-variant);
+  border-radius: 2px;
+  color: var(--md-sys-color-on-primary);
+  transition: background-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+}
+
+.check,
+.dash {
+  display: none;
+}
+
+.dash {
+  width: 10px;
+  height: 2px;
+  border-radius: 1px;
+  background: currentcolor;
+}
+
+.input:checked ~ .box,
+.input:indeterminate ~ .box {
+  border-color: var(--md-sys-color-primary);
+  background: var(--md-sys-color-primary);
+}
+
+.input:checked:not(:indeterminate) ~ .box .check {
+  display: block;
+}
+
+.input:indeterminate ~ .box .dash {
+  display: block;
+}
+
+.label {
+  margin-right: 8px;
+}
+
+/* ---------- error ---------- */
+
+.error .box {
+  border-color: var(--md-sys-color-error);
+}
+
+.error .input:checked ~ .box,
+.error .input:indeterminate ~ .box {
+  border-color: var(--md-sys-color-error);
+  background: var(--md-sys-color-error);
+  color: var(--md-sys-color-on-error);
+}
+
+.error .layer,
+.error .input:checked ~ .layer {
+  background: var(--md-sys-color-error);
+}
+
+/* ---------- disabled ---------- */
+
+.disabled {
+  color: var(--md-sys-color-on-surface-disabled);
+  cursor: default;
+}
+
+label.disabled {
+  cursor: default;
+}
+
+.disabled .layer {
+  display: none;
+}
+
+.disabled .box {
+  border-color: var(--md-sys-color-on-surface-disabled);
+}
+
+.disabled .input:checked ~ .box,
+.disabled .input:indeterminate ~ .box {
+  border-color: transparent;
+  background: var(--md-sys-color-on-surface-disabled);
+  color: var(--md-sys-color-surface);
+}

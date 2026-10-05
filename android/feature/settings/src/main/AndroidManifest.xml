@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  :feature:settings (B-08). Runtime permissions that PermissionCenter and the background
+  reliability page request (spec 14 §2.6, §2.9). A permission must be declared to be requestable,
+  so they are declared next to the UX that asks for them. RECORD_AUDIO and POST_NOTIFICATIONS come
+  from :core:voice-host.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Bluetooth output route on API 31+ (inv04 RS-28). -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Background → "Battery: Unrestricted" (ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS). -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Package visibility: the Xiaomi Autostart screen and the assistant settings resolve. -->
+    <queries>
+        <package android:name="com.miui.securitycenter" />
+    </queries>
+</manifest>

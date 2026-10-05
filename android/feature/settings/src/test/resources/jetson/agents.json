@@ -1,0 +1,1 @@
+{"agents":[{"name":"debug-app","description":"Debug the full-stack assistant application (manager, API, frontend). Use this agent for investigating runtime issues, tracing WebSocket problems, analyzing logs, and testing the UI with browser automation.","file":"debug-app.md"}]}

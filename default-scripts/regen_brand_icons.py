@@ -28,8 +28,8 @@ from PIL import Image, ImageDraw
 
 ROOT = Path("/home/rodrigo/assistant")
 SRC_SVG = ROOT / "context/public/design/logo-icon.svg"
-FRONTEND_DIR = ROOT / "frontend/public"
-RES = ROOT / "android/app/src/main/res"
+FRONTEND_DIR = ROOT / "_old/frontend/public"  # the legacy apps (2026-10 cutover)
+RES = ROOT / "_old/android/app/src/main/res"
 TMP = ROOT / ".tmp-icon-gen"
 
 GRAD_START = (0x4B, 0x08, 0x56)  # deep purple — top-left

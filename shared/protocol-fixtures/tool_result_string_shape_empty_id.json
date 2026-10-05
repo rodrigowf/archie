@@ -1,0 +1,99 @@
+{
+  "name": "tool_result_string_shape_empty_id",
+  "description": "Current backend shape (BF-1): a string tool_use_result is broadcast with tool_use_id \"\" and is_error false. With exactly one running tool it is attached by inference (inferred: true).",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "t1",
+      "tool_name": "WebSearch",
+      "tool_input": {
+        "query": "jetson thermal limits"
+      },
+      "seq": 1,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "",
+      "output": "Error: request timed out",
+      "is_error": false,
+      "seq": 2,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_complete",
+      "text": "The search failed.",
+      "seq": 3,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "usage": {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 990,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 50
+      },
+      "input_tokens": 1000,
+      "output_tokens": 50,
+      "num_turns": 1,
+      "session_id": "sdk-1",
+      "is_error": false,
+      "result": "",
+      "seq": 4,
+      "stream_id": "L1:1759500000000"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "send",
+      "text": "search"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "search",
+        "origin": "local",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "t1",
+            "tool_name": "WebSearch",
+            "tool_input": {
+              "query": "jetson thermal limits"
+            },
+            "status": "done",
+            "output": "Error: request timed out",
+            "inferred": true
+          },
+          {
+            "type": "text",
+            "text": "The search failed.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "unattributed_results": []
+  }
+}

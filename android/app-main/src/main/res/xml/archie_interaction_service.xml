@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Default digital assistant (spec 14 §2.8, fixes inv04 B6): `sessionService` names a real
+  VoiceInteractionSessionService; `recognitionService` is the required stub (every request errors).
+-->
+<voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:sessionService="com.assistant.archie.system.ArchieVoiceInteractionSessionService"
+    android:recognitionService="com.assistant.archie.system.ArchieRecognitionService"
+    android:supportsAssist="true"
+    android:supportsLaunchVoiceAssistFromKeyguard="true" />

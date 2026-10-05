@@ -1,0 +1,98 @@
+/*
+ * Reset (W-02). Small and explicit; Safari 12 safe (no :where/:is, no logical shorthands that
+ * PostCSS cannot lower).
+ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  text-size-adjust: 100%; /* autoprefixer adds -webkit- for iOS */
+  -webkit-tap-highlight-color: transparent;
+}
+
+body,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+figure,
+blockquote,
+dl,
+dd,
+pre {
+  margin: 0;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+ul[class],
+ol[class] {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+img,
+video,
+canvas {
+  display: block;
+  max-width: 100%;
+}
+
+/* inv02 §5.4 #9: taps on interactive elements inside momentum scrollers need these hints. */
+button,
+[role="button"],
+a,
+summary {
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+button {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  appearance: none; /* autoprefixer adds -webkit- */
+}
+
+input,
+textarea,
+select {
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+}
+
+button:disabled,
+[aria-disabled="true"] {
+  cursor: default;
+}
+
+table {
+  border-collapse: collapse;
+}
+
+[hidden] {
+  display: none !important;
+}

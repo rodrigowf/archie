@@ -1,0 +1,11 @@
+{
+  "//": "Findings of scan-compat-bundle.mjs that are known safe. module = original source path (from the hidden sourcemap, relative to frontend/); snippet = a substring of the finding's snippet/context. An entry that matches nothing fails the gate. Add entries only with coordinator review (spec 13 §2.3).",
+  "entries": [
+    {
+      "module": "node_modules/core-js/internals/regexp-unsupported-ncg.js",
+      "snippet": "(?<a>b)",
+      "reason": "core-js feature probe: $RegExp('(?<a>b)', 'g') runs inside fails() (try/catch). On Safari 12 it throws, which is how core-js detects missing named-group support; nothing reaches the parser as a literal.",
+      "addedBy": "W-01"
+    }
+  ]
+}

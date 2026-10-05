@@ -1,0 +1,132 @@
+{
+  "name": "voice_transcript_coalescing_gemini",
+  "description": "Gemini Live sends the user transcript as fragments (no type field). They coalesce into one growing user entry, finalized when the model output starts or at turnComplete.",
+  "source": "synthetic",
+  "session": {
+    "kind": "orchestrator",
+    "provider": null,
+    "local_id": "O1",
+    "sdk_id": "O1",
+    "voice_active": true
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "voice_event",
+      "event": {
+        "type": "input_audio_buffer.speech_started"
+      }
+    },
+    {
+      "type": "voice_event",
+      "event": {
+        "serverContent": {
+          "inputTranscription": {
+            "text": "What"
+          }
+        }
+      }
+    },
+    {
+      "type": "voice_event",
+      "event": {
+        "serverContent": {
+          "inputTranscription": {
+            "text": " time"
+          }
+        }
+      }
+    },
+    {
+      "type": "voice_event",
+      "event": {
+        "serverContent": {
+          "inputTranscription": {
+            "text": " is it?"
+          }
+        }
+      }
+    },
+    {
+      "type": "voice_event",
+      "event": {
+        "serverContent": {
+          "outputTranscription": {
+            "text": "It's "
+          }
+        }
+      }
+    },
+    {
+      "type": "voice_event",
+      "event": {
+        "serverContent": {
+          "outputTranscription": {
+            "text": "noon."
+          }
+        }
+      }
+    },
+    {
+      "type": "voice_event",
+      "event": {
+        "serverContent": {
+          "turnComplete": true
+        }
+      }
+    },
+    {
+      "type": "voice_event",
+      "event": {
+        "type": "input_audio_buffer.speech_started"
+      }
+    },
+    {
+      "type": "voice_event",
+      "event": {
+        "serverContent": {
+          "inputTranscription": {
+            "text": "Thanks"
+          }
+        }
+      }
+    },
+    {
+      "type": "voice_event",
+      "event": {
+        "serverContent": {
+          "turnComplete": true
+        }
+      }
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "What time is it?",
+        "origin": "voice",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "It's noon.",
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "kind": "user",
+        "text": "Thanks",
+        "origin": "voice",
+        "state": "sent"
+      }
+    ],
+    "state": {
+      "voice_active": true
+    }
+  }
+}

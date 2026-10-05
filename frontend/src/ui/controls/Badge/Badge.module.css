@@ -1,0 +1,48 @@
+/* Badge (mockups `.badge`): count pill 16 dp, 11 px; dot 6 dp; error colors. */
+.standalone {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+}
+
+.anchor {
+  display: inline-flex;
+  position: relative;
+  vertical-align: middle;
+}
+
+.count {
+  display: inline-block;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--md-sys-color-error);
+  color: var(--md-sys-color-on-error);
+  font-size: var(--md-sys-typescale-label-small-size);
+  font-weight: var(--md-sys-typescale-label-small-weight);
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--md-sys-color-error);
+}
+
+/* On a 24 dp icon: the count starts 12 dp in and 14 dp up; the dot sits on the corner. */
+.count.anchored {
+  position: absolute;
+  top: -4px;
+  left: 12px;
+}
+
+.dot.anchored {
+  position: absolute;
+  top: 0;
+  right: 0;
+}

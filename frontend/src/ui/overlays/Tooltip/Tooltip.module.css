@@ -1,0 +1,33 @@
+/* M3 plain tooltip: inverse-surface, radius 4, body-small, 4 × 8 padding, max 280 px. */
+.tooltip {
+  z-index: 40;
+  box-sizing: border-box;
+  max-width: 280px;
+  padding: 4px 8px;
+  border-radius: var(--md-sys-shape-corner-extra-small);
+  background: var(--md-sys-color-inverse-surface);
+  color: var(--md-sys-color-inverse-on-surface);
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: var(--md-sys-typescale-body-small-line-height);
+  letter-spacing: var(--md-sys-typescale-body-small-tracking);
+  pointer-events: none;
+  animation: tooltip-in var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+}
+
+@keyframes tooltip-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.anchor {
+  display: inline-flex;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.inline {
+  position: relative;
+  display: table;
+  margin-top: 6px;
+}

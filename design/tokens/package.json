@@ -1,0 +1,14 @@
+{
+  "name": "assistant-design-tokens",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Single source of design tokens for the web and Android apps (see README.md).",
+  "type": "module",
+  "scripts": {
+    "build": "node generate.mjs",
+    "check": "node generate.mjs --check"
+  },
+  "dependencies": {
+    "@material/material-color-utilities": "0.3.0"
+  }
+}

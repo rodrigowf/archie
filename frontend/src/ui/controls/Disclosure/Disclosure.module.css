@@ -1,0 +1,104 @@
+/* Disclosure: header button + sibling body. The chevron turns 180° when open. */
+.disclosure {
+  min-width: 0;
+}
+
+.heading {
+  margin: 0;
+  font: inherit;
+}
+
+.header {
+  display: flex;
+  position: relative;
+  align-items: center;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 12px 0 16px;
+  border-radius: var(--md-sys-shape-corner-medium);
+  color: var(--md-sys-color-on-surface);
+  font-size: var(--md-sys-typescale-title-small-size);
+  font-weight: var(--md-sys-typescale-title-small-weight);
+  line-height: var(--md-sys-typescale-title-small-line-height);
+  letter-spacing: var(--md-sys-typescale-title-small-tracking);
+  text-align: left;
+}
+
+.header[data-state="focus"] {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+/* The chip trigger (mockups: the memory frontmatter chip). */
+.chip {
+  display: inline-flex;
+  width: auto;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 0 8px;
+  border-radius: var(--md-sys-shape-corner-small);
+  box-shadow: inset 0 0 0 1px var(--md-sys-color-outline-variant);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+}
+
+.chip::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 48px;
+  margin-top: -24px;
+}
+
+.icon {
+  flex: none;
+  margin-right: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.chip .icon {
+  margin-right: 8px;
+}
+
+.summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.chip .summary {
+  flex: 0 1 auto;
+}
+
+.meta {
+  flex: none;
+  margin-left: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-weight: 400;
+}
+
+.chevron {
+  flex: none;
+  margin-left: 8px;
+  color: var(--md-sys-color-on-surface-variant);
+  transition: transform var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+
+.open .chevron {
+  transform: rotate(180deg);
+}
+
+.body {
+  padding: 4px 16px 8px;
+}
+
+.header[aria-disabled="true"],
+.header[aria-disabled="true"] .icon,
+.header[aria-disabled="true"] .chevron {
+  color: var(--md-sys-color-on-surface-disabled);
+}

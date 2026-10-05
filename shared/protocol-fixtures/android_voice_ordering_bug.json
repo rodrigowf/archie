@@ -1,0 +1,141 @@
+{
+  "name": "android_voice_ordering_bug",
+  "description": "Exact Android bug scenario (03 §4.3): orchestrator voice mode, no turn_complete ever. tool_use, user transcript, tool_use, assistant text. The second tool and the text must land in a NEW run after the transcript, and the first tool's late result still attaches to the first card.",
+  "source": "synthetic",
+  "session": {
+    "kind": "orchestrator",
+    "provider": null,
+    "local_id": "O1",
+    "sdk_id": "O1",
+    "voice_active": true
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "voice_event",
+      "event": {
+        "type": "conversation.item.input_audio_transcription.completed",
+        "item_id": "item_1",
+        "content_index": 0,
+        "transcript": "What's on my calendar?"
+      }
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "call_A",
+      "tool_name": "search_memory",
+      "tool_input": {
+        "query": "calendar today"
+      }
+    },
+    {
+      "type": "voice_event",
+      "event": {
+        "type": "conversation.item.input_audio_transcription.completed",
+        "item_id": "item_2",
+        "content_index": 0,
+        "transcript": "Also check the weather."
+      }
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "call_A",
+      "output": "{\"results\": []}",
+      "is_error": false
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "call_B",
+      "tool_name": "run_script",
+      "tool_input": {
+        "name": "weather"
+      }
+    },
+    {
+      "type": "voice_event",
+      "event": {
+        "type": "response.audio_transcript.delta",
+        "response_id": "resp_2",
+        "delta": "It's sunny"
+      }
+    },
+    {
+      "type": "voice_event",
+      "event": {
+        "type": "response.audio_transcript.delta",
+        "response_id": "resp_2",
+        "delta": " today."
+      }
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "call_B",
+      "output": "Sunny, 25C",
+      "is_error": false
+    },
+    {
+      "type": "voice_event",
+      "event": {
+        "type": "response.audio_transcript.done",
+        "response_id": "resp_2",
+        "transcript": "It's sunny today."
+      }
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "What's on my calendar?",
+        "origin": "voice",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "call_A",
+            "tool_name": "search_memory",
+            "tool_input": {
+              "query": "calendar today"
+            },
+            "status": "done",
+            "output": "{\"results\": []}"
+          }
+        ]
+      },
+      {
+        "kind": "user",
+        "text": "Also check the weather.",
+        "origin": "voice",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "call_B",
+            "tool_name": "run_script",
+            "tool_input": {
+              "name": "weather"
+            },
+            "status": "done",
+            "output": "Sunny, 25C"
+          },
+          {
+            "type": "text",
+            "text": "It's sunny today.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "state": {
+      "status": "idle",
+      "in_turn": false,
+      "voice_active": true
+    }
+  }
+}

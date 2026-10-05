@@ -1,0 +1,195 @@
+{
+  "name": "replay_after_reconnect_overlap",
+  "description": "Socket drops mid-turn; reconnect sends resume_from{seq 14}. A live frame arriving before session_started is held and discarded (the replay re-delivers it), the replay continues the same run, and a duplicate live frame (seq 16) is dropped.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "text_delta",
+      "text": "Al",
+      "seq": 11,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_complete",
+      "text": "Alpha.",
+      "seq": 12,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "t1",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "ls",
+        "description": "List files"
+      },
+      "seq": 13,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "t1",
+      "output": "ok",
+      "is_error": false,
+      "seq": 14,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "t2",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "pwd"
+      },
+      "seq": 15,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "session_started",
+      "session_id": "L1",
+      "context_window": 200000,
+      "resume_state": {
+        "stream_id": "L1:1759500000000",
+        "next_seq": 17
+      }
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "t2",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "pwd"
+      },
+      "seq": 15,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "t2",
+      "output": "fine",
+      "is_error": false,
+      "seq": 16,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "t2",
+      "output": "fine",
+      "is_error": false,
+      "seq": 16,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_complete",
+      "text": "Beta.",
+      "seq": 17,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "usage": {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 990,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 50
+      },
+      "input_tokens": 1000,
+      "output_tokens": 50,
+      "num_turns": 1,
+      "session_id": "sdk-1",
+      "is_error": false,
+      "result": "",
+      "seq": 18,
+      "stream_id": "L1:1759500000000"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "send",
+      "text": "go"
+    },
+    {
+      "at": 5,
+      "type": "ws_closed"
+    },
+    {
+      "at": 5,
+      "type": "ws_open"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "go",
+        "origin": "local",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Alpha.",
+            "streaming": false
+          },
+          {
+            "type": "tool",
+            "tool_use_id": "t1",
+            "tool_name": "Bash",
+            "tool_input": {
+              "command": "ls",
+              "description": "List files"
+            },
+            "status": "done",
+            "output": "ok"
+          },
+          {
+            "type": "tool",
+            "tool_use_id": "t2",
+            "tool_name": "Bash",
+            "tool_input": {
+              "command": "pwd"
+            },
+            "status": "done",
+            "output": "fine"
+          },
+          {
+            "type": "text",
+            "text": "Beta.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "state": {
+      "status": "idle",
+      "checkpoint": {
+        "stream_id": "L1:1759500000000",
+        "seq": 18
+      },
+      "last_start": {
+        "type": "start",
+        "local_id": "L1",
+        "resume_sdk_id": "sdk-1",
+        "resume_from": {
+          "stream_id": "L1:1759500000000",
+          "seq": 14
+        }
+      }
+    }
+  }
+}

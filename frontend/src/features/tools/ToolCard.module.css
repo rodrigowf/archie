@@ -1,0 +1,540 @@
+/*
+ * Tool card (mockups `.tc`): neutral surface; the category colour marks only the icon tile and
+ * the tool name. No flex gap (Safari 12): spacing is margins.
+ */
+
+/* ---------- category colours (tokens: --md-ext-color-tool-<category>) ---------- */
+.kRead {
+  --tool-c: var(--md-ext-color-tool-read);
+  --tool-cc: var(--md-ext-color-tool-read-container);
+  --tool-oc: var(--md-ext-color-on-tool-read-container);
+}
+
+.kWrite {
+  --tool-c: var(--md-ext-color-tool-write);
+  --tool-cc: var(--md-ext-color-tool-write-container);
+  --tool-oc: var(--md-ext-color-on-tool-write-container);
+}
+
+.kExecute {
+  --tool-c: var(--md-ext-color-tool-execute);
+  --tool-cc: var(--md-ext-color-tool-execute-container);
+  --tool-oc: var(--md-ext-color-on-tool-execute-container);
+}
+
+.kScript {
+  --tool-c: var(--md-ext-color-tool-script);
+  --tool-cc: var(--md-ext-color-tool-script-container);
+  --tool-oc: var(--md-ext-color-on-tool-script-container);
+}
+
+.kNavigate {
+  --tool-c: var(--md-ext-color-tool-navigate);
+  --tool-cc: var(--md-ext-color-tool-navigate-container);
+  --tool-oc: var(--md-ext-color-on-tool-navigate-container);
+}
+
+.kCapture {
+  --tool-c: var(--md-ext-color-tool-capture);
+  --tool-cc: var(--md-ext-color-tool-capture-container);
+  --tool-oc: var(--md-ext-color-on-tool-capture-container);
+}
+
+.kInteract {
+  --tool-c: var(--md-ext-color-tool-interact);
+  --tool-cc: var(--md-ext-color-tool-interact-container);
+  --tool-oc: var(--md-ext-color-on-tool-interact-container);
+}
+
+.kTodo {
+  --tool-c: var(--md-ext-color-tool-todo);
+  --tool-cc: var(--md-ext-color-tool-todo-container);
+  --tool-oc: var(--md-ext-color-on-tool-todo-container);
+}
+
+.kTask {
+  --tool-c: var(--md-ext-color-tool-task);
+  --tool-cc: var(--md-ext-color-tool-task-container);
+  --tool-oc: var(--md-ext-color-on-tool-task-container);
+}
+
+.kSystem {
+  --tool-c: var(--md-ext-color-tool-system);
+  --tool-cc: var(--md-ext-color-tool-system-container);
+  --tool-oc: var(--md-ext-color-on-tool-system-container);
+}
+
+.kAgent {
+  --tool-c: var(--md-ext-color-tool-agent);
+  --tool-cc: var(--md-ext-color-tool-agent-container);
+  --tool-oc: var(--md-ext-color-on-tool-agent-container);
+}
+
+.kSearch {
+  --tool-c: var(--md-ext-color-tool-search);
+  --tool-cc: var(--md-ext-color-tool-search-container);
+  --tool-oc: var(--md-ext-color-on-tool-search-container);
+}
+
+/* ---------- card ---------- */
+.card {
+  min-width: 0;
+  overflow: hidden;
+  border-radius: var(--md-sys-shape-corner-large);
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 10px;
+  border-radius: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+/* The card clips its children (rounded stack), so the ring sits inside the header. */
+.header:focus-visible {
+  outline-offset: -2px;
+}
+
+.tile {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 12px;
+  border-radius: 9px;
+  background: var(--tool-cc, var(--md-sys-color-surface-container-highest));
+  color: var(--tool-oc, var(--md-sys-color-on-surface-variant));
+}
+
+.name {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  color: var(--tool-c, var(--md-sys-color-on-surface));
+  font-size: var(--md-sys-typescale-title-small-size);
+  font-weight: var(--md-sys-typescale-title-small-weight);
+  line-height: 20px;
+  letter-spacing: var(--md-sys-typescale-title-small-tracking);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: 12px;
+  overflow: hidden;
+  color: var(--md-sys-color-on-surface-variant);
+  font-family: var(--md-sys-typescale-code-font);
+  font-size: 12.5px;
+  line-height: 18px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.status {
+  display: flex;
+  flex: none;
+  align-items: center;
+  margin-left: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-label-medium-size);
+  line-height: 16px;
+}
+
+.status > * + * {
+  margin-left: 6px;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.okIcon {
+  color: var(--md-ext-color-success);
+}
+
+.errIcon {
+  color: var(--md-sys-color-error);
+}
+
+.warnIcon {
+  color: var(--md-ext-color-warning);
+}
+
+.neutralIcon {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.spin {
+  margin-right: 2px;
+}
+
+.diffStat {
+  font-family: var(--md-sys-typescale-code-font);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.statAdd {
+  color: var(--md-ext-color-success);
+}
+
+.statDel {
+  color: var(--md-sys-color-error);
+}
+
+.body {
+  padding: 0 8px 8px;
+}
+
+/* ---------- body parts ---------- */
+.section > * + * {
+  margin-top: 8px;
+}
+
+.fields {
+  margin: 0;
+  padding: 2px 4px 0;
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: var(--md-sys-typescale-body-small-line-height);
+}
+
+.fieldRow {
+  display: flex;
+  align-items: baseline;
+}
+
+.fieldRow + .fieldRow {
+  margin-top: 2px;
+}
+
+.fieldLabel {
+  flex: none;
+  min-width: 72px;
+  margin-right: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-weight: 500;
+}
+
+.fieldValue {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.mono {
+  font-family: var(--md-sys-typescale-code-font);
+  font-size: 12px;
+}
+
+.codeView {
+  max-height: 400px;
+  overflow: auto;
+  border-radius: var(--md-sys-shape-corner-small);
+  -webkit-overflow-scrolling: touch;
+}
+
+.codeView > * {
+  margin: 0;
+}
+
+.rich {
+  min-width: 0;
+  overflow-wrap: break-word;
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: var(--md-sys-typescale-body-medium-line-height);
+}
+
+.link {
+  color: var(--md-sys-color-primary);
+  text-decoration: underline;
+}
+
+/* ---------- output region (mockups `.tc-o`) ---------- */
+.output {
+  min-width: 0;
+  max-height: 420px;
+  padding: 10px 12px;
+  overflow: auto;
+  border-radius: 10px;
+  background: var(--md-sys-color-surface-container-lowest);
+  color: var(--md-sys-color-on-surface-variant);
+  font-family: var(--md-sys-typescale-code-font);
+  font-size: 12.5px;
+  line-height: 19px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.output.isError {
+  box-shadow: inset 3px 0 0 var(--md-sys-color-error);
+}
+
+.waiting {
+  display: flex;
+  align-items: center;
+  max-height: none;
+  opacity: 0.85;
+}
+
+.waitClock {
+  margin-left: 6px;
+}
+
+.waitSpin {
+  margin-right: 8px;
+}
+
+.outHead {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  font-family: var(--md-sys-typescale-label-small-font);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.outHead > * + * {
+  margin-left: 12px;
+}
+
+.hint {
+  text-transform: none;
+  letter-spacing: 0;
+  font-style: italic;
+  opacity: 0.8;
+}
+
+.pre {
+  margin: 0;
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.footer {
+  font-family: var(--md-sys-typescale-code-font);
+  opacity: 0.85;
+}
+
+.pre + .pre,
+.pre + span,
+.rich + .footer,
+.pre + .footer {
+  margin-top: 6px;
+}
+
+.preInput {
+  max-height: 240px;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: var(--md-sys-shape-corner-small);
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface);
+  font-family: var(--md-sys-typescale-code-font);
+  font-size: 12.5px;
+  line-height: 19px;
+}
+
+.json {
+  max-height: 240px;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: var(--md-sys-shape-corner-small);
+  background: var(--md-sys-color-surface-container-low);
+  font-family: var(--md-sys-typescale-code-font);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.line {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.hi {
+  color: var(--md-sys-color-on-surface);
+}
+
+.dim {
+  opacity: 0.7;
+}
+
+.errText {
+  color: var(--md-sys-color-error);
+}
+
+.okText {
+  color: var(--md-ext-color-success);
+}
+
+.caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  margin-left: 2px;
+  vertical-align: -0.2em;
+  background: var(--md-sys-color-primary);
+  animation: caret-blink 1s steps(2, start) infinite;
+}
+
+@keyframes caret-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+.showAll {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  margin-top: 6px;
+  padding: 0 10px;
+  border-radius: var(--md-sys-shape-corner-full);
+  color: var(--md-sys-color-primary);
+  font-family: var(--md-sys-typescale-label-large-font);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+}
+
+/* ---------- diff (inv02 F-06) ---------- */
+.diff {
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.diff .line {
+  padding: 0 12px;
+}
+
+.mark {
+  display: inline-block;
+  width: 1.5ch;
+  user-select: none;
+}
+
+.dAdd {
+  background: var(--md-ext-color-tool-write-tint);
+  color: var(--md-ext-color-tool-write);
+}
+
+.dDel {
+  background: var(--md-sys-color-error-hover);
+  color: var(--md-sys-color-error);
+}
+
+.dFold {
+  color: var(--md-ext-color-tool-read);
+  font-style: italic;
+}
+
+/* ---------- TodoWrite ---------- */
+.todos {
+  margin: 0;
+  padding: 2px 4px;
+  list-style: none;
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: 22px;
+}
+
+.todo {
+  display: flex;
+  align-items: flex-start;
+}
+
+.todoMark {
+  display: inline-flex;
+  flex: none;
+  justify-content: center;
+  width: 20px;
+  margin-right: 8px;
+  padding-top: 3px;
+  color: var(--md-sys-color-on-surface-variant);
+  line-height: 16px;
+}
+
+.ring {
+  display: inline-block;
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  margin-top: 2px;
+  border: 2px solid currentcolor;
+  border-radius: 50%;
+}
+
+.ringHalf {
+  background: linear-gradient(90deg, currentcolor 50%, transparent 50%);
+}
+
+.todoText {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.todoDone {
+  opacity: 0.55;
+}
+
+.todoDone .todoText {
+  text-decoration: line-through;
+}
+
+.todoDone .todoMark {
+  color: var(--md-ext-color-success);
+}
+
+.todoActive .todoText {
+  color: var(--md-sys-color-on-surface);
+  font-weight: 600;
+}
+
+.todoActive .todoMark {
+  color: var(--tool-c, var(--md-sys-color-primary));
+}
+
+.todoCancelled .todoText {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+
+/* ---------- AskUserQuestion ---------- */
+.question {
+  padding: 0 4px;
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: var(--md-sys-typescale-body-medium-line-height);
+}
+
+.questionText {
+  margin: 0;
+}
+
+.questionHeader {
+  margin-right: 6px;
+  color: var(--tool-c, var(--md-sys-color-primary));
+  font-weight: 500;
+}
+
+.options {
+  margin: 4px 0 0;
+  padding-left: 20px;
+}
+
+.optionLabel {
+  font-weight: 500;
+}

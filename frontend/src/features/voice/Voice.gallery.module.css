@@ -1,0 +1,102 @@
+/* Voice gallery (dev only). Margins, no gap. */
+.page {
+  color: var(--md-sys-color-on-surface);
+}
+
+.page > * + * {
+  margin-top: var(--app-space-6);
+}
+
+.lead {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.board {
+  display: flex;
+  flex-wrap: wrap;
+  margin: -8px;
+}
+
+.cell {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 440px;
+  margin: 8px;
+  padding: 12px;
+  border-radius: 24px;
+  background: var(--md-sys-color-surface);
+}
+
+.cell > * + * {
+  margin-top: 8px;
+}
+
+.cellTitle {
+  margin: 0 0 4px;
+  font-size: var(--md-sys-typescale-title-small-size);
+  font-weight: 500;
+}
+
+.cellTitle small {
+  display: block;
+  color: var(--md-sys-color-on-surface-variant);
+  font-weight: 400;
+}
+
+.composer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 60px;
+  padding: 0 20px;
+  border-radius: 30px;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.composerNote {
+  font-size: var(--md-sys-typescale-label-small-size);
+  opacity: 0.7;
+}
+
+/* Full-viewport screen mode. */
+.screen {
+  position: fixed;
+  inset: 0; /* lowered to top/right/bottom/left for Safari 12 by postcss-preset-env */
+  z-index: 50;
+  height: var(--app-height);
+  background: var(--md-sys-color-surface);
+}
+
+.screenInner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.appbar {
+  flex: none;
+}
+
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.sub {
+  display: inline-flex;
+  align-items: center;
+}
+
+.sub > svg {
+  margin-right: 4px;
+}
+
+.primary {
+  color: var(--md-sys-color-primary);
+}
+
+.warn {
+  color: var(--md-ext-color-warning);
+}

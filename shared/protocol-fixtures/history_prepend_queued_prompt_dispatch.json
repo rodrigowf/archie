@@ -1,0 +1,238 @@
+{
+  "name": "history_prepend_queued_prompt_dispatch",
+  "description": "H-6: loading an older history page between turns is not a new prompt. The observer's tray item is still dispatched into the timeline at status:processing (I-12), and the reply opens its own run instead of joining the previous one.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1"
+  },
+  "initial_history": {
+    "messages": [
+      {
+        "role": "user",
+        "text": "Q2",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Q2",
+            "tool_use_id": null,
+            "tool_name": null,
+            "tool_input": null,
+            "output": null,
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-10-03T12:00:00+00:00"
+      },
+      {
+        "role": "assistant",
+        "text": "A2",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "A2",
+            "tool_use_id": null,
+            "tool_name": null,
+            "tool_input": null,
+            "output": null,
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-10-03T12:00:00+00:00"
+      }
+    ],
+    "total_count": 4,
+    "has_more": true,
+    "start_index": 2
+  },
+  "events": [
+    {
+      "type": "user_message",
+      "text": "Q3"
+    },
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "text_complete",
+      "text": "Working.",
+      "seq": 1,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "user_message",
+      "text": "next",
+      "queued": true
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "usage": {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 990,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 50
+      },
+      "input_tokens": 1000,
+      "output_tokens": 50,
+      "num_turns": 1,
+      "session_id": "sdk-1",
+      "is_error": false,
+      "result": "",
+      "seq": 2,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "text_complete",
+      "text": "Next done.",
+      "seq": 3,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "usage": {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 990,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 50
+      },
+      "input_tokens": 1000,
+      "output_tokens": 50,
+      "num_turns": 1,
+      "session_id": "sdk-1",
+      "is_error": false,
+      "result": "",
+      "seq": 4,
+      "stream_id": "L1:1759500000000"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 5,
+      "type": "rest_page",
+      "mode": "prepend",
+      "response": {
+        "messages": [
+          {
+            "role": "user",
+            "text": "Q1",
+            "blocks": [
+              {
+                "type": "text",
+                "text": "Q1",
+                "tool_use_id": null,
+                "tool_name": null,
+                "tool_input": null,
+                "output": null,
+                "is_error": false
+              }
+            ],
+            "timestamp": "2026-10-03T12:00:00+00:00"
+          },
+          {
+            "role": "assistant",
+            "text": "A1",
+            "blocks": [
+              {
+                "type": "text",
+                "text": "A1",
+                "tool_use_id": null,
+                "tool_name": null,
+                "tool_input": null,
+                "output": null,
+                "is_error": false
+              }
+            ],
+            "timestamp": "2026-10-03T12:00:00+00:00"
+          }
+        ],
+        "total_count": 4,
+        "has_more": false,
+        "start_index": 0
+      }
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "Q1",
+        "origin": "history",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "A1",
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "kind": "user",
+        "text": "Q2",
+        "origin": "history",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "A2",
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "kind": "user",
+        "text": "Q3",
+        "origin": "echo",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Working.",
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "kind": "user",
+        "text": "next",
+        "origin": "echo",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Next done.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "queue": [],
+    "state": {
+      "status": "idle",
+      "in_turn": false,
+      "history_has_more": false,
+      "history_start_index": 0
+    }
+  }
+}

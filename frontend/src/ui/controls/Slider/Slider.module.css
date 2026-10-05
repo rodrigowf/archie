@@ -1,0 +1,170 @@
+/*
+ * Slider (mockups `.slider`): 44 dp tall; 16 dp track (primary | secondary-container) split by a
+ * 6 dp gap on each side of a 4 × 44 dp bar handle; 4 dp stop dot; 48 × 36 value bubble above.
+ *
+ * Geometry: the native thumb is 4 dp wide, so its center runs from 2 dp to (width − 2 dp). `--p`
+ * is that center, from `--slider-f` (0…1, set inline): the drawn handle follows the real thumb.
+ */
+/* stylelint-disable no-descending-specificity -- state rules are ordered by precedence (base, hover, focus, error, disabled), not by specificity */
+.slider {
+  --slider-f: 0;
+  --p: calc(2px + (100% - 4px) * var(--slider-f));
+
+  position: relative;
+  width: 100%;
+  min-width: 96px;
+  height: 44px;
+}
+
+.input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  width: 100%;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  opacity: 0;
+  cursor: pointer;
+  appearance: none;
+}
+
+.input:disabled {
+  cursor: default;
+}
+
+.input::-webkit-slider-runnable-track {
+  height: 44px;
+  background: transparent;
+  border: 0;
+}
+
+.input::-webkit-slider-thumb {
+  width: 4px;
+  height: 44px;
+  border: 0;
+  appearance: none;
+}
+
+.input::-moz-range-thumb {
+  width: 4px;
+  height: 44px;
+  border: 0;
+  border-radius: 0;
+}
+
+.track {
+  position: absolute;
+  inset: 0; /* lowered to top/right/bottom/left for Safari 12 by postcss-preset-env */
+  pointer-events: none;
+}
+
+.active,
+.inactive {
+  position: absolute;
+  top: 14px;
+  height: 16px;
+}
+
+.active {
+  left: 0;
+  width: calc(var(--p) - 6px);
+  border-radius: 8px 2px 2px 8px;
+  background: var(--md-sys-color-primary);
+}
+
+.inactive {
+  right: 0;
+  width: calc(100% - var(--p) - 6px);
+  border-radius: 2px 8px 8px 2px;
+  background: var(--md-sys-color-secondary-container);
+}
+
+.stop {
+  position: absolute;
+  top: 20px;
+  right: 6px;
+  z-index: 1;
+  width: 4px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--md-sys-color-primary);
+}
+
+.handle {
+  position: absolute;
+  top: 0;
+  left: calc(var(--p) - 2px);
+  width: 4px;
+  height: 44px;
+  border-radius: 2px;
+  background: var(--md-sys-color-primary);
+  transition: width var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
+}
+
+.dragging .handle,
+.input:active ~ .track .handle {
+  left: calc(var(--p) - 1px);
+  width: 2px;
+}
+
+.input:focus-visible ~ .track .handle,
+.slider[data-state="focus"] .handle {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+.bubble {
+  display: flex;
+  position: absolute;
+  top: -42px;
+  left: calc(var(--p) - 24px);
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  height: 36px;
+  padding: 0 8px;
+  border-radius: 18px;
+  background: var(--md-sys-color-inverse-surface);
+  color: var(--md-sys-color-inverse-on-surface);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(4px) scale(0.9);
+  transition:
+    opacity var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard),
+    transform var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
+}
+
+.dragging .bubble,
+.always .bubble,
+.input:focus-visible ~ .track .bubble,
+.slider[data-state="focus"] .bubble {
+  opacity: 1;
+  transform: none;
+}
+
+.never .bubble {
+  display: none;
+}
+
+/* Hover: the handle's color doesn't change in M3; the input shows a pointer cursor. */
+
+.disabled .active,
+.disabled .handle,
+.disabled .stop {
+  background: var(--md-sys-color-on-surface-disabled);
+}
+
+.disabled .inactive {
+  background: var(--md-sys-color-on-surface-disabled-container);
+}
+
+.disabled .bubble {
+  display: none;
+}

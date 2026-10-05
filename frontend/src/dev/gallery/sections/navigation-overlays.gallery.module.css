@@ -1,0 +1,380 @@
+/*
+ * W-04 gallery: device frames and stand-in controls from docs/frontend-refactor/mockups
+ * (`.shell`, `.lp`, `.ws`, `.wtop`, `.btn`, `.ib`, `.prov`, `.dot`, `.search`). Grids use
+ * `grid-gap` (Safari 10.1+); flex rows use owl margins.
+ */
+/* stylelint-disable property-no-deprecated */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-gap: var(--app-space-4);
+}
+
+.board {
+  min-width: 0;
+  padding: 20px;
+  border-radius: 24px;
+  background: var(--md-sys-color-surface);
+}
+
+.board > * + * {
+  margin-top: 16px;
+}
+
+.wide {
+  grid-column: 1 / -1;
+}
+
+.boardTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 0;
+  font-size: var(--md-sys-typescale-title-medium-size);
+  font-weight: 500;
+  line-height: var(--md-sys-typescale-title-medium-line-height);
+}
+
+.boardTitle small {
+  margin-left: var(--app-space-3);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-small-size);
+  font-weight: 400;
+}
+
+.stack > * + * {
+  margin-top: 16px;
+}
+
+.note {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-medium-size);
+}
+
+/* ---------- frames ---------- */
+
+.frame {
+  position: relative;
+  display: flex;
+  overflow: hidden;
+  border-radius: 20px;
+  background: var(--md-sys-color-surface-container-low);
+  box-shadow: 0 0 0 1px var(--md-sys-color-outline-variant);
+}
+
+.desk {
+  height: 560px;
+}
+
+.tablet {
+  max-width: 768px;
+  height: 640px;
+  margin: 0 auto;
+}
+
+.listPane {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 320px;
+  min-height: 0;
+  padding: 12px 12px 12px 0;
+  overflow: hidden;
+}
+
+.listPane > * + * {
+  margin-top: 2px;
+}
+
+@media (width <= 1100px) {
+  .desk .listPane {
+    display: none;
+  }
+}
+
+.lpHead {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  height: 56px;
+  padding-left: 16px;
+  font-size: 22px;
+  line-height: 28px;
+}
+
+.ws {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  margin: 8px 8px 8px 0;
+  overflow: hidden;
+  border-radius: 24px;
+  background: var(--md-sys-color-surface);
+}
+
+.wtop {
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: 64px;
+  padding: 0 8px 0 6px;
+}
+
+.wtop > * + * {
+  margin-left: 4px;
+}
+
+.wstat {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 20px;
+  background: none;
+  color: var(--md-sys-color-on-surface-variant);
+  font: inherit;
+  font-size: 13px;
+  cursor: default;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.wstat > * + * {
+  margin-left: 8px;
+}
+
+@media (width <= 700px) {
+  .ws .wstat {
+    display: none;
+  }
+}
+
+.conv {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 8px 24px;
+  overflow: hidden;
+}
+
+.conv > * + * {
+  margin-top: 16px;
+}
+
+.msgA {
+  margin: 0;
+  max-width: 640px;
+  font-size: var(--md-sys-typescale-body-large-size);
+  line-height: var(--md-sys-typescale-body-large-line-height);
+}
+
+.msgU {
+  width: fit-content;
+  max-width: 80%;
+  margin: 0 0 0 auto;
+  padding: 10px 16px;
+  border-radius: 20px 20px 6px;
+  background: var(--md-sys-color-surface-container-high);
+  font-size: var(--md-sys-typescale-body-large-size);
+  line-height: var(--md-sys-typescale-body-large-line-height);
+}
+
+.phones {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-gap: 16px;
+}
+
+.fig {
+  min-width: 0;
+  margin: 0;
+}
+
+.fig figcaption {
+  margin-top: 8px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-small-size);
+}
+
+.phone {
+  flex-direction: column;
+  max-width: 412px;
+  height: 760px;
+  margin: 0 auto;
+  background: var(--md-sys-color-surface);
+}
+
+/* ---------- stand-ins ---------- */
+
+
+
+
+
+
+
+
+
+
+
+.warn {
+  color: var(--md-ext-color-warning);
+}
+
+.search {
+  flex: none;
+  margin-bottom: 4px;
+}
+
+.drHead {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px 16px 12px;
+}
+
+.drText {
+  display: flex;
+  flex-direction: column;
+  margin-left: 12px;
+}
+
+.drText b {
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 28px;
+}
+
+.drSub {
+  display: flex;
+  align-items: center;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+}
+
+.drSub > * + * {
+  margin-left: 6px;
+}
+
+.swRow {
+  display: flex;
+  align-items: center;
+  min-height: 64px;
+  padding: 0 4px 0 12px;
+  border-radius: 20px;
+}
+
+.swActive {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.tile {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.swText {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  margin-left: 12px;
+}
+
+.swText b {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.swSub {
+  display: flex;
+  align-items: center;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.swSub > * + * {
+  margin-left: 6px;
+}
+
+.sheetActs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-gap: 8px;
+}
+
+.sheetActs > button {
+  min-width: 0;
+  padding: 0 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.specimens {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  margin: -12px;
+}
+
+.specimens > * {
+  margin: 12px;
+}
+
+.menuSpec {
+  min-width: 240px;
+  padding: 6px;
+  border-radius: 16px;
+  background: var(--md-sys-color-surface-container);
+  box-shadow: var(--md-sys-elevation-level2);
+}
+
+.tryRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: -4px;
+}
+
+.tryRow > * {
+  margin: 4px;
+}
+
+.snacks > * + * {
+  margin-top: 12px;
+}
+
+.tipBox {
+  padding: 8px 8px 48px;
+}
+
+.busyBox {
+  position: relative;
+  width: 320px;
+  max-width: 100%;
+  height: 140px;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--md-sys-color-surface-container-low);
+}
+
+.sp {
+  margin-left: 6px;
+}

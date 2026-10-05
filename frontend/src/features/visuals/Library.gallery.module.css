@@ -1,0 +1,26 @@
+.grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  margin: -12px;
+}
+
+.board {
+  box-sizing: border-box;
+  width: 344px;
+  max-width: 100%;
+  margin: 12px;
+}
+
+.title {
+  margin: 0 0 8px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-title-small-size);
+  line-height: var(--md-sys-typescale-title-small-line-height);
+}
+
+.pane {
+  padding: 8px 12px;
+  border-radius: var(--md-sys-shape-corner-large);
+  background: var(--md-sys-color-surface-container-low);
+}

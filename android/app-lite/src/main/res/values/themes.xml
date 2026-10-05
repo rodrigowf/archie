@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Framework Material theme only (spec 14 §5.1: no AppCompat / Material Components / Compose).
+         The A300M face is dark-only (D3, §5.2): the fixed archie_dark_* token colors, never day/night. -->
+    <style name="Theme.ArchieLite" parent="android:Theme.Material.NoActionBar">
+        <item name="android:colorPrimary">@color/archie_dark_surface_container_lowest</item>
+        <item name="android:colorPrimaryDark">@color/archie_dark_surface_container_lowest</item>
+        <item name="android:colorAccent">@color/archie_dark_primary</item>
+        <item name="android:colorControlNormal">@color/archie_dark_on_surface_variant</item>
+        <item name="android:colorControlActivated">@color/archie_dark_primary</item>
+        <item name="android:colorButtonNormal">@color/archie_dark_surface_container_high</item>
+        <item name="android:windowBackground">@color/archie_dark_surface_container_lowest</item>
+        <item name="android:statusBarColor">@color/archie_dark_surface_container_lowest</item>
+        <item name="android:navigationBarColor">@color/archie_dark_surface_container_lowest</item>
+        <item name="android:textColorPrimary">@color/archie_dark_on_surface</item>
+        <item name="android:textColorSecondary">@color/archie_dark_on_surface_variant</item>
+        <item name="android:textColorHint">@color/archie_dark_outline</item>
+        <item name="android:alertDialogTheme">@style/Theme.ArchieLite.Dialog</item>
+    </style>
+
+    <style name="Theme.ArchieLite.Dialog" parent="android:Theme.Material.Dialog.Alert">
+        <item name="android:colorAccent">@color/archie_dark_primary</item>
+        <item name="android:colorBackground">@color/archie_dark_surface_container_high</item>
+        <item name="android:textColorPrimary">@color/archie_dark_on_surface</item>
+        <item name="android:textColorSecondary">@color/archie_dark_on_surface_variant</item>
+    </style>
+</resources>

@@ -1,0 +1,82 @@
+{
+  "name": "orchestrator_closed_by_pool",
+  "description": "WATCH-1: the orchestrator is stopped elsewhere (POST close / stop from another device). Its subscribers are dropped silently; the only signal is the watcher event agent_session_closed for its own localId. The view marks itself stopped and ends the turn (running tool -> no_result). A close for another session, or with the wrong is_orchestrator flag (FOCUS-2), changes nothing.",
+  "source": "synthetic",
+  "session": {
+    "kind": "orchestrator",
+    "provider": null,
+    "local_id": "O1",
+    "sdk_id": "O1"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "streaming"
+    },
+    {
+      "type": "text_delta",
+      "text": "Work"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "c1",
+      "tool_name": "list_agent_sessions",
+      "tool_input": {}
+    },
+    {
+      "type": "agent_session_closed",
+      "session_id": "L9",
+      "is_orchestrator": false
+    },
+    {
+      "type": "agent_session_closed",
+      "session_id": "O1",
+      "is_orchestrator": false
+    },
+    {
+      "type": "agent_session_closed",
+      "session_id": "O1",
+      "is_orchestrator": true
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "send",
+      "text": "summarize"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "summarize",
+        "origin": "local",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Work",
+            "streaming": false
+          },
+          {
+            "type": "tool",
+            "tool_use_id": "c1",
+            "tool_name": "list_agent_sessions",
+            "tool_input": {},
+            "status": "no_result",
+            "output": null
+          }
+        ]
+      }
+    ],
+    "state": {
+      "status": "stopped",
+      "in_turn": false
+    }
+  }
+}

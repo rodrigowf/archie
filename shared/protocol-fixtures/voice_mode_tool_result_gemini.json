@@ -1,0 +1,124 @@
+{
+  "name": "voice_mode_tool_result_gemini",
+  "description": "Gemini Live voice: the mirrored toolCall event is ignored (cards come from tool_use/tool_result frames); the object-shaped output is JSON-stringified; a tool still running when voice ends becomes no_result.",
+  "source": "synthetic",
+  "session": {
+    "kind": "orchestrator",
+    "provider": null,
+    "local_id": "O1",
+    "sdk_id": "O1",
+    "voice_active": true
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "voice_event",
+      "event": {
+        "toolCall": {
+          "functionCalls": [
+            {
+              "id": "fc_1",
+              "name": "get_assistant_config",
+              "args": {}
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "fc_1",
+      "tool_name": "get_assistant_config",
+      "tool_input": {}
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "fc_1",
+      "output": {
+        "provider": "claude",
+        "voice": "Puck"
+      },
+      "is_error": false
+    },
+    {
+      "type": "voice_event",
+      "event": {
+        "serverContent": {
+          "outputTranscription": {
+            "text": "Your voice is Puck."
+          }
+        }
+      }
+    },
+    {
+      "type": "voice_event",
+      "event": {
+        "serverContent": {
+          "turnComplete": true
+        }
+      }
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "fc_2",
+      "tool_name": "end_voice_session",
+      "tool_input": {
+        "farewell_message": "Bye"
+      }
+    },
+    {
+      "type": "voice_ending",
+      "reason": "agent_end",
+      "session_id": "O1"
+    },
+    {
+      "type": "voice_ended",
+      "reason": "agent_end",
+      "session_id": "O1"
+    },
+    {
+      "type": "voice_stopped"
+    },
+    {
+      "type": "voice_owner_active",
+      "active": false,
+      "owner_local_id": "O1"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "fc_1",
+            "tool_name": "get_assistant_config",
+            "tool_input": {},
+            "status": "done",
+            "output": "{\"provider\":\"claude\",\"voice\":\"Puck\"}"
+          },
+          {
+            "type": "text",
+            "text": "Your voice is Puck.",
+            "streaming": false
+          },
+          {
+            "type": "tool",
+            "tool_use_id": "fc_2",
+            "tool_name": "end_voice_session",
+            "tool_input": {
+              "farewell_message": "Bye"
+            },
+            "status": "no_result",
+            "output": null
+          }
+        ]
+      }
+    ],
+    "state": {
+      "voice_active": false,
+      "status": "idle"
+    }
+  }
+}

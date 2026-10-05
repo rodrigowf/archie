@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- OI-1: dark system-bar icons on the light window (splash + pre-Compose frames). -->
+<resources>
+    <bool name="archie_light_system_bars">true</bool>
+</resources>

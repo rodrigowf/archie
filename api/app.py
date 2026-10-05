@@ -11,7 +11,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 from manager.auth import AuthManager
 from manager.config import ManagerConfig
@@ -143,17 +143,30 @@ async def lifespan(app: FastAPI):
                 pass
 
 
-def _next_preview_dirs() -> list[tuple[str, Path]]:
-    """Preview builds of ``frontend-next`` (spec 13 §1.6, BX-1).
+def _spa_dirs() -> list[tuple[str, Path]]:
+    """SPA builds served under a path prefix (cutover, spec 13 §1.7).
 
-    ``npm run build:preview`` writes ``dist-preview/main`` (base ``/next/``)
-    and ``dist-preview/compat`` (base ``/next-compat/``).  Removed at cutover.
+    ``frontend/`` is the current web app: ``dist/`` is served at ``/`` by the
+    root catch-all in :func:`create_app`, ``dist-compat/`` (Safari 12 / iOS 12)
+    at ``/compat/``.  The previous apps live on, untouched, under ``_old/``:
+    ``_old/frontend/dist`` at ``/legacy/`` and ``_old/frontend-compat/dist``
+    at ``/legacy_compat/`` (built with those Vite bases).
     """
-    base = Path(__file__).resolve().parent.parent / "frontend-next" / "dist-preview"
-    return [("next", base / "main"), ("next-compat", base / "compat")]
+    root = Path(__file__).resolve().parent.parent
+    return [
+        ("compat", root / "frontend" / "dist-compat"),
+        ("legacy", root / "_old" / "frontend" / "dist"),
+        ("legacy_compat", root / "_old" / "frontend-compat" / "dist"),
+    ]
 
 
-def _register_preview_spa(
+# The new web app was previewed at /next/ and /next-compat/ before the cutover;
+# old bookmarks land on the app that replaced them (hash routing: the path tail
+# carries no state).
+_RETIRED_PREFIXES = {"next": "/", "next-compat": "/compat/"}
+
+
+def _register_spa(
     app: FastAPI, prefix: str, root: Path, no_cache: dict[str, str],
 ) -> bool:
     """Serve the SPA build in *root* at ``/{prefix}/``.
@@ -174,10 +187,10 @@ def _register_preview_spa(
             name=f"{prefix}-assets",
         )
 
-    async def serve_preview_index():
+    async def serve_spa_index():
         return FileResponse(index, headers=no_cache)
 
-    async def serve_preview_spa(full_path: str):
+    async def serve_spa_path(full_path: str):
         candidate = (root / full_path).resolve()
         if not candidate.is_relative_to(root_resolved):
             raise HTTPException(status_code=404)
@@ -187,11 +200,11 @@ def _register_preview_spa(
 
     for path in (f"/{prefix}", f"/{prefix}/"):
         app.add_api_route(
-            path, serve_preview_index, methods=["GET"],
+            path, serve_spa_index, methods=["GET"],
             include_in_schema=False, name=f"{prefix}-index",
         )
     app.add_api_route(
-        f"/{prefix}/{{full_path:path}}", serve_preview_spa, methods=["GET"],
+        f"/{prefix}/{{full_path:path}}", serve_spa_path, methods=["GET"],
         include_in_schema=False, name=f"{prefix}-spa",
     )
     return True
@@ -230,31 +243,26 @@ def create_app() -> FastAPI:
     # index.html must never be cached — it's the bootstrap that points to
     # the hashed bundle, so a cached copy traps the device on old code
     # forever even after a deploy. Hashed assets under /assets/ and
-    # /compat/assets/ are already immutable, so caching them is fine.
+    # /<prefix>/assets/ are already immutable, so caching them is fine.
     _no_cache = {"Cache-Control": "no-cache, no-store, must-revalidate"}
 
-    # Serve the compat frontend (React 18, for older devices) at /compat/
-    compat_dist = Path(__file__).resolve().parent.parent / "frontend-compat" / "dist"
-    if compat_dist.exists():
-        app.mount("/compat/assets", StaticFiles(directory=compat_dist / "assets"), name="compat-assets")
+    # /compat/, /legacy/, /legacy_compat/ (see _spa_dirs), then the retired
+    # /next* redirects. Registered before the root SPA catch-all, which would
+    # swallow them; each only when its build exists.
+    for prefix, spa_root in _spa_dirs():
+        _register_spa(app, prefix, spa_root, _no_cache)
 
-        @app.get("/compat")
-        @app.get("/compat/")
-        async def serve_compat_index():
-            return FileResponse(compat_dist / "index.html", headers=_no_cache)
+    def _redirect_to(target: str):
+        async def redirect_retired():
+            return RedirectResponse(target, status_code=307)
+        return redirect_retired
 
-        @app.get("/compat/{full_path:path}")
-        async def serve_compat_spa(full_path: str):
-            file_path = compat_dist / full_path
-            if file_path.exists() and file_path.is_file():
-                return FileResponse(file_path)
-            return FileResponse(compat_dist / "index.html", headers=_no_cache)
-
-    # Preview builds of the new web app at /next/ and /next-compat/ (BX-1).
-    # Registered before the root SPA catch-all, which would swallow /next/*.
-    # Only when the build exists; context/public/ has no next* entry.
-    for prefix, preview_root in _next_preview_dirs():
-        _register_preview_spa(app, prefix, preview_root, _no_cache)
+    for prefix, target in _RETIRED_PREFIXES.items():
+        for i, path in enumerate((f"/{prefix}", f"/{prefix}/", f"/{prefix}/{{full_path:path}}")):
+            app.add_api_route(
+                path, _redirect_to(target), methods=["GET"],
+                include_in_schema=False, name=f"{prefix}-retired-{i}",
+            )
 
     # Public files directory (context/public/ — synced across machines, served at URL root).
     # Anything placed under context/public/ is reachable at the matching URL path

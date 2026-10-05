@@ -1,0 +1,194 @@
+/* Gallery shell: the review-board look of docs/frontend-refactor/mockups (page head, TOC, sections). */
+.page {
+  background: var(--md-sys-color-surface-container);
+}
+
+.full {
+  height: auto;
+  overflow: visible;
+}
+
+.inner {
+  padding-top: var(--app-space-10);
+  padding-bottom: 120px;
+}
+
+.head > * + * {
+  margin-top: var(--app-space-6);
+}
+
+/* Brand + theme switch: wraps on phones (the mockups' `.brandrow`), half-margin spacing. */
+.brandRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  margin: -10px;
+}
+
+.brandRow > * {
+  margin: 10px;
+}
+
+.brand > * + * {
+  margin-left: var(--app-space-4);
+}
+
+.eyebrow {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-label-medium-size);
+  font-weight: var(--md-sys-typescale-label-medium-weight);
+  line-height: var(--md-sys-typescale-label-medium-line-height);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin-top: var(--app-space-1);
+  font-size: var(--md-sys-typescale-display-small-size);
+  font-weight: 500;
+  line-height: var(--md-sys-typescale-display-small-line-height);
+  letter-spacing: -0.015em;
+}
+
+.lede {
+  max-width: 68ch;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-large-size);
+  line-height: 1.6;
+}
+
+.mark {
+  display: block;
+  flex: none;
+}
+
+/* Theme switch: the mockups' `.seg-theme`. */
+.seg {
+  display: inline-flex;
+  padding: var(--app-space-1);
+  border-radius: 20px;
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.seg > * + * {
+  margin-left: var(--app-space-1);
+}
+
+.segButton {
+  display: inline-flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 var(--app-space-4);
+  border-radius: var(--md-sys-shape-corner-large);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  letter-spacing: var(--md-sys-typescale-label-large-tracking);
+}
+
+.segButton > svg {
+  margin-right: var(--app-space-2);
+}
+
+.segButton[aria-pressed="true"] {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+/* TOC chips: the mockups' `.toc a`. */
+.toc {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 18px;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  text-decoration: none;
+}
+
+.toc[aria-current="page"] {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.tocNo {
+  margin-right: 6px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-variant-numeric: tabular-nums;
+}
+
+.toc[aria-current="page"] .tocNo {
+  color: inherit;
+}
+
+.sections > * + * {
+  margin-top: 88px;
+}
+
+.sections {
+  margin-top: 56px;
+}
+
+.sec > * + * {
+  margin-top: 28px;
+}
+
+.secHead {
+  display: flex;
+  align-items: flex-start;
+}
+
+.secNo {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-right: var(--app-space-4);
+  border-radius: 14px;
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.secTitle {
+  font-size: var(--md-sys-typescale-headline-medium-size);
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.secText {
+  max-width: 72ch;
+  margin-top: 2px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.9375rem;
+}
+
+@media (--compact) {
+  .title {
+    font-size: var(--md-sys-typescale-headline-medium-size);
+    line-height: var(--md-sys-typescale-headline-medium-line-height);
+  }
+
+  .secTitle {
+    font-size: var(--md-sys-typescale-headline-small-size);
+  }
+
+  .sections > * + * {
+    margin-top: 64px;
+  }
+}
+
+/* full=1: let the document grow so a full-page screenshot captures every section. */
+:global(html.dev-gallery-full),
+:global(html.dev-gallery-full) body,
+:global(html.dev-gallery-full) #root {
+  height: auto;
+  overflow: visible;
+}

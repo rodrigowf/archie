@@ -1,0 +1,39 @@
+{
+  "name": "orchestrator_parallel_tools",
+  "description": "Mock-only scenario (W-05 DoD: an Archie turn with parallel tools). Orchestrator text turn: text, two tool_use blocks of one model call, interleaved tool_executing / tool_progress, results in reverse completion order, closing text. Each result attaches by id (R-1); blocks keep arrival order (I-3); the turn ends at status:idle (TL-4).",
+  "source": "synthetic",
+  "session": { "kind": "orchestrator", "provider": null, "local_id": "O1", "sdk_id": "O1" },
+  "initial_history": null,
+  "events": [
+    { "type": "status", "status": "streaming" },
+    { "type": "text_delta", "text": "Checking both" },
+    { "type": "text_complete", "text": "Checking both sessions." },
+    { "type": "tool_use", "tool_use_id": "c1", "tool_name": "list_agent_sessions", "tool_input": {} },
+    { "type": "tool_use", "tool_use_id": "c2", "tool_name": "search_memory", "tool_input": { "query": "build status" } },
+    { "type": "tool_executing", "tool_use_id": "c1", "tool_name": "list_agent_sessions" },
+    { "type": "tool_executing", "tool_use_id": "c2", "tool_name": "search_memory" },
+    { "type": "tool_progress", "tool_use_id": "c2", "tool_name": "search_memory", "elapsed_seconds": 5.0, "message": "Still executing search_memory..." },
+    { "type": "tool_result", "tool_use_id": "c2", "output": "{\"results\": [\"build green\"]}", "is_error": false },
+    { "type": "tool_result", "tool_use_id": "c1", "output": "[{\"session_id\": \"L9\", \"status\": \"idle\"}]", "is_error": false },
+    { "type": "text_delta", "text": "Both" },
+    { "type": "text_complete", "text": "Both sessions are idle and the build is green." },
+    { "type": "turn_complete", "input_tokens": 2400, "output_tokens": 60 },
+    { "type": "status", "status": "idle" }
+  ],
+  "client_actions": [{ "at": 0, "type": "send", "text": "status?" }],
+  "expected": {
+    "entries": [
+      { "kind": "user", "text": "status?", "origin": "local", "state": "sent" },
+      {
+        "kind": "assistant",
+        "blocks": [
+          { "type": "text", "text": "Checking both sessions.", "streaming": false },
+          { "type": "tool", "tool_use_id": "c1", "tool_name": "list_agent_sessions", "tool_input": {}, "status": "done", "output": "[{\"session_id\": \"L9\", \"status\": \"idle\"}]" },
+          { "type": "tool", "tool_use_id": "c2", "tool_name": "search_memory", "tool_input": { "query": "build status" }, "status": "done", "output": "{\"results\": [\"build green\"]}" },
+          { "type": "text", "text": "Both sessions are idle and the build is green.", "streaming": false }
+        ]
+      }
+    ],
+    "state": { "status": "idle", "in_turn": false, "context_tokens": 2400 }
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "name": "shared_inject_voice_echo",
+  "description": "Voice-mode inject_text is echoed to every device including the sender (03 §4.4.4). The sender's pending entry is confirmed instead of duplicated; another device's inject is added normally.",
+  "source": "synthetic",
+  "session": {
+    "kind": "orchestrator",
+    "provider": null,
+    "local_id": "O1",
+    "sdk_id": "O1",
+    "voice_active": true
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "user_message",
+      "text": "[shared text]\nBuy milk",
+      "source": "shared_inject"
+    },
+    {
+      "type": "user_message",
+      "text": "[shared text]\nCall mom",
+      "source": "shared_inject"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "inject",
+      "text": "[shared text]\nBuy milk"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "[shared text]\nBuy milk",
+        "origin": "inject",
+        "state": "sent"
+      },
+      {
+        "kind": "user",
+        "text": "[shared text]\nCall mom",
+        "origin": "inject",
+        "state": "sent"
+      }
+    ]
+  }
+}

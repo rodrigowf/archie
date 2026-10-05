@@ -1,0 +1,136 @@
+{
+  "name": "orchestrator_error_no_turn_complete",
+  "description": "Orchestrator text turn fails with api_error: no turn_complete; status:idle ends the turn. The running tool becomes no_result, an error notice ends the run, and the next turn starts a new run.",
+  "source": "synthetic",
+  "session": {
+    "kind": "orchestrator",
+    "provider": null,
+    "local_id": "O1",
+    "sdk_id": "O1"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "streaming"
+    },
+    {
+      "type": "text_delta",
+      "text": "Working"
+    },
+    {
+      "type": "text_complete",
+      "text": "Working on it."
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "c1",
+      "tool_name": "list_agent_sessions",
+      "tool_input": {}
+    },
+    {
+      "type": "tool_executing",
+      "tool_use_id": "c1",
+      "tool_name": "list_agent_sessions"
+    },
+    {
+      "type": "tool_progress",
+      "tool_use_id": "c1",
+      "tool_name": "list_agent_sessions",
+      "elapsed_seconds": 5.0,
+      "message": "Still executing list_agent_sessions..."
+    },
+    {
+      "type": "error",
+      "error": "api_error",
+      "detail": "Anthropic API overloaded"
+    },
+    {
+      "type": "status",
+      "status": "idle"
+    },
+    {
+      "type": "status",
+      "status": "streaming"
+    },
+    {
+      "type": "text_complete",
+      "text": "Done."
+    },
+    {
+      "type": "turn_complete",
+      "input_tokens": 900,
+      "output_tokens": 20
+    },
+    {
+      "type": "status",
+      "status": "idle"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "send",
+      "text": "summarize"
+    },
+    {
+      "at": 8,
+      "type": "send",
+      "text": "retry"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "summarize",
+        "origin": "local",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Working on it.",
+            "streaming": false
+          },
+          {
+            "type": "tool",
+            "tool_use_id": "c1",
+            "tool_name": "list_agent_sessions",
+            "tool_input": {},
+            "status": "no_result",
+            "output": null
+          }
+        ]
+      },
+      {
+        "kind": "notice",
+        "notice": "error",
+        "text": "Anthropic API overloaded"
+      },
+      {
+        "kind": "user",
+        "text": "retry",
+        "origin": "local",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Done.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "state": {
+      "status": "idle",
+      "in_turn": false,
+      "context_tokens": 900
+    }
+  }
+}

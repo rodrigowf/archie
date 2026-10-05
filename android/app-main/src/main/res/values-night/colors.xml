@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dark `surface` of design/tokens (the default theme; SplashColorsMatchTokensTest). -->
+<resources>
+    <color name="archie_window_background">#FF0D0E10</color>
+</resources>

@@ -1,0 +1,177 @@
+/*
+ * App shell (spec 13 §4.2; mockups `.shell`, `.rail`, `.lp`, `.ws`, `.drawer`): rail, list pane
+ * and workspace sit on two surface tones (surface-container-low frame, surface workspace); no
+ * borders, no tinted strips (R1). Spacing with margins (no flex gap, Safari 12); explicit
+ * offsets instead of `inset`.
+ */
+/* stylelint-disable declaration-block-no-redundant-longhand-properties -- explicit top/right/bottom/left, never `inset` (Safari 12; inv02 §5.4 #3) */
+
+.shell {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  overflow: hidden;
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface);
+}
+
+/* ---------- list pane (expanded, standard) ---------- */
+
+.listSlot {
+  display: flex;
+  flex: none;
+  width: 320px;
+  min-height: 0;
+}
+
+.listPane {
+  box-sizing: border-box;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 12px 12px 12px 0;
+  padding-top: calc(12px + env(safe-area-inset-top));
+  overflow: hidden;
+}
+
+.lpHead {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  height: 56px;
+  padding-left: 16px;
+}
+
+.lpTitle {
+  margin: 0;
+  font-size: var(--md-sys-typescale-title-large-size);
+  font-weight: 400;
+  line-height: var(--md-sys-typescale-title-large-line-height);
+}
+
+.lpBody {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ---------- workspace ---------- */
+
+.workspace {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  margin: 8px 8px 8px 0;
+  overflow: hidden;
+  border-radius: 24px;
+  background: var(--md-sys-color-surface);
+}
+
+.shell[data-wc='compact'] .workspace {
+  margin: 0;
+  padding-top: env(safe-area-inset-top);
+  border-radius: 0;
+}
+
+/* ---------- drawer header ---------- */
+
+.drHead {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px 12px 12px;
+}
+
+.drHead > * + * {
+  margin-left: 12px;
+}
+
+.drText {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.drTitle {
+  margin: 0;
+  outline: none;
+  font-size: var(--md-sys-typescale-title-large-size);
+  font-weight: 500;
+  line-height: var(--md-sys-typescale-title-large-line-height);
+}
+
+.connLine {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-label-medium-size);
+  font-weight: 500;
+  line-height: var(--md-sys-typescale-label-medium-line-height);
+}
+
+.connLine > * + * {
+  margin-left: 6px;
+}
+
+.connText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- screens ---------- */
+
+.screenLayer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 80px;
+  z-index: 5;
+}
+
+.screenLayerCompact {
+  left: 0;
+}
+
+.screen {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  bottom: 8px;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 24px;
+  background: var(--md-sys-color-surface);
+  outline: none;
+}
+
+.screenCompact {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  padding-top: env(safe-area-inset-top);
+  border-radius: 0;
+}
+
+.screenBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.screenFill {
+  flex: 1 1 auto;
+  min-height: 0;
+}

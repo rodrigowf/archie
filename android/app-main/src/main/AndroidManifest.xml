@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  :app-main manifest. B-03: the shell. B-09: the system entry points (spec 14 §2.5-§2.8).
+
+  VoiceHostService (FGS types microphone|specialUse, the specialUse subtype property) and its
+  permissions (RECORD_AUDIO, FOREGROUND_SERVICE[_MICROPHONE|_SPECIAL_USE], WAKE_LOCK,
+  POST_NOTIFICATIONS) come from :core:voice-host's manifest; :feature:settings adds
+  BLUETOOTH_CONNECT and REQUEST_IGNORE_BATTERY_OPTIMIZATIONS. No RECEIVE_BOOT_COMPLETED: Android 15
+  refuses a microphone FGS from BOOT_COMPLETED, so wake word resumes when Archie is next opened
+  (decision Q7). No USE_FULL_SCREEN_INTENT yet: the "show over lock screen on wake" setting is not
+  built (spec 14 §2.6), and wake → voice runs headless with the voice notification instead. Agent
+  approvals (OI-6) use a heads-up notification on the high-importance "Approvals" channel, not a
+  full-screen intent.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- NetworkMonitor: reconnect on "network available" (T-14) and the LAN scan's subnet lookup. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Voice: audio routing (speakerphone / communication device) during a call, as the old app. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+
+    <!--
+      usesCleartextTraffic: the default backend is ws://192.168.0.200:80 on the LAN (spec 14 §2.10,
+      decision E-6 keeps today's transport); https/wss servers use the TOFU TrustStore.
+    -->
+    <application
+        android:name=".graph.ArchieApplication"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Archie"
+        android:usesCleartextTraffic="true">
+
+        <!--
+          Single Activity (spec 14 §2.8). Share target: SEND text, SEND / SEND_MULTIPLE files (old
+          app: single items only, inv03 §1.8). Long-press on the QS tile opens it (QS_TILE_PREFERENCES).
+        -->
+        <activity
+            android:name=".shell.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.Archie.Starting"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
+            </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+        </activity>
+
+        <!--
+          The foreground-context entry that may open the mic (spec 14 §2.6/§2.8): tile, "Talk to
+          Archie" shortcut, notification Talk / Resume listening / Reconnect, and the ACTION_ASSIST
+          fallback (long-press home when Archie is not the selected assistant app).
+        -->
+        <activity
+            android:name=".system.VoiceTrampolineActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:launchMode="singleInstance"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Archie.Trampoline">
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.assistant.archie.action.TALK" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- OI-6: Approve / Deny on an agent-approval notification (REST answer, spec 12 §6.9). -->
+        <receiver
+            android:name=".system.ApprovalActionReceiver"
+            android:exported="false" />
+
+        <!-- Quick Settings "Talk" (spec 14 §2.8). Follows voice while the panel shows it. -->
+        <service
+            android:name=".system.ArchieTalkTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_stat_archie"
+            android:label="@string/tile_talk"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.quicksettings.TOGGLEABLE_TILE"
+                android:value="true" />
+        </service>
+
+        <!-- "Default digital assistant app" (spec 14 §2.8; fixes inv04 B6). -->
+        <service
+            android:name=".system.ArchieVoiceInteractionService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_VOICE_INTERACTION">
+            <intent-filter>
+                <action android:name="android.service.voice.VoiceInteractionService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.voice_interaction"
+                android:resource="@xml/archie_interaction_service" />
+        </service>
+        <service
+            android:name=".system.ArchieVoiceInteractionSessionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_VOICE_INTERACTION" />
+        <service
+            android:name=".system.ArchieRecognitionService"
+            android:exported="true"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.speech.RecognitionService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data
+                android:name="android.speech"
+                android:resource="@xml/archie_recognition_service" />
+        </service>
+    </application>
+
+</manifest>
