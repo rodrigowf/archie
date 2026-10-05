@@ -242,6 +242,53 @@ class OrchestratorChannelTest {
         assertTrue(r.frames.drain().any { it is ServerFrame.AgentSessionClosed && it.isOrchestrator })
     }
 
+    @Test fun followsAnOrchestratorOpenedElsewhere_afterNoOrchestratorOrClosedElsewhere() = runTest {
+        val r = Rig(this, autoStart = true)
+        r.pool.script += listOf(agent())
+        r.channel.connect(url); r.socket.open(); r.settle(); advanceTimeBy(400); runCurrent()
+        assertEquals(listOf<ChannelEvent>(ChannelEvent.NoOrchestrator), r.events.drain())
+
+        r.socket.frame(ServerFrame.AgentSessionOpened("AGENT", "S1", isOrchestrator = false)); r.settle()
+        assertTrue("an agent session is not Archie", r.events.drain().isEmpty())
+
+        r.socket.frame(ServerFrame.AgentSessionOpened("OTHER", "JSONL2", isOrchestrator = true)); r.settle()
+        assertEquals(listOf<ChannelEvent>(ChannelEvent.Adopted(OrchestratorRef("OTHER", "JSONL2"), reconnect = false)), r.events.drain())
+        assertEquals("OTHER", r.channel.state.value.orchestrator?.localId)
+        assertFalse(r.channel.state.value.noOrchestrator)
+        assertEquals("OTHER", r.ids.value)
+        assertEquals(listOf<ClientFrame>(ClientFrame.Start("OTHER", "JSONL2")), r.socket.sent)
+        assertTrue(r.frames.drain().any { it is ServerFrame.AgentSessionOpened })
+
+        r.socket.frame(started("OTHER", "JSONL2")); r.settle(); r.events.drain(); r.socket.sent.clear()
+        r.socket.frame(ServerFrame.AgentSessionOpened("OTHER", "JSONL2", isOrchestrator = true)); r.settle()
+        assertTrue("the one already followed is not adopted again", r.events.drain().isEmpty() && r.socket.sent.isEmpty())
+
+        r.socket.frame(ServerFrame.AgentSessionClosed("OTHER", isOrchestrator = true)); r.settle()   // "New conversation" elsewhere
+        r.socket.frame(ServerFrame.AgentSessionOpened("THIRD", "THIRD", isOrchestrator = true)); r.settle()
+        assertEquals(
+            listOf(ChannelEvent.OrchestratorClosed("OTHER"), ChannelEvent.Adopted(OrchestratorRef("THIRD", "THIRD"), reconnect = false)),
+            r.events.drain(),
+        )
+        assertEquals(listOf<ClientFrame>(ClientFrame.Start("THIRD", "THIRD")), r.socket.sent)
+    }
+
+    @Test fun ownStartIsNotFollowed_userIntentOrArmedNew() = runTest {
+        val r = Rig(this, autoStart = true)
+        r.pool.script += listOf(agent())
+        r.channel.connect(url); r.socket.open(); r.settle(); advanceTimeBy(400); runCurrent(); r.events.drain()
+
+        r.channel.markUserIntent(); r.settle()                    // resumeArchie: this device sends its own start
+        r.socket.frame(ServerFrame.AgentSessionOpened("MINE", "JSONL", isOrchestrator = true)); r.settle()
+        assertTrue(r.events.drain().isEmpty())
+        assertTrue(r.socket.sent.isEmpty())
+
+        r.socket.frame(started("MINE", "JSONL")); r.settle(); r.events.drain()
+        r.socket.frame(ServerFrame.AgentSessionClosed("MINE", isOrchestrator = true)); r.settle(); r.events.drain()
+        r.channel.armNewSession("NEW"); r.settle(); r.events.drain(); r.socket.sent.clear()
+        r.socket.frame(ServerFrame.AgentSessionOpened("NEW", "NEW", isOrchestrator = true)); r.settle()
+        assertTrue("the echo of our own new session", r.events.drain().isEmpty() && r.socket.sent.isEmpty())
+    }
+
     @Test fun armNewSessionSkipsTheProbe() = runTest {
         val r = Rig(this, autoStart = true)
         r.channel.armNewSession("NEW"); r.channel.connect(url); r.socket.open(); r.settle()

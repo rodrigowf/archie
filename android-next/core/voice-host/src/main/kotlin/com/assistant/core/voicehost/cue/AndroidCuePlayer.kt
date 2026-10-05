@@ -61,7 +61,9 @@ class AndroidCuePlayer(context: Context, private val log: VoiceLog) : CuePlayer 
             bufSize,
             AudioTrack.MODE_STATIC,
         )
-        if (track.state != AudioTrack.STATE_INITIALIZED) {
+        // A MODE_STATIC track reports STATE_NO_STATIC_DATA until write(); only UNINITIALIZED is a failure.
+        // (The old app checked != STATE_INITIALIZED, so its cues never played.)
+        if (track.state == AudioTrack.STATE_UNINITIALIZED) {
             log.w(TAG, "cue ${kind.name}: AudioTrack init failed state=${track.state}")
             track.release()
             return

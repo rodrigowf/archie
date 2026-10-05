@@ -333,10 +333,12 @@ class OrchestratorChannel(
             emit(ChannelEvent.NoOrchestrator)
             return
         }
-        val ref = OrchestratorRef(found.localId, found.sdkId)
+        adopt(OrchestratorRef(found.localId, found.sdkId), reconnect = initialConnectionDone)
+    }
+
+    private suspend fun adopt(ref: OrchestratorRef, reconnect: Boolean) {
         ids.save(ref.localId)
         _state.update { it.copy(orchestrator = ref, noOrchestrator = false) }
-        val reconnect = initialConnectionDone
         emit(ChannelEvent.Adopted(ref, reconnect))
         if (reconnect) emit(ChannelEvent.Reconnected(ref)) else initialConnectionDone = true
         if (config.autoStart) sendStart()
@@ -362,6 +364,21 @@ class OrchestratorChannel(
                 return
             }
             is ServerFrame.Error -> if (f.error == "orchestrator_active") onOrchestratorActive(f.detail)
+            is ServerFrame.AgentSessionOpened -> {
+                // Spec 12 §4.4 onWatcherEvent: Archie was opened on another device → follow it, as the
+                // probe would on the next connect. Skipped while this device is starting one itself
+                // (armNewSession / resumeArchie set userIntent; the echo of our own start has our id).
+                // Without this the lite face kept "No conversation open on the server" (2026-10-05, A300M).
+                val id = f.sessionId
+                if (f.isOrchestrator && id != null && socketOpen && !userIntent && armedNew == null &&
+                    id != _state.value.orchestrator?.localId
+                ) {
+                    probeJob?.cancel()
+                    framesOut.publish(f)
+                    adopt(OrchestratorRef(id, f.sdkSessionId?.takeIf { it.isNotEmpty() } ?: id), reconnect = false)
+                    return
+                }
+            }
             is ServerFrame.AgentSessionClosed -> {
                 val ref = _state.value.orchestrator
                 if (f.isOrchestrator && ref != null && f.sessionId == ref.localId) {   // FOCUS-2, WATCH-1
