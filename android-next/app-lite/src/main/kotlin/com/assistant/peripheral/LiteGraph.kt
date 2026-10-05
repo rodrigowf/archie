@@ -4,6 +4,7 @@ import android.app.Application
 import android.os.SystemClock
 import android.util.Log
 import com.assistant.core.model.DeviceSettings
+import com.assistant.core.network.ArchieApi
 import com.assistant.core.network.DiscoveredServer
 import com.assistant.core.network.HttpStack
 import com.assistant.core.network.NetworkMonitor
@@ -24,6 +25,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -47,6 +51,21 @@ class LiteGraph(private val app: Application) {
 
     val liteSettings: LiteSettings by lazy { LiteSettings(scope, settings, voiceHost) }
 
+    /** History REST for the attach-time last exchange (one small page per `session_started`). */
+    private val api = ArchieApi(http) { settings.settings.value?.serverUrl ?: DeviceSettings.DEFAULT_SERVER_URL }
+
+    /** Feeds [lastExchange] from the Archie conversation (other devices' prompts, text replies, history). */
+    private val exchangeFeed: ConversationExchangeFeed by lazy {
+        val host = voiceHost
+        ConversationExchangeFeed(
+            scope = scope,
+            sink = lastExchange,
+            history = { sdkId -> api.messages(sdkId, ConversationExchangeFeed.HISTORY_LIMIT).getOrNull()?.messages },
+            voiceLive = { host.session.state.value.phase.let { it != SessionPhase.OFF && it != SessionPhase.ERROR } },
+            channelSdkId = { host.orchestrator.state.value.orchestrator?.sdkId },
+        )
+    }
+
     private val network = NetworkMonitor(app)
     private val discovery = ServerDiscovery(http)
     private val _discovered = MutableStateFlow<List<DiscoveredServer>>(emptyList())
@@ -65,6 +84,14 @@ class LiteGraph(private val app: Application) {
         // T-14: reconnect at once when a network becomes available.
         host.orchestrator.attachNetwork(network.available)
         scope.launch { host.orchestrator.state.collect { retry.onSocket(it.socket, SystemClock.elapsedRealtime()) } }
+        // The face's last exchange follows the conversation, not only this device's voice (spec 14 §5.2).
+        // Eager subscription: the first `session_started` must not race the collector's start.
+        val feed = exchangeFeed
+        val frames = host.orchestrator.subscribeFrames()
+        scope.launch { for (f in frames) feed.onFrame(f) }
+        scope.launch {
+            host.orchestrator.state.map { it.orchestrator == null }.distinctUntilChanged().filter { it }.collect { feed.onDetached() }
+        }
         // A session that got going clears a held Error face (only established phases: a failing
         // attempt passes through CONNECTING right before its error, so that must not clear it).
         scope.launch {
