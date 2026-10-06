@@ -33,7 +33,7 @@ The command pattern is:
 
     setsid context/scripts/run.sh -m uvicorn api.app:create_app --factory --host 0.0.0.0 --port 8765 > logs/api_TIMESTAMP.log 2>&1 &
 
-Replace TIMESTAMP with `$(date +%Y%m%d_%H%M%S)`. Do NOT use `nohup` or `tee` — use `setsid` with output redirection.
+Replace TIMESTAMP with `$(date +%Y%m%d_%H%M%S)`. Do NOT use `nohup` or `tee` — use `setsid` with output redirection. Run it from the project root: the Python packages live in `backend/` (`backend/api/`, `backend/manager/`, `backend/orchestrator/`, `backend/utils/`), and run.sh puts `backend/` on `PYTHONPATH` so `api.app:create_app` resolves.
 
 ### Frontend Server
 
@@ -105,6 +105,7 @@ Use take_screenshot to capture a visual image of the page. Add fullPage: true fo
 All logs are stored in the logs directory at the project root:
 - Backend logs: api_YYYYMMDD_HHMMSS.log
 - Frontend logs: frontend_YYYYMMDD_HHMMSS.log
+- Remote console beacons from devices without dev tools (iPad, compat build): remote_console.log
 
 ### Reading Log Files
 

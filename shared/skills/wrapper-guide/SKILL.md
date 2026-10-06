@@ -36,21 +36,21 @@ Frontend (React) ──WebSocket/REST──> API (FastAPI) ──SDK──> Mana
 
 ---
 
-## 1. Manager Package (`manager/`)
+## 1. Manager Package (`backend/manager/`)
 
-The manager wraps the `claude-agent-sdk` to provide a clean async interface.
+The manager wraps the `claude-agent-sdk` to provide a clean async interface. The backend's packages live under `backend/` and import by plain name (`from manager import ...`) because `context/scripts/run.sh` puts `backend/` on `PYTHONPATH`. Paths in the tables below are relative to the package folder.
 
 ### Key Files
 
 | File | Purpose |
 |------|---------|
-| `session.py` | `SessionManager` - core session lifecycle and message handling |
+| `claude/session.py` | `SessionManager` (= `ClaudeSessionManager`) - core session lifecycle and message handling; `base_session.py` holds the shared `BaseSessionManager`, `qwen/` and `gemini/` the other providers |
 | `types.py` | Event dataclasses (`TextDelta`, `ToolUse`, etc.) and data types |
 | `store.py` | `SessionStore` - reads Claude Code's JSONL session files from disk |
 | `config.py` | `ManagerConfig` - loads from JSON file, env vars, or defaults |
 | `auth.py` | `AuthManager` - OAuth status checks and login flow |
 
-### SessionManager (`session.py`)
+### SessionManager (`claude/session.py`)
 
 The heart of the manager. Wraps a single Claude Code conversation.
 
@@ -127,7 +127,7 @@ Configuration loading order: JSON file → env vars → defaults
 
 | Field | Env Var | Default |
 |-------|---------|---------|
-| `project_dir` | `MANAGER_PROJECT_DIR` | Parent of manager/ |
+| `project_dir` | `MANAGER_PROJECT_DIR` | Repo root (`PROJECT_ROOT` from `backend/utils/paths.py`) |
 | `model` | `MANAGER_MODEL` | None (SDK default) |
 | `permission_mode` | `MANAGER_PERMISSION_MODE` | "default" |
 | `max_budget_usd` | `MANAGER_MAX_BUDGET_USD` | None |
@@ -144,7 +144,7 @@ OAuth authentication helper.
 
 ---
 
-## 2. API Package (`api/`)
+## 2. API Package (`backend/api/`)
 
 FastAPI server providing REST + WebSocket interfaces.
 
@@ -175,7 +175,7 @@ The `lifespan` context manager initializes:
 
 **CORS:** `allow_origins=["*"]` (Android apps and local dev servers)
 
-**Static SPAs** (`_spa_dirs()`): `/` → `apps/web/dist`, `/compat/` → `apps/web/dist-compat`, `/legacy/` → `legacy/frontend/dist`, `/legacy_compat/` → `legacy/frontend-compat/dist`; the retired `/next/` and `/next-compat/` 307-redirect to `/` and `/compat/` (tests: `tests/test_spa_routes.py`).
+**Static SPAs** (`_spa_dirs()`): `/` → `apps/web/dist`, `/compat/` → `apps/web/dist-compat`, `/legacy/` → `legacy/frontend/dist`, `/legacy_compat/` → `legacy/frontend-compat/dist`; the retired `/next/` and `/next-compat/` 307-redirect to `/` and `/compat/` (tests: `backend/tests/test_spa_routes.py`).
 
 ### SessionPool (`pool.py`)
 
@@ -313,7 +313,7 @@ The pre-cutover app (the `hooks/useChatInstance.ts` / `context/TabsContext.tsx` 
 4. In dev, check the Vite proxy (`/api` → `http://localhost:8765`, override with `ARCHIE_BACKEND`)
 
 **Key breakpoints:**
-- `api/routes/chat.py:20` → `chat_ws()` function
+- `backend/api/routes/chat.py` → `chat_ws()` function
 - `apps/web/src/services/ws/socket.ts` → socket open/close/error events
 - `apps/web/src/services/ws/reconnect.ts` → reconnect policy
 
@@ -328,8 +328,8 @@ The pre-cutover app (the `hooks/useChatInstance.ts` / `context/TabsContext.tsx` 
 4. Try `claude auth status` in terminal
 
 **Key locations:**
-- `api/routes/chat.py:103` → 30s timeout
-- `manager/session.py:90` → `start()` method
+- `backend/api/routes/chat.py` → `asyncio.wait_for(..., timeout=30.0)` around session start
+- `backend/manager/base_session.py` → `start()` method
 
 ### Message Not Appearing
 
@@ -343,7 +343,7 @@ The pre-cutover app (the `hooks/useChatInstance.ts` / `context/TabsContext.tsx` 
 
 **Key locations:**
 - `apps/web/src/services/sessions/SessionRuntime.ts` → send / queue
-- `api/routes/chat.py:126` → `_handle_send()`
+- `backend/api/routes/chat.py` → the `msg_type == "send"` branch of the message loop
 
 ### Tool Results Not Attaching
 
@@ -369,7 +369,7 @@ The pre-cutover app (the `hooks/useChatInstance.ts` / `context/TabsContext.tsx` 
 
 **Key locations:**
 - `apps/web/src/protocol/history/` and `apps/web/src/services/sessions/SessionRuntime.ts` (cold open, pagination)
-- `manager/store.py:149` → `get_session()`
+- `backend/manager/store.py` → `get_session()`
 
 ---
 
@@ -377,21 +377,21 @@ The pre-cutover app (the `hooks/useChatInstance.ts` / `context/TabsContext.tsx` 
 
 **To understand message flow:**
 1. `apps/web/src/protocol/reducer/machine.ts` - State machine (+ `services/sessions/SessionRuntime.ts`)
-2. `api/routes/chat.py` - WebSocket handler
-3. `manager/session.py` - SDK wrapper
+2. `backend/api/routes/chat.py` - WebSocket handler
+3. `backend/manager/claude/session.py` - SDK wrapper
 
 **To understand data types:**
-1. `manager/types.py` - Python event types
-2. `api/serializers.py` - Event → JSON
+1. `backend/manager/types.py` - Python event types
+2. `backend/api/serializers.py` - Event → JSON
 3. `apps/web/src/protocol/wire/server.ts` (frames) and `apps/web/src/protocol/types.ts` (domain model)
 
 **To understand session storage:**
-1. `manager/store.py` - Read JSONL files
-2. `api/routes/sessions.py` - REST endpoints
+1. `backend/manager/store.py` - Read JSONL files
+2. `backend/api/routes/sessions.py` - REST endpoints
 
 **To understand authentication:**
-1. `manager/auth.py` - OAuth helpers
-2. `api/routes/auth.py` - Auth endpoints
+1. `backend/manager/auth.py` - OAuth helpers
+2. `backend/api/routes/auth.py` - Auth endpoints
 3. `apps/web/src/features/auth/AuthGate.tsx` - Auth UI
 
 ---
@@ -401,24 +401,24 @@ The pre-cutover app (the `hooks/useChatInstance.ts` / `context/TabsContext.tsx` 
 When modifying the wrapper:
 
 1. **Adding new event types:**
-   - Add to `manager/types.py`
-   - Handle in `manager/session.py:_process_message()`
-   - Add to `api/serializers.py`
+   - Add to `backend/manager/types.py`
+   - Handle in `backend/manager/claude/session.py:_process_message()`
+   - Add to `backend/api/serializers.py`
    - Add the frame to `apps/web/src/protocol/wire/server.ts` and `wire/decode.ts`
    - Handle in `apps/web/src/protocol/reducer/machine.ts` (+ a fixture in `apps/protocol-fixtures/`)
    - Mirror on Android (`apps/android/core/protocol`, `apps/android/core/conversation`)
 
 2. **Adding new REST endpoints:**
-   - Add route in `api/routes/`
-   - Add Pydantic models in `api/models.py`
+   - Add route in `backend/api/routes/`
+   - Add Pydantic models in `backend/api/models.py`
    - Add a client function in `apps/web/src/services/http/endpoints/`
 
 3. **Adding new WebSocket messages:**
-   - Handle in `api/routes/chat.py` message loop
+   - Handle in `backend/api/routes/chat.py` message loop
    - Add to `apps/web/src/protocol/wire/` (client.ts / server.ts)
    - Handle in the reducer / runtime
 
 4. **Modifying session storage:**
-   - Update `manager/store.py`
-   - Update `api/models.py` if response shape changes
+   - Update `backend/manager/store.py`
+   - Update `backend/api/models.py` if response shape changes
    - Update `apps/web/src/services/http/types.ts` / `protocol/types.ts` if needed

@@ -40,8 +40,8 @@ All current fixtures are `"source": "synthetic"`: hand-written from the backend 
 }
 ```
 
-Server frames use the exact field names of the backend (`api/serializers.py`, `api/pool.py`,
-`api/routes/chat.py`, `api/routes/orchestrator.py`), including `seq`/`stream_id` where Claude agent
+Server frames use the exact field names of the backend (`backend/api/serializers.py`, `backend/api/pool.py`,
+`backend/api/routes/chat.py`, `backend/api/routes/orchestrator.py`), including `seq`/`stream_id` where Claude agent
 sessions stamp them. History messages use the REST `MessagePreviewResponse` shape
 (`{role, text, blocks: [{type, text, tool_use_id, tool_name, tool_input, output, is_error}], timestamp}`).
 
