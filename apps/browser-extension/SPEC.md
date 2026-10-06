@@ -316,7 +316,7 @@ socket and driving the browser. It stays.
 Existing protocol (see [README.md](README.md)) is one `result` frame per
 command id. Additions:
 
-- Screenshots as base64 over the WebSocket get bulky; `api/routes/uploads.py`
+- Screenshots as base64 over the WebSocket get bulky; `backend/api/routes/uploads.py`
   exists and may be the better path, with the response carrying a URL
 - Snapshots need a size cap (§1.2)
 

@@ -57,13 +57,13 @@ The wrappers at the project root (`install.sh`, `install-with-agent.sh`, `instal
 > 1. **Read the per-OS installer end-to-end** before doing anything.  Treat it as the canonical recipe — every step you take should correspond to a step in that script.  Pay special attention to the `# Step N` headers and the per-axis flag logic at the top.
 > 2. **Read `install/README.md` and `install/<os>/README.md`** to understand what the templates do and which files get copied where, plus OS-specific quirks (Homebrew on macOS, winget + Developer Mode on Windows).
 > 3. **Walk the user through the two axis decisions** (session harness, orchestrator backends) — same questions the script's Steps 0a/0b ask.  Explain each option briefly when asked.
-> 4. **Execute the steps yourself**, in order, using your file and shell tools.  Don't just run the deterministic installer — read it as the spec and re-do each step interactively so you can adapt to the user's answers and recover from errors.  The deterministic parts (`pip install -r requirements*.txt`, `npm install`, venv creation) are fine to shell out for; the conversational/branching parts (axis decisions, context import vs. fresh, optional symlinks, CLI runtime seeding) you handle directly.
+> 4. **Execute the steps yourself**, in order, using your file and shell tools.  Don't just run the deterministic installer — read it as the spec and re-do each step interactively so you can adapt to the user's answers and recover from errors.  The deterministic parts (`pip install -r backend/requirements*.txt`, `npm install`, venv creation) are fine to shell out for; the conversational/branching parts (axis decisions, context import vs. fresh, optional symlinks, CLI runtime seeding) you handle directly.
 > 5. **Log your progress to `context/install.log` continuously.**  At the start of each step, append a line like `[2026-05-16 14:32] step 4: creating venv ...`.  Append the outcome on completion or error.  If the install crashes, this log lets the user (or a future agent) resume manually.
 > 6. **Never invent steps.**  If the per-OS installer doesn't do something, neither should you.  If you're unsure, read the relevant block and follow it literally.
 > 7. **Never skip the API key reminders.**  Step 12 warns about missing keys for the axes the user picked — do the same warning.
 > 7b. **Help the user actually obtain keys when they're missing.**  This is where you add value over the deterministic installer.  For each missing key you'd warn about: tell the user *what* it's for, *where* to get it, and offer to walk them through the signup / console flow.  Voice especially — Vertex AI vs. AI Studio is a real choice with real trade-offs (see "Voice provider selection (Gemini Live)" further down this file).  Don't just say "set `GEMINI_API_KEY`"; ask what they want voice for, propose the right backend, and stay with them through the console clicks.  Re-run `install/probe-gemini-voice.py` after the user pastes a key — its JSON output tells you immediately whether the new key works, and if not, the `reason` field has the actionable next step (billing, ADC, allowlist enablement) you should surface verbatim.  The deterministic installer runs the probe once at Step 12b; you should run it again whenever the user changes a relevant env var so the verdict tracks reality.
 > 8. **Windows-specific**: if you're on Windows, check whether symlink creation works before attempting any link steps (the installer's `Test-Symlinks` does this).  If it fails, tell the user about Developer Mode before falling back to junctions + copies.  Path mangling for the CLI project dirs replaces both `\` and `:` with `-`.
-> 9. **When everything is done**, ask the user if they'd like you to start the backend (`context/scripts/run.sh -m uvicorn api.app:create_app --factory --host 0.0.0.0 --port 8765` on POSIX, or `.venv\Scripts\python.exe -m uvicorn api.app:create_app --factory --port 8765` on Windows) and/or the frontend (`cd apps/web && npm run dev`) in the background.  If yes, launch them in background mode so they survive your exit, then tell the user the install is complete and they can press Ctrl-C to exit this session.  Confirm the services are reachable before declaring victory.
+> 9. **When everything is done**, ask the user if they'd like you to start the backend (`context/scripts/run.sh -m uvicorn api.app:create_app --factory --host 0.0.0.0 --port 8765` on POSIX, or `.venv\Scripts\python.exe -m uvicorn api.app:create_app --factory --app-dir backend --port 8765` on Windows) and/or the frontend (`cd apps/web && npm run dev`) in the background.  If yes, launch them in background mode so they survive your exit, then tell the user the install is complete and they can press Ctrl-C to exit this session.  Confirm the services are reachable before declaring victory.
 >
 > A few additional rules:
 >
@@ -265,18 +265,18 @@ py -3.12 -m venv .venv              # Windows
 Always install:
 
 ```bash
-.venv/bin/pip install -r requirements.txt         # Linux / macOS
-.venv\Scripts\pip.exe install -r requirements.txt # Windows
+.venv/bin/pip install -r backend/requirements.txt         # Linux / macOS
+.venv\Scripts\pip.exe install -r backend\requirements.txt # Windows
 ```
 
 Then conditionally (use the venv pip path matching your OS):
 
-- `--with-anthropic` / `-WithAnthropic` → `pip install -r requirements-anthropic.txt`
-- `--with-openai` / `-WithOpenAI` → `pip install -r requirements-openai.txt`
-- `--with-claude` / `-WithClaude` → `pip install -r requirements-claude.txt`
+- `--with-anthropic` / `-WithAnthropic` → `pip install -r backend/requirements-anthropic.txt`
+- `--with-openai` / `-WithOpenAI` → `pip install -r backend/requirements-openai.txt`
+- `--with-claude` / `-WithClaude` → `pip install -r backend/requirements-claude.txt`
 - `--with-qwen` / `-WithQwen` → no extra Python deps (Qwen runs as a subprocess via the CLI)
 - `--with-gemini` / `-WithGemini` → no extra Python deps
-- `--dev` / `-Dev` → `pip install -r requirements-dev.txt`
+- `--dev` / `-Dev` → `pip install -r backend/requirements-dev.txt`
 
 ### Step 7: Frontend deps
 

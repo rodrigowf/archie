@@ -102,14 +102,14 @@ session.
 **Why first:** the extension currently sits in a reconnect loop because
 `/api/browser/ws` doesn't exist. Nothing is verifiable end-to-end until it does.
 
-- `api/routes/browser.py` — WebSocket endpoint `/api/browser/ws`
+- `backend/api/routes/browser.py` — WebSocket endpoint `/api/browser/ws`
   - Shared-token check on the `hello` frame; reject and close otherwise
   - Connection registry (single extension client; last-wins on reconnect)
   - `send_command(command, params, timeout)` → correlates the `result` frame by
     request `id`, raises on timeout
   - Expose connection state so the agent distinguishes "browser offline" from
     "command failed"
-- Register the router in `api/app.py`
+- Register the router in `backend/api/app.py`
 - Token in `context/.env`; documented in the README
 - `tests/test_browser_route.py` — auth accept/reject, id correlation, timeout,
   disconnect mid-command
@@ -145,7 +145,7 @@ reported active tab matches what's on screen.
 - Retry with backoff on the rate limit
 - Return the full coordinate envelope from §0.1 — dimensions, viewport CSS
   size, dpr, scroll offsets, generation
-- Upload to `api/routes/uploads.py`, return a URL rather than inline base64
+- Upload to `backend/api/routes/uploads.py`, return a URL rather than inline base64
 - JPEG quality configurable; PNG option
 
 **Verify:** capture on a HiDPI display and confirm

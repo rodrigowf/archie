@@ -110,7 +110,8 @@ else
 fi
 
 # ── Watch loop ────────────────────────────────────────────────────────────────
-# inotifywait monitors recursively and outputs one event per line.
+# inotifywait monitors recursively and outputs one event per line. It honours only the LAST
+# --exclude, so all exclusions are one alternation.
 # We batch events with a debounce: wait DEBOUNCE_SECONDS after the last event
 # before triggering rsync (avoids syncing mid-write during streaming responses).
 #
@@ -158,12 +159,9 @@ inotifywait \
   --format '%T %e %w%f' \
   --timefmt '%s' \
   --event close_write,moved_to,moved_from,delete,create \
-  --exclude '/\.git/' \
-  --exclude '\.sync-conflict-' \
-  --exclude '\.syncthing\.' \
-  --exclude '\.stfolder' \
-  --exclude '\.tmp$' \
-  "$LOCAL_DIR" 2>/dev/null | \
+  --exclude '(/\.git/|\.sync-conflict-|\.syncthing\.|\.stfolder|\.tmp$)' \
+  "$LOCAL_DIR" 2> >(grep --line-buffered -v -e '^Setting up watches' -e '^Watches established' |
+                     while IFS= read -r e; do err "inotifywait: $e"; done) | \
 while IFS= read -r line; do
   PENDING=1
   DELETED_PATHS=()

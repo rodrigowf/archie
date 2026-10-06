@@ -34,30 +34,30 @@ ssh-copy-id -i ~/.ssh/id_ed25519 rodrigo@192.168.0.28    # Jetson → Desktop
 ### Desktop (pushes to Jetson)
 
 ```bash
-cd ~/assistant/sync
-# config.env is already configured for the Desktop → Jetson direction
-bash install.sh
+cd ~/assistant
+# infra/sync/config.env is already configured for the Desktop → Jetson direction
+bash infra/sync/install.sh
 ```
 
 ### Jetson (pushes to Desktop)
 
 ```bash
-# Copy sync/ folder to Jetson
-scp -r ~/assistant/sync rodrigo@192.168.0.200:assistant/sync
+# The Jetson checkout already has infra/sync/ after a git pull; otherwise copy it:
+#   scp -r ~/assistant/infra/sync rodrigo@192.168.0.200:assistant/infra/
 
 # SSH into Jetson
 ssh rodrigo@192.168.0.200
 
 # Use the Jetson config
-cd assistant/sync
-cp config.jetson.env config.env
-bash install.sh
+cd assistant
+cp infra/sync/config.jetson.env infra/sync/config.env
+bash infra/sync/install.sh
 ```
 
 ## File Structure
 
 ```
-sync/
+infra/sync/
 ├── context-sync.sh          # Main sync script (same on both machines)
 ├── config.env               # Local machine config (gitignored)
 ├── config.jetson.env        # Jetson config (copy to Jetson as config.env)
@@ -68,7 +68,11 @@ sync/
 ```
 
 The template for `config.env` lives at the repo root as `install/sync.env` —
-copy it into `sync/config.env` and fill it in.
+copy it into `infra/sync/config.env` and fill it in.
+
+The systemd units run `%h/assistant/infra/sync/context-sync.sh %h/assistant/infra/sync/config.env`
+(`install.sh` expands `%h` to `$HOME`). After moving the folder, re-run `bash infra/sync/install.sh`
+so the installed unit in `~/.config/systemd/user/` points at the new path.
 
 ## Managing the Service
 
@@ -103,3 +107,4 @@ Everything in `context/` except:
 - **Conflict resolution**: Last write wins. Since only one machine writes Claude sessions at a time (Desktop when SSH-remote is active, Jetson for local sessions), conflicts are rare.
 - **Offline handling**: If the remote is down, the current change is skipped. When the service restarts (e.g., after reboot), it does a full rsync to catch up.
 - **Performance**: inotifywait is event-driven with zero CPU when idle. The 2-second debounce prevents excessive rsync calls during Claude's incremental JSONL writes.
+- **Inotify budget**: inotify watches are a per-user limit (`fs.inotify.max_user_watches`, 65,536 on the laptop) shared with every other watcher. If the service crash-loops with "upper limit on inotify watches reached", another process is holding the budget — on 2026-10-05 it was VS Code watching `node_modules`/build dirs/the search index. The repo's `.vscode/settings.json` excludes those from VS Code's watcher. To find the culprit, count watches per process: `for p in /proc/[0-9]*; do n=$(cat $p/fdinfo/* 2>/dev/null | grep -c '^inotify'); [ "$n" -gt 0 ] && echo "$n $(cat $p/comm)"; done | sort -rn | head`.

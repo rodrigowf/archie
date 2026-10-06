@@ -158,5 +158,5 @@ through SSH instead of an open port.
 
 ## Testing
 
-- `context/scripts/run.sh -m pytest tests/test_api_browser.py -v`
+- `context/scripts/run.sh -m pytest backend/tests/test_api_browser.py -v`
 - In-browser fixtures: see [test-fixtures/README.md](test-fixtures/README.md)

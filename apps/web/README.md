@@ -95,7 +95,7 @@ route is not deployed yet, so this uses Option A (the laptop serves the build).
    ```
    This serves `http://192.168.0.28:5451/compat/` with `/api` proxied to `ARCHIE_BACKEND`. Plain HTTP
    avoids trusting the self-signed certificate on the iPad. If only the Jetson backend is available, add
-   `ARCHIE_BACKEND=https://192.168.0.200`. The beacons then append to the Jetson's `remote_console.log`
+   `ARCHIE_BACKEND=https://192.168.0.200`. The beacons then append to the Jetson's `logs/remote_console.log`
    (a write: tell Rodrigo first). If the iPad cannot connect, check the laptop firewall for port 5451.
 2. iPad mini 2, Safari: open `http://192.168.0.28:5451/compat/`.
 3. Expected in portrait:

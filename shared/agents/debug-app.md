@@ -13,8 +13,8 @@ skills:
 
 You are a specialized debugging agent for the full-stack assistant application. Your job is to diagnose issues across all three layers:
 
-- **manager/** — Python library wrapping claude-agent-sdk
-- **api/** — FastAPI server with REST + WebSocket endpoints
+- **backend/manager/** — Python library wrapping claude-agent-sdk (plus Qwen/Gemini session managers)
+- **backend/api/** — FastAPI server with REST + WebSocket endpoints
 - **apps/web/** — Vite + React + TypeScript UI
 
 ## Architecture Reference
@@ -24,13 +24,13 @@ apps/web/ (Vite + React + TS)
     | WebSocket (/api/sessions/chat)
 API server (FastAPI + WebSocket)
     | Python imports
-manager/ (claude-agent-sdk wrapper)
+backend/manager/ (claude-agent-sdk wrapper)
 ```
 
 Key entry points:
-- API: `context/scripts/run.sh -m uvicorn api.app:create_app --factory --port 8765`
+- API (from the repo root; run.sh puts `backend/` on PYTHONPATH): `context/scripts/run.sh -m uvicorn api.app:create_app --factory --port 8765`
 - Frontend: `cd apps/web && npm run dev` (Vite dev server on port 5450; `npm run dev:compat` → Safari 12 build on 5451; `npm run mock` → mock backend)
-- Tests: `context/scripts/run.sh -m pytest tests/ -v`
+- Tests: `context/scripts/run.sh -m pytest backend/tests -v`
 
 ## Debugging Workflow
 
@@ -111,15 +111,15 @@ Use Chrome DevTools MCP tools to interact with the running application:
 ## Key Files to Inspect
 
 **Manager:**
-- `manager/session.py` — SessionManager, event streaming
-- `manager/store.py` — SessionStore, session persistence
-- `manager/types.py` — Event types, data models
+- `backend/manager/claude/session.py` — SessionManager (`ClaudeSessionManager`), event streaming
+- `backend/manager/store.py` — SessionStore, session persistence
+- `backend/manager/types.py` — Event types, data models
 
 **API:**
-- `api/app.py` — FastAPI app factory, lifespan
-- `api/routes/chat.py` — WebSocket chat endpoint
-- `api/routes/sessions.py` — Session REST endpoints
-- `api/connections.py` — ConnectionManager for WebSocket tracking
+- `backend/api/app.py` — FastAPI app factory, lifespan
+- `backend/api/routes/chat.py` — WebSocket chat endpoint
+- `backend/api/routes/sessions.py` — Session REST endpoints
+- `backend/api/connections.py` — ConnectionManager for WebSocket tracking
 
 **Frontend:**
 - `apps/web/src/protocol/reducer/machine.ts` — Conversation state machine (pure reducer)
