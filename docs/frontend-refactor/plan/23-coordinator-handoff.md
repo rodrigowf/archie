@@ -4,6 +4,25 @@ Written 2026-10-04 by the coordinator (Claude) at the end of the implementation 
 Read this first when resuming; then `README.md` (charter), `plan/20` (decisions), `plan/21`
 (operating model), `plan/22` (progress log + open issues).
 
+## 0000. BACKEND MOVED + RELEASE BUILDS (2026-10-05 ~21:30) — the current state
+
+- Root: `apps/ backend/ shared/ legacy/ infra/ docs/ install/ context/` + README/INSTALL/install*/start.sh.
+  `backend/` = api, manager, orchestrator, utils, vendor, tests, requirements*.txt, pyproject.toml (module names unchanged;
+  `run.sh` exports `PYTHONPATH=backend`; all repo paths from `utils.paths.PROJECT_ROOT`). `infra/sync/` = context-sync
+  (installed units on both machines re-pointed). Remote console log → `logs/remote_console.log`. Tests:
+  `context/scripts/run.sh -m pytest backend/tests` (1209 passed). Deployed `local` @ `e4d2328`; Jetson verified (routes, search
+  server, WS, VAD model, sync both ways).
+- Fixed on the way: context-sync crash loop on the laptop (VS Code held the whole inotify budget → `.vscode/settings.json`
+  watcher excludes); context-sync now logs inotifywait errors and uses one `--exclude` (only the last one was honoured);
+  server-management skill no longer contains the password (still in context git history — rotate it if that matters).
+- Done for Rodrigo: Jetson voice captures (2.2 GB) + stale laptop log deleted; A300M signing key committed; browser
+  extension key pinned (ID `dfccbjniacengbjnegmidmihocbaoihe`) — **he re-loads it once from `apps/browser-extension/`**.
+- Release builds: `app-main-release.apk` 1.0.0 (2), signed with the same key as the debug build (Q2 → in-place update),
+  R8 on; **not installed yet — the POCO was disconnected**; install + smoke when connected. `app-lite-release.apk` builds;
+  the A300M stays debug until Rodrigo's soak (L-F4). 64-bit shim now 16 KB aligned; remaining 4 KB libs = pinned libvosk
+  0.3.47 + WebRTC 1.1.1 (0.3.75 / 1.3.10 are aligned; upgrade needs a voice retest — offered, not done).
+- Decisions: talk trigger kept as is (BUG-3 closed); remaining field tests deferred; soak = Rodrigo, after this.
+
 ## 000. ROOT REORGANIZED (2026-10-05 ~20:50) — paths below this section are pre-reorg
 
 Final layout (commit `9bbd48a`, `local` @ `2cfb128` deployed + restarted 20:47, all routes verified):
