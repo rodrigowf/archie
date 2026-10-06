@@ -1,71 +1,58 @@
-"""Tests for manager/index_utils.
-
-The remove_session_from_index function spawns a subprocess that calls
-IndexFacade. We test:
-  - The generated subprocess script is syntactically valid Python.
-  - Calling the function with a non-existent session in an empty index
-    completes cleanly (returns True for "no chunks to delete").
-  - A timeout / subprocess failure is reported as False without
-    raising.
-"""
+"""Tests for manager/index_utils — removing a deleted session from the history index."""
 from __future__ import annotations
 
-import ast
-import sys
+import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
-PROJECT_DIR = Path(__file__).resolve().parents[2]  # backend/tests → repo root
-sys.path.insert(0, str(PROJECT_DIR / "shared" / "scripts"))
-
-from manager import index_utils  # noqa: E402
+from manager import index_utils
+from utils import history_index as hi
 
 pytestmark = pytest.mark.timeout(30)
 
 
-def test_subprocess_script_is_valid_python():
-    """Generate the subprocess script and assert it parses."""
-    # Capture the script by patching subprocess.run.
-    captured = {}
-
-    def fake_run(cmd, **kwargs):
-        # cmd[0] is the python interpreter; cmd[1] is "-c"; cmd[2] is the script.
-        captured["script"] = cmd[2]
-        m = MagicMock()
-        m.returncode = 0
-        m.stdout = ""
-        m.stderr = ""
-        return m
-
-    with patch("subprocess.run", side_effect=fake_run):
-        ok = index_utils.remove_session_from_index("test-session-id")
-    assert ok is True
-    # Should parse without SyntaxError.
-    ast.parse(captured["script"])
-    # And it must reference index_client (single-writer enforcement).
-    assert "index_client" in captured["script"]
-    assert "test-session-id" in captured["script"]
+@pytest.fixture
+def db(tmp_path: Path):
+    path = tmp_path / "history.sqlite3"
+    session = tmp_path / "s1.jsonl"
+    session.write_text(json.dumps(
+        {"type": "user", "message": {"content": "hello from the session being deleted"}}
+    ) + "\n")
+    conn = hi.connect(path)
+    hi.index_session(conn, session, lambda texts: [[1.0] + [0.0] * 383 for _ in texts])
+    conn.close()
+    with patch.object(hi, "get_history_db_path", return_value=path):
+        yield path
 
 
-def test_returns_false_on_subprocess_failure():
-    def fake_run(cmd, **kwargs):
-        m = MagicMock()
-        m.returncode = 1
-        m.stdout = ""
-        m.stderr = "boom"
-        return m
-    with patch("subprocess.run", side_effect=fake_run):
-        assert index_utils.remove_session_from_index("x") is False
+def _count(path: Path, session_id: str) -> int:
+    conn = hi.connect(path)
+    try:
+        return conn.execute("SELECT COUNT(*) FROM chunks WHERE session_id=?", (session_id,)).fetchone()[0]
+    finally:
+        conn.close()
 
 
-def test_returns_false_on_signal_crash():
-    def fake_run(cmd, **kwargs):
-        m = MagicMock()
-        m.returncode = -11  # SIGSEGV
-        m.stdout = ""
-        m.stderr = ""
-        return m
-    with patch("subprocess.run", side_effect=fake_run):
-        assert index_utils.remove_session_from_index("x") is False
+def test_removes_session_chunks(db):
+    assert _count(db, "s1") == 1
+    assert index_utils.remove_session_from_index("s1") is True
+    assert _count(db, "s1") == 0
+
+
+def test_unknown_session_is_fine(db):
+    assert index_utils.remove_session_from_index("nope") is True
+    assert _count(db, "s1") == 1
+
+
+def test_missing_index_is_not_created(tmp_path):
+    path = tmp_path / "absent.sqlite3"
+    with patch.object(hi, "get_history_db_path", return_value=path):
+        assert index_utils.remove_session_from_index("s1") is True
+    assert not path.exists()
+
+
+def test_other_collections_are_refused(db):
+    assert index_utils.remove_session_from_index("s1", collection_name="memory") is False
+    assert _count(db, "s1") == 1

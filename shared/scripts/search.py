@@ -1,19 +1,28 @@
 #!/usr/bin/env python3
 """
 Usage: context/scripts/search.py <query> [options]
-Description: Search the vector index for relevant chunks.
+Description: Search memory files or past conversations.
 
 Options:
-    --collection NAME    Collection to search (default: memory)
-    --n N                Number of results (default: 5)
-    --threshold FLOAT    Max distance threshold (default: 1.5)
-    --file PATTERN       Filter by file path (substring match)
+    --collection NAME    memory (default) or history
+    --n N                Number of results (default: 5); for history, sessions
+    --threshold FLOAT    memory: max distance threshold (default: 1.5)
+    --file PATTERN       memory: filter by file path (substring match)
+    --after DATE         history: only messages on/after YYYY-MM-DD
+    --before DATE        history: only messages before YYYY-MM-DD
+    --exclude ID         history: leave out a session (repeatable)
+    --session ID         history: search inside one session only
     --json               Output as JSON for programmatic use
+
+History search is hybrid keyword + semantic over index/history.sqlite3 (every harness's
+transcripts), grouped by session; see backend/utils/history_index.py. It uses the warm
+search-server's model when one is running, else loads the model in-process.
 
 Examples:
     context/scripts/search.py "architecture decisions"
     context/scripts/search.py "how to create skills" --n 10
-    context/scripts/search.py "embedding pipeline" --collection history
+    context/scripts/search.py "Shroud of Turin" --collection history
+    context/scripts/search.py "wake word" --collection history --after 2026-09-01
     context/scripts/search.py "session management" --file memory/ --json
 """
 import argparse
@@ -87,6 +96,61 @@ def search(query, collection_name="memory", n_results=5, threshold=1.5, file_fil
     return formatted
 
 
+def search_history(query, n_sessions=5, exclude=(), after=None, before=None, session_id=None):
+    """Hybrid search over past conversations. Returns {"sessions": [...], "total_sessions": n}."""
+    from utils import history_index
+
+    request = {
+        "command": "history_search", "query": query, "max_sessions": n_sessions,
+        "exclude_sessions": list(exclude), "after": after, "before": before, "session_id": session_id,
+    }
+    sys.path.insert(0, str(SCRIPT_DIR))
+    import index_client
+
+    client = index_client.try_connect(timeout=5)
+    if client is not None:
+        try:
+            reply = client.call(request, request_timeout=120)
+        finally:
+            client.close()
+        if reply.get("error"):
+            print(f"Error: {reply['error']}", file=sys.stderr)
+            sys.exit(1)
+        reply.pop("error", None)
+        return reply
+
+    from sentence_transformers import SentenceTransformer
+
+    model = SentenceTransformer(history_index.MODEL_NAME)
+    try:
+        return history_index.HistorySearcher().search(
+            query, model.encode([query])[0].tolist(), max_sessions=n_sessions,
+            exclude_sessions=exclude, after=after, before=before, session_id=session_id,
+        )
+    except FileNotFoundError as e:
+        print(f"Error: {e}. Run index-memory.py --history-only.", file=sys.stderr)
+        sys.exit(1)
+
+
+def print_history(result, as_json=False):
+    if as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return
+    if not result["sessions"]:
+        print("No results found.")
+        return
+    for s in result["sessions"]:
+        when = (s.get("started_at") or "")[:10]
+        print(f"=== {s.get('title') or '(untitled)'} [{s['session_id']}] {when} {s.get('kind')} "
+              f"relevance={s.get('relevance')}")
+        if s.get("note"):
+            print(f"    ({s['note']})")
+        for h in s["hits"]:
+            print(f"--- turn {h['turn']} {h['role']} ({h['match']}) {(h.get('date') or '')[:16]}")
+            print(h["text"])
+        print()
+
+
 def print_results(results, as_json=False):
     """Display search results."""
     if not results:
@@ -111,10 +175,22 @@ def main():
     parser.add_argument("--n", type=int, default=5, help="Number of results (default: 5)")
     parser.add_argument("--threshold", type=float, default=1.5, help="Max distance (default: 1.5)")
     parser.add_argument("--file", default=None, help="Filter by file path substring")
+    parser.add_argument("--after", default=None, help="History: only on/after YYYY-MM-DD")
+    parser.add_argument("--before", default=None, help="History: only before YYYY-MM-DD")
+    parser.add_argument("--exclude", action="append", default=[], help="History: skip a session id")
+    parser.add_argument("--session", default=None, help="History: search one session only")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     args = parser.parse_args()
     query_text = " ".join(args.query)
+
+    if args.collection == "history":
+        result = search_history(
+            query_text, n_sessions=args.n, exclude=args.exclude,
+            after=args.after, before=args.before, session_id=args.session,
+        )
+        print_history(result, as_json=args.json)
+        return
 
     results = search(
         query_text,

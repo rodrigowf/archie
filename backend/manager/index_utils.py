@@ -1,29 +1,18 @@
-"""Utilities for managing the vector index alongside session operations.
+"""Utilities for keeping the search indexes in step with session operations.
 
-Single-writer discipline: never open chromadb.PersistentClient directly
-from this module. Instead, route every read/write through
-shared/scripts/index_client.IndexFacade, which talks to the warm
-search-server when one is running, and falls back to a direct chroma
-open only when the lockfile is unheld (so no other writer can race us).
+Conversation history lives in ``index/history.sqlite3`` (see utils/history_index.py), a plain
+SQLite file in WAL mode, so removing a deleted session's chunks is a direct transaction: no
+chroma client, no subprocess, no warm-server round trip.
 """
 
 from __future__ import annotations
 
 import logging
-import subprocess
-import sys
-from pathlib import Path
-from utils.paths import PROJECT_ROOT
+import sqlite3
+
+from utils import history_index
 
 logger = logging.getLogger(__name__)
-
-PROJECT_DIR = PROJECT_ROOT
-SCRIPTS_DIR = PROJECT_DIR / "shared" / "scripts"
-
-
-def get_index_dir() -> Path:
-    """Path to the chroma index directory."""
-    return PROJECT_DIR / "index" / "chroma"
 
 
 def remove_session_from_index(
@@ -31,78 +20,28 @@ def remove_session_from_index(
     collection_name: str = "history",
     timeout: float = 30.0,
 ) -> bool:
-    """Remove all chunks for a session from the vector index.
+    """Remove all chunks for a session from the history index.
 
-    Runs in a subprocess so a chroma SIGSEGV is a recoverable exit
-    code, not a crashed backend. Inside the subprocess we use the
-    IndexFacade, which prefers the warm server's socket (single-writer
-    safe). If the warm server has shut down (e.g. backend teardown),
-    the facade refuses to open chroma directly while the lockfile is
-    held — we treat that as a soft skip; the next HistoryIndexer tick
-    will pick up the missing JSONL via its mtime hash and re-index from
-    scratch (which removes the orphan).
+    Returns True when the session is gone from the index (including when it was never
+    indexed), False on a database error. Even on False nothing is left stale for long: the
+    next HistoryIndexer run drops index entries whose JSONL no longer exists.
     """
-    script = f"""
-import sys
-sys.path.insert(0, {str(PROJECT_DIR)!r})
-sys.path.insert(0, {str(SCRIPTS_DIR)!r})
-import index_client
-
-session_id = {session_id!r}
-collection_name = {collection_name!r}
-
-facade = index_client.IndexFacade()
-with facade:
-    try:
-        # Match by file_path containing the session id. Sessions live
-        # in .index-temp/<uuid>.md (the converted JSONL form).
-        # Use delete_where for an exact-path match if known; otherwise
-        # fall back to enumerating IDs by file_path metadata.
-        candidates = [
-            f"/home/rodrigo/assistant/.index-temp/{{session_id}}.md",
-        ]
-        total = 0
-        for path in candidates:
-            ids = facade.get_by_file(collection_name, path)
-            if ids:
-                total += facade.delete_ids(collection_name, ids)
-        print(f"Deleted {{total}} chunks")
-    except RuntimeError as e:
-        # Lockfile-held-but-socket-unreachable case: skip cleanly.
-        # The next indexer tick will re-derive the truth.
-        print(f"SKIP: {{e}}", file=sys.stderr)
-        sys.exit(0)
-"""
-
-    try:
-        result = subprocess.run(
-            [sys.executable, "-c", script],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        if result.returncode != 0:
-            stderr = result.stderr.strip()
-            if result.returncode < 0:
-                logger.error(
-                    "Index cleanup for session %s crashed (signal %d): %s",
-                    session_id, -result.returncode, stderr,
-                )
-            else:
-                logger.warning(
-                    "Index cleanup for session %s failed (exit %d): %s",
-                    session_id, result.returncode, stderr,
-                )
-            return False
-
-        stdout = result.stdout.strip()
-        if stdout:
-            logger.info("Index cleanup for session %s: %s", session_id, stdout)
+    if collection_name != "history":
+        logger.warning("remove_session_from_index: unsupported collection %r", collection_name)
+        return False
+    db_path = history_index.get_history_db_path()
+    if not db_path.exists():
         return True
-
-    except subprocess.TimeoutExpired:
-        logger.warning("Index cleanup for session %s timed out", session_id)
+    try:
+        conn = history_index.connect(db_path)
+        try:
+            conn.execute(f"PRAGMA busy_timeout={int(timeout * 1000)}")
+            removed = history_index.delete_session(conn, session_id)
+        finally:
+            conn.close()
+    except sqlite3.Error as e:
+        logger.warning("Index cleanup for session %s failed: %s", session_id, e)
         return False
-    except Exception as e:
-        logger.warning("Index cleanup for session %s error: %s", session_id, e)
-        return False
+    if removed:
+        logger.info("Index cleanup for session %s: removed %d chunks", session_id, removed)
+    return True

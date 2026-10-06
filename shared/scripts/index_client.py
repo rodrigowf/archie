@@ -7,9 +7,9 @@ safe because the warm server's flock guarantees that path can only be
 taken when nobody else is writing.
 
 Used by:
-  - shared/scripts/embed.py (the indexer CLI)
-  - backend/manager/index_utils.py (session-delete cleanup)
-  - shared/scripts/cleanup-history-index.py
+  - shared/scripts/embed.py (the memory indexer CLI)
+  - shared/scripts/index-memory.py (borrows the warm model to embed history chunks)
+  - shared/scripts/search.py (history search through the warm model)
 """
 from __future__ import annotations
 
@@ -211,6 +211,16 @@ class IndexFacade:
         except Exception:
             res = col.get(include=["metadatas"])
             return [i for i, m in zip(res["ids"], res["metadatas"]) if m.get("file_path") == file_path]
+
+    def list_file_paths(self, collection: str) -> list[str]:
+        """Every distinct file_path with chunks in the collection."""
+        if self._client:
+            r = self._client.call({"command": "list_file_paths", "collection": collection}, request_timeout=120.0)
+            if r.get("error"):
+                raise RuntimeError(f"list_file_paths failed: {r['error']}")
+            return r.get("file_paths") or []
+        metas = self._direct_collection(collection).get(include=["metadatas"]).get("metadatas") or []
+        return sorted({m.get("file_path", "") for m in metas} - {""})
 
     def get_meta_by_file(self, collection: str, file_path: str) -> dict | None:
         """Return one metadata dict for any chunk matching file_path, or

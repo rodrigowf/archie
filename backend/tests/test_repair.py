@@ -151,6 +151,21 @@ def test_wal_replay_recovers_chunks_in_wal(index_dir):
     assert v["healthy"] is True
 
 
+def test_wal_replay_only_replays_its_own_collection(index_dir):
+    """The WAL holds every collection's adds. Replaying one collection must not pull in the
+    other's rows — that is how memory chunks once leaked into 'history' and vice versa."""
+    _build_collection(index_dir, "mine", n_chunks=6)
+    _build_collection(index_dir, "other", n_chunks=11)
+
+    result = repair.wal_replay(index_dir, "mine")
+    assert result.get("recovered") == 6, f"got {result}"
+
+    import chromadb
+    client = chromadb.PersistentClient(path=str(index_dir))
+    assert client.get_collection("mine").count() == 6
+    assert client.get_collection("other").count() == 11
+
+
 def test_wal_replay_empty_after_compaction(index_dir):
     """After enough adds, chroma compacts the WAL. wal_replay should
     report "WAL empty" — not raise — so the caller knows to escalate."""

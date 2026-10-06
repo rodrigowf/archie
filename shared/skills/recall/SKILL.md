@@ -7,21 +7,22 @@ allowed-tools: Bash(context/scripts/run.sh *), Read
 
 # Recall: $ARGUMENTS
 
-Search the vector index for information related to the query.
+Search the memory files and the past conversations for information related to the query.
 
 ## Arguments
 
 - `$0`: The search query (required)
-- `--n COUNT`: Number of results per collection (default: 5, max recommended: 20)
+- `--n COUNT`: Number of results per source (default: 5); for history this counts sessions
 
 ## What Gets Searched
 
-- **memory**: Claude Code's auto-memory files (patterns, preferences, insights)
-- **history**: Past conversation sessions (all user/assistant exchanges)
+- **memory**: the memory files under context/memory/ (semantic search)
+- **history**: past conversation transcripts from every harness (Claude Code, orchestrator,
+  Qwen, Gemini) — hybrid keyword + semantic search, grouped by session
 
-The index is updated automatically:
+The indexes are updated automatically:
 - Memory: indexed immediately when files change (file watcher)
-- History: indexed every 2 minutes by the API server (if files changed)
+- History: indexed every 5 minutes by the API server (incremental; only new messages are embedded)
 
 ## Steps
 
@@ -33,19 +34,24 @@ The index is updated automatically:
    For memory: context/scripts/run.sh context/scripts/search.py <query> --collection memory --n <count>
    For history: context/scripts/run.sh context/scripts/search.py <query> --collection history --n <count>
 
-3. Review the results. Each result includes:
-   - `text`: The matched chunk content
-   - `file_path`: Source file path
-   - `start_line` / `end_line`: Line range in source
-   - `distance`: Similarity score (lower = more relevant)
+   History options: `--after YYYY-MM-DD`, `--before YYYY-MM-DD`, `--exclude <session_id>` (pass
+   ${CLAUDE_SESSION_ID} to leave out the current conversation), `--json`.
 
-4. For the most relevant results (distance < 0.5), read the original files at the indicated lines to get full context.
+3. Review the results.
+   - Memory results: `text`, `file_path`, `start_line` / `end_line`, `distance` (lower = more relevant).
+     Read the file at those lines for full context.
+   - History results: one block per session with title, session id, date, `relevance`
+     (`strong` or `weak`) and up to 3 matching excerpts, each with its turn number and
+     whether it matched by keyword, meaning, or both. To read around an excerpt:
+     context/scripts/run.sh -c "import sys; sys.path.insert(0,'backend'); from utils.history_index import read_turns; import json; print(json.dumps(read_turns('<session_id>', turn=<turn>), indent=1, ensure_ascii=False))"
 
-5. Synthesize and present the findings to the user, citing the source files.
+4. Synthesize and present the findings to the user, citing memory files or session titles/dates.
+   If every history result is `weak`, say nothing clearly matching was found.
 
 ## Notes
 
 - If the index is empty, run: context/scripts/run.sh context/scripts/index-memory.py
-- Distance interpretation: < 0.3 = highly relevant, 0.3-0.7 = relevant, > 1.0 = likely noise
+- If the history index is missing, run: context/scripts/run.sh context/scripts/index-memory.py --history-only
+- Memory distance interpretation: < 0.3 = highly relevant, 0.3-0.7 = relevant, > 1.0 = likely noise
 - Memory files are at: context/memory/
-- Session files are at: context/*.jsonl
+- Session files are at: context/*.jsonl and context/chats/*.jsonl

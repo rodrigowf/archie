@@ -14,7 +14,7 @@ class TestEmbedCLI:
 
         with patch.object(embed, "index_path") as mock:
             embed.main()
-            mock.assert_called_once_with("memory/", "memory", 10, 3)
+            mock.assert_called_once_with("memory/", "memory", 10, 3, prune=False)
 
     def test_index_custom_args(self, monkeypatch):
         monkeypatch.setattr(
@@ -24,7 +24,7 @@ class TestEmbedCLI:
 
         with patch.object(embed, "index_path") as mock:
             embed.main()
-            mock.assert_called_once_with("data/", "test", 20, 5)
+            mock.assert_called_once_with("data/", "test", 20, 5, prune=False)
 
     def test_delete_command(self, monkeypatch):
         monkeypatch.setattr("sys.argv", ["embed.py", "delete", "memory/notes.md"])

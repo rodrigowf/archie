@@ -4,8 +4,10 @@ Usage: context/scripts/embed.py <command> [options]
 Description: Core embedding pipeline — chunk files and store in ChromaDB.
 
 Commands:
-    index <path> [--collection NAME] [--chunk-size N] [--overlap N]
-        Index a file or directory into the vector store.
+    index <path> [--collection NAME] [--chunk-size N] [--overlap N] [--prune]
+        Index a file or directory into the vector store. With --prune (directories only),
+        also drop chunks of every file that is no longer in that directory: deleted or
+        moved files, and anything that never belonged there.
 
     delete <path> [--collection NAME]
         Remove all chunks from a specific file path.
@@ -141,7 +143,7 @@ def _open_facade():
     return index_client.IndexFacade()
 
 
-def index_path(path, collection_name="memory", chunk_size=10, overlap=3):
+def index_path(path, collection_name="memory", chunk_size=10, overlap=3, prune=False):
     """Index a file or directory."""
     path = Path(path)
 
@@ -209,6 +211,17 @@ def index_path(path, collection_name="memory", chunk_size=10, overlap=3):
 
             total_chunks += len(chunks)
             print(f"  Indexed {filepath} ({len(chunks)} chunks)")
+
+        if prune and path.is_dir():
+            current = {str(f) for f in files}
+            try:
+                stale = [fp for fp in facade.list_file_paths(collection_name) if fp not in current]
+            except RuntimeError as e:  # an older warm server without list_file_paths
+                print(f"  Prune skipped: {e}", file=sys.stderr)
+                stale = []
+            for fp in stale:
+                n = facade.delete_where(collection_name, {"file_path": fp})
+                print(f"  Pruned {fp} ({n} chunks)")
 
     print(f"\nTotal: {len(files)} files, {total_chunks} chunks indexed, {skipped} unchanged in '{collection_name}'")
 
@@ -305,6 +318,7 @@ def main():
     p_index.add_argument("--collection", default="memory")
     p_index.add_argument("--chunk-size", type=int, default=10)
     p_index.add_argument("--overlap", type=int, default=3)
+    p_index.add_argument("--prune", action="store_true", help="Drop chunks of files no longer in the directory")
 
     p_delete = sub.add_parser("delete", help="Delete chunks for a file/directory")
     p_delete.add_argument("path")
@@ -319,7 +333,7 @@ def main():
     args = parser.parse_args()
 
     if args.command == "index":
-        index_path(args.path, args.collection, args.chunk_size, args.overlap)
+        index_path(args.path, args.collection, args.chunk_size, args.overlap, prune=args.prune)
     elif args.command == "delete":
         delete_path(args.path, args.collection)
     elif args.command == "reset":

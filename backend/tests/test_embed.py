@@ -118,6 +118,22 @@ class TestIndexPath:
 
         assert count1 == count2
 
+    def test_prune_drops_deleted_and_foreign_files(self, tmp_index, patched_model, tmp_path):
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        (docs / "keep.md").write_text("kept content\nmore")
+        (docs / "gone.md").write_text("to be deleted\nmore")
+        outside = tmp_path / "outside.md"
+        outside.write_text("not part of docs")
+        embed.index_path(docs, collection_name="test")
+        embed.index_path(outside, collection_name="test")
+        (docs / "gone.md").unlink()
+
+        embed.index_path(docs, collection_name="test", prune=True)
+
+        paths = {m["file_path"] for m in embed.get_collection("test").get()["metadatas"]}
+        assert paths == {str(docs / "keep.md")}
+
     def test_index_skips_binary_in_directory(self, tmp_index, patched_model, sample_files, capsys):
         embed.index_path(sample_files, collection_name="test")
         captured = capsys.readouterr()
