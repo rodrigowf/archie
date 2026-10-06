@@ -29,11 +29,10 @@ from orchestrator.config import (
 from orchestrator.providers.voice_registry import (
     VOICE_MODELS,
     VoiceModelEntry,
+    _DATE_SUFFIX_RE,
     _OPENAI_VOICES,
-    _QWEN_PLUS_VOICES,
-    _QWEN_FLASH_VOICES,
-    _QWEN_ASR_LANGUAGES,
     _OPENAI_TRANSCRIPTION_LANGUAGES,
+    qwen_model_entry,
 )
 
 logger = logging.getLogger(__name__)
@@ -89,6 +88,13 @@ _OPENAI_TEXT_RE = re.compile(
 _OPENAI_AUDIO_INPUT_RE = re.compile(r"audio-preview|audio$|gpt-4o-audio|^gpt-audio")
 _OPENAI_VISION_RE = re.compile(r"gpt-4o|gpt-audio|gpt-4-turbo|gpt-4\.|gpt-5|chatgpt|o1|o3|o4")
 _OPENAI_REALTIME_RE = re.compile(r"realtime")
+
+# Qwen: only the omni conversational realtime family speaks the protocol
+# QwenVoiceProvider implements. The same listing also has *-realtime
+# TTS / ASR / livetranslate models, which are excluded.
+QWEN_INTL_MODELS_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models"
+_QWEN_OMNI_REALTIME_RE = re.compile(r"^qwen[\d.]*-omni-.*realtime")
+_QWEN_VERSION_RE = re.compile(r"^qwen(\d+(?:\.\d+)?)")
 
 _OPENAI_EXCLUDE_RE = re.compile(
     r"embedding|tts|whisper|dall-e|image|moderation|search|transcribe|computer-use|babbage|davinci|ada|curie",
@@ -246,11 +252,45 @@ async def _fetch_openai_realtime_models() -> list[str]:
 
 
 async def _fetch_qwen_models() -> list[str]:
-    """DashScope does not expose a public list-models endpoint usable with
-    a bearer token (it requires the OpenAPI control-plane signature flow).
-    Return an empty list so the caller falls back to the static registry.
+    """Qwen-Omni realtime model IDs from DashScope's OpenAI-compatible
+    ``/compatible-mode/v1/models`` (bearer token, same key as the voice WS).
     """
-    return []
+    api_key = os.environ.get("DASHSCOPE_API_KEY")
+    if not api_key:
+        return []
+    cached = _cache_get("qwen_realtime")
+    if cached is not None:
+        return cached
+    async with _cache_lock:
+        cached = _cache_get("qwen_realtime")
+        if cached is not None:
+            return cached
+        try:
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
+                resp = await client.get(
+                    QWEN_INTL_MODELS_URL,
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+                resp.raise_for_status()
+                data = resp.json().get("data", [])
+                ids = [
+                    m["id"] for m in data
+                    if _QWEN_OMNI_REALTIME_RE.search(m.get("id", ""))
+                ]
+        except Exception as e:
+            logger.warning("Qwen model list fetch failed: %s", e)
+            return []
+        _cache_put("qwen_realtime", ids)
+        return ids
+
+
+def _qwen_sort_key(model_id: str) -> tuple[float, int, str]:
+    """Newest family first, aliases before their dated snapshots."""
+    m = _QWEN_VERSION_RE.match(model_id)
+    version = float(m.group(1)) if m else 0.0
+    is_dated = 1 if _DATE_SUFFIX_RE.search(model_id) else 0
+    # Within a version/alias group, newer dates sort first.
+    return (-version, is_dated, "".join(chr(255 - ord(c)) for c in model_id))
 
 
 # ---------------------------------------------------------------------------
@@ -322,22 +362,6 @@ def _make_openai_voice_entry(model_id: str, is_default: bool) -> VoiceModelEntry
     }
 
 
-def _make_qwen_voice_entry(model_id: str, is_default: bool) -> VoiceModelEntry:
-    """Build a voice model entry for a Qwen omni-realtime model not in the static list."""
-    is_flash = "flash" in model_id.lower() or "turbo" in model_id.lower()
-    voices = list(_QWEN_FLASH_VOICES if is_flash else _QWEN_PLUS_VOICES)
-    default_voice = "Cherry" if is_flash else "Tina"
-    return {
-        "id": model_id,
-        "label": model_id,
-        "voice": default_voice,
-        "voices": voices,
-        "transcription_languages": list(_QWEN_ASR_LANGUAGES),
-        "default_transcription_language": "en",
-        "default": is_default,
-    }
-
-
 async def list_voice_models_live() -> dict[str, list[VoiceModelEntry]]:
     """Return live + static merged voice models per provider."""
     realtime_ids = await _fetch_openai_realtime_models()
@@ -367,7 +391,12 @@ async def list_voice_models_live() -> dict[str, list[VoiceModelEntry]]:
     else:
         result["openai"] = [dict(e) for e in VOICE_MODELS.get("openai", [])]
 
-    # Qwen: no live endpoint — use static registry.
-    result["qwen"] = [dict(e) for e in VOICE_MODELS.get("qwen", [])]
+    # Qwen: live omni-realtime IDs, resolved through the registry so
+    # snapshots inherit their alias's curated voices. Static entries the
+    # API didn't return are kept, same as OpenAI.
+    qwen_ids = await _fetch_qwen_models()
+    static_qwen = [e["id"] for e in VOICE_MODELS.get("qwen", [])]
+    ordered = sorted(set(qwen_ids) | set(static_qwen), key=_qwen_sort_key)
+    result["qwen"] = [dict(qwen_model_entry(mid)) for mid in ordered]
 
     return result
