@@ -1,6 +1,6 @@
 [Unit]
 Description=Assistant Context Real-Time Sync
-Documentation=https://github.com/rodrigowf/assistant
+Documentation=https://github.com/rodrigowf/archie
 After=network-online.target
 Wants=network-online.target
 
