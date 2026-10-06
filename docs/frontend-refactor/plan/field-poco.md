@@ -2,7 +2,7 @@
 
 Spec 14 §6.6 (D-01). Voice scenarios F1–F22 are defined in inventory 04 §10.3; M-F1–M-F7 in spec 14 §6.6.
 Device: POCO X7 Pro (2412DPC0AG), Android 15, HyperOS 2. Backend: Jetson `local` 9cbfbaf (2026-10-05).
-Status 2026-10-05: Rodrigo ran several voice rounds on both apps and is satisfied for now; the remaining scenarios are deferred (run later in table order). Main app release 1.0.0 (2) built — install + smoke when the POCO is connected.
+Status 2026-10-05: Rodrigo ran several voice rounds on both apps and is satisfied for now; the remaining scenarios are deferred (run later in table order). Main app **release 1.0.0 (2) installed 2026-10-05 21:57** in place over the debug build (same key; settings, servers, phrases kept). Smoke ✅: launch, connect + attach to the open conversation, history renders, Settings intact, wake word on → Vosk loaded via JNA (547 ms) → off again (Rodrigo had it Off). POCO page size 4 KB.
 Logcat for every run: `scratchpad/field/poco-<date>.log` (not committed). Rodrigo runs the physical steps;
 the coordinator watches logcat and the server and records the verdict.
 
