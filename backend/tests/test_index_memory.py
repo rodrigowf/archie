@@ -40,39 +40,6 @@ class TestRunEmbed:
             assert index_memory.run_embed("index", "memory/") is False
 
 
-class TestExtractSessionText:
-    def test_extracts_user_and_assistant_messages(self, tmp_path):
-        jsonl = tmp_path / "test.jsonl"
-        jsonl.write_text(
-            '{"type": "user", "message": {"content": [{"type": "text", "text": "Hello"}]}}\n'
-            '{"type": "assistant", "message": {"content": [{"type": "text", "text": "Hi there"}]}}\n'
-            '{"type": "system", "message": {"content": "ignored"}}\n'
-        )
-
-        result = index_memory.extract_session_text(jsonl)
-
-        assert "## User" in result
-        assert "Hello" in result
-        assert "## Assistant" in result
-        assert "Hi there" in result
-        assert "ignored" not in result
-
-    def test_handles_string_content(self, tmp_path):
-        jsonl = tmp_path / "test.jsonl"
-        jsonl.write_text(
-            '{"type": "user", "message": {"content": "Simple string"}}\n'
-        )
-
-        result = index_memory.extract_session_text(jsonl)
-
-        assert "Simple string" in result
-
-    def test_handles_missing_file(self, tmp_path):
-        jsonl = tmp_path / "nonexistent.jsonl"
-        result = index_memory.extract_session_text(jsonl)
-        assert result == ""
-
-
 class TestIndexMemory:
     @pytest.fixture
     def setup_context_dirs(self, tmp_path):
@@ -126,52 +93,67 @@ class TestIndexMemory:
         assert "Memory directory not found" in captured.out
 
 
+class _FakeFacade:
+    """Stands in for index_client.IndexFacade: a deterministic encoder, no warm server."""
+
+    mode = "fake"
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def encode_many(self, texts):
+        return [[float(len(t) % 7 + 1)] + [0.0] * 383 for t in texts]
+
+
+@pytest.fixture
+def fake_index_client(monkeypatch):
+    import types
+
+    module = types.SimpleNamespace(IndexFacade=_FakeFacade)
+    monkeypatch.setitem(sys.modules, "index_client", module)
+    return module
+
+
 class TestIndexHistory:
     @pytest.fixture
     def setup_sessions(self, tmp_path):
-        """Set up temporary session files in context/."""
+        """Session files from two harnesses: context/ root and context/chats/."""
         context_dir = tmp_path / "context"
-        context_dir.mkdir(parents=True)
-
-        # Add session files at context/ root (where they live now)
+        (context_dir / "chats").mkdir(parents=True)
         (context_dir / "session1.jsonl").write_text(
-            '{"type": "user", "message": {"content": [{"type": "text", "text": "Hello"}]}}\n'
+            '{"type": "user", "message": {"content": [{"type": "text", "text": "Hello there, how are you today"}]}}\n'
         )
-        (context_dir / "session2.jsonl").write_text(
-            '{"type": "assistant", "message": {"content": [{"type": "text", "text": "Hi"}]}}\n'
+        (context_dir / "chats" / "qwen1.jsonl").write_text(
+            '{"type": "user", "message": {"role": "user", "parts": [{"text": "Explain the wake word pipeline please"}]}}\n'
         )
-
         return tmp_path, context_dir
 
-    def test_indexes_session_files(self, setup_sessions):
-        tmp_path, sessions_dir = setup_sessions
-        calls = []
+    def test_indexes_every_harness_into_sqlite(self, setup_sessions, fake_index_client):
+        import sqlite3
 
-        def fake_run_embed(command, *args):
-            calls.append((command, args))
-            return True
+        tmp_path, _ = setup_sessions
+        with patch("utils.paths.PROJECT_ROOT", tmp_path):
+            assert index_memory.index_history(reset=False) is True
 
-        with patch.object(index_memory, "run_embed", side_effect=fake_run_embed):
-            with patch("utils.paths.PROJECT_ROOT", tmp_path):
-                # Also need to patch PROJECT_DIR in index_memory for temp file handling
-                with patch.object(index_memory, "PROJECT_DIR", tmp_path):
-                    index_memory.index_history(reset=False)
+        db = sqlite3.connect(tmp_path / "index" / "history.sqlite3")
+        sessions = {r[0]: r[1] for r in db.execute("SELECT id, harness FROM sessions")}
+        assert sessions == {"session1": "claude", "qwen1": "qwen"}
 
-        commands = [c[0] for c in calls]
-        assert "index" in commands
-
-        # Should index history collection
-        index_call = next(c for c in calls if c[0] == "index")
-        assert "history" in index_call[1]
-
-    def test_skips_missing_context_dir(self, tmp_path, capsys):
-        # No context/ dir at all
-
+    def test_second_run_skips_unchanged(self, setup_sessions, fake_index_client, capsys):
+        tmp_path, _ = setup_sessions
         with patch("utils.paths.PROJECT_ROOT", tmp_path):
             index_memory.index_history(reset=False)
+            capsys.readouterr()
+            index_memory.index_history(reset=False)
+        assert "0 indexed, 2 unchanged" in capsys.readouterr().out
 
-        captured = capsys.readouterr()
-        assert "not found" in captured.out
+    def test_empty_context_dir_is_fine(self, tmp_path, fake_index_client):
+        (tmp_path / "context").mkdir()
+        with patch("utils.paths.PROJECT_ROOT", tmp_path):
+            assert index_memory.index_history(reset=False) is True
 
 
 class TestMain:
@@ -184,14 +166,16 @@ class TestMain:
             with patch.object(index_memory, "PROJECT_DIR", tmp_path):
                 with patch.object(index_memory, "run_embed", return_value=True) as mock_embed:
                     with patch("sys.argv", ["index-memory.py", "--memory-only"]):
-                        index_memory.main()
+                        with pytest.raises(SystemExit) as exit_info:
+                            index_memory.main()
+        assert exit_info.value.code == 0
 
         # Should have called index for memory
         calls = [c[0][0] for c in mock_embed.call_args_list]
         # Index should be called if memory files exist
         # Stats is always called
 
-    def test_runs_with_history_only_flag(self, tmp_path):
+    def test_runs_with_history_only_flag(self, tmp_path, fake_index_client):
         context_dir = tmp_path / "context"
         context_dir.mkdir(parents=True)
         (context_dir / "session.jsonl").write_text(
@@ -202,6 +186,7 @@ class TestMain:
             with patch.object(index_memory, "PROJECT_DIR", tmp_path):
                 with patch.object(index_memory, "run_embed", return_value=True):
                     with patch("sys.argv", ["index-memory.py", "--history-only"]):
-                        index_memory.main()
+                        with pytest.raises(SystemExit) as exit_info:
+                            index_memory.main()
 
-        # Should complete without error
+        assert exit_info.value.code == 0

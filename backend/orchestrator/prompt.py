@@ -436,10 +436,12 @@ def _memory_section(
 - When you move a file to a different category, update its `category` field and grep the memory tree for inbound references to the old path.
 - Never omit existing index entries unless they are clearly obsolete.
 
-### Searching memory
+### Searching memory and past conversations
 
-- `search_memory` returns chunks enriched with the source file's `frontmatter` — use category and tags to triage before reading the full file.
-- `search_history` returns chunks enriched with `session_uuid`, `session_title`, `session_datetime`, and `linked_memories` — follow `linked_memories` to jump from a conversation back to relevant memory files.
+Two separate sources, two separate tools:
+- `search_memory` searches the curated **memory files** only. Hits carry the source file's `frontmatter` — use category and tags to triage before reading the full file.
+- `search_history` searches the raw **past conversation transcripts** (every chat, voice and agent session — including ones never digested into memory). It matches exact words (names, rare terms, Portuguese words) as well as meaning, and returns whole sessions: title, dates, `relevance`, and up to 3 excerpts with their `turn` numbers. Use short, distinctive queries; try a second wording before concluding something was never discussed, and if every result is `relevance: weak`, say you did not find it rather than presenting loose matches as the answer.
+- `read_conversation(session_id, turn)` opens a hit: it returns the turns around it so you can tell the user what was actually said. Page with a later `turn`.
 - For directed retrieval, prefer direct file lookup via MEMORY.md over semantic search. Search is a supplement.
 
 ### Your private memory (`{relative_path}`)

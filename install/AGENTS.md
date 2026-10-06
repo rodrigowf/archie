@@ -289,6 +289,8 @@ The send loop also recovers from a related SDK bug: some `claude-cli` versions d
 
 Loading PyTorch + sentence-transformers + the embedding model takes ~100s on low-power hardware, so `shared/scripts/search-server.py` runs as a persistent subprocess that loads the model once and serves queries over stdin/stdout (JSON-line protocol). `backend/orchestrator/tools/search.py` manages the singleton with auto-recovery and a cold fallback. The server is pre-warmed during API startup (`backend/api/app.py`) so the first query is fast too. `shared/scripts/run.sh` sets `LD_PRELOAD=libgomp.so.1` on aarch64 to fix the "cannot allocate memory in static TLS block" ImportError. Searches went from ~68–103s to ~1–3s.
 
+**Two indexes.** Memory files live in the chroma `memory` collection (owned by the warm server). Conversation history lives in `index/history.sqlite3` (`backend/utils/history_index.py`): one row per ~110-word window of a message, an FTS5 keyword index, and the embeddings as BLOBs searched brute-force in numpy — no chroma, so no HNSW corruption, and the file is portable between machines (build on the laptop with `index-memory.py --history-only --local-model`, copy to the Jetson). Every harness's JSONL is indexed (`context/*.jsonl` + `context/chats/*.jsonl`); compact summaries, system/command noise, and the orchestrator's narration of its own search results are skipped, and Claude sessions that mostly read other conversations are demoted. Indexing is per-session and incremental (unchanged message windows reuse their embedding), and one failing session never blocks the rest.
+
 ### Testing
 
 Run the full suite (from the repo root): `context/scripts/run.sh -m pytest backend/tests -v` (pytest reads `backend/pyproject.toml`)

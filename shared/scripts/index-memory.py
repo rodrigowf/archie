@@ -1,25 +1,28 @@
 #!/usr/bin/env python3
 """
 Usage: context/scripts/index-memory.py [options]
-Description: Index memory and session history into the vector store.
+Description: Index memory and conversation history for search.
 
 This indexes from the context/ directory:
-  - context/memory/*.md -> 'memory' collection
-  - context/*.jsonl -> 'history' collection
+  - context/memory/**/*.md -> chroma 'memory' collection (via embed.py)
+  - context/*.jsonl + context/chats/*.jsonl (every harness) -> index/history.sqlite3
+    (keyword + semantic; see backend/utils/history_index.py)
 
 Options:
     --memory-only    Only re-index memory files
-    --history-only   Only re-index session history
-    --reset          Clear collections before indexing
+    --history-only   Only re-index conversation history
+    --reset          Clear the memory collection / history index before indexing
+    --local-model    History: embed with an in-process model instead of the warm search-server
+                     (for a bulk build on the laptop while no backend is running)
+
+Exit status is 1 when any history session failed to index (the others still are).
 
 Examples:
     context/scripts/index-memory.py
     context/scripts/index-memory.py --memory-only
-    context/scripts/index-memory.py --reset
+    context/scripts/index-memory.py --history-only --local-model
 """
 import argparse
-import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -42,47 +45,6 @@ def run_embed(command: str, *args) -> bool:
     return result.returncode == 0
 
 
-def extract_session_text(jsonl_path: Path) -> str:
-    """Extract human-readable text from a session JSONL file."""
-    lines = []
-    try:
-        with open(jsonl_path) as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    obj = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-
-                msg_type = obj.get("type")
-                if msg_type not in ("user", "assistant"):
-                    continue
-
-                # Extract text content
-                msg = obj.get("message", {})
-                content = msg.get("content", "")
-
-                if isinstance(content, str):
-                    text = content
-                else:
-                    # Content is a list of blocks
-                    text_parts = []
-                    for block in content:
-                        if isinstance(block, dict) and block.get("type") == "text":
-                            text_parts.append(block.get("text", ""))
-                    text = "\n".join(text_parts)
-
-                if text.strip():
-                    role = "User" if msg_type == "user" else "Assistant"
-                    lines.append(f"## {role}\n\n{text}\n")
-    except (OSError, PermissionError):
-        pass
-
-    return "\n".join(lines)
-
-
 def index_memory(reset: bool = False) -> None:
     """Index memory files from context/memory/."""
     memory_dir = get_memory_dir()
@@ -101,61 +63,61 @@ def index_memory(reset: bool = False) -> None:
     if reset:
         run_embed("reset", "--collection", "memory")
 
-    run_embed("index", str(memory_dir), "--collection", "memory")
+    run_embed("index", str(memory_dir), "--collection", "memory", "--prune")
 
 
-def index_history(reset: bool = False) -> None:
-    """Index session JSONL files from context/."""
-    sessions_dir = get_sessions_dir()
+def index_history(reset: bool = False, local_model: bool = False) -> bool:
+    """Index every conversation JSONL (all harnesses) into index/history.sqlite3.
 
-    if not sessions_dir.exists():
-        print(f"Sessions directory not found: {sessions_dir}")
-        return
+    Incremental and per-session: unchanged sessions are skipped, an appended session only embeds
+    its new messages, and one failing session is logged without stopping the rest. Returns False
+    if any session failed (so the caller logs it), True otherwise.
+    """
+    from utils import history_index as hi
 
-    jsonl_files = list(sessions_dir.glob("*.jsonl"))
-    if not jsonl_files:
-        print("No session files found, skipping")
-        return
-
-    print(f"=== Indexing {len(jsonl_files)} session files ===")
-    if reset:
-        run_embed("reset", "--collection", "history")
-
-    # Convert JSONL files to temporary markdown for embedding
-    temp_dir = PROJECT_DIR / ".index-temp"
-    # Ensure temp dir exists and is clean
-    if temp_dir.exists():
-        for f in temp_dir.glob("*"):
-            f.unlink()
-    else:
-        temp_dir.mkdir(parents=True, exist_ok=True)
-
+    lock = hi.IndexLock()
+    if not lock.acquire():
+        print("History indexer already running; skipping this run")
+        return True
     try:
-        for jsonl_path in jsonl_files:
-            text = extract_session_text(jsonl_path)
-            if text.strip():
-                # Use session ID as filename
-                md_path = temp_dir / f"{jsonl_path.stem}.md"
-                md_path.write_text(f"# Session: {jsonl_path.stem}\n\n{text}")
-                # Mirror the source JSONL's mtime onto the .md so embed.py's
-                # mtime-skip detects unchanged sessions. Without this every
-                # re-extraction would look "new" (mtime = now) and force a
-                # full re-embed of the whole history corpus.
-                try:
-                    src = jsonl_path.stat()
-                    os.utime(md_path, (src.st_atime, src.st_mtime))
-                except OSError:
-                    pass
+        db_path = hi.get_history_db_path()
+        if reset and db_path.exists():
+            for suffix in ("", "-wal", "-shm"):
+                Path(str(db_path) + suffix).unlink(missing_ok=True)
+        conn = hi.connect(db_path)
+        sources = hi.session_sources()
+        print(f"=== Indexing history: {len(sources)} session files -> {db_path} ===")
 
-        # Index the temp directory
-        if any(temp_dir.iterdir()):
-            run_embed("index", str(temp_dir), "--collection", "history")
+        if local_model:
+            model = None
+
+            def encode(texts):  # load the model only if some session actually changed
+                nonlocal model
+                if model is None:
+                    from sentence_transformers import SentenceTransformer
+                    model = SentenceTransformer(hi.MODEL_NAME)
+                return [v.tolist() for v in model.encode(texts, batch_size=hi.ENCODE_BATCH)]
+
+            stats = hi.index_all(conn, sources, encode)
+        else:
+            sys.path.insert(0, str(SCRIPT_DIR))
+            import index_client
+            with index_client.IndexFacade() as facade:
+                print(f"[history] encoder mode={facade.mode}")
+                stats = hi.index_all(conn, sources, facade.encode_many)
+
+        total = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+        n_sessions = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+        conn.close()
+        print(
+            f"History: {stats.indexed} indexed, {stats.unchanged} unchanged, {stats.removed} removed, "
+            f"{stats.embedded_chunks} chunks embedded; {n_sessions} sessions / {total} chunks in index"
+        )
+        for name, err in stats.failed:
+            print(f"FAILED {name}: {err}", file=sys.stderr)
+        return not stats.failed
     finally:
-        # Clean up temp files
-        for f in temp_dir.glob("*"):
-            f.unlink()
-        if temp_dir.exists():
-            temp_dir.rmdir()
+        lock.release()
 
 
 def main():
@@ -163,6 +125,7 @@ def main():
     parser.add_argument("--memory-only", action="store_true", help="Only index memory/")
     parser.add_argument("--history-only", action="store_true", help="Only index history/")
     parser.add_argument("--reset", action="store_true", help="Clear collections first")
+    parser.add_argument("--local-model", action="store_true", help="History: embed in-process")
     args = parser.parse_args()
 
     do_memory = not args.history_only
@@ -179,12 +142,14 @@ def main():
     if do_memory:
         index_memory(reset=args.reset)
 
+    ok = True
     if do_history:
-        index_history(reset=args.reset)
+        ok = index_history(reset=args.reset, local_model=args.local_model)
 
-    print("\n=== Stats ===")
-    run_embed("stats", "--collection", "memory")
-    run_embed("stats", "--collection", "history")
+    if do_memory:
+        print("\n=== Stats ===")
+        run_embed("stats", "--collection", "memory")
+    sys.exit(0 if ok else 1)
 
 
 if __name__ == "__main__":

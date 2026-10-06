@@ -137,10 +137,18 @@ _WAL_REPLAY_SCRIPT = textwrap.dedent('''
     # If we drop the collection before reading, chroma drops the WAL
     # too — losing exactly the data we wanted to recover.
     db = sqlite3.connect("file:" + chroma + "/chroma.sqlite3?mode=ro", uri=True)
+    # The WAL is shared by every collection; each row's topic ends with its collection id.
+    # Replaying rows of other collections is how memory chunks once ended up in 'history'
+    # (and vice versa).
+    found = db.execute("SELECT id FROM collections WHERE name = ?", (name,)).fetchone()
+    if found is None:
+        db.close()
+        print(json.dumps({{"recovered": 0, "reason": "collection not in sysdb"}}))
+        sys.exit(0)
     rows = list(db.execute("""
         SELECT id, vector, encoding, metadata FROM embeddings_queue
-        WHERE operation = 0 ORDER BY seq_id
-    """))
+        WHERE operation = 0 AND topic LIKE ? ORDER BY seq_id
+    """, ("%/" + found[0],)))
     db.close()
     if not rows:
         print(json.dumps({{"recovered": 0, "reason": "WAL empty (compaction has run)"}}))

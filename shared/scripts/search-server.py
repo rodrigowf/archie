@@ -2,10 +2,9 @@
 """
 Persistent search/index server — SINGLE owner of the chroma PersistentClient.
 
-This process is the ONLY one that opens the chroma index. Other code
-(embed.py, backend/manager/index_utils.py, cleanup-history-index.py, the
-orchestrator's search tools) sends requests to this server via a Unix
-domain socket. Chroma's PersistentClient is not safe across concurrent
+This process is the ONLY one that opens the chroma index (memory). Other
+code (embed.py, the orchestrator's search tools) sends requests to this
+server via a Unix domain socket. Chroma's PersistentClient is not safe across concurrent
 processes; routing every access through one long-lived process removes
 that risk class entirely.
 
@@ -30,7 +29,14 @@ Both transports speak the same JSON-line protocol:
   {"command": "count", "collection": "history"}  -> {"count": int, "error": null}
   {"command": "list_collections"}                -> {"collections": [str], "error": null}
   {"command": "get_by_file", ...}                -> {"ids": [str], "error": null}
+  {"command": "list_file_paths", "collection": "memory"}
+                                                 -> {"file_paths": [str], "error": null}
   {"command": "encode", "text": "..."}           -> {"embedding": [float], "error": null}
+  {"command": "history_search", "query": "...", "max_sessions": 5,
+   "exclude_sessions": [...], "after": "ISO", "before": "ISO", "session_id": "..."}
+    -> {"sessions": [...], "total_sessions": int, "error": null}
+       Conversation history lives in index/history.sqlite3, not in chroma; see
+       backend/utils/history_index.py. This server only lends it the warm model.
 
   Write commands
   --------------
@@ -139,6 +145,9 @@ class IndexServer:
         # All writes serialize through this lock so concurrent socket
         # clients can't interleave inside a single chroma write.
         self._write_lock = threading.Lock()
+        # History search state (embedding matrix) is reloaded lazily; one search at a time.
+        self._history = None
+        self._history_lock = threading.Lock()
 
     def get_or_create_collection(self, name: str):
         return self.client.get_or_create_collection(name=name, metadata=HNSW_METADATA)
@@ -180,8 +189,14 @@ class IndexServer:
             texts = request["texts"]
             embs = [v.tolist() for v in self.model.encode(texts, batch_size=ENCODE_BATCH)] if texts else []
             return {"embeddings": embs, "error": None}
+        if cmd == "history_search":
+            return self._history_search(request)
         if cmd == "get_by_file":
             return self._get_by_file(request["collection"], request["file_path"])
+        if cmd == "list_file_paths":
+            col = self.get_or_create_collection(request["collection"])
+            metas = col.get(include=["metadatas"]).get("metadatas") or []
+            return {"file_paths": sorted({m.get("file_path", "") for m in metas} - {""}), "error": None}
         if cmd == "get_meta_by_file":
             return self._get_meta_by_file(request["collection"], request["file_path"])
         if cmd == "add_chunks":
@@ -199,6 +214,32 @@ class IndexServer:
         if cmd == "repair":
             return self._repair(request["collection"], request.get("tier", "auto"))
         return {"error": f"Unknown command: {cmd}"}
+
+    def _history_search(self, request: dict) -> dict:
+        from utils import history_index
+
+        query = (request.get("query") or "").strip()
+        if not query:
+            return {"sessions": [], "error": "Missing 'query' field"}
+        with self._history_lock:
+            if self._history is None:
+                self._history = history_index.HistorySearcher()
+            vec = self.model.encode([query])[0].tolist()
+            try:
+                result = self._history.search(
+                    query,
+                    vec,
+                    max_sessions=int(request.get("max_sessions") or 5),
+                    hits_per_session=int(request.get("hits_per_session") or 3),
+                    exclude_sessions=request.get("exclude_sessions") or (),
+                    session_id=request.get("session_id"),
+                    after=request.get("after"),
+                    before=request.get("before"),
+                )
+            except FileNotFoundError as e:
+                return {"sessions": [], "error": str(e)}
+        result["error"] = None
+        return result
 
     def _get_by_file(self, name: str, file_path: str) -> dict:
         col = self.get_or_create_collection(name)
