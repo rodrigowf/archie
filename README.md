@@ -42,8 +42,8 @@ The codebase is small, readable, and explicitly designed to evolve with you:
 [Full Installation Details](INSTALL.md)
 
 ```bash
-git clone https://github.com/rodrigowf/assistant.git
-cd assistant
+git clone https://github.com/rodrigowf/archie.git
+cd archie
 ./install.sh                    # Interactive setup
 ```
 
