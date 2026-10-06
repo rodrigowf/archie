@@ -24,7 +24,7 @@ from pathlib import Path
 # Add project root to path for utils import
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SCRIPT_DIR.parent.parent  # shared/scripts/ → repo root
-sys.path.insert(0, str(PROJECT_DIR))
+sys.path.insert(0, str(PROJECT_DIR / "backend"))  # backend packages (utils, …)
 
 from utils.paths import get_index_dir
 

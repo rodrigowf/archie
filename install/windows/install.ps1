@@ -867,27 +867,27 @@ Write-Info "pip upgraded"
 # ─────────────────────────────────────────────────────────────────────────────
 Write-Step "Installing Python dependencies..."
 if ($Dev) {
-    & $VenvPip install -r requirements-dev.txt --quiet
+    & $VenvPip install -r backend\requirements-dev.txt --quiet
     if ($LASTEXITCODE -ne 0) { Write-Err "pip install requirements-dev.txt failed" }
     Write-Info "Installed requirements-dev.txt (core + dev tools)"
 } else {
-    & $VenvPip install -r requirements.txt --quiet
+    & $VenvPip install -r backend\requirements.txt --quiet
     if ($LASTEXITCODE -ne 0) { Write-Err "pip install requirements.txt failed" }
     Write-Info "Installed requirements.txt (core)"
 }
 
 if ($ClaudeAxis) {
-    & $VenvPip install -r requirements-claude.txt --quiet
+    & $VenvPip install -r backend\requirements-claude.txt --quiet
     if ($LASTEXITCODE -ne 0) { Write-Err "pip install requirements-claude.txt failed" }
     Write-Info "Installed requirements-claude.txt (claude-agent-sdk)"
 }
 if ($AnthropicAxis) {
-    & $VenvPip install -r requirements-anthropic.txt --quiet
+    & $VenvPip install -r backend\requirements-anthropic.txt --quiet
     if ($LASTEXITCODE -ne 0) { Write-Err "pip install requirements-anthropic.txt failed" }
     Write-Info "Installed requirements-anthropic.txt (anthropic SDK)"
 }
 if ($OpenAIAxis) {
-    & $VenvPip install -r requirements-openai.txt --quiet
+    & $VenvPip install -r backend\requirements-openai.txt --quiet
     if ($LASTEXITCODE -ne 0) { Write-Err "pip install requirements-openai.txt failed" }
     Write-Info "Installed requirements-openai.txt (openai SDK)"
 }
@@ -1100,9 +1100,9 @@ function Test-OptionalSdk {
         Write-Warn "$Sdk SDK not importable despite $Axis being selected (try: pip install -r $ReqFile)"
     }
 }
-if ($ClaudeAxis)    { Test-OptionalSdk 'claude_agent_sdk' '-WithClaude'    'requirements-claude.txt' }
-if ($AnthropicAxis) { Test-OptionalSdk 'anthropic'        '-WithAnthropic' 'requirements-anthropic.txt' }
-if ($OpenAIAxis)    { Test-OptionalSdk 'openai'           '-WithOpenAI'    'requirements-openai.txt' }
+if ($ClaudeAxis)    { Test-OptionalSdk 'claude_agent_sdk' '-WithClaude'    'backend\requirements-claude.txt' }
+if ($AnthropicAxis) { Test-OptionalSdk 'anthropic'        '-WithAnthropic' 'backend\requirements-anthropic.txt' }
+if ($OpenAIAxis)    { Test-OptionalSdk 'openai'           '-WithOpenAI'    'backend\requirements-openai.txt' }
 
 if (Test-Path 'apps\web\package.json') {
     Write-Info "Frontend package.json OK"
@@ -1234,7 +1234,7 @@ if ($envMissing.Count -gt 0) {
 
 # On Windows the backend is launched via the venv's uvicorn (no run.sh equivalent).
 Write-Host "  $step. " -NoNewline; Write-Host "Start the backend:" -ForegroundColor Green
-Write-Host "     .venv\Scripts\python.exe -m uvicorn api.app:create_app --factory --port 8765" -ForegroundColor Blue
+Write-Host "     .venv\Scripts\python.exe -m uvicorn api.app:create_app --factory --app-dir backend --port 8765" -ForegroundColor Blue
 Write-Host ""
 
 Write-Host "  $($step+1). " -NoNewline; Write-Host "Start the frontend (new terminal):" -ForegroundColor Green

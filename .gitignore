@@ -72,7 +72,7 @@ apps/android-device/build/
 apps/android-device/local.properties
 apps/android-device/**/*.apk
 apps/android-device/**/*.aab
-sync/config.env
+infra/sync/config.env
 docs/frontend-refactor/audit/screenshots/
 
 # Android apps (apps/android/, own .gitignore): signing paths/passwords, never committed (spec 14 §1.8)

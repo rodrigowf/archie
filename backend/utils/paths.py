@@ -1,0 +1,114 @@
+"""
+Centralized path resolution for context files.
+
+All internal code uses these functions. No legacy path logic elsewhere.
+The symlink at .claude_config/projects/<mangled> exists only for Claude SDK.
+
+Structure:
+    context/
+    ├── *.jsonl          # Session files (SDK writes here directly)
+    ├── <uuid>/          # SDK state directories (subagents, tool-results)
+    ├── .titles.json     # Custom session titles
+    ├── memory/          # Memory files (Markdown)
+    └── public/          # Public static files served at URL root
+                         # (visualizations/, photo-server/, downloads, etc.)
+"""
+from pathlib import Path
+
+# The repository root (backend/utils/paths.py → three levels up). Every backend module that needs
+# a repo path (context/, apps/, shared/, index/, logs/) builds it from here.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def get_project_dir() -> Path:
+    """Get the project root directory."""
+    return PROJECT_ROOT
+
+
+def get_context_dir() -> Path:
+    """Get the context directory (contains sessions, memory, SDK state)."""
+    return PROJECT_ROOT / "context"
+
+
+def get_memory_dir() -> Path:
+    """Get the memory directory."""
+    return get_context_dir() / "memory"
+
+
+def get_public_dir() -> Path:
+    """Get the public static files directory.
+
+    Anything placed here is served at the URL root by the backend
+    (e.g. context/public/photo-server/file.py → /photo-server/file.py).
+    """
+    return get_context_dir() / "public"
+
+
+def get_uploads_dir() -> Path:
+    """Get the uploads directory (files shared/uploaded from peripherals).
+
+    Served over HTTP at ``/uploads/<path>`` by the backend so a link to an
+    uploaded file resolves on the local network (see ``api/app.py``). Distinct
+    from ``public/`` — uploads are user-shared payloads handed to the
+    orchestrator, not framework-served static assets.
+    """
+    return get_context_dir() / "uploads"
+
+
+def get_sessions_dir() -> Path:
+    """Get the sessions directory (Claude JSONL files live at context/ root)."""
+    return get_context_dir()
+
+
+def get_chats_dir() -> Path:
+    """Get the Qwen chats directory (Qwen JSONL files live in context/chats/)."""
+    return get_context_dir() / "chats"
+
+
+def get_trash_dir() -> Path:
+    """Soft-deleted sessions land here. Not scanned by the store or the SDK."""
+    return get_context_dir() / "trash"
+
+
+def get_index_dir() -> Path:
+    """Get the vector index directory."""
+    return PROJECT_ROOT / "index"
+
+
+def get_session_path(session_id: str) -> Path:
+    """Get the path for a specific session JSONL file."""
+    return get_context_dir() / f"{session_id}.jsonl"
+
+
+def get_titles_path() -> Path:
+    """Get the path for the session titles file."""
+    return get_context_dir() / ".titles.json"
+
+
+def ensure_context_dirs() -> None:
+    """Ensure all context directories exist."""
+    get_context_dir().mkdir(parents=True, exist_ok=True)
+    get_memory_dir().mkdir(parents=True, exist_ok=True)
+    get_public_dir().mkdir(parents=True, exist_ok=True)
+    get_index_dir().mkdir(parents=True, exist_ok=True)
+
+
+def parse_md_frontmatter(content: str, default_name: str) -> tuple[str, str]:
+    """Parse YAML frontmatter from a markdown file.
+
+    Returns (name, description). Falls back to default_name if no name field found.
+    """
+    name = default_name
+    description = ""
+    if content.startswith("---"):
+        parts = content.split("---", 2)
+        if len(parts) >= 3:
+            for line in parts[1].splitlines():
+                line = line.strip()
+                if line.startswith("description:"):
+                    description = line[len("description:"):].strip()
+                    if description.startswith(("'", '"')) and description.endswith(("'", '"')):
+                        description = description[1:-1]
+                elif line.startswith("name:"):
+                    name = line[len("name:"):].strip()
+    return name, description
