@@ -36,7 +36,7 @@ object ToolNameNormalizer {
     val ORCHESTRATOR_TOOLS: Set<String> = setOf(
         "list_agent_sessions", "open_agent_session", "close_agent_session", "read_agent_session",
         "send_to_agent_session", "interrupt_agent_session", "respond_to_agent_permission",
-        "list_history", "search_history", "search_memory",
+        "list_history", "search_history", "read_conversation", "search_memory",
         "read_file", "write_file", "run_script",
         "get_assistant_config", "update_assistant_config",
         "end_voice_session", "listen_recording",

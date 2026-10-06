@@ -19,7 +19,7 @@ import kotlinx.serialization.json.JsonPrimitive
 data class Field(val label: String, val value: String, val mono: Boolean = false, val href: String? = null)
 
 /** How the output region draws a non-empty output. */
-enum class OutputRender { Plain, Markdown, Script }
+enum class OutputRender { Plain, Markdown, Script, HistorySearch, ConversationRead }
 
 /** A line under the output ("exit 0"). */
 data class OutputFooter(val text: String, val error: Boolean)
@@ -309,6 +309,25 @@ object ToolBodies {
                 )
             }
             ToolBody.Search -> listOf(fields(f("Query", i.str("query")), f("Max", i.str("max_results"))), out)
+            ToolBody.SearchHistory -> listOf(
+                fields(f("Query", i.str("query")), f("Max", i.str("max_results")), f("After", i.str("after")), f("Before", i.str("before"))),
+                BodyPart.Output(render = OutputRender.HistorySearch),
+            )
+            ToolBody.ReadConversation -> {
+                val before = i.num("before")
+                val after = i.num("after")
+                listOf(
+                    fields(
+                        f("Session", i.str("session_id"), true),
+                        f("Turn", i.num("turn")?.let(::jsNumber)),
+                        f(
+                            "Window",
+                            if (before != null || after != null) "${before?.let(::jsNumber) ?: "3"} before · ${after?.let(::jsNumber) ?: "6"} after" else null,
+                        ),
+                    ),
+                    BodyPart.Output(render = OutputRender.ConversationRead),
+                )
+            }
             ToolBody.Generic -> listOfNotNull(if (i.isEmpty()) null else BodyPart.Json(prettyJson(i)), out)
             ToolBody.Task -> listOfNotNull(
                 fields(f("Agent", i.str("subagent_type")), f("Task", i.str("description")), f("Model", i.str("model"))),

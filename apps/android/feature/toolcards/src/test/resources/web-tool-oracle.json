@@ -846,7 +846,7 @@
     "icon": "search",
     "label": "search_history",
     "summary": "\"tv\"",
-    "body": "SearchBody",
+    "body": "SearchHistoryBody",
     "defaultOpen": "live",
     "runningText": null,
     "meta": null
@@ -887,6 +887,73 @@
      [
       "Query",
       "tv"
+     ]
+    ],
+    "codes": [],
+    "todos": [],
+    "diffs": 0,
+    "outputKind": "output"
+   }
+  },
+  {
+   "name": "read_conversation",
+   "kind": "orchestrator",
+   "input": {
+    "session_id": "96a377c7-8910-450b",
+    "turn": 40
+   },
+   "output": "ok",
+   "resolved": {
+    "name": "read_conversation",
+    "category": "read",
+    "icon": "history",
+    "label": "read_conversation",
+    "summary": "session 96a377c7 · turn 40",
+    "body": "ReadConversationBody",
+    "defaultOpen": "live",
+    "runningText": null,
+    "meta": null
+   },
+   "body": {
+    "fields": [
+     [
+      "Session",
+      "96a377c7-8910-450b"
+     ],
+     [
+      "Turn",
+      "40"
+     ]
+    ],
+    "codes": [],
+    "todos": [],
+    "diffs": 0,
+    "outputKind": "output"
+   }
+  },
+  {
+   "name": "read_conversation",
+   "kind": "orchestrator",
+   "input": {
+    "session_id": "96a377c7-8910-450b"
+   },
+   "output": "ok",
+   "resolved": {
+    "name": "read_conversation",
+    "category": "read",
+    "icon": "history",
+    "label": "read_conversation",
+    "summary": "session 96a377c7",
+    "body": "ReadConversationBody",
+    "defaultOpen": "live",
+    "runningText": null,
+    "meta": null
+   },
+   "body": {
+    "fields": [
+     [
+      "Session",
+      "96a377c7-8910-450b"
      ]
     ],
     "codes": [],
@@ -2422,14 +2489,14 @@
     "query": "soundbar movie mode",
     "max_results": 5
    },
-   "output": "3 matches",
+   "output": "{\"query\": \"soundbar movie mode\", \"sessions\": [{\"session_id\": \"2acebe11-4f1e-4c55-9a0b-7d1e2f3a4b5c\", \"title\": \"Living-room TV setup\", \"started_at\": \"2026-02-25T18:04:00Z\", \"kind\": \"orchestrator\", \"relevance\": \"strong\", \"hits\": [{\"turn\": 12, \"role\": \"user\", \"date\": \"2026-02-25T18:20:11Z\", \"match\": \"keyword+semantic\", \"text\": \"Can you switch the soundbar to movie mode when Plex starts?\"}, {\"turn\": 13, \"role\": \"assistant\", \"date\": \"2026-02-25T18:20:30Z\", \"match\": \"keyword+semantic\", \"text\": \"Done \\u2014 the TV remote script now sends the movie-mode key after launching Plex.\"}]}, {\"session_id\": \"102b279c-8e9d-420f-82cd-45a582b26d52\", \"title\": \"loudspeaker\", \"started_at\": \"2026-04-18T09:00:00Z\", \"kind\": \"claude\", \"relevance\": \"weak\", \"copies\": [\"x\"], \"hits\": [{\"turn\": 4, \"role\": \"user\", \"date\": \"2026-04-18T09:12:00Z\", \"match\": \"semantic\", \"text\": \"Route the audio to the loudspeaker on the phone.\"}]}], \"count\": 2, \"total_matching_sessions\": 7}",
    "resolved": {
     "name": "search_history",
     "category": "search",
     "icon": "search",
     "label": "search_history",
     "summary": "\"soundbar movie mode\"",
-    "body": "SearchBody",
+    "body": "SearchHistoryBody",
     "defaultOpen": "live",
     "runningText": null,
     "meta": null
@@ -2443,6 +2510,48 @@
      [
       "Max",
       "5"
+     ]
+    ],
+    "codes": [],
+    "todos": [],
+    "diffs": 0,
+    "outputKind": "output"
+   }
+  },
+  {
+   "name": "read_conversation",
+   "kind": "orchestrator",
+   "input": {
+    "session_id": "2acebe11-4f1e-4c55-9a0b-7d1e2f3a4b5c",
+    "turn": 12,
+    "before": 0,
+    "after": 1
+   },
+   "output": "{\"session_id\": \"2acebe11-4f1e-4c55-9a0b-7d1e2f3a4b5c\", \"title\": \"Living-room TV setup\", \"kind\": \"orchestrator\", \"total_turns\": 40, \"range\": [12, 13], \"turns\": [{\"turn\": 12, \"role\": \"user\", \"date\": \"2026-02-25T18:20:11Z\", \"text\": \"Can you switch the soundbar to movie mode when Plex starts?\"}, {\"turn\": 13, \"role\": \"assistant\", \"date\": \"2026-02-25T18:20:30Z\", \"text\": \"Done \\u2014 the TV remote script now sends the movie-mode key after launching Plex.\"}]}",
+   "resolved": {
+    "name": "read_conversation",
+    "category": "read",
+    "icon": "history",
+    "label": "read_conversation",
+    "summary": "session 2acebe11 · turn 12",
+    "body": "ReadConversationBody",
+    "defaultOpen": "live",
+    "runningText": null,
+    "meta": null
+   },
+   "body": {
+    "fields": [
+     [
+      "Session",
+      "2acebe11-4f1e-4c55-9a0b-7d1e2f3a4b5c"
+     ],
+     [
+      "Turn",
+      "12"
+     ],
+     [
+      "Window",
+      "0 before · 1 after"
      ]
     ],
     "codes": [],

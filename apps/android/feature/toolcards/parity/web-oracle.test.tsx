@@ -55,6 +55,8 @@ const REGISTRY_TABLE: Row[] = [
   { name: 'list_history', input: {}, kind: 'orchestrator' },
   { name: 'search_history', input: { query: 'tv' }, kind: 'orchestrator' },
   { name: 'search_memory', input: { query: 'tv' }, kind: 'orchestrator' },
+  { name: 'read_conversation', input: { session_id: '96a377c7-8910-450b', turn: 40 }, kind: 'orchestrator' },
+  { name: 'read_conversation', input: { session_id: '96a377c7-8910-450b' }, kind: 'orchestrator' },
   { name: 'read_file', input: { path: 'a.md' }, kind: 'orchestrator' },
   { name: 'write_file', input: { path: 'a.md', content: 'x' }, kind: 'orchestrator' },
   { name: 'run_script', input: { script: 'context/scripts/tv_remote.py', args: ['queue'] }, kind: 'orchestrator' },

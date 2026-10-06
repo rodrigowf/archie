@@ -108,6 +108,8 @@ const TABLE: ReadonlyArray<Row> = [
   ['list_history', {}, 'agent', 'history', 'list_history', 'List session history', 'orchestrator'],
   ['search_history', { query: 'tv' }, 'search', 'search', 'search_history', '"tv"', 'orchestrator'],
   ['search_memory', { query: 'tv' }, 'search', 'search', 'search_memory', '"tv"', 'orchestrator'],
+  ['read_conversation', { session_id: '96a377c7-8910-450b', turn: 40 }, 'read', 'history', 'read_conversation', 'session 96a377c7 · turn 40', 'orchestrator'],
+  ['read_conversation', { session_id: '96a377c7-8910-450b' }, 'read', 'history', 'read_conversation', 'session 96a377c7', 'orchestrator'],
   ['read_file', { path: 'a.md' }, 'read', 'description', 'read_file', 'a.md', 'orchestrator'],
   ['write_file', { path: 'a.md', content: 'x' }, 'write', 'code', 'write_file', 'a.md', 'orchestrator'],
   ['run_script', { script: 'context/scripts/tv_remote.py', args: ['queue'] }, 'script', 'code', 'run_script', 'tv_remote.py queue', 'orchestrator'],
