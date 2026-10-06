@@ -2,7 +2,7 @@
 
 Spec 14 §6.6 (D-01). Voice scenarios F1–F22 are defined in inventory 04 §10.3; M-F1–M-F7 in spec 14 §6.6.
 Device: POCO X7 Pro (2412DPC0AG), Android 15, HyperOS 2. Backend: Jetson `local` 9cbfbaf (2026-10-05).
-Next to run: F3 retest + look at the reacting orb (Rodrigo), then F4–F7, M-F1, M-F3–M-F5, M-F7, the rest in table order.
+Status 2026-10-05: Rodrigo ran several voice rounds on both apps and is satisfied for now; the remaining scenarios are deferred (run later in table order). Main app release 1.0.0 (2) built — install + smoke when the POCO is connected.
 Logcat for every run: `scratchpad/field/poco-<date>.log` (not committed). Rodrigo runs the physical steps;
 the coordinator watches logcat and the server and records the verdict.
 
