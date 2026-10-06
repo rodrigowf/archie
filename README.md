@@ -2,7 +2,7 @@
   <img src="docs/assets/logo.svg" alt="Assistant logo" width="160" />
 </p>
 
-# Personal Assistant
+# Archie, the Ultimate Personal Assistant
 
 **Talk to your coding agents. Use them for anything.**
 
@@ -28,6 +28,12 @@ A central orchestrator agent (text or voice) coordinates multiple sessions simul
 This system is truly model-agnostic. You pick the engines and harnesses you need at installation:
 - **Agent Harnesses**: The core coding agents—structural skeletons that come in flavors like Claude Code, Qwen Code, and Gemini CLI. Use them interchangeably.
 - **Orchestration Providers**: The thinking brain of the orchestrator can call Anthropic (Claude), OpenAI, or anything compatible with standard OpenAI or Anthropic SDKs (Qwen, Gemini, etc.).
+
+### 📂 **Your Memory, Your Files**
+Everything the agent knows and makes lives on your own machine, in plain files you fully control:
+- **Readable Memory**: Long-term memory is a folder of Markdown notes, and every conversation is a plain JSONL file. Read, edit, reorganize or delete them with any editor, `grep`, or your own scripts.
+- **Everything It Produces**: Visualizations, uploads, generated media and project files land in ordinary folders, not in a hidden database or someone else's cloud.
+- **Yours to Manage**: The whole private side is one folder (`context/`), its own git repository. Version it, back it up, sync it between machines, or move it to a new install by copying it. The search index is only a cache, rebuilt from those files.
 
 ### 🔍 **Radically Transparent & Hackable**
 The codebase is small, readable, and explicitly designed to evolve with you:
