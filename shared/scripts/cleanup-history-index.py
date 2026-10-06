@@ -20,7 +20,7 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SCRIPT_DIR.parent.parent  # shared/scripts/ → repo root
-sys.path.insert(0, str(PROJECT_DIR))
+sys.path.insert(0, str(PROJECT_DIR / "backend"))  # backend packages (utils, …)
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import index_client  # noqa: E402

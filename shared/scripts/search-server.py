@@ -3,7 +3,7 @@
 Persistent search/index server — SINGLE owner of the chroma PersistentClient.
 
 This process is the ONLY one that opens the chroma index. Other code
-(embed.py, manager/index_utils.py, cleanup-history-index.py, the
+(embed.py, backend/manager/index_utils.py, cleanup-history-index.py, the
 orchestrator's search tools) sends requests to this server via a Unix
 domain socket. Chroma's PersistentClient is not safe across concurrent
 processes; routing every access through one long-lived process removes
@@ -13,7 +13,7 @@ The server supports TWO transports for backward compatibility:
 
 1. stdin/stdout (legacy) — when the server is spawned as a child
    subprocess by the orchestrator; the parent already owns stdio. This
-   path is what `orchestrator/tools/search.py` uses today.
+   path is what `backend/orchestrator/tools/search.py` uses today.
 2. Unix domain socket at <INDEX_DIR>/.search-server.sock — usable by any
    client process that knows the index path. This is how out-of-tree
    writers like embed.py reach the server.
@@ -76,7 +76,7 @@ from pathlib import Path
 # Add project root to path for utils import (and sibling shared/scripts)
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SCRIPT_DIR.parent.parent  # shared/scripts/ → repo root
-sys.path.insert(0, str(PROJECT_DIR))
+sys.path.insert(0, str(PROJECT_DIR / "backend"))  # backend packages (utils, …)
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from utils.paths import get_index_dir

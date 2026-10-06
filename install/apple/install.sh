@@ -883,23 +883,23 @@ info "pip upgraded"
 # (and vice versa).
 step "Installing Python dependencies..."
 if [ "$DEV_MODE" = true ]; then
-    .venv/bin/pip install -r requirements-dev.txt --quiet
+    .venv/bin/pip install -r backend/requirements-dev.txt --quiet
     info "Installed requirements-dev.txt (core + dev tools)"
 else
-    .venv/bin/pip install -r requirements.txt --quiet
+    .venv/bin/pip install -r backend/requirements.txt --quiet
     info "Installed requirements.txt (core)"
 fi
 
 if [ "$WITH_CLAUDE" = true ]; then
-    .venv/bin/pip install -r requirements-claude.txt --quiet
+    .venv/bin/pip install -r backend/requirements-claude.txt --quiet
     info "Installed requirements-claude.txt (claude-agent-sdk)"
 fi
 if [ "$WITH_ANTHROPIC" = true ]; then
-    .venv/bin/pip install -r requirements-anthropic.txt --quiet
+    .venv/bin/pip install -r backend/requirements-anthropic.txt --quiet
     info "Installed requirements-anthropic.txt (anthropic SDK)"
 fi
 if [ "$WITH_OPENAI" = true ]; then
-    .venv/bin/pip install -r requirements-openai.txt --quiet
+    .venv/bin/pip install -r backend/requirements-openai.txt --quiet
     info "Installed requirements-openai.txt (openai SDK)"
 fi
 
@@ -1145,13 +1145,13 @@ check_optional_sdk() {
     fi
 }
 if [ "$WITH_CLAUDE" = true ]; then
-    check_optional_sdk "claude_agent_sdk" "--with-claude" "requirements-claude.txt"
+    check_optional_sdk "claude_agent_sdk" "--with-claude" "backend/requirements-claude.txt"
 fi
 if [ "$WITH_ANTHROPIC" = true ]; then
-    check_optional_sdk "anthropic" "--with-anthropic" "requirements-anthropic.txt"
+    check_optional_sdk "anthropic" "--with-anthropic" "backend/requirements-anthropic.txt"
 fi
 if [ "$WITH_OPENAI" = true ]; then
-    check_optional_sdk "openai" "--with-openai" "requirements-openai.txt"
+    check_optional_sdk "openai" "--with-openai" "backend/requirements-openai.txt"
 fi
 
 # Check frontend build capability

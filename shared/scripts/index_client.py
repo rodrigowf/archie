@@ -8,7 +8,7 @@ taken when nobody else is writing.
 
 Used by:
   - shared/scripts/embed.py (the indexer CLI)
-  - manager/index_utils.py (session-delete cleanup)
+  - backend/manager/index_utils.py (session-delete cleanup)
   - shared/scripts/cleanup-history-index.py
 """
 from __future__ import annotations
@@ -25,7 +25,7 @@ from typing import Any, Optional
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SCRIPT_DIR.parent.parent  # shared/scripts/ → repo root
-sys.path.insert(0, str(PROJECT_DIR))
+sys.path.insert(0, str(PROJECT_DIR / "backend"))  # backend packages (utils, …)
 
 from utils.paths import get_index_dir
 

@@ -19,8 +19,8 @@ from pathlib import Path
 # Allow running from anywhere — point at the project root so `orchestrator`
 # resolves regardless of the caller's working directory.
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]  # shared/scripts/ → repo root
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
+if str(_PROJECT_ROOT / "backend") not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT / "backend"))
 
 from orchestrator.audio_recorder import (
     RECORDINGS_DIR,

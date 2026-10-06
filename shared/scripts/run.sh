@@ -8,6 +8,10 @@ SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"  # shared/scripts/ → repo root
 VENV_PYTHON="$PROJECT_DIR/.venv/bin/python"
 
+# The backend packages (api, manager, orchestrator, utils) live in backend/; put it on the import path
+# so `-m uvicorn api.app:create_app`, pytest and the scripts resolve them from any working directory.
+export PYTHONPATH="$PROJECT_DIR/backend${PYTHONPATH:+:$PYTHONPATH}"
+
 # Use .claude_config as Claude Code data directory
 # This puts sessions, memory, credentials in a dedicated folder
 export CLAUDE_CONFIG_DIR="$PROJECT_DIR/.claude_config"

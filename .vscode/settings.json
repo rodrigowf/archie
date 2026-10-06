@@ -1,0 +1,27 @@
+{
+  // VS Code's file watcher used the whole per-user inotify budget (65,536 watches) on node_modules,
+  // Gradle build dirs and the search index, so context-sync's inotifywait could not start
+  // (2026-10-05). Generated and heavy folders are not watched.
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/build/**": true,
+    "**/.gradle/**": true,
+    "**/.kotlin/**": true,
+    "**/dist/**": true,
+    "**/dist-compat/**": true,
+    "**/dist-preview/**": true,
+    "**/dist-gallery/**": true,
+    "**/__pycache__/**": true,
+    "**/.venv/**": true,
+    "index/**": true,
+    "projects/**": true,
+    "plugins/**": true,
+    "logs/**": true,
+    "legacy/**": true,
+    "context/*.jsonl": true,
+    "context/chats/**": true,
+    "context/trash/**": true,
+    "context/recordings/**": true,
+    "context/projects/**": true
+  }
+}

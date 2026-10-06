@@ -28,7 +28,7 @@ from pathlib import Path
 # Resolve the file first (follows symlinks), then get parent directory
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SCRIPT_DIR.parent.parent  # shared/scripts/ → repo root
-sys.path.insert(0, str(PROJECT_DIR))
+sys.path.insert(0, str(PROJECT_DIR / "backend"))  # backend packages (utils, …)
 
 from utils.paths import get_memory_dir, get_sessions_dir, get_index_dir
 

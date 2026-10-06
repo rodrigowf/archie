@@ -10,7 +10,7 @@ All operations that could trigger chroma's rust binding to SIGSEGV run
 in a child subprocess. The parent observes the exit code and surfaces
 SIGSEGV as a recoverable error rather than dying.
 
-Tier coverage (from empirical research, see tests/repair_harness/):
+Tier coverage (from empirical research, see backend/tests/repair_harness/):
   - WAL replay recovers ONLY embeddings still resident in the
     embeddings_queue sqlite table. After chroma compacts (~every few
     hundred adds), those embeddings are dropped from sqlite and live
@@ -230,7 +230,7 @@ def wal_replay(index_dir: Path, name: str, timeout: float = 300.0) -> dict[str, 
 
 def full_reembed_trigger(index_dir: Path, name: str) -> dict[str, Any]:
     """Drop the collection. Re-embedding happens out-of-band via the
-    HistoryIndexer/MemoryWatcher background tasks in api/indexer.py
+    HistoryIndexer/MemoryWatcher background tasks in backend/api/indexer.py
     (they detect the missing chunks via their hash check and rebuild).
 
     This is a stub: the actual re-embed work runs after this returns,
@@ -349,5 +349,5 @@ def _main():
 if __name__ == "__main__":
     SCRIPT_DIR = Path(__file__).resolve().parent
     PROJECT_DIR = SCRIPT_DIR.parent.parent  # shared/scripts/ → repo root
-    sys.path.insert(0, str(PROJECT_DIR))
+    sys.path.insert(0, str(PROJECT_DIR / "backend"))
     _main()
