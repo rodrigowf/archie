@@ -1,0 +1,153 @@
+{
+  "name": "replay_overflow_rest_reload",
+  "description": "Reconnect after a backend restart: session_started has a new stream and replay_overflow. The client reloads from REST (canonical reload), holding frames that arrive meanwhile and applying them after the page.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "text_complete",
+      "text": "Partial.",
+      "seq": 3,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "session_started",
+      "session_id": "L1",
+      "context_window": 200000,
+      "resume_state": {
+        "stream_id": "L1:1759503600000",
+        "next_seq": 1
+      },
+      "replay_overflow": true
+    },
+    {
+      "type": "user_message",
+      "text": "next question"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "send",
+      "text": "go"
+    },
+    {
+      "at": 2,
+      "type": "ws_closed"
+    },
+    {
+      "at": 2,
+      "type": "ws_open"
+    },
+    {
+      "at": 4,
+      "type": "rest_page",
+      "mode": "replace",
+      "response": {
+        "messages": [
+          {
+            "role": "user",
+            "text": "go",
+            "blocks": [
+              {
+                "type": "text",
+                "text": "go",
+                "tool_use_id": null,
+                "tool_name": null,
+                "tool_input": null,
+                "output": null,
+                "is_error": false
+              }
+            ],
+            "timestamp": "2026-10-03T12:00:00+00:00"
+          },
+          {
+            "role": "assistant",
+            "text": "Partial.",
+            "blocks": [
+              {
+                "type": "text",
+                "text": "Partial.",
+                "tool_use_id": null,
+                "tool_name": null,
+                "tool_input": null,
+                "output": null,
+                "is_error": false
+              }
+            ],
+            "timestamp": "2026-10-03T12:00:00+00:00"
+          },
+          {
+            "role": "assistant",
+            "text": "Final answer.",
+            "blocks": [
+              {
+                "type": "text",
+                "text": "Final answer.",
+                "tool_use_id": null,
+                "tool_name": null,
+                "tool_input": null,
+                "output": null,
+                "is_error": false
+              }
+            ],
+            "timestamp": "2026-10-03T12:00:00+00:00"
+          }
+        ],
+        "total_count": 3,
+        "has_more": false,
+        "start_index": 0
+      }
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "go",
+        "origin": "history",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Partial.",
+            "streaming": false
+          },
+          {
+            "type": "text",
+            "text": "Final answer.",
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "kind": "user",
+        "text": "next question",
+        "origin": "echo",
+        "state": "sent"
+      }
+    ],
+    "state": {
+      "status": "idle",
+      "in_turn": false,
+      "reloading": false,
+      "checkpoint": {
+        "stream_id": "L1:1759503600000",
+        "seq": 0
+      }
+    }
+  }
+}

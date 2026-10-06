@@ -1,0 +1,62 @@
+/*
+ * Snackbar (mockups `.snack`): inverse-surface, radius 8, min height 48, 16 px leading padding,
+ * body-medium text, inverse-primary action, elevation 3. The host is fixed at the bottom center,
+ * full width minus 16 px margins on phones, at most 560 px.
+ */
+.host {
+  position: fixed;
+  right: 16px;
+  left: 16px;
+  z-index: 30;
+  max-width: 560px;
+  margin: 0 auto;
+  pointer-events: none;
+}
+
+.inlineHost {
+  position: relative;
+  right: auto;
+  left: auto;
+  z-index: auto;
+  max-width: none;
+}
+
+.snack {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 4px 4px 4px 16px;
+  border-radius: 8px;
+  background: var(--md-sys-color-inverse-surface);
+  color: var(--md-sys-color-inverse-on-surface);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: var(--md-sys-typescale-body-medium-line-height);
+  box-shadow: var(--md-sys-elevation-level3);
+  pointer-events: auto;
+  animation: snack-in var(--md-sys-motion-duration-medium1) var(--md-sys-motion-easing-emphasized-decelerate);
+}
+
+.message {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 10px 0;
+}
+
+/* W-03 Button/IconButton on the inverse surface (mockups `.snack .btn.text`, `.snack .ib`). */
+.snack .action {
+  margin-left: 4px;
+  color: var(--md-sys-color-inverse-primary);
+}
+
+.snack .close {
+  margin-left: 4px;
+  color: var(--md-sys-color-inverse-on-surface);
+}
+
+@keyframes snack-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}

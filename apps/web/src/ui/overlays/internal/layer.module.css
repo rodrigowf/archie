@@ -1,0 +1,24 @@
+/*
+ * The full-window layer every modal overlay sits in. Explicit top/right/bottom/left, never `inset`
+ * (inv02 §5.4 #3: `inset: 0` collapsed every overlay on Safari 12). Height comes from the four
+ * offsets, never vh/dvh (spec 13 §2.6).
+ *
+ * Stacking inside #overlay-root: overlays opened later come later in the DOM and so paint above
+ * earlier ones at the same z-index. Menus/popovers sit above dialogs, snackbars above both,
+ * tooltips on top.
+ */
+/* stylelint-disable declaration-block-no-redundant-longhand-properties -- explicit top/right/bottom/left, never `inset` (Safari 12; inv02 §5.4 #3) */
+.layer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 20;
+}
+
+/* Gallery previews: the same layer, contained by the nearest positioned ancestor. */
+.inline {
+  position: absolute;
+  z-index: 1;
+}

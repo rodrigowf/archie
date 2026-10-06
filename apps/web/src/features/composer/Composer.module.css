@@ -1,0 +1,300 @@
+/*
+ * Composer (mockups `.cw` / `.cmp` / `.ring` / `.pa` / `.queued`). No flex `gap` (Safari 12):
+ * spacing is margins. The field is 16 px at every width (iOS focus zoom, spec 13 §2.6).
+ */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* ---------- the container ---------- */
+
+.cmp {
+  display: flex;
+  align-items: flex-end;
+  min-height: 60px;
+  padding: 6px;
+  border-radius: 28px;
+  background: var(--md-sys-color-surface-container-high);
+  transition: box-shadow var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+
+.cmp:focus-within {
+  box-shadow: inset 0 0 0 2px var(--md-sys-color-primary);
+}
+
+.cmp > * + * {
+  margin-left: 2px;
+}
+
+.cmpRecording {
+  align-items: center;
+}
+
+/* ---------- the field ---------- */
+
+.field {
+  flex: 1 1 auto;
+  box-sizing: border-box;
+  min-width: 0;
+  height: 48px;
+  min-height: 48px;
+  max-height: 200px;
+  margin: 0;
+  padding: 12px 6px;
+  overflow-y: auto;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--md-sys-color-on-surface);
+  font-family: var(--md-sys-typescale-body-large-font);
+  font-size: var(--md-sys-typescale-body-large-size);
+  font-weight: var(--md-sys-typescale-body-large-weight);
+  line-height: var(--md-sys-typescale-body-large-line-height);
+  letter-spacing: var(--md-sys-typescale-body-large-tracking);
+  resize: none;
+  appearance: none;
+}
+
+.field::placeholder {
+  color: var(--md-sys-color-on-surface-variant);
+  opacity: 1;
+}
+
+/* ---------- context ring ---------- */
+
+.ring {
+  display: inline-flex;
+  position: relative;
+  flex: none;
+  align-items: center;
+  height: 40px;
+  margin-bottom: 4px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 20px;
+  background: none;
+  color: var(--md-sys-color-on-surface-variant);
+  font-family: var(--md-sys-typescale-label-medium-font);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.ring::after {
+  content: "";
+  position: absolute;
+  inset: -4px 0;
+}
+
+.ring[data-level="caution"] {
+  color: var(--md-ext-color-warning);
+}
+
+.ring[data-level="warning"] {
+  color: var(--md-sys-color-error);
+}
+
+.ring[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.ringText {
+  margin-left: 6px;
+}
+
+/* unknown use: the track only (a zero-length round-capped arc reads as a spinner) */
+.ring[data-unknown] circle + circle {
+  stroke: transparent;
+}
+
+/* ---------- primary button: Voice (circle) → Send / Stop (rounded square) ---------- */
+
+.primary {
+  display: inline-flex;
+  position: relative;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  border-radius: 24px;
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  cursor: pointer;
+  transition: border-radius var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+
+.primary[data-mode="send"],
+.primary[data-mode="send-disabled"],
+.primary[data-mode="stop"] {
+  border-radius: 16px;
+}
+
+.primary[data-mode="stop"] {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.primary[aria-disabled="true"] {
+  background: var(--md-sys-color-on-surface-disabled-container);
+  color: var(--md-sys-color-on-surface-disabled);
+  cursor: default;
+}
+
+.primary:focus-visible,
+.ring:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+/* ---------- queue tray ---------- */
+
+.tray {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.trayChip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 28px;
+  box-sizing: border-box;
+  margin: 0 6px 4px 0;
+  padding: 0 4px 0 10px;
+  border-radius: 14px;
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface-variant);
+  font-family: var(--md-sys-typescale-label-medium-font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.trayChip > * + * {
+  margin-left: 6px;
+}
+
+.trayChip[data-kind="queued"],
+.trayChip[data-kind="upload"] {
+  padding-right: 10px;
+}
+
+.trayLead {
+  flex: none;
+  color: var(--md-sys-color-on-surface);
+}
+
+.trayText {
+  min-width: 0;
+  max-width: 320px;
+  overflow: hidden;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trayX {
+  margin-right: -4px;
+}
+
+/* ---------- recording strip ---------- */
+
+.recording {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+  height: 48px;
+  padding: 0 0 0 8px;
+  color: var(--md-sys-color-on-surface);
+  font-size: 14px;
+}
+
+.recording > * + * {
+  margin-left: 10px;
+}
+
+.recDot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--md-sys-color-error);
+  animation: rec-pulse 1.2s var(--md-sys-motion-easing-standard) infinite;
+}
+
+.recText {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.recHint {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+}
+
+@keyframes rec-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* ---------- read-only bar (H-3) ---------- */
+
+.readOnly {
+  display: flex;
+  align-items: center;
+  min-height: 60px;
+  box-sizing: border-box;
+  padding: 6px 6px 6px 18px;
+  border-radius: 28px;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.readOnly > * + * {
+  margin-left: 12px;
+}
+
+.readOnlyText {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.dialogNote {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* ---------- compact width: the ring keeps its arc, drops the number ---------- */
+
+@media (--compact) {
+  .ringText {
+    display: none;
+  }
+
+  .ring {
+    padding: 0 10px;
+  }
+
+  .trayText {
+    max-width: 180px;
+  }
+}

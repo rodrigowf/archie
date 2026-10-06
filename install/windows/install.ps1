@@ -463,9 +463,9 @@ if ($ContextSetupNeeded) {
             # Skill / script / agent symlinks (or junctions / copies as fallback).
             # All three loops are identical except for the source dir.
             $bundles = @(
-                @{ Public = 'default-skills';  Private = 'context\skills';  Kind = 'directory'; Label = 'skill'  },
-                @{ Public = 'default-scripts'; Private = 'context\scripts'; Kind = 'any';       Label = 'script' },
-                @{ Public = 'default-agents';  Private = 'context\agents';  Kind = 'any';       Label = 'agent'  }
+                @{ Public = 'shared\skills';  Private = 'context\skills';  Kind = 'directory'; Label = 'skill'  },
+                @{ Public = 'shared\scripts'; Private = 'context\scripts'; Kind = 'any';       Label = 'script' },
+                @{ Public = 'shared\agents';  Private = 'context\agents';  Kind = 'any';       Label = 'agent'  }
             )
             foreach ($b in $bundles) {
                 Write-Step "Creating $($b.Label) symlinks..."
@@ -520,9 +520,9 @@ if ($ContextSetupNeeded) {
             }
 
             $bundles = @(
-                @{ Public = 'default-skills';  Private = 'context\skills';  Kind = 'directory' },
-                @{ Public = 'default-scripts'; Private = 'context\scripts'; Kind = 'any'       },
-                @{ Public = 'default-agents';  Private = 'context\agents';  Kind = 'any'       }
+                @{ Public = 'shared\skills';  Private = 'context\skills';  Kind = 'directory' },
+                @{ Public = 'shared\scripts'; Private = 'context\scripts'; Kind = 'any'       },
+                @{ Public = 'shared\agents';  Private = 'context\agents';  Kind = 'any'       }
             )
             Write-Step "Ensuring default symlinks..."
             foreach ($b in $bundles) {
@@ -867,27 +867,27 @@ Write-Info "pip upgraded"
 # ─────────────────────────────────────────────────────────────────────────────
 Write-Step "Installing Python dependencies..."
 if ($Dev) {
-    & $VenvPip install -r requirements-dev.txt --quiet
+    & $VenvPip install -r backend\requirements-dev.txt --quiet
     if ($LASTEXITCODE -ne 0) { Write-Err "pip install requirements-dev.txt failed" }
     Write-Info "Installed requirements-dev.txt (core + dev tools)"
 } else {
-    & $VenvPip install -r requirements.txt --quiet
+    & $VenvPip install -r backend\requirements.txt --quiet
     if ($LASTEXITCODE -ne 0) { Write-Err "pip install requirements.txt failed" }
     Write-Info "Installed requirements.txt (core)"
 }
 
 if ($ClaudeAxis) {
-    & $VenvPip install -r requirements-claude.txt --quiet
+    & $VenvPip install -r backend\requirements-claude.txt --quiet
     if ($LASTEXITCODE -ne 0) { Write-Err "pip install requirements-claude.txt failed" }
     Write-Info "Installed requirements-claude.txt (claude-agent-sdk)"
 }
 if ($AnthropicAxis) {
-    & $VenvPip install -r requirements-anthropic.txt --quiet
+    & $VenvPip install -r backend\requirements-anthropic.txt --quiet
     if ($LASTEXITCODE -ne 0) { Write-Err "pip install requirements-anthropic.txt failed" }
     Write-Info "Installed requirements-anthropic.txt (anthropic SDK)"
 }
 if ($OpenAIAxis) {
-    & $VenvPip install -r requirements-openai.txt --quiet
+    & $VenvPip install -r backend\requirements-openai.txt --quiet
     if ($LASTEXITCODE -ne 0) { Write-Err "pip install requirements-openai.txt failed" }
     Write-Info "Installed requirements-openai.txt (openai SDK)"
 }
@@ -896,12 +896,18 @@ if ($OpenAIAxis) {
 # Step 7: Install frontend dependencies
 # ─────────────────────────────────────────────────────────────────────────────
 Write-Step "Installing frontend dependencies..."
-Push-Location 'frontend'
+Push-Location 'apps\web'
 & npm install --silent
 $npmStatus = $LASTEXITCODE
 Pop-Location
 if ($npmStatus -ne 0) { Write-Err "npm install (frontend) failed" }
 Write-Info "Installed/updated frontend node_modules\"
+# The web build checks the design tokens (apps\design-tokens), which has its own dependency.
+Push-Location 'apps\design-tokens'
+& npm install --silent
+$npmStatus = $LASTEXITCODE
+Pop-Location
+if ($npmStatus -ne 0) { Write-Err "npm install (design tokens) failed" }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 7b: Install + authenticate agent CLIs
@@ -1094,11 +1100,11 @@ function Test-OptionalSdk {
         Write-Warn "$Sdk SDK not importable despite $Axis being selected (try: pip install -r $ReqFile)"
     }
 }
-if ($ClaudeAxis)    { Test-OptionalSdk 'claude_agent_sdk' '-WithClaude'    'requirements-claude.txt' }
-if ($AnthropicAxis) { Test-OptionalSdk 'anthropic'        '-WithAnthropic' 'requirements-anthropic.txt' }
-if ($OpenAIAxis)    { Test-OptionalSdk 'openai'           '-WithOpenAI'    'requirements-openai.txt' }
+if ($ClaudeAxis)    { Test-OptionalSdk 'claude_agent_sdk' '-WithClaude'    'backend\requirements-claude.txt' }
+if ($AnthropicAxis) { Test-OptionalSdk 'anthropic'        '-WithAnthropic' 'backend\requirements-anthropic.txt' }
+if ($OpenAIAxis)    { Test-OptionalSdk 'openai'           '-WithOpenAI'    'backend\requirements-openai.txt' }
 
-if (Test-Path 'frontend\package.json') {
+if (Test-Path 'apps\web\package.json') {
     Write-Info "Frontend package.json OK"
 } else {
     Write-Warn "Frontend package.json not found"
@@ -1228,15 +1234,15 @@ if ($envMissing.Count -gt 0) {
 
 # On Windows the backend is launched via the venv's uvicorn (no run.sh equivalent).
 Write-Host "  $step. " -NoNewline; Write-Host "Start the backend:" -ForegroundColor Green
-Write-Host "     .venv\Scripts\python.exe -m uvicorn api.app:create_app --factory --port 8765" -ForegroundColor Blue
+Write-Host "     .venv\Scripts\python.exe -m uvicorn api.app:create_app --factory --app-dir backend --port 8765" -ForegroundColor Blue
 Write-Host ""
 
 Write-Host "  $($step+1). " -NoNewline; Write-Host "Start the frontend (new terminal):" -ForegroundColor Green
-Write-Host "     cd frontend; npm run dev" -ForegroundColor Blue
+Write-Host "     cd apps\web; npm run dev" -ForegroundColor Blue
 Write-Host ""
 
 Write-Host "  $($step+2). " -NoNewline; Write-Host "Open " -ForegroundColor Green -NoNewline
-Write-Host "https://localhost:5432" -ForegroundColor Blue -NoNewline
+Write-Host "https://localhost:5450" -ForegroundColor Blue -NoNewline
 Write-Host " in your browser" -ForegroundColor Green
 Write-Host ""
 

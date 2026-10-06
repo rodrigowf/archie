@@ -1,0 +1,1188 @@
+"""ClaudeSessionManager — wraps a single Claude Code session via claude-agent-sdk.
+
+Implements :class:`manager.base_session.BaseSessionManager`. The class is
+exported under both ``ClaudeSessionManager`` and the historical
+``SessionManager`` name; consumers of the latter continue to work unchanged.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import uuid
+from collections.abc import AsyncIterator
+from pathlib import Path
+
+from manager._ssh import (
+    RemoteCommand,
+    RemoteHostUnreachableError,
+    SshTarget,
+    build_ssh_argv,
+    cleanup_ssh_wrapper_script,
+    probe_host_reachable,
+    resolve_remote_cli_path,
+    write_ssh_wrapper_script,
+)
+
+logger = logging.getLogger(__name__)
+
+# Backward-compatibility re-exports.  Callers (including the existing
+# regression test suite in tests/test_ssh_session_churn.py) used to import
+# these directly from this module; the implementations now live in
+# manager._ssh but the import surface is preserved so external code keeps
+# working.  When the regression suite is updated to point at the new
+# module these can be deleted.
+__all__ = ["RemoteHostUnreachableError", "ClaudeSessionManager", "SessionManager", "SessionAbandoned"]
+
+from claude_agent_sdk import (
+    AssistantMessage,
+    ClaudeAgentOptions,
+    ClaudeSDKClient,
+    ResultMessage,
+    SystemMessage,
+    TextBlock,
+    ThinkingBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+    UserMessage,
+)
+from claude_agent_sdk.types import (
+    PermissionResultAllow,
+    PermissionResultDeny,
+    StreamEvent,
+    ToolPermissionContext,
+)
+
+from typing import NamedTuple
+
+from ..base_session import BaseSessionManager, SessionDeadError, TurnAbandoned
+from ..config import ManagerConfig
+from ..protocol import tool_result_text
+from ..types import (
+    CompactComplete,
+    Event,
+    PermissionRequest,
+    PermissionResolved,
+    SessionStatus,
+    TerminationReason,
+    TextComplete,
+    TextDelta,
+    SessionStalled,
+    ThinkingComplete,
+    ThinkingDelta,
+    ToolResult,
+    ToolUse,
+    TurnComplete,
+)
+
+# Tools that require explicit user (or orchestrator) approval before the SDK
+# is allowed to run them.  Everything else auto-allows in our `can_use_tool`
+# callback — equivalent to `bypassPermissions` for those tools, but with the
+# popup hook still wired so the set can grow without code changes.
+_DEFAULT_GATED_TOOLS: frozenset[str] = frozenset({"ExitPlanMode"})
+
+
+# Appended to the bundled Claude Code system prompt at session start.  Turns
+# gated-tool permission popups into conversational checkpoints — see
+# _build_options for the wiring rationale.
+_PERMISSION_GATING_PROMPT = (
+    "\n\n## Gated Tools — Conversational Checkpoint\n"
+    "Before calling ExitPlanMode (or any other tool that triggers a permission "
+    "prompt), first send a normal user-facing message describing what you "
+    "intend to do and inviting the user (or orchestrator) to provide guidance, "
+    "ask questions, or approve.  Only after that message should you call the "
+    "gated tool.  The permission popup is a safety net — your conversational "
+    "announcement is the primary checkpoint.  If the user responds with prose "
+    "(\"go ahead, but skip migrations\"), incorporate that feedback into your "
+    "plan or actions before proceeding.  When the user types a chat message "
+    "while a permission is pending, the system auto-treats that as a denial "
+    "with their prose as the reason — refine your approach based on their "
+    "feedback and re-announce when ready."
+)
+
+# Stall watchdog: the bundled `claude` subprocess occasionally goes silent
+# mid-tool (e.g. WebFetch waiting on an unresponsive HTTP endpoint with no
+# upstream timeout).  We don't abort — the user may legitimately want to
+# wait on a slow tool — but we do surface a SessionStalled event so the UI
+# can show a "this looks stuck" banner with an interrupt affordance.
+_STALL_FIRST_NOTICE_S = 120.0   # first warning after 2 min of silence
+_STALL_REPEAT_INTERVAL_S = 60.0  # re-emit every minute thereafter
+
+# Abandoned-turn detection: distinct from a mid-tool stall.  If the SDK has
+# produced *zero* messages in this turn after this many seconds, the request
+# almost certainly never reached Anthropic (e.g. the kernel TCP path to the
+# API silently wedged with retransmits — observed once with cwnd:1
+# backoff:10 lastrcv:8min).  Raise SessionAbandoned so callers can give up
+# cleanly and (in the orchestrator's case) retry once.
+_TURN_ABANDON_S = 240.0
+
+# Replay buffer: how many recent ``Event``s the SessionManager keeps so a
+# WS reconnecting mid-turn can replay them.  Sized to cover ~10 minutes
+# of a tool-heavy turn (text deltas dominate at ~10/s of streaming).
+# Bounded so an idle session that nobody's watching for hours doesn't
+# accumulate megabytes of dropped events.  Each event is small (typically
+# a JSON payload <1 KB), so 500 entries ≈ 0.5 MB per session worst-case.
+_REPLAY_BUFFER_SIZE = 500
+
+
+class SequencedEvent(NamedTuple):
+    """A typed Event paired with its monotonic dispatch seq.
+
+    The receive loop puts these into ``_event_inbox``; ``send()`` unpacks
+    them so callers continue to receive bare ``Event``s; the pool reads
+    the seq off the wrapper to attach ``{seq, stream_id, ...}`` to the
+    outbound broadcast payload.  Side-channel-free.
+    """
+
+    seq: int
+    event: Event
+
+
+class SessionAbandoned(TurnAbandoned):
+    """Raised by SessionManager.send when a Claude turn produced zero events
+    for so long we conclude the upstream request never landed.  Distinct
+    from a mid-tool stall: by the time this fires, ``last_tool_name`` is
+    None and ``messages_received == 0`` — no progress has been made at all.
+
+    Inherits :class:`manager.base_session.TurnAbandoned` so catch sites
+    that want to handle both Claude and Qwen abandoned turns can do so
+    with a single ``except TurnAbandoned`` clause.
+    """
+
+
+# Process-management helpers live in manager/_proc.py so they're importable
+# without dragging in claude-agent-sdk (which this module imports at load time).
+# Re-export the legacy underscore names so pool / tests that already import
+# them from here keep working.
+from .._proc import (
+    process_alive as _process_alive,
+    process_comm as _process_comm,
+    kill_subprocess as _kill_subprocess,
+)
+
+
+def _looks_like_claude(pid: int) -> bool:
+    """Return True if /proc/<pid>/comm matches the bundled `claude` cli.
+
+    The kernel's comm is the basename of the executable, capped at 15
+    chars — for our subprocess that's exactly ``claude``.  We accept any
+    value that starts with ``claude`` to tolerate possible future renames.
+    """
+    from .._proc import looks_like
+    return looks_like(pid, "claude")
+
+
+def _extract_subprocess_pid(client: ClaudeSDKClient) -> int | None:
+    """Best-effort extraction of the bundled-claude subprocess PID from a
+    connected ``ClaudeSDKClient``.
+
+    The SDK doesn't expose this publicly, so we walk private attributes:
+    ``client._transport._process.pid``.  Wrapped in defensive ``getattr``s
+    and a broad except so any future SDK refactor (renamed attribute,
+    custom transport, etc.) just yields None instead of crashing the
+    session — at worst we lose the per-session SIGKILL fallback and
+    rely on the pool's orphan reaper to clean up.
+    """
+    try:
+        transport = getattr(client, "_transport", None)
+        if transport is None:
+            return None
+        process = getattr(transport, "_process", None)
+        if process is None:
+            return None
+        pid = getattr(process, "pid", None)
+        return int(pid) if pid is not None else None
+    except Exception:
+        logger.debug("could not extract SDK subprocess pid", exc_info=True)
+        return None
+
+
+def kill_claude_subprocess(pid: int, *, sigterm_grace_s: float = 0.5) -> bool:
+    """Force-kill an orphaned bundled-claude subprocess identified by *pid*.
+
+    Verifies the pid still matches a ``claude*`` comm via ``/proc/<pid>/comm``
+    before signalling — the kernel can recycle pids immediately after a
+    process exits, and we never want to SIGKILL an unrelated process that
+    happened to inherit the number.
+
+    First sends SIGTERM (with *sigterm_grace_s* for clean shutdown); if the
+    process is still alive after that, escalates to SIGKILL.  Returns True
+    if a signal was sent, False otherwise.
+
+    Safe to call concurrently from the per-session lifecycle finally and
+    from the pool's orphan reaper.
+    """
+    return _kill_subprocess(pid, comm_prefix="claude", sigterm_grace_s=sigterm_grace_s)
+
+
+class ClaudeSessionManager(BaseSessionManager):
+    """Manage a single Claude Code conversation.
+
+    Usage::
+
+        sm = ClaudeSessionManager()
+        session_id = await sm.start()
+
+        async for event in sm.send("Hello!"):
+            if isinstance(event, TextDelta):
+                print(event.text, end="", flush=True)
+
+        await sm.stop()
+
+    Or as an async context manager::
+
+        async with ClaudeSessionManager() as sm:
+            async for event in sm.send("Hello!"):
+                ...
+    """
+
+    def __init__(
+        self,
+        session_id: str | None = None,
+        *,
+        local_id: str | None = None,
+        fork: bool = False,
+        config: ManagerConfig | None = None,
+    ) -> None:
+        super().__init__(
+            session_id=session_id, local_id=local_id, fork=fork, config=config,
+        )
+        # Claude-specific state — everything shared with Qwen now lives on
+        # BaseSessionManager.
+        self._client: ClaudeSDKClient | None = None
+        self._ssh_wrapper_path: str | None = None  # temp script for SSH sessions
+        # PID of the bundled `claude` subprocess that the SDK transport opens
+        # at connect() time.  Captured so we can SIGKILL it ourselves if the
+        # SDK's transport.close() hangs on its own bounded-but-actually-
+        # unbounded `await self._process.wait()` after SIGTERM.  Setting this
+        # to None after a successful clean exit lets stop() distinguish
+        # "process already gone" from "we should kill it".
+        self._subprocess_pid: int | None = None
+        # Override base class defaults with Claude's gated-tool set.
+        self._gated_tools = set(_DEFAULT_GATED_TOOLS)
+        # Persistent SDK receive loop — owns ``client.receive_messages()``
+        # for the whole session lifetime, not just one ``send()`` call.
+        # See the design note in ``_receive_loop`` for why.
+        self._receive_task: asyncio.Task[None] | None = None
+        self._receive_loop_done: asyncio.Event = asyncio.Event()
+        # Set by the receive loop when it exits — typed signal for the
+        # pool's reaper and for the ``SessionDeadError`` raised by
+        # subsequent ``send()`` calls.  None until termination is observed.
+        self._termination_reason: TerminationReason | None = None
+        self._termination_detail: str | None = None
+        # Bounded replay ring of ``(seq, event)`` pairs so a reconnecting
+        # WS can catch up on activity that happened while it was offline.
+        # Each event the receive loop dispatches gets a monotonic ``seq``
+        # within the current ``_stream_id`` (set when the receive loop
+        # starts; changes on every subprocess (re)connect or backend
+        # restart).  A frontend that holds ``(stream_id, seq)`` can ask
+        # for everything newer; a mismatch falls back to REST.
+        from collections import deque
+        self._replay_buffer: deque[tuple[int, Event]] = deque(
+            maxlen=_REPLAY_BUFFER_SIZE,
+        )
+        self._stream_id: str | None = None
+        self._next_seq: int = 0
+        # Last seq yielded by ``send()`` to a caller.  The pool's broadcast
+        # path reads this in the same coroutine immediately after the
+        # ``async for`` yields, before any ``await`` — so the value is
+        # always for the event just yielded.  None when no SequencedEvent
+        # has been yielded (initial state, or after a non-sequenced inject).
+        self._last_yielded_seq: int | None = None
+
+    @property
+    def provider_name(self) -> str:
+        return "claude"
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    async def _pre_start_check(self) -> None:
+        """Cheap reachability pre-probe for remote sessions.
+
+        One ICMP ping, 2 s deadline — if the host is asleep/offline we
+        raise immediately instead of letting the SDK sit in a 30 s SSH
+        TCP timeout (which historically pinned the CPU and spun the fan
+        on the Jetson while the laptop was hibernating).  Done here (not
+        in the lifecycle task) so the caller sees the failure synchronously.
+        """
+        if not self._config.ssh_host:
+            return
+        reachable = await asyncio.get_running_loop().run_in_executor(
+            None, probe_host_reachable, self._config.ssh_host, 2.0,
+        )
+        if not reachable:
+            raise RemoteHostUnreachableError(
+                f"SSH host {self._config.ssh_host!r} did not reply to ICMP ping; "
+                "refusing to open SSH connection (prevents stuck sessions and "
+                "fan/CPU churn while the remote is offline)."
+            )
+
+    async def _run_lifecycle(self) -> None:
+        """Own connect → idle-wait → disconnect from a single task.
+
+        Both ``client.connect()`` (which enters the SDK's anyio task group)
+        and ``client.disconnect()`` (which exits it) run inside this task.
+        That's the only way to satisfy anyio's "exit from the same task you
+        entered" invariant when the actual stop() trigger arrives from a
+        different task (an HTTP request handler, the pool drain on shutdown,
+        etc.).
+        """
+        try:
+            options = self._build_options()
+            self._client = ClaudeSDKClient(options)
+            await self._client.connect()
+
+            # Capture the bundled-claude subprocess PID via the SDK's
+            # private transport attribute.  This is best-effort: if a
+            # future SDK release moves the field, we fall back to the
+            # pool-level orphan reaper as a safety net.  A captured PID
+            # lets stop() force-kill if SDK transport.close() hangs on
+            # its (unbounded) `await self._process.wait()` after SIGTERM.
+            self._subprocess_pid = _extract_subprocess_pid(self._client)
+            if self._subprocess_pid is not None:
+                logger.debug(
+                    "Session %s SDK subprocess pid=%d", self._local_id, self._subprocess_pid
+                )
+
+            # Capture the SDK session ID if available at connect time.
+            if self._resume_id:
+                self._provider_session_id = self._resume_id
+            else:
+                try:
+                    server_info = await self._client.get_server_info()
+                    if server_info:
+                        self._provider_session_id = server_info.get("session_id")
+                except Exception:
+                    # Failing to read server_info shouldn't kill the session;
+                    # the SDK ID will be filled in from the first ResultMessage.
+                    logger.exception("get_server_info failed for session %s", self._local_id)
+
+            self._status = SessionStatus.IDLE
+
+            # Mint a fresh stream identity for this connection.  Anything
+            # the SDK emits from here on belongs to this stream.  A
+            # reconnecting frontend with a different ``stream_id`` falls
+            # through to REST replay; with the same id, the backend
+            # serves seq-ordered playback from the buffer.
+            import time as _time
+            self._stream_id = f"{self._local_id}:{int(_time.time() * 1000)}"
+            self._next_seq = 0
+            self._replay_buffer.clear()
+
+            # Spawn the persistent receive loop.  See ``_receive_loop`` for
+            # the design rationale — it owns ``client.receive_messages()``
+            # for the whole session lifetime so the SDK buffer never
+            # accumulates stale events between turns, and ``self._status``
+            # tracks subprocess activity even when no caller is iterating
+            # ``send()``.
+            self._receive_loop_done.clear()
+            self._receive_task = asyncio.create_task(
+                self._receive_loop(),
+                name=f"sm-receive-{self._local_id}",
+            )
+        except BaseException as e:
+            # Surface the error to start() and exit; do NOT signal _connect_done
+            # before recording the error or start() will see "succeeded".
+            self._connect_error = e
+            self._connect_done.set()
+            return
+
+        # Tell start() it can return.
+        self._connect_done.set()
+
+        # Idle-wait until stop() is requested.  No CPU cost — pure event wait.
+        try:
+            await self._stop_requested.wait()
+        finally:
+            # Cancel the receive loop BEFORE disconnect — receive_messages()
+            # is parked on the SDK's anyio receive stream, and disconnecting
+            # will close that stream from under it.  Cancelling first lets
+            # the loop unwind cleanly.
+            if self._receive_task is not None and not self._receive_task.done():
+                self._receive_task.cancel()
+                try:
+                    await asyncio.wait_for(
+                        asyncio.shield(self._receive_task), timeout=2.0,
+                    )
+                except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                    pass
+            self._receive_task = None
+            # Disconnect runs in this same task, so the SDK's task group
+            # __aexit__ sees the same owner that __aenter__'d it.
+            #
+            # Bound the disconnect at 8s — comfortably under pool.close()'s
+            # 10s outer timeout — so we always get a chance to escalate to
+            # SIGKILL if the SDK transport's own internal wait() blocks.
+            # The SDK's transport.close() does:
+            #     self._process.terminate()
+            #     await self._process.wait()   # NO TIMEOUT
+            # If the bundled `claude` ignores SIGTERM (mid-flush, busy-loop,
+            # etc.) the wait blocks forever and the lifecycle task pins a
+            # CPU until we force-kill.  Pre-fix, this leaked subprocesses
+            # accumulated on the Jetson at ~2.5% CPU each.
+            pid_to_kill = self._subprocess_pid
+            if self._client is not None:
+                try:
+                    await asyncio.wait_for(self._client.disconnect(), timeout=8.0)
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "client.disconnect() for session %s exceeded 8s; will force-kill pid %s",
+                        self._local_id,
+                        pid_to_kill,
+                    )
+                except Exception:
+                    logger.exception(
+                        "client.disconnect() failed for session %s", self._local_id
+                    )
+                self._client = None
+
+            # SIGTERM/SIGKILL fallback for orphaned subprocesses.  Runs
+            # whether disconnect succeeded, timed out, or threw — the only
+            # cost when the SDK already cleaned up is one cheap os.kill(0)
+            # liveness check that finds the pid gone.
+            if pid_to_kill is not None and _process_alive(pid_to_kill):
+                killed = await asyncio.get_running_loop().run_in_executor(
+                    None, kill_claude_subprocess, pid_to_kill
+                )
+                if killed:
+                    logger.warning(
+                        "Reaped orphaned claude subprocess pid=%d for session %s",
+                        pid_to_kill,
+                        self._local_id,
+                    )
+            self._subprocess_pid = None
+
+            self._status = SessionStatus.DISCONNECTED
+            cleanup_ssh_wrapper_script(self._ssh_wrapper_path)
+            self._ssh_wrapper_path = None
+
+    async def interrupt(self) -> None:
+        """Interrupt the current response.
+
+        ``ClaudeSDKClient.interrupt()`` is a coroutine — it must be awaited or
+        the signal never reaches the CLI and the in-flight ``receive_response()``
+        keeps streaming until the turn finishes naturally.
+        """
+        if self._client is not None:
+            await self._client.interrupt()
+        self._status = SessionStatus.INTERRUPTED
+
+    # ------------------------------------------------------------------
+    # Sending messages / commands
+    # ------------------------------------------------------------------
+
+    async def compact(self) -> AsyncIterator[Event]:
+        """Trigger conversation compaction.
+
+        Sends /compact as a slash command. After all SDK events are yielded,
+        emits a ``CompactComplete`` so the frontend can display a divider.
+        The SDK only emits ``SystemMessage(subtype="compact")`` for auto-compact;
+        for manual compact we synthesize the event ourselves.
+        """
+        got_compact_event = False
+        async for event in self.command("/compact"):
+            if isinstance(event, CompactComplete):
+                got_compact_event = True
+            yield event
+        if not got_compact_event:
+            yield CompactComplete(trigger="manual", summary="")
+
+    async def command(self, slash_command: str) -> AsyncIterator[Event]:
+        """Send an arbitrary slash command (e.g. ``/compact``, ``/help``).
+
+        Yields typed events just like :meth:`send`.
+        """
+        async for event in self.send(slash_command):
+            yield event
+
+    async def send(self, prompt: str) -> AsyncIterator[Event]:
+        """Send a message and yield typed events as the response streams in.
+
+        Yields ``TextDelta`` for each streaming token, ``ToolUse`` / ``ToolResult``
+        for tool interactions, and ``TurnComplete`` at the end.
+
+        Architecture: ``send()`` is a thin subscriber.  The real SDK receive
+        work happens in ``_receive_loop``, a task that runs for the whole
+        session lifetime.  ``send()`` registers an inbox on the loop,
+        triggers the turn with ``client.query()``, then iterates the inbox
+        until it sees ``TurnComplete``.  On exit (clean, error, or external
+        cancellation), it only deregisters — the loop keeps consuming
+        whatever the SDK still has to say, so the buffer never accumulates
+        stale events and ``self._status`` stays accurate.
+
+        While receiving, a stall watchdog yields :class:`SessionStalled`
+        events if the SDK goes silent for an extended period — the stream
+        is *not* aborted (the caller may want to keep waiting), but the UI
+        gets a chance to surface a "looks stuck, interrupt?" banner.
+        """
+        if self._client is None:
+            raise RuntimeError("SessionManager is not connected — call start() first")
+
+        if self._receive_loop_done.is_set():
+            # The receive loop has exited (subprocess crash, SSH transport
+            # closed, fatal SDK error).  Raise a typed error so the pool's
+            # ``_drive_turn`` can translate it into a ``session_terminated``
+            # broadcast with an actionable recovery hint, rather than a
+            # generic ``send_failed`` the client can't act on.
+            raise SessionDeadError(
+                reason=self._termination_reason or TerminationReason.SUBPROCESS_CRASHED,
+                detail=self._termination_detail,
+            )
+
+        # Register an inbox the receive loop will deliver events into. The
+        # base class shares this same attribute with the ``can_use_tool``
+        # callback so permission events can be injected mid-stream.
+        # The receive loop wraps each dispatched event in ``SequencedEvent``;
+        # we unwrap below.
+        loop = asyncio.get_running_loop()
+        inbox: asyncio.Queue[SequencedEvent | Event] = asyncio.Queue()
+        self._event_inbox = inbox
+
+        # Last-tool tracking so the SessionStalled event can name the tool
+        # the SDK was waiting on (the most useful single piece of context
+        # for "what looks stuck").
+        last_tool_name: str | None = None
+        last_tool_use_id: str | None = None
+
+        # Trigger the turn AFTER the inbox is wired up so the very first
+        # event the receive loop dispatches lands in our queue, not the
+        # replay ring.
+        await self._client.query(prompt)
+        self._status = SessionStatus.STREAMING
+
+        turn_started_at = loop.time()
+        last_msg_at = turn_started_at
+        stall_notified_at: float | None = None
+        messages_received = 0
+        turn_complete_seen = False
+
+        try:
+            while not turn_complete_seen:
+                now = loop.time()
+                if stall_notified_at is None:
+                    next_notice_in = max(0.0, _STALL_FIRST_NOTICE_S - (now - last_msg_at))
+                else:
+                    next_notice_in = max(
+                        0.0,
+                        _STALL_REPEAT_INTERVAL_S - (now - stall_notified_at),
+                    )
+
+                try:
+                    item = await asyncio.wait_for(
+                        inbox.get(), timeout=max(next_notice_in, 0.5),
+                    )
+                except asyncio.TimeoutError:
+                    now = loop.time()
+                    # If we've never received a single message and we've been
+                    # waiting longer than _TURN_ABANDON_S, the upstream request
+                    # never landed.  Give up so the caller can retry instead
+                    # of hanging forever.
+                    if messages_received == 0 and (now - turn_started_at) >= _TURN_ABANDON_S:
+                        raise SessionAbandoned(now - turn_started_at)
+                    # The stall notice is synthetic (not in the replay
+                    # ring): clear the stash so the pool does not stamp it
+                    # with the previous event's seq (O-5).
+                    self._last_yielded_seq = None
+                    yield SessionStalled(
+                        elapsed_seconds=now - last_msg_at,
+                        last_tool_name=last_tool_name,
+                        last_tool_use_id=last_tool_use_id,
+                    )
+                    stall_notified_at = now
+                    continue
+
+                last_msg_at = loop.time()
+                stall_notified_at = None  # reset on any fresh activity
+                messages_received += 1
+
+                # Receive loop always wraps in SequencedEvent; fallback
+                # path for direct inbox.put_nowait callers (e.g. older
+                # tests, future extensions) yields the bare event.
+                # We stash the seq on the manager so the pool's broadcast
+                # path can wrap the outbound payload with it.  Safe because
+                # send() and the pool's iteration are the same coroutine —
+                # no ``await`` runs between the stash and the pool's read.
+                if isinstance(item, SequencedEvent):
+                    event = item.event
+                    self._last_yielded_seq = item.seq
+                else:
+                    event = item
+                    self._last_yielded_seq = None
+
+                if isinstance(event, ToolUse):
+                    last_tool_name = event.tool_name
+                    last_tool_use_id = event.tool_use_id
+                elif isinstance(event, (ToolResult, TurnComplete)):
+                    last_tool_name = None
+                    last_tool_use_id = None
+
+                yield event
+
+                if isinstance(event, TurnComplete):
+                    turn_complete_seen = True
+        finally:
+            # Detach the inbox so subsequent events go to the replay buffer
+            # only.  The receive loop keeps running — that's the whole point
+            # of this refactor.  Permissions that were still pending at this
+            # point can never be answered through this stream, so resolve
+            # them as 'deny' to unblock the SDK.
+            if self._event_inbox is inbox:
+                self._event_inbox = None
+            self._drain_pending_permissions()
+
+    async def _receive_loop(self) -> None:
+        """Long-lived consumer of ``client.receive_messages()``.
+
+        Owns the SDK's per-client receive stream for the whole session
+        lifetime.  This replaces the previous design where ``send()``
+        spawned a per-turn ``_drain`` task: that design lost messages
+        whenever ``send()`` exited mid-turn (an interrupt, a frontend
+        disconnect, a stall watchdog raising) because the SDK kept
+        producing events into a buffer with no reader, the next ``send()``
+        called ``_drain_stale_sdk_messages`` and threw them away, and the
+        session status froze at IDLE while the bundled CLI was still
+        working.
+
+        Here, the loop runs continuously: it dispatches each event to the
+        active ``send()`` inbox if there is one, and always appends to a
+        bounded replay ring so a reconnecting WS can catch up.
+        ``self._status`` updates inside ``_process_message`` and reflects
+        the subprocess state, not the state of any particular caller.
+        """
+        assert self._client is not None
+        try:
+            async for msg in self._client.receive_messages():
+                if msg is None:
+                    # Patched parser ignored an unknown message type.
+                    continue
+                if isinstance(msg, Event):
+                    # Defensive: shouldn't happen since receive_messages()
+                    # yields SDK Message subclasses, not our typed events.
+                    # But the permission callback path used to inject Events
+                    # here; route them through the dispatch just in case.
+                    self._inject_event(msg)
+                    continue
+                try:
+                    async for event in self._process_message(msg):
+                        self._inject_event(event)
+                        if isinstance(event, TurnComplete):
+                            # The bundled CLI emitted a terminal ResultMessage
+                            # — the turn is over even if nobody was listening.
+                            # Status returns to IDLE so the pool/live endpoint
+                            # reflects reality.
+                            self._status = SessionStatus.IDLE
+                except Exception:
+                    logger.exception(
+                        "receive_loop: failed to process message for session %s",
+                        self._local_id,
+                    )
+        except asyncio.CancelledError:
+            # Receive loop being cancelled is part of the normal shutdown
+            # path triggered by ``stop()``.  Don't mark it as a death
+            # condition — the lifecycle task is already handling the
+            # teardown.  We still set _receive_loop_done in the finally
+            # so any pending send() can observe the shutdown.
+            raise
+        except Exception as exc:
+            # The loop crashed.  Two common causes seen in production:
+            #
+            #   1. ``Command failed with exit code 255`` — the SSH transport
+            #      to a remote ``claude`` died (laptop suspended, network
+            #      blip, remote process killed).  SDK surfaces this as a
+            #      ``Fatal error in message reader`` via the
+            #      ``message.get("error")`` path inside ``query.receive_messages``.
+            #   2. SDK parse errors on truly novel message shapes the
+            #      patched parser couldn't ignore.
+            #
+            # Either way, the session can no longer produce events.  Flag
+            # the termination reason + detail so the pool's reaper and the
+            # ``SessionDeadError`` path can surface it to the client.
+            logger.exception(
+                "receive_loop for session %s crashed — session is no longer usable",
+                self._local_id,
+            )
+            self._termination_reason = TerminationReason.SUBPROCESS_CRASHED
+            self._termination_detail = str(exc) or type(exc).__name__
+        else:
+            # ``receive_messages()`` returned without raising.  That means
+            # the SDK iterator drained — typically because the subprocess
+            # exited cleanly mid-session (e.g. the SSH connection closed).
+            # Distinct from a crash: no exception, but also no more events.
+            if self._termination_reason is None:
+                self._termination_reason = TerminationReason.SUBPROCESS_LOST
+                self._termination_detail = (
+                    "SDK receive iterator ended without a terminal ResultMessage"
+                )
+        finally:
+            # Order matters: set the done event BEFORE flipping status, so
+            # any awaiter polling ``is_active`` after observing the event
+            # sees a coherent state.
+            self._receive_loop_done.set()
+            # Status flip — pool/live now correctly reports the session
+            # as no longer producing events.  Replaces the prior design
+            # where status stayed at STREAMING/TOOL_USE forever after a
+            # crash, with no observable signal that the session was dead.
+            self._status = SessionStatus.DISCONNECTED
+            # Wake the lifecycle task so it runs the disconnect path
+            # (SDK transport close, SIGKILL of the remote subprocess).
+            # If stop() was the original trigger, this is a no-op.
+            self._stop_requested.set()
+            # Unblock any send() currently waiting on the inbox — we'll
+            # never produce another event, so a pending get() would hang
+            # forever.  ``send()`` checks for a SessionDeadError marker;
+            # we also emit a synthetic TurnComplete so consumers that
+            # only check for TurnComplete also unblock cleanly.
+            inbox = self._event_inbox
+            if inbox is not None:
+                try:
+                    inbox.put_nowait(TurnComplete(
+                        cost=None, usage={}, num_turns=0,
+                        session_id=self._provider_session_id,
+                        is_error=True, result="receive_loop_exited",
+                    ))
+                except asyncio.QueueFull:
+                    pass
+
+    def _inject_event(self, event: Event) -> None:
+        """Override the base class hook: assign a monotonic seq, append
+        to the replay ring, and wrap before queueing.
+
+        Each dispatch assigns a monotonic ``seq`` within the current
+        ``_stream_id`` so a reconnecting WS can resume exactly where it
+        left off.  The seq travels with the event by wrapping it into a
+        :class:`SequencedEvent` named-tuple before queueing — the inbox
+        consumer (``send()``) unpacks and yields the bare event, while
+        the pool's broadcast wrapper reads the seq off the tuple for the
+        ``{seq, stream_id, ...}`` wire payload.
+
+        Called from the receive loop and from the permission callback
+        path (the latter via :meth:`_emit_permission_request` in the base
+        class).
+        """
+        seq = self._next_seq
+        self._next_seq += 1
+        self._replay_buffer.append((seq, event))
+        wrapped = SequencedEvent(seq=seq, event=event)
+        inbox = self._event_inbox
+        if inbox is not None:
+            try:
+                inbox.put_nowait(wrapped)
+            except asyncio.QueueFull:
+                # asyncio.Queue() is unbounded by default; this is defensive.
+                logger.warning(
+                    "send() inbox full for session %s; event dropped",
+                    self._local_id,
+                )
+
+    def replay_recent_events(self) -> list[tuple[int, Event]]:
+        """Snapshot of the replay ring as ``(seq, event)`` pairs, oldest → newest.
+
+        Bounded by ``_REPLAY_BUFFER_SIZE``.  Used directly by tests; the
+        pool prefers :meth:`replay_after` which encodes the resume protocol.
+        """
+        return list(self._replay_buffer)
+
+    def replay_after(
+        self,
+        stream_id: str | None,
+        after_seq: int | None,
+    ) -> tuple[str, list[tuple[int, Event]]]:
+        """Resume protocol: return events the caller hasn't seen yet.
+
+        Returns ``(status, events)`` where status is:
+
+        * ``"ok"``       — events newer than ``after_seq`` are returned in
+                           order.  Empty list if the caller is up to date.
+        * ``"overflow"`` — ``after_seq`` is older than the oldest entry
+                           in the ring.  The caller should fall back to REST.
+        * ``"mismatch"`` — ``stream_id`` doesn't match the current stream
+                           (backend restarted, subprocess re-spawned, etc).
+                           Caller should fall back to REST.
+
+        ``stream_id=None`` / ``after_seq=None`` means "no checkpoint" —
+        returns ``("ok", [])`` so callers can use this in a uniform code
+        path without None-checks.
+        """
+        if stream_id is None or after_seq is None:
+            return "ok", []
+        if self._stream_id is None:
+            # Receive loop hasn't started yet — nothing to replay.
+            return "ok", []
+        if stream_id != self._stream_id:
+            return "mismatch", []
+        if not self._replay_buffer:
+            # Caller has a checkpoint, we have an empty buffer (fresh
+            # stream).  If their after_seq is ahead of our next_seq,
+            # we're behind them — treat as mismatch.  Otherwise OK with
+            # no events to send.
+            if after_seq >= self._next_seq:
+                return "mismatch", []
+            return "ok", []
+
+        oldest_seq = self._replay_buffer[0][0]
+        latest_seq = self._replay_buffer[-1][0]
+
+        if after_seq >= latest_seq:
+            return "ok", []  # caller is up to date
+        if after_seq < oldest_seq - 1:
+            # Their last-seen is older than what we still have buffered.
+            # The buffer evicts from the front, so anything missed beyond
+            # this point is gone forever.  Tell the caller to REST.
+            return "overflow", []
+
+        events = [
+            (seq, event)
+            for seq, event in self._replay_buffer
+            if seq > after_seq
+        ]
+        return "ok", events
+
+    @property
+    def stream_id(self) -> str | None:
+        """Identifier for the current receive-loop session — changes every
+        time the SDK subprocess (re)connects.  Used by the resume protocol
+        to detect a backend restart and force a REST refetch.
+        """
+        return self._stream_id
+
+    @property
+    def last_yielded_seq(self) -> int | None:
+        """Seq of the most recent event ``send()`` yielded, or ``None``.
+
+        The pool's broadcast path reads this in the same coroutine
+        immediately after ``async for event in sm.send(...)`` yields, so
+        the value reliably matches the just-yielded event.  Wraps the
+        outgoing WS payload with ``{seq, stream_id, ...}`` for the resume
+        protocol.
+        """
+        return self._last_yielded_seq
+
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
+
+    @property
+    def subprocess_pid(self) -> int | None:
+        """PID of the bundled-claude subprocess (or None if not connected
+        / not yet captured / SDK transport changed shape).  Used by the
+        pool's orphan reaper as a fallback in case the per-session
+        SIGKILL path didn't run."""
+        return self._subprocess_pid
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+
+    async def _can_use_tool(
+        self,
+        tool_name: str,
+        tool_input: dict,
+        _context: ToolPermissionContext,
+    ) -> PermissionResultAllow | PermissionResultDeny:
+        """SDK permission callback — auto-allow everything except gated tools.
+
+        For gated tools (e.g. ``ExitPlanMode``) we emit a ``PermissionRequest``
+        event onto the active send-stream and await a Future resolved by
+        :meth:`resolve_permission`.  No active stream → auto-allow rather than
+        deadlock (an out-of-band tool call shouldn't be silently blocked).
+        """
+        if tool_name not in self._gated_tools:
+            return PermissionResultAllow()
+
+        if self._event_inbox is None:
+            logger.warning(
+                "can_use_tool fired for %s but no active send() stream — auto-allowing",
+                tool_name,
+            )
+            return PermissionResultAllow()
+
+        decision, message = await self._emit_permission_request(tool_name, tool_input)
+        if decision == "allow":
+            return PermissionResultAllow()
+        return PermissionResultDeny(message=message or "Denied", interrupt=False)
+
+    async def _drain_stale_sdk_messages(self) -> int:
+        """Legacy hook — no-op in the persistent-receive-loop design.
+
+        Previously this method was called at the top of every ``send()`` to
+        discard messages left in the SDK buffer by a prior cancelled turn.
+        That whole failure mode is gone now: ``_receive_loop`` consumes
+        messages continuously for the session's lifetime, so the buffer
+        never accumulates stale events to begin with.
+
+        Kept as a public method so external callers (tests, instrumentation)
+        that referenced it don't blow up; always returns 0.
+        """
+        return 0
+
+    def _build_options(self) -> ClaudeAgentOptions:
+        """Build SDK options from our config."""
+        kwargs: dict = {
+            "include_partial_messages": True,
+            "setting_sources": ["project", "local"],
+            "can_use_tool": self._can_use_tool,
+            # Append a small policy onto the bundled Claude Code system prompt
+            # turning gated-tool permission popups into conversational
+            # checkpoints.  Without this nudge the agent fires ExitPlanMode
+            # cold and the user (or orchestrator) only ever sees a yes/no
+            # popup; with it, the agent first announces intent in chat,
+            # invites prose feedback ("yes but skip migrations"), and only
+            # then calls the gated tool.  The popup remains as a safety net.
+            "system_prompt": {
+                "type": "preset",
+                "preset": "claude_code",
+                "append": _PERMISSION_GATING_PROMPT,
+            },
+        }
+        if self._config.permission_mode:
+            kwargs["permission_mode"] = self._config.permission_mode
+        if self._config.model:
+            kwargs["model"] = self._config.model
+        if self._config.max_budget_usd is not None:
+            kwargs["max_budget_usd"] = self._config.max_budget_usd
+        if self._config.max_turns is not None:
+            kwargs["max_turns"] = self._config.max_turns
+        if self._resume_id:
+            kwargs["resume"] = self._resume_id
+        if self._fork:
+            kwargs["fork_session"] = True
+        if self._config.mcp_servers is not None:
+            # Pass MCP servers directly to the SDK
+            # When mcp_servers is provided, it overrides settings from .claude.json
+            kwargs["mcp_servers"] = self._config.mcp_servers
+        if self._config.extra_args:
+            kwargs["extra_args"] = self._config.extra_args
+
+        # Strip CLAUDECODE to allow launching SDK sessions from within a
+        # Claude Code process (e.g. VSCode extension or the wrapper itself).
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+        if self._config.ssh_host and self._config.ssh_claude_config_dir:
+            # Override CLAUDE_CONFIG_DIR so the remote claude writes its JSONL
+            # to the correct path on the target machine.
+            env["CLAUDE_CONFIG_DIR"] = self._config.ssh_claude_config_dir
+        kwargs["env"] = env
+
+        # Capture stderr so errors are visible in logs instead of being swallowed
+        def _log_stderr(line: str) -> None:
+            logger.error("claude CLI stderr [%s]: %s", self._local_id, line.rstrip())
+
+        kwargs["stderr"] = _log_stderr
+
+        if self._config.ssh_host:
+            # ── Path B: SSH remote execution ──────────────────────────────
+            # The SDK calls:  <cli_path> --output-format stream-json [flags...]
+            # We set cli_path to a temp shell script that SSHes into the remote
+            # host, cd's into the project dir, and execs `claude "$@"` so all
+            # SDK-supplied flags pass through unchanged.
+            kwargs["cli_path"] = self._write_ssh_wrapper()
+            # cwd must exist locally; the real working dir is set on the remote side
+            kwargs["cwd"] = str(Path.home())
+        else:
+            kwargs["cwd"] = self._config.project_dir
+
+        return ClaudeAgentOptions(**kwargs)
+
+    def _write_ssh_wrapper(self) -> str:
+        """Write a temp shell script that SSHes into the remote host and runs claude.
+
+        The SDK takes a ``cli_path`` and then invokes ``<cli_path> arg1
+        arg2 ...`` itself, so we can't intercept its argv from Python.
+        The wrapper handles ``"$@"`` forwarding (see
+        :func:`manager._ssh.write_ssh_wrapper_script` for the details of
+        the SSH single-argument trick).  Returns the path to the script.
+        """
+        target = SshTarget(
+            host=self._config.ssh_host or "",
+            user=self._config.ssh_user,
+            key=self._config.ssh_key,
+            control_path_prefix="claude",
+        )
+        remote_claude = resolve_remote_cli_path(
+            "claude",
+            target,
+        )
+        env: dict[str, str] = {}
+        if self._config.ssh_claude_config_dir:
+            env["CLAUDE_CONFIG_DIR"] = self._config.ssh_claude_config_dir
+        # Forward the long-lived OAuth token (minted via `claude setup-token`,
+        # stored in context/.env) to the remote claude. It takes precedence over
+        # the remote's .credentials.json, so SSH-remote sessions authenticate
+        # with the 1-year token instead of the refreshable creds that keep
+        # expiring/corrupting. See feedback_jetson_oauth_token_expiry memory.
+        oauth_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+        if oauth_token:
+            env["CLAUDE_CODE_OAUTH_TOKEN"] = oauth_token
+        remote_cmd = RemoteCommand(
+            project_dir=self._config.project_dir,
+            remote_cli=remote_claude,
+            env=env,
+        ).render_shell()
+        path = write_ssh_wrapper_script(
+            ssh_argv=build_ssh_argv(target),
+            remote_cmd=remote_cmd,
+            prefix="claude",
+        )
+        self._ssh_wrapper_path = path
+        return path
+
+    async def _process_message(self, msg: object) -> AsyncIterator[Event]:
+        """Convert an SDK message into our typed Event stream."""
+
+        if isinstance(msg, StreamEvent):
+            event = msg.event
+            if not isinstance(event, dict):
+                logger.warning("StreamEvent.event is not a dict: %r", type(event))
+                return
+            evt_type = event.get("type", "")
+
+            if evt_type == "content_block_delta":
+                delta = event.get("delta", {})
+                if not isinstance(delta, dict):
+                    return
+                delta_type = delta.get("type", "")
+
+                if delta_type == "text_delta":
+                    self._status = SessionStatus.STREAMING
+                    yield TextDelta(text=delta.get("text", ""))
+
+                elif delta_type == "thinking_delta":
+                    self._status = SessionStatus.THINKING
+                    yield ThinkingDelta(text=delta.get("thinking", ""))
+
+                elif delta_type == "input_json_delta":
+                    # Tool input is streamed as partial JSON — we skip deltas
+                    # and let the full ToolUseBlock from AssistantMessage handle it.
+                    pass
+
+        elif isinstance(msg, SystemMessage):
+            data = msg.data if isinstance(msg.data, dict) else {}
+            # The "init" system message carries the SDK session_id as its first
+            # message after connect. Capture it eagerly so sessions that are
+            # still mid-tool (no ResultMessage yet) are still addressable by
+            # their SDK id — otherwise they vanish from /api/sessions on refresh.
+            sid = data.get("session_id")
+            if sid and not self._provider_session_id:
+                self._provider_session_id = sid
+            if msg.subtype == "compact":
+                trigger = data.get("trigger", "manual")
+                summary = data.get("summary", "")
+                yield CompactComplete(trigger=trigger, summary=summary)
+
+        elif isinstance(msg, AssistantMessage):
+            for block in msg.content:
+                if isinstance(block, TextBlock):
+                    yield TextComplete(text=block.text)
+
+                elif isinstance(block, ThinkingBlock):
+                    yield ThinkingComplete(text=block.thinking)
+
+                elif isinstance(block, ToolUseBlock):
+                    self._status = SessionStatus.TOOL_USE
+                    yield ToolUse(
+                        tool_use_id=block.id,
+                        tool_name=block.name,
+                        tool_input=block.input,
+                    )
+
+                elif isinstance(block, ToolResultBlock):
+                    content = block.content
+                    if isinstance(content, list):
+                        content = json.dumps(content)
+                    # Some claude-cli versions emit placeholder ToolResultBlocks
+                    # *inside* the assistant message — empty tool_use_id +
+                    # empty content — alongside the matching ToolUse blocks.
+                    # The real result lands later via a UserMessage carrying
+                    # ``tool_use_result``. Forwarding the placeholder
+                    # broadcasts a ``tool_result`` with empty tool_use_id
+                    # and empty output, which the frontend can't match to
+                    # the running tool block — visible bug: live Bash tool
+                    # cards never show their output. Skip placeholders;
+                    # the UserMessage branch below still delivers the real
+                    # result.
+                    if not block.tool_use_id and not content:
+                        continue
+                    yield ToolResult(
+                        tool_use_id=block.tool_use_id,
+                        output=content or "",
+                        is_error=block.is_error or False,
+                    )
+
+        elif isinstance(msg, UserMessage):
+            # The real tool output lives in ``message.content`` as
+            # ``tool_result`` blocks (parsed by the SDK into
+            # ``ToolResultBlock``s) carrying the real ``tool_use_id``.
+            # ``tool_use_result`` is tool-specific *metadata* in real CLI
+            # output (Bash ``{stdout, stderr, interrupted, ...}``, Edit
+            # ``{filePath, ...}``, MCP: a list) and has no tool_use_id, so
+            # it is only a fallback for messages without result blocks.
+            result_blocks = (
+                [b for b in msg.content if isinstance(b, ToolResultBlock)]
+                if isinstance(msg.content, list) else []
+            )
+            if result_blocks:
+                for block in result_blocks:
+                    yield ToolResult(
+                        tool_use_id=block.tool_use_id or "",
+                        output=tool_result_text(block.content),
+                        is_error=bool(block.is_error),
+                    )
+            # Fallback: no ToolResultBlock.  The SDK normally hands us a
+            # dict, but some tools (notably the bundled web search/fetch
+            # path on certain claude-cli versions) send the raw stdout as a
+            # plain string.  Treat that string as the output rather than
+            # dropping the result silently — losing a tool_result leaves
+            # the UI showing a perpetual spinner.
+            elif msg.tool_use_result:
+                result = msg.tool_use_result
+                if isinstance(result, dict):
+                    content = result.get("content", "")
+                    if isinstance(content, list):
+                        content = json.dumps(content)
+                    yield ToolResult(
+                        tool_use_id=result.get("tool_use_id", "")
+                            or (msg.parent_tool_use_id or ""),
+                        output=str(content),
+                        is_error=result.get("is_error", False),
+                    )
+                elif isinstance(result, str):
+                    yield ToolResult(
+                        tool_use_id=msg.parent_tool_use_id or "",
+                        output=result,
+                        is_error=False,
+                    )
+                elif isinstance(result, list):
+                    # MCP tools: a list of content items.
+                    yield ToolResult(
+                        tool_use_id=msg.parent_tool_use_id or "",
+                        output=tool_result_text(result),
+                        is_error=False,
+                    )
+                else:
+                    logger.warning(
+                        "UserMessage.tool_use_result is unsupported type: %r",
+                        type(result),
+                    )
+
+        elif isinstance(msg, ResultMessage):
+            self._turns += msg.num_turns
+            if msg.total_cost_usd is not None:
+                self._cost += msg.total_cost_usd
+            # Always capture the SDK session ID from ResultMessage
+            if msg.session_id:
+                self._provider_session_id = msg.session_id
+            yield TurnComplete(
+                cost=msg.total_cost_usd,
+                usage=msg.usage or {},
+                num_turns=msg.num_turns,
+                session_id=msg.session_id,
+                is_error=msg.is_error,
+                result=msg.result,
+            )
+
+
+# Backward-compat alias — the historical name is widely imported.
+SessionManager = ClaudeSessionManager

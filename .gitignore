@@ -16,9 +16,9 @@ __pycache__/
 /.manager.json
 /assistant_config.json
 
-# Frontend build output
-frontend/dist/
-frontend/node_modules/
+# Web app build output (apps/web/ has its own .gitignore too)
+apps/web/dist/
+apps/web/node_modules/
 
 # Local logs
 logs/
@@ -41,6 +41,7 @@ context/
 .claude.json
 .claude.json.backup.*
 debug/
+!apps/android/**/src/debug/
 projects/
 todos/
 plugins/
@@ -55,20 +56,24 @@ certs/
 .ruff_cache/
 .mypy_cache/
 
-# Android
-android/.gradle/
-android/app/build/
-android/app/.cxx/
-android/build/
-android/local.properties
-android/**/*.apk
-android/**/*.aab
+# Old Android app, kept under legacy/ since the 2026-10 cutover
+legacy/android/.gradle/
+legacy/android/app/build/
+legacy/android/app/.cxx/
+legacy/android/build/
+legacy/android/local.properties
+legacy/android/**/*.apk
+legacy/android/**/*.aab
 
 # Android Device companion app
-android-device/.gradle/
-android-device/app/build/
-android-device/build/
-android-device/local.properties
-android-device/**/*.apk
-android-device/**/*.aab
-sync/config.env
+apps/android-device/.gradle/
+apps/android-device/app/build/
+apps/android-device/build/
+apps/android-device/local.properties
+apps/android-device/**/*.apk
+apps/android-device/**/*.aab
+infra/sync/config.env
+docs/frontend-refactor/audit/screenshots/
+
+# Android apps (apps/android/, own .gitignore): signing paths/passwords, never committed (spec 14 §1.8)
+apps/android/keystore.properties

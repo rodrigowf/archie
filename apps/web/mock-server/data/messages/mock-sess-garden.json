@@ -1,0 +1,6 @@
+[
+  { "role": "user", "text": "Which vegetables can I plant in October in Rio?", "blocks": [{ "type": "text", "text": "Which vegetables can I plant in October in Rio?", "tool_use_id": null, "tool_name": null, "tool_input": null, "output": null, "is_error": false }], "timestamp": "2026-09-30T18:00:00+00:00" },
+  { "role": "assistant", "text": "| Crop | Days to harvest |\n|---|---|\n| Lettuce | 45 |\n| Okra | 60 |\n| Cherry tomato | 70 |", "blocks": [{ "type": "text", "text": "| Crop | Days to harvest |\n|---|---|\n| Lettuce | 45 |\n| Okra | 60 |\n| Cherry tomato | 70 |", "tool_use_id": null, "tool_name": null, "tool_input": null, "output": null, "is_error": false }], "timestamp": "2026-09-30T18:00:09+00:00" },
+  { "role": "user", "text": "[audio:webm] and herbs?", "blocks": [{ "type": "text", "text": "[audio:webm] and herbs?", "tool_use_id": null, "tool_name": null, "tool_input": null, "output": null, "is_error": false }], "timestamp": "2026-10-02T19:45:00+00:00" },
+  { "role": "assistant", "text": "Basil and chives both do well now.", "blocks": [{ "type": "text", "text": "Basil and chives both do well now.", "tool_use_id": null, "tool_name": null, "tool_input": null, "output": null, "is_error": false }], "timestamp": "2026-10-02T19:45:04+00:00" }
+]

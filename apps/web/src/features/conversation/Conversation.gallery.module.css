@@ -1,0 +1,70 @@
+/* Conversation gallery (dev only). Margins, no gap. */
+.page {
+  color: var(--md-sys-color-on-surface);
+}
+
+.page > * + * {
+  margin-top: var(--app-space-10);
+}
+
+.lead {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.section > * + * {
+  margin-top: var(--app-space-3);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--md-sys-typescale-title-large-size);
+  font-weight: 400;
+  line-height: var(--md-sys-typescale-title-large-line-height);
+}
+
+.title small {
+  display: block;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-medium-size);
+}
+
+.frame {
+  height: 560px;
+  overflow: hidden;
+  border-radius: var(--md-sys-shape-corner-extra-large);
+  background: var(--md-sys-color-surface);
+}
+
+/* Full-viewport screen mode for screenshots: covers the gallery page. */
+.screen {
+  position: fixed;
+  inset: 0; /* lowered to top/right/bottom/left for Safari 12 by postcss-preset-env */
+  z-index: 50;
+  height: var(--app-height);
+  background: var(--md-sys-color-surface);
+}
+
+.live {
+  height: 100%;
+}
+
+.composer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 56px;
+  padding: 0 20px;
+  border-radius: 28px;
+  color: var(--md-sys-color-on-surface-variant);
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.composerText {
+  font-size: var(--md-sys-typescale-body-large-size);
+}
+
+.composerNote {
+  color: var(--md-sys-color-outline);
+  font-size: var(--md-sys-typescale-label-small-size);
+}

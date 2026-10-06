@@ -1,0 +1,153 @@
+/*
+ * Code block (W-08): header with language + Copy, scrollable body, and a token-based
+ * highlight.js theme. Minimal; the UI kit polishes later.
+ */
+.block {
+  overflow: hidden;
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+  padding: 0 var(--app-space-1) 0 var(--app-space-4);
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.lang {
+  overflow: hidden;
+  font-family: var(--md-sys-typescale-code-font);
+  font-size: var(--md-sys-typescale-label-medium-size);
+  line-height: var(--md-sys-typescale-label-medium-line-height);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copy {
+  flex: none;
+  min-width: 48px;
+  min-height: 40px;
+  margin-left: var(--app-space-2);
+  padding: 0 var(--app-space-3);
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: transparent;
+  color: var(--md-sys-color-primary);
+  font-family: var(--md-sys-typescale-label-large-font);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  line-height: var(--md-sys-typescale-label-large-line-height);
+  cursor: pointer;
+  /* stylelint-disable-next-line plugin/no-unsupported-browser-features -- `manipulation` works on iOS 9.3+ */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.copy:hover {
+  background: var(--md-sys-color-primary-hover);
+}
+
+.copy:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
+}
+
+.pre {
+  margin: 0;
+  padding: var(--app-space-3) var(--app-space-4);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  font-family: var(--md-sys-typescale-code-font);
+  font-size: var(--md-sys-typescale-code-size);
+  line-height: var(--md-sys-typescale-code-line-height);
+  letter-spacing: var(--md-sys-typescale-code-tracking);
+  tab-size: 4;
+  white-space: pre;
+}
+
+.pre:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
+}
+
+.code {
+  padding: 0;
+  background: none;
+  font: inherit;
+}
+
+/* highlight.js theme on M3 roles (lowlight class names: `hljs-title function_`, …). */
+/* stylelint-disable selector-class-pattern -- highlight.js class names */
+.code :global(.hljs-comment),
+.code :global(.hljs-quote),
+.code :global(.hljs-meta) {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.code :global(.hljs-comment),
+.code :global(.hljs-quote) {
+  font-style: italic;
+}
+
+.code :global(.hljs-keyword),
+.code :global(.hljs-selector-tag),
+.code :global(.hljs-tag),
+.code :global(.hljs-name),
+.code :global(.hljs-doctag) {
+  color: var(--md-sys-color-primary);
+}
+
+.code :global(.hljs-string),
+.code :global(.hljs-regexp),
+.code :global(.hljs-addition),
+.code :global(.hljs-meta .hljs-string) {
+  color: var(--md-ext-color-success);
+}
+
+.code :global(.hljs-number),
+.code :global(.hljs-literal),
+.code :global(.hljs-symbol),
+.code :global(.hljs-bullet) {
+  color: var(--md-sys-color-tertiary);
+}
+
+.code :global(.hljs-title),
+.code :global(.hljs-section),
+.code :global(.hljs-selector-id),
+.code :global(.hljs-selector-class) {
+  color: var(--md-ext-color-info);
+}
+
+.code :global(.hljs-built_in),
+.code :global(.hljs-type),
+.code :global(.hljs-class .hljs-title),
+.code :global(.hljs-title.class_) {
+  color: var(--md-ext-color-warning);
+}
+
+.code :global(.hljs-attr),
+.code :global(.hljs-attribute),
+.code :global(.hljs-property),
+.code :global(.hljs-variable),
+.code :global(.hljs-template-variable),
+.code :global(.hljs-params) {
+  color: var(--md-sys-color-on-surface);
+}
+
+.code :global(.hljs-deletion) {
+  color: var(--md-sys-color-error);
+}
+
+.code :global(.hljs-emphasis) {
+  font-style: italic;
+}
+
+.code :global(.hljs-strong) {
+  font-weight: 700;
+}
+/* stylelint-enable selector-class-pattern */

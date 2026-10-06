@@ -1,0 +1,121 @@
+{
+  "name": "background_notification_wake_turn",
+  "description": "Orchestrator wake turns: a racing empty wake (streaming then idle, no content) leaves no trace; a wake turn with content gets a background notice and its own run.",
+  "source": "synthetic",
+  "session": {
+    "kind": "orchestrator",
+    "provider": null,
+    "local_id": "O1",
+    "sdk_id": "O1"
+  },
+  "initial_history": {
+    "messages": [
+      {
+        "role": "user",
+        "text": "Start the build agent",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Start the build agent",
+            "tool_use_id": null,
+            "tool_name": null,
+            "tool_input": null,
+            "output": null,
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-10-03T12:00:00+00:00"
+      },
+      {
+        "role": "assistant",
+        "text": "Started the build agent; I'll report back.",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Started the build agent; I'll report back.",
+            "tool_use_id": null,
+            "tool_name": null,
+            "tool_input": null,
+            "output": null,
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-10-03T12:00:00+00:00"
+      }
+    ],
+    "total_count": 2,
+    "has_more": false,
+    "start_index": 0
+  },
+  "events": [
+    {
+      "type": "status",
+      "status": "streaming"
+    },
+    {
+      "type": "status",
+      "status": "idle"
+    },
+    {
+      "type": "status",
+      "status": "streaming"
+    },
+    {
+      "type": "text_delta",
+      "text": "The build"
+    },
+    {
+      "type": "text_complete",
+      "text": "The build finished: 0 errors."
+    },
+    {
+      "type": "turn_complete",
+      "input_tokens": 3000,
+      "output_tokens": 40
+    },
+    {
+      "type": "status",
+      "status": "idle"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "Start the build agent",
+        "origin": "history",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Started the build agent; I'll report back.",
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "kind": "notice",
+        "notice": "background",
+        "text": ""
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "The build finished: 0 errors.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "state": {
+      "status": "idle",
+      "in_turn": false,
+      "context_tokens": 3000
+    }
+  }
+}

@@ -1,0 +1,194 @@
+{
+  "name": "history_load_live_continuation",
+  "description": "Cold open of a busy session: REST tail page ends with a tool_use whose result is not written yet; it stays running (pool status tool_use). Live frames continue the same run.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-7",
+    "live_status": "tool_use"
+  },
+  "initial_history": {
+    "messages": [
+      {
+        "role": "user",
+        "text": "Refactor utils.py",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Refactor utils.py",
+            "tool_use_id": null,
+            "tool_name": null,
+            "tool_input": null,
+            "output": null,
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-10-03T12:00:00+00:00"
+      },
+      {
+        "role": "assistant",
+        "text": "I'll read the file first.",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "I'll read the file first.",
+            "tool_use_id": null,
+            "tool_name": null,
+            "tool_input": null,
+            "output": null,
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-10-03T12:00:00+00:00"
+      },
+      {
+        "role": "assistant",
+        "text": "",
+        "blocks": [
+          {
+            "type": "tool_use",
+            "text": null,
+            "tool_use_id": "t1",
+            "tool_name": "Read",
+            "tool_input": {
+              "file_path": "utils.py"
+            },
+            "output": null,
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-10-03T12:00:00+00:00"
+      },
+      {
+        "role": "user",
+        "text": "",
+        "blocks": [
+          {
+            "type": "tool_result",
+            "text": null,
+            "tool_use_id": "t1",
+            "tool_name": null,
+            "tool_input": null,
+            "output": "def f(): ...",
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-10-03T12:00:00+00:00"
+      },
+      {
+        "role": "assistant",
+        "text": "",
+        "blocks": [
+          {
+            "type": "tool_use",
+            "text": null,
+            "tool_use_id": "t2",
+            "tool_name": "Bash",
+            "tool_input": {
+              "command": "pytest -q",
+              "description": "Run tests"
+            },
+            "output": null,
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-10-03T12:00:00+00:00"
+      }
+    ],
+    "total_count": 5,
+    "has_more": false,
+    "start_index": 0
+  },
+  "events": [
+    {
+      "type": "tool_result",
+      "tool_use_id": "t2",
+      "output": "3 passed",
+      "is_error": false,
+      "seq": 40,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_delta",
+      "text": "All",
+      "seq": 41,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_complete",
+      "text": "All tests pass.",
+      "seq": 42,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "usage": {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 990,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 50
+      },
+      "input_tokens": 1000,
+      "output_tokens": 50,
+      "num_turns": 1,
+      "session_id": "sdk-7",
+      "is_error": false,
+      "result": "",
+      "seq": 43,
+      "stream_id": "L1:1759500000000"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "Refactor utils.py",
+        "origin": "history",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "I'll read the file first.",
+            "streaming": false
+          },
+          {
+            "type": "tool",
+            "tool_use_id": "t1",
+            "tool_name": "Read",
+            "tool_input": {
+              "file_path": "utils.py"
+            },
+            "status": "done",
+            "output": "def f(): ..."
+          },
+          {
+            "type": "tool",
+            "tool_use_id": "t2",
+            "tool_name": "Bash",
+            "tool_input": {
+              "command": "pytest -q",
+              "description": "Run tests"
+            },
+            "status": "done",
+            "output": "3 passed"
+          },
+          {
+            "type": "text",
+            "text": "All tests pass.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "state": {
+      "status": "idle",
+      "in_turn": false
+    }
+  }
+}

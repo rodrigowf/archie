@@ -1,0 +1,38 @@
+# Core dependencies — required for the backend regardless of which session
+# harness or orchestrator backend you use.
+#
+# Provider-specific SDKs live in the per-extra files alongside this one:
+#   requirements-claude.txt   — claude-agent-sdk (Claude Code harness)
+#   requirements-anthropic.txt — anthropic SDK (Anthropic API orchestrator)
+#   requirements-openai.txt   — openai SDK (OpenAI / Qwen / Gemini-via-OpenAI orchestrator + voice)
+#
+# install.sh picks which extras to install based on the harness and
+# orchestrator-backend prompts.  Pip-install any combination of them
+# directly if you'd rather skip the interactive installer.
+
+# API server
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+starlette>=0.45.0
+httpx>=0.27.0
+
+# Vector search & embeddings.
+# chromadb is pinned to a narrow range because:
+#   - 1.5.x has a Rust-based HNSW reader that can SIGSEGV on corrupt
+#     segments rather than recover (see chroma#7069, #6975).
+#   - We tune hnsw:sync_threshold=200 and rely on the single-writer
+#     warm search-server (shared/scripts/search-server.py) to avoid
+#     concurrent PersistentClient opens, which the maintainers state
+#     is not safe (chroma#3792).
+# Different machines have shipped with different versions historically
+# (laptop 1.4.x, Jetson 1.5.x). Keep them in lockstep going forward.
+chromadb>=1.5.0,<1.6.0
+sentence-transformers>=3.0.0
+
+# Background file watching
+watchfiles>=1.0.0
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.24.0
+pytest-timeout>=2.3.0

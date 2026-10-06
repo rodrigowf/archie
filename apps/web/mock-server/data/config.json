@@ -1,0 +1,22 @@
+{
+  "working_directory": "/home/mock/project",
+  "working_directory_history": [
+    { "id": "/home/mock/project", "path": "/home/mock/project", "label": "Server (local)", "ssh_host": null, "ssh_user": null, "ssh_key": null, "claude_config_dir": null },
+    { "id": "192.0.2.10:/home/mock/project", "path": "/home/mock/project", "label": "Laptop", "ssh_host": "192.0.2.10", "ssh_user": "mock", "ssh_key": null, "claude_config_dir": "/home/mock/project/.claude_config" }
+  ],
+  "enabled_mcps": [],
+  "chrome_extension": false,
+  "provider": "claude",
+  "default_model": "claude-sonnet-4-5-20250929",
+  "summarizer_model": "",
+  "harness_model": { "claude": "", "qwen": "" },
+  "default_voice_provider": "qwen",
+  "default_voice_model": "qwen3.5-omni-plus-realtime",
+  "default_voice_name": "Aiden",
+  "default_voice_transcription_language": "",
+  "default_voice_endpoint": "aistudio",
+  "voice_recording_enabled": false,
+  "voice_vad_threshold": 0.28,
+  "voice_vad_min_silence_ms": 1800,
+  "voice_mic_gain": 1.0
+}

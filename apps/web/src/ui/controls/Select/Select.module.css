@@ -1,0 +1,125 @@
+/* Select: TextField frame + native picker, or the menu-styled listbox (mockups `.menu`, `.mi`). */
+.select {
+  position: relative;
+}
+
+.native {
+  padding-right: 0;
+  cursor: pointer;
+}
+
+.native::-ms-expand {
+  display: none;
+}
+
+.native option {
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
+}
+
+.native:disabled {
+  cursor: default;
+}
+
+/* The arrow flips while the menu is open. */
+.open svg[data-icon="arrow_drop_down"] {
+  transform: rotate(180deg);
+}
+
+.list {
+  position: absolute;
+  top: 60px;
+  right: 0;
+  left: 0;
+  z-index: 20;
+  max-height: 296px;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: var(--md-sys-shape-corner-large);
+  background: var(--md-sys-color-surface-container);
+  box-shadow: var(--md-sys-elevation-level2);
+  list-style: none;
+}
+
+.option {
+  display: flex;
+  position: relative;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px 0 8px;
+  border-radius: 10px;
+  color: var(--md-sys-color-on-surface);
+  font-size: var(--md-sys-typescale-label-large-size);
+  line-height: 20px;
+  letter-spacing: var(--md-sys-typescale-body-medium-tracking);
+  cursor: pointer;
+  user-select: none;
+}
+
+.option + .option {
+  margin-top: 2px;
+}
+
+.option::before {
+  content: "";
+  position: absolute;
+  inset: 0; /* lowered to top/right/bottom/left for Safari 12 by postcss-preset-env */
+  border-radius: inherit;
+  background: currentcolor;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.active::before {
+  opacity: var(--md-sys-state-hover-opacity);
+}
+
+.option[aria-selected="true"] {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.option[aria-disabled="true"] {
+  color: var(--md-sys-color-on-surface-disabled);
+  cursor: default;
+}
+
+.option[aria-disabled="true"]::before {
+  display: none;
+}
+
+.check {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  margin-right: 8px;
+}
+
+.optionText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 10px 0;
+}
+
+.optionText > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.description {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: var(--md-sys-typescale-body-small-line-height);
+}
+
+.option[aria-selected="true"] .description {
+  color: inherit;
+}
+
+/* Low-end keeps menu shadows (spec 13 §2.7): nothing to override. */

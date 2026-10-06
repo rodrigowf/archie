@@ -1,0 +1,279 @@
+import { useState } from "react";
+import type { SessionInfo, VisualizationInfo, MemoryNode } from "../types";
+import { useTabsContext, getTabStatusIcon, vizTabId } from "../context/TabsContext";
+import { SessionItem } from "./SessionItem";
+import { VizItem } from "./VizItem";
+import { MemoryTree } from "./MemoryTree";
+import { generateUUID } from "../utils/uuid";
+
+interface Props {
+  sessions: SessionInfo[];
+  /** HTML artifacts under context/public/, shown in the Visualizations tab. */
+  visualizations: VisualizationInfo[];
+  onRenameVisualization: (path: string, title: string) => void;
+  onRefreshVisualizations: () => void;
+  /** Markdown tree under context/memory/, shown in the Memory tab. */
+  memoryTree: MemoryNode[];
+  onRefreshMemory: () => void;
+  /** True while a delete is in flight — dims the list and shows a spinner. */
+  deleting?: boolean;
+  onDelete: (id: string) => void;
+  onRename: (id: string, title: string) => void;
+  onDuplicate: (id: string) => void;
+  onNew: () => void;
+  onNewOrchestrator: () => void;
+  onSelectOrchestrator: (id: string, title: string) => void;
+  onOpenConfig: () => void;
+  isOpen?: boolean;
+  onClose?: () => void;
+}
+
+export function Sidebar({ sessions, visualizations, onRenameVisualization, onRefreshVisualizations, memoryTree, onRefreshMemory, deleting, onDelete, onRename, onDuplicate, onNew, onNewOrchestrator, onSelectOrchestrator, onOpenConfig, isOpen, onClose }: Props) {
+  const { tabs, activeTabId, openTab, openVizTab, openMemoryTab, switchTab, findTabByResumeId } = useTabsContext();
+  // Which list the sidebar is showing. Local UI state — nothing else needs it.
+  const [section, setSection] = useState<"sessions" | "memory" | "visualizations">("sessions");
+
+  // Which memory files are open in tabs, for the tree's open/active styling.
+  const openMemoryPaths = new Set(
+    tabs.map((t) => t.memoryPath).filter((p): p is string => !!p)
+  );
+  const activeMemoryPath = activeTabId
+    ? tabs.find((t) => t.sessionId === activeTabId)?.memoryPath
+    : undefined;
+
+  const handleSelect = (sdkId: string, localId?: string) => {
+    // Priority 1: If we know the local_id (pool-live session), find tab directly by sessionId.
+    // Priority 2: Find a tab resumed with this SDK session ID (tab.resumeSdkId === sdkId).
+    // Priority 3: Find a tab whose sessionId matches (e.g., orchestrator where local_id == sdkId).
+    const existingTab =
+      (localId && tabs.find((t) => t.sessionId === localId)) ??
+      findTabByResumeId(sdkId) ??
+      tabs.find((t) => t.sessionId === sdkId);
+
+    if (existingTab) {
+      switchTab(existingTab.sessionId);
+      onClose?.();
+      return;
+    }
+
+    const session = sessions.find((s) => s.session_id === sdkId);
+    if (session?.is_orchestrator) {
+      // If an orchestrator tab is already open (e.g., reconnected from pool with a
+      // different local_id), switch to it instead of trying to open a second one.
+      const existingOrchestratorTab = tabs.find((t) => t.isOrchestrator);
+      if (existingOrchestratorTab) {
+        switchTab(existingOrchestratorTab.sessionId);
+        onClose?.();
+        return;
+      }
+      onSelectOrchestrator(sdkId, session.title || "Untitled");
+    } else {
+      const newLocalId = generateUUID();
+      openTab(newLocalId, session?.title || "Untitled", false, sdkId);
+    }
+    onClose?.();
+  };
+
+  // Build indicator maps for the sidebar.
+  // A session is "open" (dot shown) if any tab corresponds to it.
+  // We match tabs by resumeSdkId OR by local_id (for orchestrator-opened agent tabs
+  // where tab.sessionId === local_id and the session list exposes local_id).
+  const sdkTabStatusMap = new Map<string, string | null>();
+  const sdkTabOpenSet = new Set<string>();
+  const activeTab = activeTabId ? tabs.find((t) => t.sessionId === activeTabId) : null;
+
+  // Build a quick lookup: local_id → sdk_session_id from live sessions
+  const localToSdk = new Map<string, string>();
+  for (const s of sessions) {
+    if (s.local_id) localToSdk.set(s.local_id, s.session_id);
+  }
+
+  for (const tab of tabs) {
+    const icon = getTabStatusIcon(tab);
+    if (tab.resumeSdkId) {
+      sdkTabStatusMap.set(tab.resumeSdkId, icon);
+      sdkTabOpenSet.add(tab.resumeSdkId);
+    }
+    // For pool-live tabs (local_id keyed): look up their sdk_session_id via the sessions list
+    const sdkId = localToSdk.get(tab.sessionId);
+    if (sdkId) {
+      sdkTabStatusMap.set(sdkId, icon);
+      sdkTabOpenSet.add(sdkId);
+    }
+  }
+
+  return (
+    <>
+    {isOpen && <div className="sidebar-backdrop" onClick={onClose} />}
+    <aside className={`sidebar${isOpen ? " sidebar-open" : ""}`}>
+      <div className="sidebar-header">
+        <h2 className="sidebar-title">
+          {section === "sessions" ? "Sessions" : section === "memory" ? "Memory" : "Visualizations"}
+        </h2>
+        <div className="sidebar-header-actions">
+          {section === "sessions" ? (
+            <>
+              <button
+                className="new-orchestrator-btn"
+                onClick={onNewOrchestrator}
+                title="New orchestrator"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                </svg>
+              </button>
+              <button className="new-session-btn" onClick={onNew} title="New session">
+                +
+              </button>
+            </>
+          ) : (
+            // No file watcher on the backend, so an explicit refresh is the
+            // way to pick up a file an agent just wrote.
+            <button
+              className="new-orchestrator-btn"
+              onClick={section === "memory" ? onRefreshMemory : onRefreshVisualizations}
+              title={section === "memory" ? "Refresh memory tree" : "Refresh visualizations"}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M23 4v6h-6M1 20v-6h6" />
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+              </svg>
+            </button>
+          )}
+        </div>
+      </div>
+
+      <button className="sidebar-config-btn" onClick={onOpenConfig} title="Configuration">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        </svg>
+        Configuration
+      </button>
+
+      {/* Sits directly on top of the list it switches. */}
+      <div className="sidebar-tabs" role="tablist">
+        <button
+          role="tab"
+          aria-selected={section === "sessions"}
+          className={`sidebar-tab${section === "sessions" ? " active" : ""}`}
+          onClick={() => setSection("sessions")}
+        >
+          Sessions
+          <span className="sidebar-tab-count">{sessions.length}</span>
+        </button>
+        <button
+          role="tab"
+          aria-selected={section === "memory"}
+          className={`sidebar-tab${section === "memory" ? " active" : ""}`}
+          onClick={() => setSection("memory")}
+        >
+          Memory
+          <span className="sidebar-tab-count">{countFiles(memoryTree)}</span>
+        </button>
+        <button
+          role="tab"
+          aria-selected={section === "visualizations"}
+          className={`sidebar-tab${section === "visualizations" ? " active" : ""}`}
+          onClick={() => setSection("visualizations")}
+        >
+          Visuals
+          <span className="sidebar-tab-count">{visualizations.length}</span>
+        </button>
+      </div>
+
+      <div className="session-list-wrap">
+        <div className={`session-list${deleting ? " session-list--busy" : ""}`}>
+          {section === "sessions" ? (
+            <>
+              {sessions.map((s) => {
+                // A session item is active if the current tab matches by resumeSdkId or by local_id
+                const isActive =
+                  activeTab?.resumeSdkId === s.session_id ||
+                  (!!s.local_id && activeTab?.sessionId === s.local_id);
+                return (
+                  <SessionItem
+                    key={s.session_id}
+                    session={s}
+                    active={isActive}
+                    tabOpen={sdkTabOpenSet.has(s.session_id)}
+                    tabStatus={sdkTabStatusMap.get(s.session_id) ?? undefined}
+                    onClick={() => handleSelect(s.session_id, s.local_id)}
+                    onDelete={() => onDelete(s.session_id)}
+                    onRename={(title) => onRename(s.session_id, title)}
+                    onDuplicate={() => onDuplicate(s.session_id)}
+                  />
+                );
+              })}
+              {sessions.length === 0 && (
+                <div className="sidebar-empty">No sessions yet</div>
+              )}
+            </>
+          ) : section === "memory" ? (
+            <>
+              {memoryTree.length > 0 ? (
+                <MemoryTree
+                  nodes={memoryTree}
+                  activePath={activeMemoryPath}
+                  openPaths={openMemoryPaths}
+                  onSelect={(node) => {
+                    openMemoryTab(node.path, node.name.replace(/\.md$/i, ""));
+                    onClose?.();
+                  }}
+                />
+              ) : (
+                <div className="sidebar-empty">
+                  No memory files.
+                  <br />
+                  Markdown under context/memory/ appears here.
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              {visualizations.map((v) => {
+                const tabId = vizTabId(v.path);
+                return (
+                  <VizItem
+                    key={v.path}
+                    viz={v}
+                    active={activeTabId === tabId}
+                    tabOpen={tabs.some((t) => t.sessionId === tabId)}
+                    onClick={() => {
+                      openVizTab(v.path, v.url, v.title);
+                      onClose?.();
+                    }}
+                    onRename={(title) => onRenameVisualization(v.path, title)}
+                  />
+                );
+              })}
+              {visualizations.length === 0 && (
+                <div className="sidebar-empty">
+                  No visualizations yet.
+                  <br />
+                  HTML files under context/public/ appear here.
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        {deleting && section === "sessions" && (
+          <div className="session-list-overlay" aria-busy="true" aria-live="polite">
+            <div className="session-list-spinner" aria-hidden="true" />
+            <span className="session-list-overlay-label">Deleting…</span>
+          </div>
+        )}
+      </div>
+    </aside>
+    </>
+  );
+}
+
+/** Total markdown files in the tree — the Memory tab's count badge. */
+function countFiles(nodes: MemoryNode[]): number {
+  return nodes.reduce(
+    (sum, n) => sum + (n.children ? countFiles(n.children) : 1),
+    0
+  );
+}

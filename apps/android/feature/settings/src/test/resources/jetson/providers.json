@@ -1,0 +1,1 @@
+{"providers":[{"id":"claude","label":"Claude Code","description":"Anthropic's official Claude Code CLI (the canonical harness)."},{"id":"qwen","label":"Qwen Code","description":"Alibaba's Qwen Code CLI (open weights; OAuth or DashScope API key)."},{"id":"gemini","label":"Gemini CLI","description":"Google's Gemini CLI — Node-based, OAuth via Google account or GEMINI_API_KEY."}]}

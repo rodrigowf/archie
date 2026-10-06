@@ -1,0 +1,615 @@
+/*
+ * Settings (W-13). Mockups phone (e) Settings home and (f) Audio detail: grouped rows on
+ * surface-container with 20 px outer / 4 px inner corners and 2 px separation, labelled fields,
+ * a scope chip. No flex gap (Safari 12): spacing is margins.
+ */
+
+/* ---------- screen layouts ---------- */
+
+.home {
+  padding: 0 var(--app-space-4) var(--app-space-6);
+}
+
+.twoPane {
+  display: flex;
+  align-items: flex-start;
+  min-height: 100%;
+}
+
+.listPane {
+  position: sticky;
+  top: 0;
+  flex: 0 0 360px;
+  width: 360px;
+  padding: 0 var(--app-space-2) var(--app-space-6) var(--app-space-4);
+}
+
+.detailPane {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 760px;
+  padding: var(--app-space-2) var(--app-space-6) var(--app-space-10);
+}
+
+.detailHeader {
+  margin-bottom: var(--app-space-4);
+}
+
+.detailTitle {
+  margin: 0 0 var(--app-space-2);
+  color: var(--md-sys-color-on-surface);
+}
+
+/* Compact / medium: the detail page is pushed over the Settings screen (its own app bar). */
+.pushed {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  background: var(--md-sys-color-surface);
+  outline: none;
+}
+
+.pushedInline {
+  position: relative;
+  min-height: 480px;
+}
+
+.pushedBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.pushedContent {
+  padding: 0 var(--app-space-4) var(--app-space-8);
+}
+
+.pushedScope {
+  padding: 0 0 var(--app-space-4) var(--app-space-1);
+}
+
+/* ---------- home groups ---------- */
+
+.group + .group {
+  margin-top: var(--app-space-2);
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0;
+  padding: 18px var(--app-space-4) var(--app-space-2);
+  font-size: var(--md-sys-typescale-label-medium-size);
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--md-sys-color-primary);
+}
+
+.groupMeta {
+  display: inline-flex;
+  align-items: center;
+  margin-left: var(--app-space-2);
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  text-transform: none;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.groupMeta > * + * {
+  margin-left: 6px;
+}
+
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rowItem + .rowItem {
+  margin-top: 2px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 56px;
+  padding: var(--app-space-2) 10px var(--app-space-2) var(--app-space-4);
+  border: 0;
+  border-radius: 4px;
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.rowItem:first-child > .row {
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+}
+
+.rowItem:last-child > .row {
+  border-bottom-left-radius: 20px;
+  border-bottom-right-radius: 20px;
+}
+
+.row[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.rowSelected {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.rowIcon {
+  flex: 0 0 auto;
+  margin-right: var(--app-space-4);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.rowText {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.rowTitle {
+  font-size: var(--md-sys-typescale-body-large-size);
+  line-height: 22px;
+}
+
+.rowSummary {
+  overflow: hidden;
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.rowChevron {
+  flex: 0 0 auto;
+  margin-left: var(--app-space-2);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* ---------- fields ---------- */
+
+.scope {
+  max-width: 100%;
+}
+
+.stackLabel {
+  margin: 0 0 var(--app-space-2) var(--app-space-1);
+  font-size: var(--md-sys-typescale-title-small-size);
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.fieldStack > * + * {
+  margin-top: 2px;
+}
+
+.listGap {
+  margin-top: var(--app-space-2);
+}
+
+.field {
+  padding: var(--app-space-4) 18px 14px;
+  border-radius: 4px;
+  background: var(--md-sys-color-surface-container);
+}
+
+.fieldStack > .field:first-child {
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+}
+
+.fieldStack > .field:last-child {
+  border-bottom-left-radius: 20px;
+  border-bottom-right-radius: 20px;
+}
+
+.fieldRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 24px;
+}
+
+.fieldLabelCol {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.fieldLabel {
+  display: block;
+  font-size: var(--md-sys-typescale-body-large-size);
+  line-height: 22px;
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface);
+}
+
+.fieldValue {
+  flex: 0 0 auto;
+  margin-left: var(--app-space-3);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--md-sys-color-primary);
+}
+
+.fieldTrailing {
+  flex: 0 0 auto;
+  margin-left: var(--app-space-3);
+}
+
+.fieldControl > * + * {
+  margin-top: var(--app-space-3);
+}
+
+.help {
+  margin: 4px 0 0;
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: 16px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.infoButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: -4px 0 -4px 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.infoOpen {
+  color: var(--md-sys-color-primary);
+}
+
+.details {
+  margin-top: var(--app-space-2);
+  padding: var(--app-space-2) var(--app-space-3);
+  border-radius: var(--md-sys-shape-corner-small);
+  background: var(--md-sys-color-surface-container-high);
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: 18px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.details code,
+.mono {
+  font-family: var(--md-ref-typeface-code);
+  font-size: 0.92em;
+}
+
+.loading {
+  margin: var(--app-space-4) 0;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* ---------- notices ---------- */
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  padding: var(--app-space-3) var(--app-space-2) var(--app-space-3) var(--app-space-4);
+  border-radius: var(--md-sys-shape-corner-large);
+  background: var(--md-ext-color-info-container);
+  color: var(--md-ext-color-on-info-container);
+}
+
+.notice-warning {
+  background: var(--md-ext-color-warning-container);
+  color: var(--md-ext-color-on-warning-container);
+}
+
+.notice-error {
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+}
+
+.noticeIcon {
+  flex: 0 0 auto;
+  margin: 2px var(--app-space-3) 0 0;
+}
+
+.noticeBody {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-right: var(--app-space-2);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+
+.noticeTitle {
+  margin: 0;
+}
+
+.noticeText p {
+  margin: 0;
+}
+
+.noticeAction {
+  margin-top: var(--app-space-2);
+}
+
+/* ---------- lists inside pages (working directories, MCP servers) ---------- */
+
+.listRow {
+  display: flex;
+  align-items: center;
+  min-height: 56px;
+  padding: var(--app-space-2) var(--app-space-1) var(--app-space-2) var(--app-space-3);
+  border-radius: 4px;
+  background: var(--md-sys-color-surface-container);
+}
+
+.listRowMain {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+}
+
+.listRowText {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  margin-left: var(--app-space-3);
+}
+
+.listRowTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+  font-size: var(--md-sys-typescale-body-large-size);
+  line-height: 22px;
+  color: var(--md-sys-color-on-surface);
+}
+
+/* the name truncates; the badges wrap below it on narrow screens */
+.listRowTitle > :first-child {
+  overflow: hidden;
+  max-width: 100%;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.listRowTitle > * + * {
+  margin-left: var(--app-space-2);
+}
+
+.listRowSub {
+  overflow: hidden;
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.listRowActions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  margin-left: var(--app-space-1);
+}
+
+.badge {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--md-sys-color-secondary-container);
+  font-size: var(--md-sys-typescale-label-small-size);
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--md-sys-color-on-secondary-container);
+  vertical-align: 2px;
+}
+
+.badgeActive {
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+}
+
+.radio {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--md-sys-color-primary);
+}
+
+.actionsRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: var(--app-space-3);
+}
+
+.actionsRow > * {
+  margin: 0 var(--app-space-2) var(--app-space-2) 0;
+}
+
+.formGrid > * + * {
+  margin-top: var(--app-space-4);
+}
+
+.formRow {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.formRow > * {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.formRow > * + * {
+  margin-left: var(--app-space-3);
+}
+
+@media (--compact) {
+  .formRow > * + * {
+    margin-top: var(--app-space-4);
+    margin-left: 0;
+  }
+}
+
+.licenses {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: 18px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.licenses li + li {
+  margin-top: var(--app-space-1);
+}
+
+.licenses b {
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface);
+}
+
+.kv {
+  margin: 0;
+}
+
+.kv > div {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+}
+
+.kv > div + div {
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.kv dt {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.kv dd {
+  margin: 0 0 0 var(--app-space-3);
+  overflow-wrap: anywhere;
+  text-align: right;
+  color: var(--md-sys-color-on-surface);
+}
+
+/* Working-directory radio list (rows sit inside RadioGroup's own items wrapper). */
+.wdList .listRow {
+  align-self: stretch;
+}
+
+.wdList .listRow + .listRow {
+  margin-top: 2px;
+}
+
+.wdList .listRow:first-child {
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+}
+
+.wdList .listRow:last-child {
+  border-bottom-left-radius: 20px;
+  border-bottom-right-radius: 20px;
+}
+
+.wdList .listRowMain {
+  cursor: pointer;
+}
+
+/* ---------- session settings sheet ---------- */
+
+.sessionBody {
+  padding-bottom: var(--app-space-2);
+}
+
+.sessionBody > * + * {
+  margin-top: var(--app-space-4);
+}
+
+.sessionFooter {
+  width: 100%;
+}
+
+.sessionFooter .actionsRow {
+  justify-content: flex-end;
+  margin-top: var(--app-space-2);
+}
+
+.sessionFooter .actionsRow > * {
+  margin: 0 0 0 var(--app-space-2);
+}
+
+/* ---------- contextual overrides (after the base rules: no-descending-specificity) ---------- */
+
+.rowSelected .rowIcon,
+.rowSelected .rowChevron,
+.rowSelected .rowSummary {
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.stackBlock + .stackBlock,
+.notice + .stackBlock,
+.stackBlock + .notice,
+.notice + .notice {
+  margin-top: var(--app-space-4);
+}
+
+.stackBlock > .help {
+  margin: 0 0 0 var(--app-space-1);
+}
+
+.details p {
+  margin: 0;
+}
+
+.details p + p {
+  margin-top: var(--app-space-1);
+}
+
+.noticeTitle + .noticeText,
+.noticeText + .noticeAction,
+.noticeTitle + .noticeAction {
+  margin-top: var(--app-space-1);
+}
+
+.fieldStack > .listRow:first-child {
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+}
+
+.fieldStack > .listRow:last-child {
+  border-bottom-left-radius: 20px;
+  border-bottom-right-radius: 20px;
+}
+
+.fieldRow + .fieldControl,
+.fieldControl + .help {
+  margin-top: var(--app-space-2);
+}

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Usage: ./start.sh
-# Description: Start the assistant backend (which also serves the built frontend from frontend/dist)
+# Description: Start the assistant backend (which also serves the built web app from apps/web/dist)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,7 +22,7 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 # Start backend in background (setsid ensures survival if parent shell exits)
 echo -e "${GREEN}Starting backend (port 8765)...${NC}"
-setsid "$SCRIPT_DIR/default-scripts/run.sh" -m uvicorn api.app:create_app --factory --host 0.0.0.0 --port 8765 \
+setsid "$SCRIPT_DIR/shared/scripts/run.sh" -m uvicorn api.app:create_app --factory --host 0.0.0.0 --port 8765 \
   > "$SCRIPT_DIR/logs/api_${TIMESTAMP}.log" 2>&1 &
 BACKEND_PID=$!
 
@@ -30,15 +30,15 @@ BACKEND_PID=$!
 sleep 2
 
 # # Start frontend in background
-# echo -e "${GREEN}Starting frontend (port 5432)...${NC}"
-# cd frontend
+# echo -e "${GREEN}Starting frontend (port 5450)...${NC}"
+# cd apps/web
 # setsid npm run dev > "$SCRIPT_DIR/logs/frontend_${TIMESTAMP}.log" 2>&1 &
 # FRONTEND_PID=$!
 # cd "$SCRIPT_DIR"
 
 echo ""
 echo -e "${GREEN}✓ Backend running at:${NC}  http://localhost:8765"
-# echo -e "${GREEN}✓ Frontend running at:${NC} https://localhost:5432"
+# echo -e "${GREEN}✓ Frontend running at:${NC} https://localhost:5450"
 echo -e "${BLUE}Logs:${NC} logs/api_${TIMESTAMP}.log"
 echo ""
 echo "Press Ctrl+C to stop the server"

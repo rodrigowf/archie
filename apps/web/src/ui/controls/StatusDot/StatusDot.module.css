@@ -1,0 +1,38 @@
+/* Status indicator (mockups `.dot`, `.spin`, `.warn-i`). */
+.status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  vertical-align: middle;
+}
+
+.labelled {
+  justify-content: flex-start;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: var(--md-sys-typescale-body-medium-line-height);
+}
+
+.text {
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--md-ext-color-success);
+}
+
+.off {
+  background: var(--md-sys-color-outline);
+}
+
+.warn {
+  color: var(--md-ext-color-warning);
+}

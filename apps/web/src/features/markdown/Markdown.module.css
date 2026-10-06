@@ -1,0 +1,242 @@
+/*
+ * Prose styles for rendered markdown (W-08). Minimal and token-based; the UI kit polishes later.
+ * Spacing is margin-based (no flex gap, spec 13 §2.1). Element selectors are scoped under .root.
+ */
+.root {
+  min-width: 0;
+  color: inherit;
+  font-family: var(--md-sys-typescale-body-large-font);
+  font-size: var(--md-sys-typescale-body-large-size);
+  font-weight: var(--md-sys-typescale-body-large-weight);
+  line-height: var(--md-sys-typescale-body-large-line-height);
+  letter-spacing: var(--md-sys-typescale-body-large-tracking);
+  overflow-wrap: break-word;
+}
+
+/* Block rhythm: the owl ignores the "\n" text nodes react-markdown emits between blocks. */
+.root > * {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.root > * + * {
+  margin-top: var(--app-space-3);
+}
+
+.root > h1 + *,
+.root > h2 + *,
+.root > h3 + *,
+.root > h4 + *,
+.root > h5 + *,
+.root > h6 + * {
+  margin-top: var(--app-space-2);
+}
+
+.root > * + h1,
+.root > * + h2,
+.root > * + h3,
+.root > * + h4,
+.root > * + h5,
+.root > * + h6 {
+  margin-top: var(--app-space-5);
+}
+
+.root h1 {
+  font-family: var(--md-sys-typescale-headline-small-font);
+  font-size: var(--md-sys-typescale-headline-small-size);
+  font-weight: 500;
+  line-height: var(--md-sys-typescale-headline-small-line-height);
+}
+
+.root h2 {
+  font-family: var(--md-sys-typescale-title-large-font);
+  font-size: var(--md-sys-typescale-title-large-size);
+  font-weight: 500;
+  line-height: var(--md-sys-typescale-title-large-line-height);
+}
+
+.root h3 {
+  font-family: var(--md-sys-typescale-title-medium-font);
+  font-size: var(--md-sys-typescale-title-medium-size);
+  font-weight: var(--md-sys-typescale-title-medium-weight);
+  line-height: var(--md-sys-typescale-title-medium-line-height);
+}
+
+.root h4,
+.root h5,
+.root h6 {
+  font-family: var(--md-sys-typescale-title-small-font);
+  font-size: var(--md-sys-typescale-title-small-size);
+  font-weight: var(--md-sys-typescale-title-small-weight);
+  line-height: var(--md-sys-typescale-title-small-line-height);
+}
+
+/* Quotes */
+.root blockquote {
+  margin-right: 0;
+  margin-left: 0;
+  padding-left: var(--app-space-3);
+  border-left: 4px solid var(--md-sys-color-outline-variant);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.root blockquote > * {
+  margin: 0;
+}
+
+.root blockquote > * + * {
+  margin-top: var(--app-space-2);
+}
+
+/* Lists */
+.root ul,
+.root ol {
+  padding-left: 1.5em;
+}
+
+.root li > p,
+.root li > ul,
+.root li > ol {
+  margin: 0;
+}
+
+.root li + li,
+.root li > ul,
+.root li > ol,
+.root li > p + * {
+  margin-top: var(--app-space-1);
+}
+
+.root :global(.contains-task-list) {
+  padding-left: 0.25em;
+  list-style: none;
+}
+
+.root :global(.contains-task-list .contains-task-list) {
+  padding-left: 1.5em;
+}
+
+.root :global(.task-list-item) {
+  list-style: none;
+}
+
+.taskBox {
+  display: inline-block;
+  position: relative;
+  box-sizing: border-box;
+  width: 1em;
+  height: 1em;
+  margin-right: var(--app-space-2);
+  border: 2px solid var(--md-sys-color-on-surface-variant);
+  border-radius: var(--md-sys-shape-corner-extra-small);
+  vertical-align: -0.125em;
+}
+
+.taskBox[data-checked='true'] {
+  border-color: var(--md-sys-color-primary);
+  background: var(--md-sys-color-primary);
+}
+
+.taskBox[data-checked='true']::after {
+  position: absolute;
+  top: 0.05em;
+  left: 0.26em;
+  box-sizing: border-box;
+  width: 0.3em;
+  height: 0.55em;
+  border: solid var(--md-sys-color-on-primary);
+  border-width: 0 2px 2px 0;
+  content: '';
+  transform: rotate(45deg);
+}
+
+/* Rules, strikethrough, images */
+.root hr {
+  height: 0;
+  border: 0;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.root del {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.root img {
+  max-width: 100%;
+  height: auto;
+}
+
+/*
+ * Links. LOAD-BEARING inv02 F-03 / §5.4 #9 (frontend/src/App.css:788-803, commit e6f2f53):
+ * cursor, position and touch-action are the iOS 12 hit-testing hints that make taps register on
+ * bare inline links inside a momentum-scroll container. `md-link` stays a global class.
+ */
+.root :global(.md-link) {
+  position: relative;
+  color: var(--md-sys-color-primary);
+  text-decoration: underline;
+  cursor: pointer;
+  /* stylelint-disable-next-line plugin/no-unsupported-browser-features -- `manipulation` works on iOS 9.3+ */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: var(--md-sys-color-primary-hover);
+}
+
+.root strong :global(.md-link),
+.root em :global(.md-link) {
+  font-weight: inherit;
+}
+
+/* Inline code */
+.inlineCode {
+  padding: 0.1em 0.35em;
+  border-radius: var(--md-sys-shape-corner-extra-small);
+  background: var(--md-sys-color-surface-container-high);
+  font-family: var(--md-sys-typescale-code-font);
+  font-size: 0.875em;
+  overflow-wrap: break-word;
+}
+
+/* Tables scroll sideways inside their own container. */
+.tableScroll {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.root table {
+  border-collapse: collapse;
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: var(--md-sys-typescale-body-medium-line-height);
+}
+
+.root th,
+.root td {
+  padding: var(--app-space-2) var(--app-space-3);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  text-align: left;
+  vertical-align: top;
+}
+
+.root th {
+  background: var(--md-sys-color-surface-container-high);
+  font-weight: 500;
+}
+
+/* GFM footnotes */
+.root :global(.footnotes) {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: var(--md-sys-typescale-body-medium-line-height);
+}
+
+.root :global(.sr-only),
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  white-space: nowrap;
+}

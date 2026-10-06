@@ -1,0 +1,70 @@
+/* Card: 12 dp radius, 16 dp padding; tone separation, never borders except `outlined` (R1). */
+.card {
+  display: block;
+  position: relative;
+  min-width: 0;
+  padding: var(--app-space-4);
+  border-radius: var(--md-sys-shape-corner-medium);
+  color: var(--md-sys-color-on-surface);
+  text-align: left;
+}
+
+.flush {
+  padding: 0;
+  overflow: hidden;
+}
+
+.filled {
+  background: var(--md-sys-color-surface-container-highest);
+}
+
+.elevated {
+  background: var(--md-sys-color-surface-container-low);
+  box-shadow: var(--md-sys-elevation-level1);
+}
+
+.outlined {
+  background: var(--md-sys-color-surface);
+  box-shadow: inset 0 0 0 1px var(--md-sys-color-outline-variant);
+}
+
+.interactive {
+  width: 100%;
+  text-decoration: none;
+  cursor: pointer;
+  transition: box-shadow var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+}
+
+@media (--hover) {
+  .elevated.interactive:hover {
+    box-shadow: var(--md-sys-elevation-level2);
+  }
+
+  .filled.interactive:hover {
+    box-shadow: var(--md-sys-elevation-level1);
+  }
+}
+
+.elevated[data-state="hover"] {
+  box-shadow: var(--md-sys-elevation-level2);
+}
+
+.card[data-state="focus"] {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+.interactive[aria-disabled="true"] {
+  color: var(--md-sys-color-on-surface-disabled);
+  box-shadow: none;
+  cursor: default;
+}
+
+.outlined.interactive[aria-disabled="true"] {
+  box-shadow: inset 0 0 0 1px var(--md-sys-color-on-surface-disabled-container);
+}
+
+/* Low-end: shadows only on menus (spec 13 §2.7). */
+:global(html.low-end) .elevated {
+  box-shadow: inset 0 0 0 1px var(--md-sys-color-outline-variant);
+}

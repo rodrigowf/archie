@@ -1,0 +1,131 @@
+{
+  "name": "compaction",
+  "description": "Auto-compaction during a turn adds a compaction notice that ends the run (later text starts a new run below it). Then a manual compact: compact_complete and its turn_complete.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "text_complete",
+      "text": "Step one.",
+      "seq": 1,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "compact_complete",
+      "trigger": "auto",
+      "summary": "Summary of earlier context.",
+      "seq": 2,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_complete",
+      "text": "Step two.",
+      "seq": 3,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "usage": {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 4990,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 50
+      },
+      "input_tokens": 5000,
+      "output_tokens": 50,
+      "num_turns": 1,
+      "session_id": "sdk-1",
+      "is_error": false,
+      "result": "",
+      "seq": 4,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "compact_complete",
+      "trigger": "manual",
+      "summary": ""
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.002,
+      "usage": {
+        "input_tokens": 1200,
+        "output_tokens": 300
+      },
+      "input_tokens": 1200,
+      "output_tokens": 300,
+      "num_turns": 1,
+      "session_id": "sdk-1",
+      "is_error": false,
+      "result": null
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "send",
+      "text": "go"
+    },
+    {
+      "at": 5,
+      "type": "compact"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "go",
+        "origin": "local",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Step one.",
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "kind": "notice",
+        "notice": "compaction",
+        "text": "Summary of earlier context."
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Step two.",
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "kind": "notice",
+        "notice": "compaction",
+        "text": ""
+      }
+    ],
+    "state": {
+      "status": "idle",
+      "in_turn": false,
+      "context_tokens": 1200,
+      "turns": 2
+    }
+  }
+}

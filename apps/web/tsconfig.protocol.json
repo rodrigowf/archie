@@ -1,0 +1,36 @@
+{
+  "//": "Created by W-01; content owned by W-05 (spec 13 §3.2). Framework-free: no DOM lib, no ambient types. src/env.d.ts is listed so the project is valid before W-05 adds src/protocol.",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.protocol.tsbuildinfo",
+    "target": "ES2020",
+    "lib": [
+      "ES2022"
+    ],
+    "types": [],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "src/protocol"
+  ],
+  "exclude": [
+    "src/protocol/**/*.test.ts",
+    "src/protocol/**/__tests__/**"
+  ],
+  "files": [
+    "src/env.d.ts"
+  ]
+}

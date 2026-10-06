@@ -1,0 +1,100 @@
+{
+  "name": "interrupt_mid_tool",
+  "description": "Sender interrupts while a tool runs and a second prompt is queued: the server replies status:interrupted only to the sender (no turn_complete). The tool becomes no_result, an interrupted notice is added, the local queue is cleared.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "text_complete",
+      "text": "Building.",
+      "seq": 1,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "t1",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "make",
+        "description": "Build"
+      },
+      "seq": 2,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "status",
+      "status": "interrupted"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "send",
+      "text": "build it"
+    },
+    {
+      "at": 3,
+      "type": "send",
+      "text": "then run tests"
+    },
+    {
+      "at": 3,
+      "type": "interrupt"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "build it",
+        "origin": "local",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Building.",
+            "streaming": false
+          },
+          {
+            "type": "tool",
+            "tool_use_id": "t1",
+            "tool_name": "Bash",
+            "tool_input": {
+              "command": "make",
+              "description": "Build"
+            },
+            "status": "no_result",
+            "output": null
+          }
+        ]
+      },
+      {
+        "kind": "notice",
+        "notice": "interrupted",
+        "text": ""
+      }
+    ],
+    "queue": [],
+    "state": {
+      "status": "idle",
+      "in_turn": false,
+      "checkpoint": {
+        "stream_id": "L1:1759500000000",
+        "seq": 2
+      }
+    }
+  }
+}

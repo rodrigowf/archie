@@ -1,0 +1,172 @@
+/* Visuals list, viewer and inline card (W-14). Margins, not flex gap (Safari 12). */
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 12px;
+}
+
+.search {
+  flex: none;
+  margin-bottom: 8px;
+}
+
+.note {
+  margin: 12px 16px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: var(--md-sys-typescale-body-medium-line-height);
+}
+
+.error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  margin: 8px 16px;
+  color: var(--md-sys-color-error);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: var(--md-sys-typescale-body-medium-line-height);
+}
+
+.tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-primary);
+}
+
+/* ---------- viewer ---------- */
+
+.viewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--md-sys-color-surface);
+}
+
+.viewerBar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  min-height: 52px;
+  padding: 0 8px 0 24px;
+}
+
+.viewerBar > * + * {
+  margin-left: 8px;
+}
+
+.viewerMeta {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: var(--md-sys-typescale-body-medium-line-height);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.frameWrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--md-sys-color-surface-container-lowest);
+}
+
+.frame {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--md-sys-color-surface-container-lowest);
+}
+
+@media (--compact) {
+  .viewerBar {
+    padding-left: 16px;
+  }
+}
+
+/* ---------- inline card ---------- */
+
+.card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 12px;
+  border-radius: var(--md-sys-shape-corner-large);
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface);
+}
+
+.cardGlyph {
+  flex: none;
+  margin-right: 14px;
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-container-lowest);
+}
+
+.glyphBars {
+  fill: var(--md-sys-color-primary);
+}
+
+.glyphPeak {
+  fill: var(--md-sys-color-tertiary);
+}
+
+.cardText {
+  display: flex;
+  flex: 1 1 140px;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cardTitle {
+  overflow: hidden;
+  font-size: var(--md-sys-typescale-title-small-size);
+  font-weight: 500;
+  line-height: var(--md-sys-typescale-title-small-line-height);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cardLine {
+  overflow: hidden;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: var(--md-sys-typescale-body-small-line-height);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cardActions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  margin: 4px 0 4px auto;
+  padding-left: 12px;
+}
+
+.cardActions > * + * {
+  margin-left: 8px;
+}
+
+
+/* Compact: the pane is a full screen (ScreenLayer has no side gutter of its own). */
+@media (--compact) {
+  .pane {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+}

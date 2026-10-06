@@ -1,0 +1,528 @@
+"""REST session endpoints — list, get, delete, preview."""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+
+from api.deps import get_pool, get_store
+from api.models import (
+    ContentBlockResponse,
+    MessagePreviewResponse,
+    PaginatedMessagesResponse,
+    PoolSessionResponse,
+    SessionDetailResponse,
+    SessionInfoResponse,
+)
+from api.pool import SessionPool
+from manager.store import SessionStore
+
+router = APIRouter(prefix="/api/sessions", tags=["sessions"])
+
+
+def _convert_blocks(blocks) -> list[ContentBlockResponse]:
+    return [
+        ContentBlockResponse(
+            type=b.type,
+            text=b.text,
+            tool_use_id=b.tool_use_id,
+            tool_name=b.tool_name,
+            tool_input=b.tool_input,
+            output=b.output,
+            is_error=b.is_error,
+        )
+        for b in blocks
+    ]
+
+
+@router.get("", response_model=list[SessionInfoResponse])
+def list_sessions(
+    store: SessionStore = Depends(get_store),
+    pool: SessionPool = Depends(get_pool),
+):
+    # Build a reverse map: sdk_session_id → local_id for all live pool sessions.
+    # This lets the frontend find the correct tab for a session that the orchestrator
+    # opened (where the tab is keyed by local_id, not sdk_session_id).
+    sdk_to_local: dict[str, str] = {}
+    for s in pool.list_sessions():
+        sdk_id = s.get("sdk_session_id")
+        local_id = s.get("session_id")  # pool keys sessions by local_id
+        if sdk_id and local_id:
+            sdk_to_local[sdk_id] = local_id
+    # Also include the orchestrator session mapping
+    if pool.has_orchestrator():
+        oid = pool.orchestrator_id
+        orc_session = pool.get_orchestrator()
+        jsonl_id = getattr(orc_session, "jsonl_id", oid) if orc_session else oid
+        if jsonl_id and oid:
+            sdk_to_local[jsonl_id] = oid
+
+    from datetime import datetime, timezone
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    store_sessions = store.list_sessions()
+    store_sdk_ids = {s.session_id for s in store_sessions}
+
+    result = [
+        SessionInfoResponse(
+            session_id=s.session_id,
+            started_at=s.started_at.isoformat(),
+            last_activity=s.last_activity.isoformat(),
+            title=s.title,
+            message_count=s.message_count,
+            is_orchestrator=s.is_orchestrator,
+            provider=s.provider,
+            local_id=sdk_to_local.get(s.session_id),
+        )
+        for s in store_sessions
+    ]
+
+    # Also include live pool sessions that have no local JSONL yet
+    # (e.g. brand-new SSH sessions whose JSONL lives on the remote machine,
+    # or sessions still mid-first-turn that haven't published their SDK id yet).
+    for s in pool.list_sessions():
+        sdk_id = s.get("sdk_session_id")
+        local_id = s.get("session_id")
+        provider = s.get("provider", "claude")
+        if sdk_id and sdk_id not in store_sdk_ids:
+            # Session is live but has no local history — show it with minimal metadata
+            result.insert(0, SessionInfoResponse(
+                session_id=sdk_id,
+                started_at=now_iso,
+                last_activity=now_iso,
+                title="(active session)",
+                message_count=s.get("turns", 0),
+                is_orchestrator=False,
+                provider=provider,
+                local_id=local_id,
+            ))
+        elif not sdk_id and local_id:
+            # No SDK id yet (e.g. still mid-first-turn). Surface it keyed by
+            # local_id so the frontend can reconnect after a refresh instead
+            # of losing the tab. session_id falls back to local_id here since
+            # the detail endpoints also accept local ids via the pool.
+            result.insert(0, SessionInfoResponse(
+                session_id=local_id,
+                started_at=now_iso,
+                last_activity=now_iso,
+                title="(active session)",
+                message_count=s.get("turns", 0),
+                is_orchestrator=False,
+                provider=provider,
+                local_id=local_id,
+            ))
+
+    return result
+
+
+@router.get("/pool/live", response_model=list[PoolSessionResponse])
+def list_pool_sessions(
+    pool: SessionPool = Depends(get_pool),
+    store: SessionStore = Depends(get_store),
+):
+    """List sessions currently live in the backend pool.
+
+    Used by the frontend on startup to re-attach to sessions that are still
+    running after a browser close/refresh.
+    """
+    result: list[PoolSessionResponse] = []
+
+    # Orchestrator session (at most one)
+    if pool.has_orchestrator():
+        oid = pool.orchestrator_id
+        session = pool.get_orchestrator()
+        # The JSONL is keyed by jsonl_id (== resume_id when resuming, else local_id)
+        jsonl_id = getattr(session, "jsonl_id", oid) if session else oid
+        info = store.get_session_info(jsonl_id) if jsonl_id else None
+        result.append(PoolSessionResponse(
+            local_id=oid,
+            sdk_session_id=jsonl_id,
+            status="idle",
+            cost=0.0,
+            turns=0,
+            title=info.title if info else "Orchestrator",
+            is_orchestrator=True,
+        ))
+
+    # Regular agent sessions
+    for s in pool.list_sessions():
+        local_id = s["session_id"]
+        sdk_id = s.get("sdk_session_id")
+        title = None
+        if sdk_id:
+            info = store.get_session_info(sdk_id)
+            if info:
+                title = info.title
+        result.append(PoolSessionResponse(
+            local_id=local_id,
+            sdk_session_id=sdk_id,
+            status=s["status"],
+            cost=s["cost"],
+            turns=s["turns"],
+            title=title,
+            is_orchestrator=False,
+        ))
+
+    return result
+
+
+@router.get("/{session_id}/config")
+def get_session_config(session_id: str):
+    """Return per-session configuration (MCP servers, skills, agents flags)."""
+    from api.routes.session_config import load_session_config
+    return load_session_config(session_id)
+
+
+@router.put("/{session_id}/config")
+def update_session_config(session_id: str, body: dict):
+    """Save per-session configuration overrides."""
+    from api.routes.session_config import save_session_config
+    return save_session_config(session_id, body)
+
+
+@router.get("/{session_id}", response_model=SessionDetailResponse)
+def get_session(session_id: str, store: SessionStore = Depends(get_store)):
+    detail = store.get_session(session_id)
+    if detail is None:
+        raise HTTPException(404, detail=f"Session {session_id!r} not found")
+    return SessionDetailResponse(
+        session_id=detail.session_id,
+        started_at=detail.started_at.isoformat(),
+        last_activity=detail.last_activity.isoformat(),
+        title=detail.title,
+        message_count=detail.message_count,
+        is_orchestrator=detail.is_orchestrator,
+        provider=detail.provider,
+        messages=[
+            MessagePreviewResponse(
+                role=m.role,
+                text=m.text,
+                blocks=_convert_blocks(m.blocks),
+                timestamp=m.timestamp.isoformat() if m.timestamp else None,
+            )
+            for m in detail.messages
+        ],
+    )
+
+
+@router.get("/{session_id}/messages", response_model=PaginatedMessagesResponse)
+def get_messages_paginated(
+    session_id: str,
+    limit: int = Query(50, ge=1, le=200),
+    before: int | None = Query(None, description="Load messages before this index (for infinite scroll up)"),
+    store: SessionStore = Depends(get_store),
+):
+    """Get paginated messages from a session.
+
+    For initial load (most recent messages): call without `before` parameter.
+    For loading older messages (scroll up): pass `before=<start_index>` from previous response.
+    """
+    messages, total_count, has_more = store.get_messages_paginated(
+        session_id, limit=limit, before_index=before
+    )
+    if total_count == 0 and store.get_session_info(session_id) is None:
+        raise HTTPException(404, detail=f"Session {session_id!r} not found")
+
+    start_index = 0 if not messages else (before - len(messages) if before else total_count - len(messages))
+
+    return PaginatedMessagesResponse(
+        messages=[
+            MessagePreviewResponse(
+                role=m.role,
+                text=m.text,
+                blocks=_convert_blocks(m.blocks),
+                timestamp=m.timestamp.isoformat() if m.timestamp else None,
+            )
+            for m in messages
+        ],
+        total_count=total_count,
+        has_more=has_more,
+        start_index=max(0, start_index),
+    )
+
+
+@router.get("/{session_id}/preview", response_model=list[MessagePreviewResponse])
+def get_preview(
+    session_id: str,
+    max_messages: int = Query(5, alias="max", ge=1, le=50),
+    store: SessionStore = Depends(get_store),
+):
+    previews = store.get_preview(session_id, max_messages=max_messages)
+    if not previews and store.get_session(session_id) is None:
+        raise HTTPException(404, detail=f"Session {session_id!r} not found")
+    return [
+        MessagePreviewResponse(
+            role=m.role,
+            text=m.text,
+            blocks=_convert_blocks(m.blocks),
+            timestamp=m.timestamp.isoformat() if m.timestamp else None,
+        )
+        for m in previews
+    ]
+
+
+@router.patch("/{session_id}/rename", status_code=204)
+def rename_session(session_id: str, body: dict, store: SessionStore = Depends(get_store)):
+    title = body.get("title", "").strip()
+    if not title:
+        raise HTTPException(400, detail="title is required")
+    if not store.rename_session(session_id, title):
+        raise HTTPException(404, detail=f"Session {session_id!r} not found")
+
+
+@router.delete("/{session_id}", status_code=204)
+async def delete_session(session_id: str, store: SessionStore = Depends(get_store)):
+    # Move the JSONL into trash synchronously (fast — a single rename) so
+    # the next list_sessions() call already reflects the deletion.  Defer
+    # the vector-index cleanup to a background task: it spawns a chromadb
+    # subprocess that takes 2–10s to cold-start, which would otherwise
+    # block the HTTP response and freeze the sidebar.  Cleanup is
+    # best-effort by design (failures are swallowed and logged) so
+    # fire-and-forget is safe — at worst a stale chunk sits in the index
+    # until the next re-index pass removes it.
+    if not store.delete_session(session_id, skip_index_cleanup=True):
+        raise HTTPException(404, detail=f"Session {session_id!r} not found")
+
+    import asyncio
+    from manager.index_utils import remove_session_from_index
+    asyncio.create_task(asyncio.to_thread(
+        remove_session_from_index, session_id, "history"
+    ))
+
+
+def _is_live_session(session_id: str, pool: SessionPool) -> bool:
+    """True if the given session_id is currently open in the pool.
+
+    Matches both the regular-agent SDK session id and the orchestrator's
+    jsonl_id, so the on-disk JSONL is not mutated while a process may be
+    appending to it.
+    """
+    if pool.has_orchestrator():
+        orc_session = pool.get_orchestrator()
+        jsonl_id = (
+            getattr(orc_session, "jsonl_id", pool.orchestrator_id)
+            if orc_session
+            else pool.orchestrator_id
+        )
+        if jsonl_id == session_id or pool.orchestrator_id == session_id:
+            return True
+    for s in pool.list_sessions():
+        if s.get("sdk_session_id") == session_id or s.get("session_id") == session_id:
+            return True
+    return False
+
+
+@router.post("/{session_id}/duplicate", status_code=201)
+def duplicate_session(
+    session_id: str,
+    store: SessionStore = Depends(get_store),
+):
+    """Copy a session's JSONL + title under a fresh UUID. Returns the new session_id.
+
+    Safe even when the source session is open: this is a read of the JSONL,
+    so concurrent appends just mean the duplicate may or may not catch the
+    very latest line. The new file is independent.
+    """
+    new_id = store.duplicate_session(session_id)
+    if new_id is None:
+        raise HTTPException(404, detail=f"Session {session_id!r} not found")
+    return {"session_id": new_id}
+
+
+@router.post("/{session_id}/truncate", status_code=200)
+def truncate_session(
+    session_id: str,
+    body: dict,
+    store: SessionStore = Depends(get_store),
+    pool: SessionPool = Depends(get_pool),
+):
+    """Rewind a session by dropping the last ``drop_last_n`` visible messages.
+
+    Body: ``{"drop_last_n": <N>}`` — counted from the bottom so the request
+    survives pagination (the frontend may only have the most recent page
+    loaded, so absolute indices from the top would be unreliable).
+
+    Rejected with 409 when the session is currently open in the pool — the
+    in-memory CLI state would diverge from the truncated file.
+    """
+    if _is_live_session(session_id, pool):
+        raise HTTPException(
+            409,
+            detail="Session is currently open. Close the tab before rewinding.",
+        )
+    drop_last_n = body.get("drop_last_n")
+    if not isinstance(drop_last_n, int) or drop_last_n < 0:
+        raise HTTPException(400, detail="drop_last_n (non-negative int) is required")
+    if not store.truncate_session(session_id, drop_last_n):
+        raise HTTPException(
+            404,
+            detail=f"Session {session_id!r} not found or drop_last_n out of range",
+        )
+    return {"session_id": session_id}
+
+
+@router.post("/{session_id}/fork", status_code=201)
+def fork_session(
+    session_id: str,
+    body: dict,
+    store: SessionStore = Depends(get_store),
+):
+    """Duplicate ``session_id`` and rewind the copy by ``drop_last_n``.
+
+    Body: ``{"drop_last_n": <N>}``. The original session is untouched (only
+    the copy is truncated), so this is safe even if the source is open.
+    Returns ``{"session_id": <new_uuid>}``.
+    """
+    drop_last_n = body.get("drop_last_n")
+    if not isinstance(drop_last_n, int) or drop_last_n < 0:
+        raise HTTPException(400, detail="drop_last_n (non-negative int) is required")
+    new_id = store.fork_session(session_id, drop_last_n)
+    if new_id is None:
+        raise HTTPException(
+            404,
+            detail=f"Session {session_id!r} not found or drop_last_n out of range",
+        )
+    return {"session_id": new_id}
+
+
+@router.post("/inject", status_code=200)
+async def inject_message(
+    body: dict,
+    pool: SessionPool = Depends(get_pool),
+):
+    """Inject a user message into a live pool session as if it were typed
+    in the chat tab.
+
+    Body accepts either ``local_id`` directly, or ``sdk_session_id`` which
+    is resolved to a local_id via the pool's reverse map.
+
+    Used by out-of-band tools (e.g. the gender-vid1 editor page) that
+    need to push a structured payload back to the parent Claude Code
+    session without going through the chat WebSocket. Drives the same
+    ``pool.send_or_queue`` path the chat endpoint uses, so the message
+    appears in the session's JSONL and broadcasts to every subscribed
+    WebSocket (including the live chat tab) — and queues behind any
+    in-flight turn rather than interrupting it.
+    """
+    text = body.get("text")
+    if not isinstance(text, str) or not text.strip():
+        raise HTTPException(400, detail="text (non-empty string) is required")
+
+    local_id = body.get("local_id")
+    sdk_session_id = body.get("sdk_session_id")
+
+    if not local_id and sdk_session_id:
+        local_id = pool.find_by_sdk_id(sdk_session_id)
+        if not local_id:
+            raise HTTPException(
+                404,
+                detail=(
+                    f"No live pool session for sdk_session_id={sdk_session_id!r}. "
+                    "Pass local_id directly, or open the session first."
+                ),
+            )
+
+    if not local_id:
+        raise HTTPException(
+            400, detail="local_id or sdk_session_id is required",
+        )
+
+    if not pool.has(local_id):
+        raise HTTPException(
+            404, detail=f"No live pool session with local_id={local_id!r}",
+        )
+
+    try:
+        await pool.send_or_queue(local_id, text)
+    except ValueError as e:
+        raise HTTPException(404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(500, detail=f"send_or_queue failed: {e}")
+
+    return {"ok": True, "local_id": local_id}
+
+
+@router.post("/{local_id}/close", status_code=204)
+async def close_pool_session(
+    local_id: str,
+    pool: SessionPool = Depends(get_pool),
+    store: SessionStore = Depends(get_store),
+):
+    """Close an active session in the pool.
+
+    If the session was genuinely new (not resumed from history) and was
+    never used (zero turns), its JSONL file is deleted to prevent orphaned
+    files from accumulating on disk. Resumed sessions are never deleted
+    here — they have existing history that must be preserved.
+    """
+    # Handle orchestrator session close
+    if pool.has_orchestrator() and pool.orchestrator_id == local_id:
+        await pool.stop_orchestrator()
+        return
+
+    sm = pool.get(local_id)
+    sdk_id = sm.sdk_session_id if sm else None
+    is_new_unused = (
+        sm is not None
+        and sm.turns == 0
+        and not getattr(sm, "is_resumed", False)
+    )
+
+    if pool.has(local_id):
+        await pool.close(local_id)
+
+    # Clean up JSONL only for genuinely new sessions that were never used
+    if is_new_unused and sdk_id:
+        store.delete_session(sdk_id)
+
+
+@router.post("/{local_id}/permission", status_code=200)
+async def resolve_permission(
+    local_id: str,
+    request: Request,
+    pool: SessionPool = Depends(get_pool),
+):
+    """Answer a pending permission request of a live agent session.
+
+    REST twin of the chat WebSocket's ``permission_response`` frame, so a
+    device can answer an approval without opening that agent's socket
+    (an "Agent approvals" list, a notification action).  First answer wins
+    between user and orchestrator; the manager broadcasts
+    ``permission_resolved`` to every subscriber either way.
+
+    Body: ``{request_id, decision: "allow"|"deny", message?}``.
+    404 when the session is not in the pool; 409 when there is no such
+    pending request (already answered, expired, or unknown).
+    """
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        raise HTTPException(400, detail="body must be a JSON object")
+    request_id = body.get("request_id")
+    decision = body.get("decision")
+    message = body.get("message")
+    if not isinstance(request_id, str) or not request_id:
+        raise HTTPException(400, detail="request_id (non-empty string) is required")
+    if decision not in ("allow", "deny"):
+        raise HTTPException(400, detail="decision must be 'allow' or 'deny'")
+    if message is not None and not isinstance(message, str):
+        raise HTTPException(400, detail="message must be a string")
+
+    if not pool.has(local_id):
+        raise HTTPException(
+            404, detail=f"No live pool session with local_id={local_id!r}",
+        )
+
+    resolved = await pool.resolve_session_permission(
+        local_id,
+        request_id,
+        decision,
+        message=message,
+        responder="user",
+    )
+    if not resolved:
+        raise HTTPException(
+            409, detail=f"No pending permission request {request_id!r}",
+        )
+    return {"ok": True}

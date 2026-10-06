@@ -1,0 +1,109 @@
+/*
+ * Linear progress, M3 2024: 4 dp. Determinate: indicator | 4 dp gap | track, plus a stop dot.
+ * Indeterminate: two bars sliding over the track (a transform animation; it keeps running in
+ * low-end mode like the spinner, because a frozen bar reads as a hang).
+ */
+.progress {
+  --progress: 0;
+
+  position: relative;
+  width: 100%;
+  height: 4px;
+  overflow: hidden;
+}
+
+.indicator {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: calc((100% - 4px) * var(--progress));
+  border-radius: 2px;
+  background: var(--md-sys-color-primary);
+  transition: width var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard);
+}
+
+.track {
+  position: absolute;
+  inset: 0 0 0 calc((100% - 4px) * var(--progress) + 4px);
+  border-radius: 2px;
+  background: var(--md-sys-color-secondary-container);
+}
+
+.stop {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 4px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--md-sys-color-primary);
+}
+
+.indeterminate {
+  border-radius: 2px;
+  background: var(--md-sys-color-secondary-container);
+}
+
+.bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  border-radius: 2px;
+  background: var(--md-sys-color-primary);
+  transform-origin: left center;
+}
+
+.bar1 {
+  animation: progress-bar1 2s linear infinite;
+}
+
+.bar2 {
+  animation: progress-bar2 2s linear infinite;
+}
+
+@keyframes progress-bar1 {
+  0% {
+    transform: translateX(-100%) scaleX(0.3);
+  }
+
+  50% {
+    transform: translateX(30%) scaleX(0.5);
+  }
+
+  100% {
+    transform: translateX(110%) scaleX(0.3);
+  }
+}
+
+@keyframes progress-bar2 {
+  0%,
+  45% {
+    transform: translateX(-100%) scaleX(0.15);
+  }
+
+  100% {
+    transform: translateX(110%) scaleX(0.4);
+  }
+}
+
+:global(html.low-end) .bar1 {
+  animation: progress-bar1 2s linear infinite !important;
+}
+
+:global(html.low-end) .bar2 {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar1,
+  :global(html.low-end) .bar1 {
+    animation: progress-bar1 4s linear infinite !important;
+  }
+
+  .bar2 {
+    display: none;
+  }
+}

@@ -1,0 +1,102 @@
+/*
+ * Side sheet. Modal: surface-container-low, 16 px radius on the inner corners, elevation 1, full
+ * height via top/bottom 0 (no `inset`). Standard: in-flow, same tone as the list pane, no shadow,
+ * no divider (R1: separation by tone only).
+ */
+/* stylelint-disable declaration-block-no-redundant-longhand-properties -- explicit top/right/bottom/left, never `inset` (Safari 12; inv02 §5.4 #3) */
+.sheet {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface);
+}
+
+.sheet:focus {
+  outline: none;
+}
+
+.modal {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  box-shadow: var(--md-sys-elevation-level1);
+}
+
+.modal.right {
+  border-radius: 16px 0 0 16px;
+  animation: side-in-right var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized-decelerate);
+}
+
+.modal.left {
+  border-radius: 0 16px 16px 0;
+  animation: side-in-left var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized-decelerate);
+}
+
+.standard {
+  flex: none;
+  height: 100%;
+}
+
+.header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  min-height: 64px;
+  padding: 8px 8px 8px 16px;
+}
+
+.header > * + * {
+  margin-left: 4px;
+}
+
+.title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--md-sys-typescale-title-large-size);
+  font-weight: var(--md-sys-typescale-title-large-weight);
+  line-height: var(--md-sys-typescale-title-large-line-height);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.body {
+  flex: 1 1 auto;
+  padding: 0 12px 12px;
+}
+
+.bodyPlain {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.footer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  padding: 16px 24px 24px;
+}
+
+.footer > * + * {
+  margin-left: 8px;
+}
+
+@keyframes side-in-right {
+  from {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes side-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+}

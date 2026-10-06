@@ -1,0 +1,75 @@
+/* Tree (Memory browser): 40 px rows, radius 20, 20 px indent per level, selected = secondary-container. */
+.tree,
+.group {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  outline: none;
+}
+
+.row {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding-right: 12px;
+  border-radius: 20px;
+  color: var(--md-sys-color-on-surface);
+  font-size: var(--md-sys-typescale-label-large-size);
+  line-height: 20px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.item:focus-visible > .row {
+  box-shadow: inset 0 0 0 2px var(--md-sys-color-primary);
+}
+
+.selected {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.chevron {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  margin-right: 4px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.icon {
+  flex: none;
+  margin-right: 10px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.selected .icon,
+.selected .chevron {
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  flex: none;
+  margin-left: 8px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-small-size);
+}
+
+.group > li + li,
+.tree > li + li {
+  margin-top: 2px;
+}

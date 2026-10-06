@@ -1,0 +1,60 @@
+/* Circular progress (mockups `.ring`): starts at 12 o'clock; round caps. */
+.circular {
+  display: inline-block;
+  flex: none;
+  vertical-align: middle;
+}
+
+.circular svg {
+  display: block;
+  transform: rotate(-90deg);
+}
+
+.track,
+.value {
+  fill: none;
+}
+
+.track {
+  stroke: var(--md-sys-color-outline-variant);
+}
+
+.value {
+  stroke: var(--md-sys-color-primary);
+  stroke-linecap: round;
+  transition: stroke-dasharray var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard);
+}
+
+.warning .value {
+  stroke: var(--md-ext-color-warning);
+}
+
+.error .value {
+  stroke: var(--md-sys-color-error);
+}
+
+/* Indeterminate: a 30 % arc turning (keeps turning in low-end mode, like the spinner). */
+.indeterminate svg {
+  animation: circular-turn 1s linear infinite;
+}
+
+@keyframes circular-turn {
+  from {
+    transform: rotate(-90deg);
+  }
+
+  to {
+    transform: rotate(270deg);
+  }
+}
+
+:global(html.low-end) .indeterminate svg {
+  animation: circular-turn 1s linear infinite !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .indeterminate svg,
+  :global(html.low-end) .indeterminate svg {
+    animation: circular-turn 2s linear infinite !important;
+  }
+}

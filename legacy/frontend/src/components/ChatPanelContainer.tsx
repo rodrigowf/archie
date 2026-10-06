@@ -1,0 +1,515 @@
+import { useRef, useEffect, useCallback, useState, lazy, Suspense } from "react";
+import { useTabsContext, isDocTab } from "../context/TabsContext";
+import { useChatInstance, type ChatInstance } from "../hooks/useChatInstance";
+import { useVoiceOrchestrator } from "../hooks/useVoiceOrchestrator";
+import { ChatPanel } from "./ChatPanel";
+import { VizPanel } from "./VizPanel";
+import { MemoryPanel } from "./MemoryPanel";
+import { ConfirmModal } from "./ConfirmModal";
+import {
+  closePoolSession,
+  forkSession as apiForkSession,
+  listModels,
+  truncateSession as apiTruncateSession,
+  type ModelsResponse,
+} from "../api/rest";
+import { generateUUID } from "../utils/uuid";
+import type { SessionInfo, SessionStatus, ConnectionState } from "../types";
+
+const SessionConfigPage = lazy(() => import("./SessionConfigPage").then(m => ({ default: m.SessionConfigPage })));
+
+/**
+ * Headless component that manages one chat instance and syncs its state
+ * back to the tabs context. Renders nothing — the ChatPanel is rendered
+ * separately for the active tab only.
+ */
+function TabInstance({
+  sessionId,
+  resumeSdkId,
+  onSessionChange,
+  instancesRef,
+  notifyUpdate,
+  wsEndpoint,
+  isOrchestrator,
+  onAgentSessionOpened,
+  onAgentSessionClosed,
+  onSessionClosed,
+}: {
+  sessionId: string;
+  resumeSdkId: string | null;
+  onSessionChange: () => void;
+  instancesRef: React.RefObject<Map<string, ChatInstance>>;
+  notifyUpdate: () => void;
+  wsEndpoint?: string;
+  isOrchestrator?: boolean;
+  onAgentSessionOpened?: (sessionId: string, sdkSessionId?: string) => void;
+  onAgentSessionClosed?: (sessionId: string) => void;
+  onSessionClosed?: () => void;
+}) {
+  const { updateTab } = useTabsContext();
+
+  const onStatusChange = useCallback(
+    (status: SessionStatus, connectionState: ConnectionState) => {
+      updateTab(sessionId, { status, connectionState });
+    },
+    [updateTab, sessionId]
+  );
+
+  const onSdkSessionAssigned = useCallback(
+    (sdkSessionId: string) => {
+      updateTab(sessionId, { resumeSdkId: sdkSessionId });
+    },
+    [updateTab, sessionId]
+  );
+
+  const instance = useChatInstance({
+    localId: sessionId,
+    resumeSdkId,
+    onSessionChange,
+    onStatusChange,
+    wsEndpoint,
+    skipHistory: !!isOrchestrator && !resumeSdkId,
+    onAgentSessionOpened,
+    onAgentSessionClosed,
+    onSessionClosed,
+    onSdkSessionAssigned,
+  });
+
+  // Keep instancesRef up to date on every render.
+  useEffect(() => {
+    instancesRef.current?.set(sessionId, instance);
+  });
+
+  // Notify the container when messages or pagination state change so it re-renders with fresh props.
+  useEffect(() => {
+    notifyUpdate();
+  }, [instance.messages, instance.hasMoreMessages, notifyUpdate]);
+
+  // Clean up on unmount only.
+  useEffect(() => {
+    return () => {
+      instancesRef.current?.delete(sessionId);
+    };
+  }, [sessionId, instancesRef]);
+
+  return null;
+}
+
+/**
+ * Renders the ChatPanel for orchestrator sessions with voice support.
+ * The useVoiceOrchestrator hook lives here so it's always mounted for the
+ * active orchestrator tab (hooks can't be conditional).
+ */
+function OrchestratorChatPanel({
+  sessionId,
+  resumeSdkId,
+  instance,
+  onSessionChange,
+  isActive,
+  supportsAudio,
+  onRewindMessage,
+  onForkMessage,
+}: {
+  sessionId: string;
+  resumeSdkId?: string | null;
+  instance: ChatInstance;
+  onSessionChange: () => void;
+  isActive?: boolean;
+  supportsAudio?: boolean;
+  onRewindMessage?: (dropLastN: number) => void;
+  onForkMessage?: (dropLastN: number) => void;
+}) {
+  const { voiceStatus, startVoice, stopVoice, isMuted, toggleMute, isAssistantMuted, toggleAssistantMute, micLevel, speakerLevel, voiceError, vadState, vadDurationMs, isLocalVoice, remoteVoiceActive, handlePassiveVoiceEvent } = useVoiceOrchestrator({
+    localId: sessionId,
+    resumeSdkId,
+    onUserTranscript: (text) => {
+      instance.addDisplayMessage("user", text);
+    },
+    onAssistantDelta: (delta) => {
+      instance.voiceAssistantDelta(delta);
+    },
+    onAssistantComplete: (text) => {
+      instance.voiceAssistantComplete(text);
+    },
+    onToolUse: (callId, toolName, toolInput) => {
+      instance.dispatchToolUse(callId, toolName, toolInput);
+    },
+    onTurnComplete: () => {
+      onSessionChange();
+    },
+    onBeforeStart: () => {
+      instance.stop();
+    },
+    onAfterStop: () => {
+      instance.restart();
+    },
+  });
+
+  // When this device is NOT the voice owner (passive viewer), register the
+  // passive handler so voice_event broadcasts from the text WebSocket are
+  // routed to handleProviderEvent for transcript rendering. When voice IS
+  // locally active, the voice orchestrator has its own WebSocket and handles
+  // events directly — no forwarding needed (would cause double-rendering).
+  useEffect(() => {
+    if (!isLocalVoice) {
+      instance.registerVoiceEventHandler(handlePassiveVoiceEvent);
+      return () => instance.registerVoiceEventHandler(null);
+    }
+    instance.registerVoiceEventHandler(null);
+  }, [isLocalVoice, instance.registerVoiceEventHandler, handlePassiveVoiceEvent]);
+
+  return (
+    <ChatPanel
+      messages={instance.messages}
+      status={instance.status}
+      connectionState={instance.connectionState}
+      cost={instance.cost}
+      turns={instance.turns}
+      error={instance.error}
+      stall={instance.stall}
+      termination={instance.termination}
+      pendingPermission={instance.pendingPermission}
+      onRespondToPermission={instance.respondToPermission}
+      onSend={instance.send}
+      onSendAudio={instance.sendAudio}
+      onInterrupt={instance.interrupt}
+      onCompact={instance.compact}
+      contextUsage={instance.contextUsage}
+      isActive={isActive}
+      hasMoreMessages={instance.hasMoreMessages}
+      onLoadMore={instance.loadMoreMessages}
+      onRewindMessage={onRewindMessage}
+      onForkMessage={onForkMessage}
+      isOrchestrator={true}
+      voiceStatus={voiceStatus}
+      onVoiceStart={startVoice}
+      onVoiceStop={stopVoice}
+      isMicMuted={isMuted}
+      onMicMuteToggle={toggleMute}
+      isAssistantMuted={isAssistantMuted}
+      onAssistantMuteToggle={toggleAssistantMute}
+      micLevel={micLevel}
+      speakerLevel={speakerLevel}
+      voiceError={voiceError}
+      vadState={vadState}
+      vadDurationMs={vadDurationMs}
+      remoteVoiceActive={remoteVoiceActive}
+      supportsAudio={supportsAudio}
+    />
+  );
+}
+
+/**
+ * Container that manages all tab instances and renders the active tab's ChatPanel.
+ */
+export function ChatPanelContainer({
+  sessions,
+  onSessionChange,
+  onPoolChanged,
+  onMutationBusy,
+}: {
+  /** Authoritative session list — used to resolve titles for tabs opened by
+   *  the orchestrator (where we'd otherwise fall back to "Agent xxxxxxxx"). */
+  sessions: SessionInfo[];
+  onSessionChange: () => void;
+  /** A session opened/closed anywhere in the pool (watcher push). Refreshes the
+   *  sidebar list + re-syncs the live pool so cross-client changes show up
+   *  immediately. Distinct from onSessionChange (which only refreshes the list
+   *  on this client's own turn completions/mutations). */
+  onPoolChanged?: () => void;
+  /** Called with a label while a longer mutation (rewind / fork) is in
+   *  flight, then again with null when it finishes. Lets the app render a
+   *  whole-viewport busy overlay so the user doesn't keep clicking. */
+  onMutationBusy?: (label: string | null) => void;
+}) {
+  const { tabs, activeTabId, openTab, closeTab } = useTabsContext();
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+  const instancesRef = useRef<Map<string, ChatInstance>>(new Map());
+  const [, setInstanceVersion] = useState(0);
+  const notifyUpdate = useCallback(() => setInstanceVersion(v => v + 1), []);
+
+  // Rewind / fork confirmation state. Both actions act on the conversation
+  // file (via sdkSessionId aka resumeSdkId). `dropLastN` is bottom-relative
+  // (number of messages to drop from the end), so the request stays correct
+  // even when the frontend has only loaded the most recent page.
+  const [pendingAction, setPendingAction] = useState<
+    | { kind: "rewind"; tabSessionId: string; sdkSessionId: string; dropLastN: number; isOrchestrator: boolean }
+    | { kind: "fork"; tabSessionId: string; sdkSessionId: string; dropLastN: number; isOrchestrator: boolean }
+    | null
+  >(null);
+
+  const requestRewind = useCallback(
+    (tabSessionId: string, sdkSessionId: string | null | undefined, dropLastN: number, isOrchestrator: boolean) => {
+      if (!sdkSessionId) return;
+      setPendingAction({ kind: "rewind", tabSessionId, sdkSessionId, dropLastN, isOrchestrator });
+    },
+    []
+  );
+
+  const requestFork = useCallback(
+    (tabSessionId: string, sdkSessionId: string | null | undefined, dropLastN: number, isOrchestrator: boolean) => {
+      if (!sdkSessionId) return;
+      setPendingAction({ kind: "fork", tabSessionId, sdkSessionId, dropLastN, isOrchestrator });
+    },
+    []
+  );
+
+  const confirmAction = useCallback(async () => {
+    if (!pendingAction) return;
+    const action = pendingAction;
+    setPendingAction(null);
+    onMutationBusy?.(action.kind === "rewind" ? "Rewinding…" : "Forking…");
+    try {
+      if (action.kind === "rewind") {
+        // Close the pool session first — the backend rejects truncate while
+        // the session is open, so the bundled CLI's in-memory state can't
+        // diverge from the truncated file. Closing the tab too would just
+        // confuse the user; instead we close it and immediately reopen as a
+        // fresh tab so the rewound conversation appears in place.
+        await closePoolSession(action.tabSessionId).catch(() => {});
+        closeTab(action.tabSessionId);
+        await apiTruncateSession(action.sdkSessionId, action.dropLastN);
+        // Reopen as a brand-new tab — fresh local_id, resume the JSONL.
+        // Preserve the orchestrator flag so a rewound orchestrator session
+        // reopens as an orchestrator tab, not a plain chat tab.
+        openTab(generateUUID(), "Rewound conversation", action.isOrchestrator, action.sdkSessionId);
+      } else {
+        const { session_id: newSdkId } = await apiForkSession(
+          action.sdkSessionId,
+          action.dropLastN,
+        );
+        // Open the fork in a new tab so the user sees the result immediately.
+        openTab(generateUUID(), "Forked conversation", action.isOrchestrator, newSdkId);
+      }
+      onSessionChange();
+    } catch (err) {
+      console.error(`${action.kind} failed:`, err);
+      alert(`${action.kind === "rewind" ? "Rewind" : "Fork"} failed: ${(err as Error).message}`);
+    } finally {
+      onMutationBusy?.(null);
+    }
+  }, [pendingAction, closeTab, openTab, onSessionChange, onMutationBusy]);
+
+  // Track which models support audio
+  const [modelsInfo, setModelsInfo] = useState<ModelsResponse | null>(null);
+
+  // Fetch models info on mount
+  useEffect(() => {
+    listModels().then(setModelsInfo).catch(console.error);
+  }, []);
+
+  const handleAgentSessionOpened = useCallback(
+    (agentSessionId: string, sdkSessionId?: string) => {
+      // Prefer the title already known in the session list (orchestrator
+      // resuming an existing JSONL). For brand-new agent sessions there
+      // won't be an entry yet — fall back to a short placeholder. Once the
+      // first turn completes, `onSessionChange` refreshes `sessions[]` and
+      // the TabBar (which derives titles from it) updates automatically.
+      const known = sdkSessionId
+        ? sessionsRef.current.find((s) => s.session_id === sdkSessionId)
+        : undefined;
+      const title = known?.title || `Agent ${agentSessionId.slice(0, 8)}`;
+      openTab(agentSessionId, title, false, sdkSessionId);
+      // Refresh the sidebar list + re-sync the live pool so a session opened
+      // anywhere (this client's orchestrator OR another device) appears with a
+      // live badge immediately.
+      (onPoolChanged ?? onSessionChange)();
+    },
+    [openTab, onSessionChange, onPoolChanged]
+  );
+
+  const handleAgentSessionClosed = useCallback(
+    (agentSessionId: string) => {
+      closeTab(agentSessionId);
+      // A session closed anywhere — refresh so the sidebar drops it and any
+      // stale live badge clears without waiting for a tab-focus.
+      (onPoolChanged ?? onSessionChange)();
+    },
+    [closeTab, onSessionChange, onPoolChanged]
+  );
+
+  const handleSessionClosed = useCallback(
+    (sessionId: string) => {
+      closeTab(sessionId);
+    },
+    [closeTab]
+  );
+
+  const activeTab = activeTabId ? tabs.find((t) => t.sessionId === activeTabId) : undefined;
+  const activeInstance = activeTabId ? instancesRef.current.get(activeTabId) : undefined;
+  // A doc tab renders its own panel and has no ChatInstance — without this it
+  // would fall through to the "No session open" empty state.
+  const hasActivePanel = !!activeInstance || (!!activeTab && isDocTab(activeTab));
+
+  // Check if any model supports audio (show button if audio is available)
+  const supportsAudio = (modelsInfo?.audio_capable_models?.length ?? 0) > 0;
+
+  // Session config panel state — track which tab has it open
+  const [sessionConfigTabId, setSessionConfigTabId] = useState<string | null>(null);
+
+  return (
+    <>
+      {/* Render a headless TabInstance for each open chat tab. Doc tabs (viz,
+           memory) are backed by a static file, not a session — creating a
+           ChatInstance for one would open a WebSocket for a session id that
+           doesn't exist. */}
+      {tabs.filter((tab) => !isDocTab(tab)).map((tab) => (
+        <TabInstance
+          key={tab.sessionId}
+          sessionId={tab.sessionId}
+          resumeSdkId={tab.resumeSdkId || null}
+          onSessionChange={onSessionChange}
+          instancesRef={instancesRef}
+          notifyUpdate={notifyUpdate}
+          wsEndpoint={tab.isOrchestrator ? "/api/orchestrator/chat" : undefined}
+          isOrchestrator={tab.isOrchestrator}
+          onAgentSessionOpened={tab.isOrchestrator ? handleAgentSessionOpened : undefined}
+          onAgentSessionClosed={tab.isOrchestrator ? handleAgentSessionClosed : undefined}
+          onSessionClosed={!tab.isOrchestrator ? () => handleSessionClosed(tab.sessionId) : undefined}
+        />
+      ))}
+
+      {/* Render ChatPanels for ALL tabs — inactive ones hidden with display:none
+           so hooks (including voice WebRTC) stay alive across tab switches. */}
+      {tabs.map((tab) => {
+        const isActive = tab.sessionId === activeTabId;
+        const wrapperStyle = isActive
+          ? { flex: 1, display: "flex", flexDirection: "column" as const, minHeight: 0, minWidth: 0 }
+          : { display: "none" };
+
+        // Doc tabs: a static file, no chat instance involved.
+        if (tab.vizPath) {
+          return (
+            <div key={tab.sessionId} style={wrapperStyle}>
+              <VizPanel title={tab.title} url={tab.vizUrl ?? `/${tab.vizPath}`} />
+            </div>
+          );
+        }
+        if (tab.memoryPath) {
+          return (
+            <div key={tab.sessionId} style={wrapperStyle}>
+              <MemoryPanel title={tab.title} path={tab.memoryPath} />
+            </div>
+          );
+        }
+
+        const inst = instancesRef.current.get(tab.sessionId);
+        if (!inst) return null;
+        return (
+          <div
+            key={tab.sessionId}
+            style={wrapperStyle}
+          >
+            {tab.isOrchestrator ? (
+              <OrchestratorChatPanel
+                sessionId={tab.sessionId}
+                resumeSdkId={tab.resumeSdkId}
+                instance={inst}
+                onSessionChange={onSessionChange}
+                isActive={isActive}
+                supportsAudio={supportsAudio}
+                onRewindMessage={(idx) => requestRewind(tab.sessionId, tab.resumeSdkId, idx, true)}
+                onForkMessage={(idx) => requestFork(tab.sessionId, tab.resumeSdkId, idx, true)}
+              />
+            ) : (
+              <ChatPanel
+                messages={inst.messages}
+                status={inst.status}
+                connectionState={inst.connectionState}
+                cost={inst.cost}
+                turns={inst.turns}
+                error={inst.error}
+                stall={inst.stall}
+                termination={inst.termination}
+                onRecoverFromTermination={(sdkSessionId) => {
+                  // Open a fresh tab resuming from the same on-disk
+                  // JSONL.  The dead session is already evicted from
+                  // the pool — no need to close it again.
+                  openTab(generateUUID(), tab.title, false, sdkSessionId);
+                }}
+                pendingPermission={inst.pendingPermission}
+                onRespondToPermission={inst.respondToPermission}
+                onSend={inst.send}
+                onInterrupt={inst.interrupt}
+                onCompact={inst.compact}
+                contextUsage={inst.contextUsage}
+                isActive={isActive}
+                hasMoreMessages={inst.hasMoreMessages}
+                onLoadMore={inst.loadMoreMessages}
+                onRewindMessage={(n) => requestRewind(tab.sessionId, tab.resumeSdkId, n, false)}
+                onForkMessage={(n) => requestFork(tab.sessionId, tab.resumeSdkId, n, false)}
+                onOpenSessionConfig={() => setSessionConfigTabId(tab.sessionId)}
+              />
+            )}
+          </div>
+        );
+      })}
+
+      {/* Empty state when no active instance */}
+      {!hasActivePanel && (
+        <main className="chat-panel">
+          <div className="message-list empty">
+            <div className="empty-state">
+              <div className="empty-title">No session open</div>
+              <div className="empty-hint">
+                Start a new session or select one from the sidebar.
+              </div>
+            </div>
+          </div>
+        </main>
+      )}
+
+      {/* Rewind / fork confirmation */}
+      {pendingAction && (
+        <ConfirmModal
+          title={
+            pendingAction.kind === "rewind"
+              ? "Rewind conversation?"
+              : "Fork conversation?"
+          }
+          body={
+            pendingAction.kind === "rewind" ? (
+              <>
+                All messages after the selected one will be removed from this
+                conversation. The current tab will be closed; reopen the
+                conversation from the sidebar to continue from the rewound point.
+              </>
+            ) : (
+              <>
+                A copy of this conversation will be created, truncated to the
+                selected message. The original is unchanged.
+              </>
+            )
+          }
+          confirmLabel={pendingAction.kind === "rewind" ? "Rewind" : "Fork"}
+          destructive={pendingAction.kind === "rewind"}
+          onConfirm={confirmAction}
+          onCancel={() => setPendingAction(null)}
+        />
+      )}
+
+      {/* Per-session config panel */}
+      <Suspense fallback={null}>
+        {sessionConfigTabId && (() => {
+          const cfgInst = instancesRef.current.get(sessionConfigTabId);
+          const cfgTab = tabs.find(t => t.sessionId === sessionConfigTabId);
+          const isStopped = cfgInst
+            ? cfgInst.status === "idle" || cfgInst.status === "disconnected"
+            : false;
+          return (
+            <SessionConfigPage
+              isOpen={true}
+              onClose={() => setSessionConfigTabId(null)}
+              sessionId={cfgTab?.resumeSdkId ?? null}
+              canRestart={isStopped}
+              onSaveAndRestart={() => {
+                cfgInst?.restart();
+              }}
+            />
+          );
+        })()}
+      </Suspense>
+    </>
+  );
+}

@@ -1,0 +1,108 @@
+"""Pydantic request/response models for the API."""
+
+from __future__ import annotations
+
+from pydantic import BaseModel
+
+
+# ---------------------------------------------------------------------------
+# Responses
+# ---------------------------------------------------------------------------
+
+class SessionInfoResponse(BaseModel):
+    session_id: str
+    started_at: str
+    last_activity: str
+    title: str
+    message_count: int
+    is_orchestrator: bool = False
+    # Which agent backed this session — registered harness id (see /api/config/providers).
+    provider: str = "claude"
+    # Set when this session is currently live in the pool (local_id is the stable tab key)
+    local_id: str | None = None
+
+
+class VisualizationInfoResponse(BaseModel):
+    """An HTML artifact under context/public/, listed in the sidebar."""
+
+    # Path relative to context/public/ — the stable identity/join key.
+    path: str
+    # URL it's served at (the SPA catch-all resolves context/public/ first).
+    url: str
+    title: str
+    created: str
+    modified: str
+    size: int
+
+
+class MemoryNodeResponse(BaseModel):
+    """A node in the context/memory/ markdown tree.
+
+    Directories carry ``children``; files leave it None. ``path`` is relative
+    to context/memory/ and doubles as the node's identity and its URL suffix
+    (the ``/memory/<path>`` route in api/app.py serves the raw file).
+    """
+
+    name: str
+    path: str
+    is_dir: bool
+    children: list["MemoryNodeResponse"] | None = None
+
+
+class ContentBlockResponse(BaseModel):
+    type: str  # "text" | "thinking" | "tool_use" | "tool_result"
+    text: str | None = None
+    tool_use_id: str | None = None
+    tool_name: str | None = None
+    tool_input: dict | None = None
+    output: str | None = None
+    is_error: bool = False
+
+
+class MessagePreviewResponse(BaseModel):
+    role: str
+    text: str
+    blocks: list[ContentBlockResponse] = []
+    timestamp: str | None = None
+
+
+class SessionDetailResponse(SessionInfoResponse):
+    messages: list[MessagePreviewResponse] = []
+
+
+class PaginatedMessagesResponse(BaseModel):
+    """Paginated messages for a session."""
+    messages: list[MessagePreviewResponse]
+    total_count: int
+    has_more: bool
+    # The index of the first message in this batch (for cursor-based pagination)
+    start_index: int
+
+
+class PoolSessionResponse(BaseModel):
+    """A session that is currently live in the pool (not just in JSONL history)."""
+    local_id: str
+    sdk_session_id: str | None = None
+    status: str
+    cost: float
+    turns: int
+    title: str | None = None
+    is_orchestrator: bool = False
+
+
+class AuthStatusResponse(BaseModel):
+    authenticated: bool
+    # For headless auth: URL to get credentials
+    auth_url: str | None = None
+    # Whether server is in headless mode
+    headless: bool = False
+
+
+class SetCredentialsRequest(BaseModel):
+    """Request to set credentials directly (headless auth)."""
+    credentials_json: str
+
+
+class ErrorResponse(BaseModel):
+    error: str
+    detail: str | None = None

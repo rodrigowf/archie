@@ -1,0 +1,215 @@
+{
+  "name": "history_live_overlap_dedupe",
+  "description": "Reload mid-turn (web bug 7): frames received after subscribing overlap what REST already returned. The repeated tool_use, its result and the re-streamed 'Part two.' are deduplicated; only new content is added.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1",
+    "live_status": "streaming"
+  },
+  "initial_history": {
+    "messages": [
+      {
+        "role": "user",
+        "text": "Explain X",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Explain X",
+            "tool_use_id": null,
+            "tool_name": null,
+            "tool_input": null,
+            "output": null,
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-10-03T12:00:00+00:00"
+      },
+      {
+        "role": "assistant",
+        "text": "Part one.",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Part one.",
+            "tool_use_id": null,
+            "tool_name": null,
+            "tool_input": null,
+            "output": null,
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-10-03T12:00:00+00:00"
+      },
+      {
+        "role": "assistant",
+        "text": "",
+        "blocks": [
+          {
+            "type": "tool_use",
+            "text": null,
+            "tool_use_id": "t1",
+            "tool_name": "Bash",
+            "tool_input": {
+              "command": "ls",
+              "description": "List files"
+            },
+            "output": null,
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-10-03T12:00:00+00:00"
+      },
+      {
+        "role": "user",
+        "text": "",
+        "blocks": [
+          {
+            "type": "tool_result",
+            "text": null,
+            "tool_use_id": "t1",
+            "tool_name": null,
+            "tool_input": null,
+            "output": "data",
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-10-03T12:00:00+00:00"
+      },
+      {
+        "role": "assistant",
+        "text": "Part two.",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Part two.",
+            "tool_use_id": null,
+            "tool_name": null,
+            "tool_input": null,
+            "output": null,
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-10-03T12:00:00+00:00"
+      }
+    ],
+    "total_count": 5,
+    "has_more": false,
+    "start_index": 0
+  },
+  "events": [
+    {
+      "type": "tool_use",
+      "tool_use_id": "t1",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "ls",
+        "description": "List files"
+      },
+      "seq": 20,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "t1",
+      "output": "data",
+      "is_error": false,
+      "seq": 21,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_delta",
+      "text": "Part ",
+      "seq": 22,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_delta",
+      "text": "two.",
+      "seq": 23,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_complete",
+      "text": "Part two.",
+      "seq": 24,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_delta",
+      "text": "Part three",
+      "seq": 25,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_complete",
+      "text": "Part three.",
+      "seq": 26,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "usage": {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 990,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 50
+      },
+      "input_tokens": 1000,
+      "output_tokens": 50,
+      "num_turns": 1,
+      "session_id": "sdk-1",
+      "is_error": false,
+      "result": "",
+      "seq": 27,
+      "stream_id": "L1:1759500000000"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "Explain X",
+        "origin": "history",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Part one.",
+            "streaming": false
+          },
+          {
+            "type": "tool",
+            "tool_use_id": "t1",
+            "tool_name": "Bash",
+            "tool_input": {
+              "command": "ls",
+              "description": "List files"
+            },
+            "status": "done",
+            "output": "data"
+          },
+          {
+            "type": "text",
+            "text": "Part two.",
+            "streaming": false
+          },
+          {
+            "type": "text",
+            "text": "Part three.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "state": {
+      "status": "idle"
+    }
+  }
+}

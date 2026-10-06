@@ -1,0 +1,72 @@
+/* Empty state (mockups `.empty`): centered column; owl spacing (14 dp, as in the mockups). */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.empty > * + * {
+  margin-top: 14px;
+}
+
+.icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.hero .icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 24px;
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+
+.title {
+  max-width: 32ch;
+  margin: 0;
+  color: var(--md-sys-color-on-surface);
+  font-size: var(--md-sys-typescale-headline-small-size);
+  font-weight: 400;
+  line-height: var(--md-sys-typescale-headline-small-line-height);
+}
+
+.hero .title {
+  margin-top: 20px;
+  font-size: 30px;
+  line-height: 38px;
+}
+
+.description {
+  max-width: 48ch;
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: var(--md-sys-typescale-body-medium-line-height);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  margin-right: -4px;
+  margin-left: -4px;
+}
+
+.empty > .actions {
+  margin-top: 10px;
+}
+
+.actions > * {
+  margin: 4px;
+}

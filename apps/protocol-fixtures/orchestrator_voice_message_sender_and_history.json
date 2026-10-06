@@ -1,0 +1,168 @@
+{
+  "name": "orchestrator_voice_message_sender_and_history",
+  "description": "Orchestrator, sending device: the history holds two voice messages as '[audio:<fmt>] …' lines (one with the backend's '(audio message)' placeholder for no prompt), which classify to audio user entries with the placeholder dropped (§5.1). The device then sends a voice message itself: local_send_audio shows its one bubble, the server excludes the sender from the voice_message echo (VM-1), and the reply is this device's turn, so no background notice (BG-1).",
+  "source": "synthetic",
+  "session": {
+    "kind": "orchestrator",
+    "provider": null,
+    "local_id": "O1",
+    "sdk_id": "O1"
+  },
+  "initial_history": {
+    "messages": [
+      {
+        "role": "user",
+        "text": "[audio:wav] (audio message)",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "[audio:wav] (audio message)",
+            "tool_use_id": null,
+            "tool_name": null,
+            "tool_input": null,
+            "output": null,
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-10-05T09:00:00+00:00"
+      },
+      {
+        "role": "assistant",
+        "text": "It is 21 degrees outside.",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "It is 21 degrees outside.",
+            "tool_use_id": null,
+            "tool_name": null,
+            "tool_input": null,
+            "output": null,
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-10-05T09:00:00+00:00"
+      },
+      {
+        "role": "user",
+        "text": "[audio:webm] what is this song?",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "[audio:webm] what is this song?",
+            "tool_use_id": null,
+            "tool_name": null,
+            "tool_input": null,
+            "output": null,
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-10-05T09:00:00+00:00"
+      },
+      {
+        "role": "assistant",
+        "text": "That is 'Aguas de Marco'.",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "That is 'Aguas de Marco'.",
+            "tool_use_id": null,
+            "tool_name": null,
+            "tool_input": null,
+            "output": null,
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-10-05T09:00:00+00:00"
+      }
+    ],
+    "total_count": 4,
+    "has_more": false,
+    "start_index": 0
+  },
+  "events": [
+    {
+      "type": "status",
+      "status": "streaming"
+    },
+    {
+      "type": "text_delta",
+      "text": "Your "
+    },
+    {
+      "type": "text_complete",
+      "text": "Your next meeting is at 3 pm."
+    },
+    {
+      "type": "turn_complete",
+      "input_tokens": 2500,
+      "output_tokens": 30
+    },
+    {
+      "type": "status",
+      "status": "idle"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "send_audio"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "",
+        "origin": "audio",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "It is 21 degrees outside.",
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "kind": "user",
+        "text": "what is this song?",
+        "origin": "audio",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "That is 'Aguas de Marco'.",
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "kind": "user",
+        "text": "",
+        "origin": "audio",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Your next meeting is at 3 pm.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "state": {
+      "status": "idle",
+      "in_turn": false,
+      "context_tokens": 2500
+    }
+  }
+}

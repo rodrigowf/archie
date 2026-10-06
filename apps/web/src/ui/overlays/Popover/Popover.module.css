@@ -1,0 +1,30 @@
+/* Anchored surface (mockups' `.menu` shell): surface-container, radius 16, elevation 2. */
+.popover {
+  z-index: 25;
+  box-sizing: border-box;
+  min-width: 112px;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  border-radius: var(--md-sys-shape-corner-large);
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
+  box-shadow: var(--md-sys-elevation-level2);
+  animation: popover-in var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized-decelerate);
+}
+
+.popover:focus {
+  outline: none;
+}
+
+.inline {
+  position: relative;
+  animation: none;
+}
+
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}

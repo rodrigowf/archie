@@ -1,0 +1,4 @@
+[
+  { "role": "user", "text": "Write a script that prints tomorrow's forecast.", "blocks": [{ "type": "text", "text": "Write a script that prints tomorrow's forecast.", "tool_use_id": null, "tool_name": null, "tool_input": null, "output": null, "is_error": false }], "timestamp": "2026-09-20T10:00:00+00:00" },
+  { "role": "assistant", "text": "```python\nimport json, urllib.request\nprint(json.load(urllib.request.urlopen(URL))[\"tomorrow\"])\n```", "blocks": [{ "type": "text", "text": "```python\nimport json, urllib.request\nprint(json.load(urllib.request.urlopen(URL))[\"tomorrow\"])\n```", "tool_use_id": null, "tool_name": null, "tool_input": null, "output": null, "is_error": false }], "timestamp": "2026-09-20T10:05:00+00:00" }
+]

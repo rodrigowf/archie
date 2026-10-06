@@ -1,0 +1,43 @@
+/* Covers the parent with explicit offsets (never `inset`; inv02 §5.4 #3 broke `.busy-overlay`). */
+/* stylelint-disable declaration-block-no-redundant-longhand-properties -- explicit top/right/bottom/left, never `inset` (Safari 12; inv02 §5.4 #3) */
+.overlay {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* stylelint-disable-next-line color-function-alias-notation -- 4-argument rgb() needs Safari 14 */
+  background: rgba(var(--md-sys-color-surface-rgb), 0.72);
+  animation: busy-in var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+
+.fixed {
+  position: fixed;
+  z-index: 35;
+}
+
+.card {
+  display: flex;
+  align-items: center;
+  padding: 14px 20px;
+  border-radius: var(--md-sys-shape-corner-large);
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  box-shadow: var(--md-sys-elevation-level2);
+}
+
+.label {
+  margin-left: 12px;
+  font-size: var(--md-sys-typescale-body-large-size);
+  line-height: var(--md-sys-typescale-body-large-line-height);
+}
+
+@keyframes busy-in {
+  from {
+    opacity: 0;
+  }
+}

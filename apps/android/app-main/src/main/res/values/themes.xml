@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!--
+      Window theme behind Compose. The window background is the tokens' surface (light/dark by the
+      system setting), so nothing purple or white flashes before ArchieTheme paints. Edge-to-edge is
+      enabled in MainActivity (targetSdk 36 enforces it).
+      OI-1 (B-09): the bar icons follow the same night qualifier as the background (light icons on
+      the dark window, dark on the light one); once Compose runs, SystemBarsMatchTheme takes over
+      and follows the app's own theme setting.
+    -->
+    <style name="Theme.Archie" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/archie_window_background</item>
+        <item name="android:colorBackground">@color/archie_window_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">@bool/archie_light_system_bars</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="27">@bool/archie_light_system_bars</item>
+    </style>
+
+    <!-- core-splashscreen launch theme (spec 14 §2.4); hands over to Theme.Archie. -->
+    <style name="Theme.Archie.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/archie_window_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_archie_splash</item>
+        <item name="postSplashScreenTheme">@style/Theme.Archie</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">@bool/archie_light_system_bars</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="27">@bool/archie_light_system_bars</item>
+    </style>
+
+    <!-- B-09: the invisible voice trampoline (tile, shortcut, notification Talk/Resume, ACTION_ASSIST). -->
+    <style name="Theme.Archie.Trampoline" parent="android:Theme.Translucent.NoTitleBar">
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:windowNoDisplay">false</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

@@ -1,0 +1,129 @@
+{
+  "name": "queued_prompt_echoed_twice",
+  "description": "Observer view: a prompt queued by another client is announced twice (queued:true, then again at dispatch, G-5). It sits in the queue tray (not in the timeline, so it does not split the running run), and enters the timeline exactly once at dispatch.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "user_message",
+      "text": "first"
+    },
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "text_delta",
+      "text": "Working",
+      "seq": 1,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "user_message",
+      "text": "second",
+      "queued": true
+    },
+    {
+      "type": "text_complete",
+      "text": "Working on first.",
+      "seq": 2,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "usage": {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 990,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 50
+      },
+      "input_tokens": 1000,
+      "output_tokens": 50,
+      "num_turns": 1,
+      "session_id": "sdk-1",
+      "is_error": false,
+      "result": "",
+      "seq": 3,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "user_message",
+      "text": "second"
+    },
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "text_complete",
+      "text": "Second done.",
+      "seq": 4,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "usage": {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 990,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 50
+      },
+      "input_tokens": 1000,
+      "output_tokens": 50,
+      "num_turns": 1,
+      "session_id": "sdk-1",
+      "is_error": false,
+      "result": "",
+      "seq": 5,
+      "stream_id": "L1:1759500000000"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "first",
+        "origin": "echo",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Working on first.",
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "kind": "user",
+        "text": "second",
+        "origin": "echo",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Second done.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "queue": [],
+    "state": {
+      "status": "idle"
+    }
+  }
+}

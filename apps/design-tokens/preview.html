@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Design Tokens Preview</title>
+<!-- Preview page only: the apps bundle these fonts locally. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Roboto+Flex:opsz,wght@8..144,100..1000&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300..500,0..1,0&display=block">
+<link rel="stylesheet" href="dist/tokens.css">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--md-sys-color-surface);
+    color: var(--md-sys-color-on-surface);
+    font-family: var(--md-sys-typescale-body-medium-font);
+    font-size: var(--md-sys-typescale-body-medium-size);
+    line-height: var(--md-sys-typescale-body-medium-line-height);
+    letter-spacing: var(--md-sys-typescale-body-medium-tracking);
+    -webkit-font-smoothing: antialiased;
+  }
+  .icon {
+    font-family: 'Material Symbols Rounded'; font-weight: 400; font-style: normal;
+    font-size: 20px; line-height: 1; display: inline-block; white-space: nowrap;
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+    -webkit-font-feature-settings: 'liga'; font-feature-settings: 'liga';
+  }
+  .page { max-width: 1180px; margin: 0 auto; padding: 0 var(--app-space-4) var(--app-space-16); }
+  header.top {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--app-space-3);
+    padding: var(--app-space-4) 0; background: var(--md-sys-color-surface);
+  }
+  h1 { margin: 0; font-size: var(--md-sys-typescale-title-large-size); line-height: var(--md-sys-typescale-title-large-line-height); font-weight: 400; }
+  h1 small { display: block; color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-small-size); line-height: var(--md-sys-typescale-body-small-line-height); letter-spacing: var(--md-sys-typescale-body-small-tracking); }
+  h2 {
+    margin: var(--app-space-12) 0 var(--app-space-4);
+    font-size: var(--md-sys-typescale-title-medium-size); line-height: var(--md-sys-typescale-title-medium-line-height);
+    font-weight: 500; letter-spacing: var(--md-sys-typescale-title-medium-tracking);
+  }
+  h2 + p.note { margin-top: calc(-1 * var(--app-space-3)); }
+  p.note { color: var(--md-sys-color-on-surface-variant); margin: 0 0 var(--app-space-4); max-width: 76ch; }
+
+  /* segmented theme toggle */
+  .seg { display: inline-flex; border: 1px solid var(--md-sys-color-outline); border-radius: var(--md-sys-shape-corner-full); overflow: hidden; }
+  .seg button {
+    font: inherit; font-weight: 500; font-size: var(--md-sys-typescale-label-large-size); letter-spacing: var(--md-sys-typescale-label-large-tracking);
+    color: var(--md-sys-color-on-surface); background: transparent; border: 0; padding: 0 var(--app-space-4); height: 40px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: var(--app-space-2);
+  }
+  .seg button + button { border-left: 1px solid var(--md-sys-color-outline); }
+  .seg button:hover { background: var(--md-sys-color-on-surface-hover); }
+  .seg button[aria-pressed="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+  .seg .icon { font-size: 18px; }
+
+  /* ---------- mock chat ---------- */
+  .mock {
+    border-radius: var(--md-sys-shape-corner-large); overflow: hidden;
+    background: var(--md-sys-color-surface); border: 1px solid var(--md-sys-color-outline-variant);
+    display: flex; flex-direction: column; max-width: 860px;
+  }
+  .appbar { display: flex; align-items: center; gap: var(--app-space-2); height: 64px; padding: 0 var(--app-space-2); background: var(--md-sys-color-surface-container); }
+  .iconbtn { width: 40px; height: 40px; border-radius: var(--md-sys-shape-corner-full); border: 0; background: transparent; color: var(--md-sys-color-on-surface-variant); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex: none; }
+  .iconbtn:hover { background: var(--md-sys-color-on-surface-variant-hover); }
+  .appbar .title { flex: 1; min-width: 0; }
+  .appbar .title b { display: block; font-weight: 400; font-size: var(--md-sys-typescale-title-large-size); line-height: var(--md-sys-typescale-title-large-line-height); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .appbar .title span { display: flex; align-items: center; gap: 6px; color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-label-medium-size); line-height: var(--md-sys-typescale-label-medium-line-height); letter-spacing: var(--md-sys-typescale-label-medium-tracking); font-weight: 500; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--md-ext-color-success); display: inline-block; }
+  .tabs { display: flex; gap: var(--app-space-2); padding: 0 var(--app-space-4) var(--app-space-2); background: var(--md-sys-color-surface-container); overflow-x: auto; }
+  .chip { display: inline-flex; align-items: center; gap: var(--app-space-2); height: 32px; padding: 0 var(--app-space-3); border-radius: var(--md-sys-shape-corner-small); border: 1px solid var(--md-sys-color-outline-variant); color: var(--md-sys-color-on-surface-variant); font-weight: 500; font-size: var(--md-sys-typescale-label-large-size); letter-spacing: var(--md-sys-typescale-label-large-tracking); white-space: nowrap; }
+  .chip.sel { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); border-color: transparent; }
+  .chip .icon { font-size: 18px; }
+  .thread { padding: var(--app-space-4) var(--app-space-4) var(--app-space-2); display: flex; flex-direction: column; gap: var(--app-space-4); }
+  .bubble {
+    align-self: flex-end; max-width: 80%;
+    background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);
+    border-radius: var(--md-sys-shape-corner-extra-large) var(--md-sys-shape-corner-extra-large) var(--md-sys-shape-corner-extra-small) var(--md-sys-shape-corner-extra-large);
+    padding: var(--app-space-3) var(--app-space-4);
+  }
+  .bodyL { font-size: var(--md-sys-typescale-body-large-size); line-height: var(--md-sys-typescale-body-large-line-height); letter-spacing: var(--md-sys-typescale-body-large-tracking); }
+  .assistant p { margin: 0 0 var(--app-space-2); }
+  .assistant a { color: var(--md-sys-color-primary); }
+  code, .code { font-family: var(--md-sys-typescale-code-font); font-size: var(--md-sys-typescale-code-size); line-height: var(--md-sys-typescale-code-line-height); letter-spacing: 0; }
+  :not(pre) > code { background: var(--md-sys-color-surface-container-high); border-radius: var(--md-sys-shape-corner-extra-small); padding: 1px 6px; }
+  .tool {
+    position: relative; border-radius: var(--md-sys-shape-corner-medium); overflow: hidden;
+    background: var(--md-sys-color-surface-container-low);
+    border: 1px solid var(--md-sys-color-outline-variant);
+  }
+  .tool-head { display: flex; align-items: center; gap: var(--app-space-3); padding: var(--app-space-2) var(--app-space-3); background: var(--tint); }
+  .tool-ico { width: 28px; height: 28px; border-radius: var(--md-sys-shape-corner-small); display: inline-flex; align-items: center; justify-content: center; background: var(--c-container); color: var(--c-on-container); flex: none; }
+  .tool-ico .icon { font-size: 18px; }
+  .tool-name { color: var(--c); font-weight: 500; font-size: var(--md-sys-typescale-label-large-size); letter-spacing: var(--md-sys-typescale-label-large-tracking); flex: none; }
+  .tool-desc { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--md-sys-color-on-surface-variant); }
+  .status { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 var(--app-space-2); border-radius: var(--md-sys-shape-corner-full); font-weight: 500; font-size: var(--md-sys-typescale-label-small-size); letter-spacing: var(--md-sys-typescale-label-small-tracking); flex: none; }
+  .status .icon { font-size: 14px; }
+  .status.done { background: var(--md-ext-color-success-container); color: var(--md-ext-color-on-success-container); }
+  .status.run { background: var(--md-ext-color-warning-container); color: var(--md-ext-color-on-warning-container); }
+  .status.err { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); }
+  .tool pre { margin: 0; padding: var(--app-space-2) var(--app-space-3) var(--app-space-3); color: var(--md-sys-color-on-surface-variant); white-space: pre; overflow-x: auto; }
+  .tools { display: grid; grid-template-columns: 1fr 1fr; gap: var(--app-space-2); }
+  .inputbar { display: flex; align-items: flex-end; gap: var(--app-space-2); padding: var(--app-space-2) var(--app-space-3) var(--app-space-3); background: var(--md-sys-color-surface); }
+  .field { flex: 1; min-height: 48px; display: flex; align-items: center; gap: var(--app-space-1); padding: 0 var(--app-space-1) 0 var(--app-space-4); border-radius: var(--md-sys-shape-corner-extra-large); background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface-variant); }
+  .field span.ph { flex: 1; }
+  .fab { width: 48px; height: 48px; border-radius: var(--md-sys-shape-corner-large); border: 0; background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); display: inline-flex; align-items: center; justify-content: center; flex: none; cursor: pointer; }
+  .fab:hover { box-shadow: var(--md-sys-elevation-level1); }
+  .tonal { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+  .statusline { display: flex; gap: var(--app-space-4); padding: 0 var(--app-space-4) var(--app-space-2); color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-label-small-size); letter-spacing: var(--md-sys-typescale-label-small-tracking); font-weight: 500; }
+  .banner { display: flex; align-items: center; gap: var(--app-space-3); padding: var(--app-space-2) var(--app-space-3); border-radius: var(--md-sys-shape-corner-medium); background: var(--md-ext-color-warning-container); color: var(--md-ext-color-on-warning-container); }
+  .banner b { flex: 1; font-weight: 500; }
+  .banner .text-btn { font: inherit; font-weight: 500; background: transparent; border: 0; color: inherit; text-decoration: underline; cursor: pointer; }
+
+  /* ---------- swatches ---------- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--app-space-3); }
+  .sw { border-radius: var(--md-sys-shape-corner-medium); overflow: hidden; border: 1px solid var(--md-sys-color-outline-variant); }
+  .sw .fill { padding: var(--app-space-3); min-height: 84px; display: flex; flex-direction: column; justify-content: space-between; gap: var(--app-space-2); }
+  .sw .fill .name { font-weight: 500; font-size: var(--md-sys-typescale-label-large-size); }
+  .sw .meta { display: flex; justify-content: space-between; gap: var(--app-space-2); font-family: var(--md-sys-typescale-code-font); font-size: 12px; line-height: 16px; }
+  .sw .rows { background: var(--md-sys-color-surface-container-lowest); padding: var(--app-space-2) var(--app-space-3); display: flex; flex-direction: column; gap: 2px; font-size: var(--md-sys-typescale-body-small-size); line-height: var(--md-sys-typescale-body-small-line-height); }
+  .row { display: flex; justify-content: space-between; gap: var(--app-space-2); color: var(--md-sys-color-on-surface-variant); }
+  .row b { font-weight: 500; color: var(--md-sys-color-on-surface); font-family: var(--md-sys-typescale-code-font); font-size: 12px; }
+  .row.bad b, .bad { color: var(--md-sys-color-error); }
+  .flag { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); font-size: 11px; font-weight: 500; font-family: var(--md-sys-typescale-body-small-font); }
+  .summary { display: inline-flex; align-items: center; gap: var(--app-space-2); padding: var(--app-space-2) var(--app-space-3); border-radius: var(--md-sys-shape-corner-small); background: var(--md-sys-color-surface-container); margin-bottom: var(--app-space-4); }
+  .summary.ok .icon { color: var(--md-ext-color-success); }
+  .summary.ko .icon { color: var(--md-sys-color-error); }
+  .surfaces { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0; border-radius: var(--md-sys-shape-corner-medium); overflow: hidden; border: 1px solid var(--md-sys-color-outline-variant); }
+  .surfaces > div { padding: var(--app-space-3); min-height: 120px; display: flex; flex-direction: column; gap: 4px; }
+  .surfaces .n { color: var(--md-sys-color-on-surface); font-weight: 500; }
+  .surfaces .v { color: var(--md-sys-color-on-surface-variant); }
+  .surfaces .meta { margin-top: auto; font-family: var(--md-sys-typescale-code-font); font-size: 12px; line-height: 16px; color: var(--md-sys-color-on-surface-variant); }
+
+  /* ---------- type / shape / misc ---------- */
+  .type-row { display: grid; grid-template-columns: 170px 1fr; gap: var(--app-space-4); align-items: baseline; padding: var(--app-space-2) 0; border-bottom: 1px solid var(--md-sys-color-outline-variant); }
+  .type-row .spec { color: var(--md-sys-color-on-surface-variant); font-size: 12px; line-height: 16px; }
+  .type-row .spec b { display: block; color: var(--md-sys-color-on-surface); font-weight: 500; font-size: 13px; }
+  .sample { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .shapes { display: flex; flex-wrap: wrap; gap: var(--app-space-4); }
+  .shape { width: 112px; height: 80px; background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 500; font-size: 12px; text-align: center; }
+  .elev { display: flex; flex-wrap: wrap; gap: var(--app-space-4); }
+  .elev > div { width: 132px; height: 84px; border-radius: var(--md-sys-shape-corner-medium); padding: var(--app-space-3); font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
+  .elev b { display: block; color: var(--md-sys-color-on-surface); font-weight: 500; font-size: 13px; }
+  .spacing { display: flex; flex-direction: column; gap: 6px; }
+  .spacing div { display: flex; align-items: center; gap: var(--app-space-3); font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
+  .spacing i { display: block; height: 12px; background: var(--md-sys-color-primary); border-radius: 2px; }
+  .spacing span { width: 92px; font-family: var(--md-sys-typescale-code-font); }
+  .motion { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--app-space-3); }
+  .track { position: relative; height: 32px; border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-surface-container-high); }
+  .track i { position: absolute; left: 4px; top: 4px; width: 24px; height: 24px; border-radius: 50%; background: var(--md-sys-color-tertiary); transition-property: left; transition-duration: var(--md-sys-motion-duration-long2); }
+  .motion.go .track i { left: calc(100% - 28px); }
+  .motion label { display: block; font-size: 12px; color: var(--md-sys-color-on-surface-variant); margin-bottom: 4px; font-family: var(--md-sys-typescale-code-font); }
+  .btn { font: inherit; font-weight: 500; height: 40px; padding: 0 var(--app-space-6); border-radius: var(--md-sys-shape-corner-full); border: 0; background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); cursor: pointer; }
+  .btn.tonal { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+  .btn:hover { box-shadow: var(--md-sys-elevation-level1); }
+  .durations { font-family: var(--md-sys-typescale-code-font); font-size: 12px; line-height: 18px; color: var(--md-sys-color-on-surface-variant); }
+
+  @media (max-width: 720px) {
+    .tools { grid-template-columns: 1fr; }
+    .type-row { grid-template-columns: 1fr; gap: 2px; }
+    .bubble { max-width: 92%; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="top">
+    <h1>Design tokens <small>Generated from design/tokens/tokens.json · Material Design 3 · seed <span id="seed"></span></small></h1>
+    <div class="seg" role="group" aria-label="Theme">
+      <button data-theme-btn="dark"><span class="icon">dark_mode</span>Dark</button>
+      <button data-theme-btn="light"><span class="icon">light_mode</span>Light</button>
+      <button data-theme-btn="system"><span class="icon">contrast</span>System</button>
+    </div>
+  </header>
+
+  <h2>Chat mock</h2>
+  <p class="note">Top app bar on surface-container, tabs as chips, a user bubble on surface-container-high, assistant body-large text, one tool card per category (icon on the category container, label in the category color, header tinted with the category tint), and the input bar.</p>
+  <div class="mock">
+    <div class="appbar">
+      <button class="iconbtn" aria-label="Menu"><span class="icon">menu</span></button>
+      <div class="title"><b>twitter browser test</b><span><i class="dot"></i>Claude · Ready · Connected</span></div>
+      <button class="iconbtn" aria-label="Search"><span class="icon">search</span></button>
+      <button class="iconbtn" aria-label="Session settings"><span class="icon">tune</span></button>
+      <button class="iconbtn" aria-label="More"><span class="icon">more_vert</span></button>
+    </div>
+    <div class="tabs">
+      <span class="chip sel"><span class="icon">chat</span>twitter browser test</span>
+      <span class="chip"><span class="icon">hub</span>Orchestrator</span>
+      <span class="chip"><span class="icon">chat</span>Alice Work</span>
+      <span class="chip"><span class="icon">add</span>New</span>
+    </div>
+    <div class="thread">
+      <div class="bubble bodyL">Approval received. Please go ahead and click the Post button now to send the tweet.</div>
+      <div class="assistant bodyL">
+        <p>Approved. Verifying the composer content one last time, then posting. <code>fill</code> is unreliable on <code>contenteditable</code> editors, so I check the draft first. See <a href="#">browser-control notes</a>.</p>
+      </div>
+      <div class="tools" id="tools"></div>
+      <div class="banner"><span class="icon">hourglass_top</span><b>No output for 2 min from WebFetch</b><button class="text-btn">Interrupt</button></div>
+    </div>
+    <div class="statusline"><span>Context 41%</span><span>Opus</span><span>~/assistant</span></div>
+    <div class="inputbar">
+      <div class="field"><span class="ph">Send a message…</span><button class="iconbtn" aria-label="Attach"><span class="icon">attach_file</span></button><button class="iconbtn" aria-label="Record"><span class="icon">mic</span></button></div>
+      <button class="fab" aria-label="Send"><span class="icon">arrow_upward</span></button>
+    </div>
+  </div>
+
+  <h2>Color roles</h2>
+  <p class="note">Every M3 role in the current theme with the WCAG contrast of its on-color. Text pairs need 4.5:1; anything lower is flagged in red. Values are read live from dist/tokens.css.</p>
+  <div id="contrast-summary"></div>
+  <div class="grid" id="accent-roles"></div>
+
+  <h2>Surfaces</h2>
+  <p class="note">Surface family, lowest to brightest, with on-surface and on-surface-variant contrast. Dark tones are pinned near today's #0d0d0f / #171719 / #1e1e22 / #252529.</p>
+  <div class="surfaces" id="surfaces"></div>
+  <div class="grid" id="other-roles" style="margin-top: var(--app-space-3)"></div>
+
+  <h2>Extended colors</h2>
+  <p class="note">Semantic and tool-category colors (M3 custom colors, harmonized to the seed). Each row: color with on-color, container with on-container, the translucent tint, and the color used as text on surface-container-high.</p>
+  <div class="grid" id="extended"></div>
+
+  <h2>Type scale</h2>
+  <p class="note">Roboto Flex for UI, JetBrains Mono for code. Sizes in sp/px.</p>
+  <div id="type"></div>
+
+  <h2>Shape</h2>
+  <div class="shapes" id="shapes"></div>
+
+  <h2>Elevation</h2>
+  <p class="note">Tonal elevation (surface role per level) plus the M3 shadow, which components only use where M3 asks for one.</p>
+  <div class="elev" id="elev"></div>
+
+  <h2>Spacing</h2>
+  <div class="spacing" id="spacing"></div>
+
+  <h2>Motion</h2>
+  <p class="note">Easing curves at long2 (500ms). <button class="btn tonal" id="play" style="margin-left:8px">Play</button></p>
+  <div class="motion" id="motion"></div>
+  <p class="durations" id="durations"></p>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  function v(name) { return getComputedStyle(root).getPropertyValue('--' + name).trim(); }
+  function kebab(s) { return s.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase(); }
+  function col(role) { return v('md-sys-color-' + kebab(role)); }
+  function lum(hex) {
+    var c = [1, 3, 5].map(function (i) { var x = parseInt(hex.slice(i, i + 2), 16) / 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); });
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  }
+  function ratio(a, b) { var x = lum(a), y = lum(b); var hi = Math.max(x, y), lo = Math.min(x, y); return (hi + 0.05) / (lo + 0.05); }
+  var checked = 0, failed = [];
+  function rowHtml(label, fg, bg, min) {
+    min = min || 4.5; var r = ratio(fg, bg); checked++;
+    var bad = r < min; if (bad) failed.push(label + ' ' + r.toFixed(2));
+    return '<div class="row' + (bad ? ' bad' : '') + '"><span>' + label + '</span><b>' + r.toFixed(2) + ':1' + (bad ? '<span class="flag">&lt; ' + min + '</span>' : '') + '</b></div>';
+  }
+
+  var TOOLS = [
+    ['read', 'description', 'Read', 'docs/frontend-refactor/README.md', 'done'],
+    ['write', 'edit_document', 'Edit', 'design/tokens/tokens.json', 'done'],
+    ['execute', 'terminal', 'Bash', 'npm run build', 'run'],
+    ['script', 'code', 'Script', 'browser_cmd.py look', 'done'],
+    ['navigate', 'explore', 'Navigate', 'https://x.com/compose/post', 'done'],
+    ['capture', 'screenshot_monitor', 'Screenshot', 'tokens-preview-dark.png', 'done'],
+    ['interact', 'touch_app', 'Click', 'button[data-testid="tweetButton"]', 'done'],
+    ['todo', 'checklist', 'TodoWrite', '3 of 5 done', 'done'],
+    ['task', 'assignment', 'Task', 'Explore: find tool colors', 'run'],
+    ['system', 'settings', 'System', 'compact conversation', 'done'],
+    ['agent', 'smart_toy', 'Agent', 'send_to_agent_session', 'err'],
+    ['search', 'search', 'Grep', '"--tool-" in frontend/src', 'done']
+  ];
+  var STATUS = { done: ['check', 'done'], run: ['progress_activity', 'running'], err: ['error', 'failed'] };
+  document.getElementById('tools').innerHTML = TOOLS.map(function (t) {
+    var p = '--md-ext-color-', c = t[0];
+    var style = '--c:var(' + p + 'tool-' + c + ');--c-container:var(' + p + 'tool-' + c + '-container);--c-on-container:var(' + p + 'on-tool-' + c + '-container);--tint:var(' + p + 'tool-' + c + '-tint)';
+    return '<div class="tool" style="' + style + '"><div class="tool-head"><span class="tool-ico"><span class="icon">' + t[1] + '</span></span>' +
+      '<span class="tool-name">' + t[2] + '</span><span class="tool-desc code">' + t[3] + '</span>' +
+      '<span class="status ' + t[4] + '"><span class="icon">' + STATUS[t[4]][0] + '</span>' + STATUS[t[4]][1] + '</span></div>' +
+      '<pre class="code">' + c + ' · ' + t[3].replace(/</g, '&lt;') + '</pre></div>';
+  }).join('');
+
+  function render() {
+    checked = 0; failed = [];
+    document.getElementById('seed').textContent = v('app-seed');
+    var acc = [['primary', 'onPrimary'], ['primaryContainer', 'onPrimaryContainer'], ['secondary', 'onSecondary'], ['secondaryContainer', 'onSecondaryContainer'],
+      ['tertiary', 'onTertiary'], ['tertiaryContainer', 'onTertiaryContainer'], ['error', 'onError'], ['errorContainer', 'onErrorContainer'],
+      ['inverseSurface', 'inverseOnSurface'], ['inverseSurface', 'inversePrimary']];
+    document.getElementById('accent-roles').innerHTML = acc.map(function (p) {
+      var bg = col(p[0]), fg = col(p[1]);
+      var extra = '';
+      if (['primary', 'error'].indexOf(p[0]) >= 0) extra = rowHtml(p[0] + ' on surface', bg, col('surface')) + rowHtml(p[0] + ' on surface-container-high', bg, col('surfaceContainerHigh'));
+      return '<div class="sw"><div class="fill" style="background:' + bg + ';color:' + fg + '"><span class="name">' + kebab(p[1]) + ' on ' + kebab(p[0]) + '</span>' +
+        '<span class="meta"><span>' + bg + '</span><span>' + fg + '</span></span></div><div class="rows">' + rowHtml('contrast', fg, bg) + extra + '</div></div>';
+    }).join('');
+
+    var surf = ['surfaceContainerLowest', 'surfaceDim', 'surface', 'surfaceContainerLow', 'surfaceContainer', 'surfaceContainerHigh', 'surfaceContainerHighest', 'surfaceBright', 'surfaceVariant'];
+    var on = col('onSurface'), onv = col('onSurfaceVariant');
+    document.getElementById('surfaces').innerHTML = surf.map(function (s) {
+      var bg = col(s);
+      return '<div style="background:' + bg + '"><span class="n">' + kebab(s) + '</span><span class="v">on-surface-variant text</span>' +
+        '<span class="meta">' + bg + '<br>on ' + ratio(on, bg).toFixed(2) + ' · var ' + ratio(onv, bg).toFixed(2) + '</span></div>';
+    }).join('');
+    surf.forEach(function (s) { rowHtml('', on, col(s)); rowHtml('', onv, col(s)); });
+
+    var oth = [['outline', 3], ['outlineVariant', 0], ['scrim', 0], ['shadow', 0]];
+    document.getElementById('other-roles').innerHTML = oth.map(function (o) {
+      var c = col(o[0]);
+      var rows = o[1] ? rowHtml('vs surface (non-text, 3:1)', c, col('surface'), 3) + rowHtml('vs surface-container-high', c, col('surfaceContainerHigh'), 3)
+        : '<div class="row"><span>' + (o[0] === 'outlineVariant' ? 'decorative dividers, no minimum' : 'overlay / shadow color') + '</span></div>';
+      return '<div class="sw"><div class="fill" style="background:var(--md-sys-color-surface-container);"><span class="name">' + kebab(o[0]) + '</span>' +
+        '<div style="height:28px;border-radius:6px;background:' + c + ';border:1px solid var(--md-sys-color-outline-variant)"></div><span class="meta"><span>' + c + '</span></span></div><div class="rows">' + rows + '</div></div>';
+    }).join('');
+
+    var ext = ['success', 'warning', 'info'].map(function (n) { return [n, n]; })
+      .concat(TOOLS.map(function (t) { return ['tool-' + t[0], 'tool · ' + t[0]]; }));
+    document.getElementById('extended').innerHTML = ext.map(function (e) {
+      var p = 'md-ext-color-', id = e[0];
+      var c = v(p + id), oc = v(p + 'on-' + id), cc = v(p + id + '-container'), occ = v(p + 'on-' + id + '-container');
+      return '<div class="sw"><div class="fill" style="background:' + c + ';color:' + oc + ';min-height:56px"><span class="name">' + e[1] + '</span><span class="meta"><span>' + c + '</span><span>' + oc + '</span></span></div>' +
+        '<div class="fill" style="background:' + cc + ';color:' + occ + ';min-height:48px"><span class="meta"><span>container ' + cc + '</span><span>' + occ + '</span></span></div>' +
+        '<div class="fill" style="background:var(--md-sys-color-surface-container-high);min-height:40px"><span style="color:' + c + ';font-weight:500">' + e[1] + ' label on container-high</span>' +
+        '<div style="height:14px;border-radius:4px;background:var(--' + p + id + '-tint);border:1px dashed var(--md-sys-color-outline-variant)" title="tint"></div></div>' +
+        '<div class="rows">' + rowHtml('on-color / color', oc, c) + rowHtml('on-container / container', occ, cc) + rowHtml('color on container-high', c, col('surfaceContainerHigh')) + '</div></div>';
+    }).join('');
+
+    var sum = document.getElementById('contrast-summary');
+    sum.innerHTML = '<div class="summary ' + (failed.length ? 'ko' : 'ok') + '"><span class="icon">' + (failed.length ? 'error' : 'check_circle') + '</span>' +
+      checked + ' pairs checked in this theme · ' + (failed.length ? failed.length + ' below minimum: ' + failed.join(', ') : 'all pass (text 4.5:1, non-text 3:1)') + '</div>';
+  }
+
+  var ROLES = ['displayLarge', 'displayMedium', 'displaySmall', 'headlineLarge', 'headlineMedium', 'headlineSmall', 'titleLarge', 'titleMedium', 'titleSmall', 'bodyLarge', 'bodyMedium', 'bodySmall', 'labelLarge', 'labelMedium', 'labelSmall', 'code'];
+  document.getElementById('type').innerHTML = ROLES.map(function (r) {
+    var k = 'md-sys-typescale-' + kebab(r) + '-';
+    var px = Math.round(parseFloat(v(k + 'size')) * 16), lh = Math.round(parseFloat(v(k + 'line-height')) * 16);
+    var style = 'font-family:var(--' + k + 'font);font-size:var(--' + k + 'size);line-height:var(--' + k + 'line-height);font-weight:var(--' + k + 'weight);letter-spacing:var(--' + k + 'tracking)';
+    var text = r === 'code' ? 'const ta = document.querySelector("div[role=textbox]"); // 0O 1lI' : (px > 30 ? 'Archie, your assistant' : 'The quick brown fox jumps over the lazy dog');
+    return '<div class="type-row"><div class="spec"><b>' + r + '</b>' + px + ' / ' + lh + ' · w' + v(k + 'weight') + ' · ' + v(k + 'tracking') + '</div><div class="sample" style="' + style + '">' + text + '</div></div>';
+  }).join('');
+
+  document.getElementById('shapes').innerHTML = ['none', 'extra-small', 'small', 'medium', 'large', 'extra-large', 'full'].map(function (s) {
+    var r = v('md-sys-shape-corner-' + s);
+    return '<div class="shape" style="border-radius:var(--md-sys-shape-corner-' + s + ')">' + s + '<span style="opacity:.8">' + (s === 'full' ? 'pill' : r) + '</span></div>';
+  }).join('');
+
+  var EL = [['0', 'surface'], ['1', 'surface-container-low'], ['2', 'surface-container'], ['3', 'surface-container-high'], ['4', 'surface-container-highest'], ['5', 'surface-container-highest']];
+  document.getElementById('elev').innerHTML = EL.map(function (e) {
+    return '<div style="background:var(--md-sys-elevation-level' + e[0] + '-surface);box-shadow:var(--md-sys-elevation-level' + e[0] + ')"><b>Level ' + e[0] + '</b>' + e[1] + '</div>';
+  }).join('');
+
+  document.getElementById('spacing').innerHTML = ['1', '2', '3', '4', '5', '6', '8', '10', '12', '14', '16'].map(function (k) {
+    return '<div><span>--app-space-' + k + '</span><i style="width:var(--app-space-' + k + ')"></i>' + v('app-space-' + k) + '</div>';
+  }).join('');
+
+  var EASE = ['standard', 'standard-accelerate', 'standard-decelerate', 'emphasized', 'emphasized-accelerate', 'emphasized-decelerate', 'legacy', 'linear'];
+  var mo = document.getElementById('motion');
+  mo.innerHTML = EASE.map(function (e) {
+    return '<div><label>' + e + ' ' + v('md-sys-motion-easing-' + e) + '</label><div class="track"><i style="transition-timing-function:var(--md-sys-motion-easing-' + e + ')"></i></div></div>';
+  }).join('');
+  document.getElementById('play').onclick = function () { mo.classList.toggle('go'); };
+  document.getElementById('durations').textContent = ['short1', 'short2', 'short3', 'short4', 'medium1', 'medium2', 'medium3', 'medium4', 'long1', 'long2', 'long3', 'long4', 'extra-long1', 'extra-long2', 'extra-long3', 'extra-long4']
+    .map(function (d) { return d + ' ' + v('md-sys-motion-duration-' + d); }).join(' · ');
+
+  function setTheme(t) {
+    if (t === 'dark') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', t);
+    Array.prototype.forEach.call(document.querySelectorAll('[data-theme-btn]'), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-theme-btn') === t)); });
+    try { localStorage.setItem('tokens-preview-theme', t); } catch (e) {}
+    render();
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-theme-btn]'), function (b) { b.onclick = function () { setTheme(b.getAttribute('data-theme-btn')); }; });
+  if (window.matchMedia) {
+    var mq = window.matchMedia('(prefers-color-scheme: light)');
+    if (mq.addListener) mq.addListener(function () { render(); });
+  }
+  var params = new URLSearchParams(location.search), saved = params.get('theme');
+  if (!saved) { try { saved = localStorage.getItem('tokens-preview-theme'); } catch (e) {} }
+  setTheme(saved === 'light' || saved === 'system' ? saved : 'dark');
+})();
+</script>
+</body>
+</html>

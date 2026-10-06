@@ -411,35 +411,35 @@ if [ "$CONTEXT_SETUP_NEEDED" = true ]; then
                 info "Seeded context/AGENTS.md from install/AGENTS.md"
             fi
 
-            # Create symlinks to default-skills (using relative paths for portability)
+            # Create symlinks to shared/skills (using relative paths for portability)
             step "Creating skill symlinks..."
             cd context/skills
-            for skill in ../../default-skills/*/; do
+            for skill in ../../shared/skills/*/; do
                 skill_name=$(basename "$skill")
                 if [ ! -e "$skill_name" ]; then
-                    ln -s "../../default-skills/$skill_name" "$skill_name"
+                    ln -s "../../shared/skills/$skill_name" "$skill_name"
                 fi
             done
             cd ../..
 
-            # Create symlinks to default-scripts (using relative paths for portability)
+            # Create symlinks to shared/scripts (using relative paths for portability)
             step "Creating script symlinks..."
             cd context/scripts
-            for script in ../../default-scripts/*; do
+            for script in ../../shared/scripts/*; do
                 script_name=$(basename "$script")
                 if [ ! -e "$script_name" ]; then
-                    ln -s "../../default-scripts/$script_name" "$script_name"
+                    ln -s "../../shared/scripts/$script_name" "$script_name"
                 fi
             done
             cd ../..
 
-            # Create symlinks to default-agents (using relative paths for portability)
+            # Create symlinks to shared/agents (using relative paths for portability)
             step "Creating agent symlinks..."
             cd context/agents
-            for agent in ../../default-agents/*; do
+            for agent in ../../shared/agents/*; do
                 agent_name=$(basename "$agent")
                 if [ ! -e "$agent_name" ]; then
-                    ln -s "../../default-agents/$agent_name" "$agent_name"
+                    ln -s "../../shared/agents/$agent_name" "$agent_name"
                 fi
             done
             cd ../..
@@ -513,28 +513,28 @@ if [ "$CONTEXT_SETUP_NEEDED" = true ]; then
                 # Ensure symlinks to defaults exist (using relative paths)
                 step "Ensuring default symlinks..."
                 cd context/skills
-                for skill in ../../default-skills/*/; do
+                for skill in ../../shared/skills/*/; do
                     skill_name=$(basename "$skill")
                     if [ ! -e "$skill_name" ]; then
-                        ln -s "../../default-skills/$skill_name" "$skill_name"
+                        ln -s "../../shared/skills/$skill_name" "$skill_name"
                     fi
                 done
                 cd ../..
 
                 cd context/scripts
-                for script in ../../default-scripts/*; do
+                for script in ../../shared/scripts/*; do
                     script_name=$(basename "$script")
                     if [ ! -e "$script_name" ]; then
-                        ln -s "../../default-scripts/$script_name" "$script_name"
+                        ln -s "../../shared/scripts/$script_name" "$script_name"
                     fi
                 done
                 cd ../..
 
                 cd context/agents
-                for agent in ../../default-agents/*; do
+                for agent in ../../shared/agents/*; do
                     agent_name=$(basename "$agent")
                     if [ ! -e "$agent_name" ]; then
-                        ln -s "../../default-agents/$agent_name" "$agent_name"
+                        ln -s "../../shared/agents/$agent_name" "$agent_name"
                     fi
                 done
                 cd ../..
@@ -883,23 +883,23 @@ info "pip upgraded"
 # (and vice versa).
 step "Installing Python dependencies..."
 if [ "$DEV_MODE" = true ]; then
-    .venv/bin/pip install -r requirements-dev.txt --quiet
+    .venv/bin/pip install -r backend/requirements-dev.txt --quiet
     info "Installed requirements-dev.txt (core + dev tools)"
 else
-    .venv/bin/pip install -r requirements.txt --quiet
+    .venv/bin/pip install -r backend/requirements.txt --quiet
     info "Installed requirements.txt (core)"
 fi
 
 if [ "$WITH_CLAUDE" = true ]; then
-    .venv/bin/pip install -r requirements-claude.txt --quiet
+    .venv/bin/pip install -r backend/requirements-claude.txt --quiet
     info "Installed requirements-claude.txt (claude-agent-sdk)"
 fi
 if [ "$WITH_ANTHROPIC" = true ]; then
-    .venv/bin/pip install -r requirements-anthropic.txt --quiet
+    .venv/bin/pip install -r backend/requirements-anthropic.txt --quiet
     info "Installed requirements-anthropic.txt (anthropic SDK)"
 fi
 if [ "$WITH_OPENAI" = true ]; then
-    .venv/bin/pip install -r requirements-openai.txt --quiet
+    .venv/bin/pip install -r backend/requirements-openai.txt --quiet
     info "Installed requirements-openai.txt (openai SDK)"
 fi
 
@@ -907,7 +907,7 @@ fi
 # Step 7: Install frontend dependencies
 # ─────────────────────────────────────────────────────────────────────────────
 step "Installing frontend dependencies..."
-cd frontend
+cd apps/web
 if [ ! -d "node_modules" ]; then
     npm install --silent
     info "Installed node_modules/"
@@ -915,7 +915,9 @@ else
     npm install --silent
     info "Updated node_modules/"
 fi
-cd ..
+cd ../..
+# The web build checks the design tokens (apps/design-tokens), which has its own dependency.
+(cd apps/design-tokens && npm install --silent) && info "Installed design-token dependencies"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 7b: Install + authenticate agent CLIs
@@ -1143,17 +1145,17 @@ check_optional_sdk() {
     fi
 }
 if [ "$WITH_CLAUDE" = true ]; then
-    check_optional_sdk "claude_agent_sdk" "--with-claude" "requirements-claude.txt"
+    check_optional_sdk "claude_agent_sdk" "--with-claude" "backend/requirements-claude.txt"
 fi
 if [ "$WITH_ANTHROPIC" = true ]; then
-    check_optional_sdk "anthropic" "--with-anthropic" "requirements-anthropic.txt"
+    check_optional_sdk "anthropic" "--with-anthropic" "backend/requirements-anthropic.txt"
 fi
 if [ "$WITH_OPENAI" = true ]; then
-    check_optional_sdk "openai" "--with-openai" "requirements-openai.txt"
+    check_optional_sdk "openai" "--with-openai" "backend/requirements-openai.txt"
 fi
 
 # Check frontend build capability
-if [ -f "frontend/package.json" ]; then
+if [ -f "apps/web/package.json" ]; then
     info "Frontend package.json OK"
 else
     warn "Frontend package.json not found"
@@ -1289,10 +1291,10 @@ echo "     ${BLUE}context/scripts/run.sh -m uvicorn api.app:create_app --factory
 echo ""
 
 echo "  ${GREEN}$((STEP + 1)).${NC} Start the frontend (new terminal):"
-echo "     ${BLUE}cd frontend && npm run dev${NC}"
+echo "     ${BLUE}cd apps/web && npm run dev${NC}"
 echo ""
 
-echo "  ${GREEN}$((STEP + 2)).${NC} Open ${BLUE}https://localhost:5432${NC} in your browser"
+echo "  ${GREEN}$((STEP + 2)).${NC} Open ${BLUE}https://localhost:5450${NC} in your browser"
 echo ""
 
 echo -e "${CYAN}Tip:${NC} Use ${BOLD}/help${NC} in the assistant to see available commands."
