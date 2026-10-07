@@ -1104,7 +1104,7 @@ VERIFICATION_FAILED=false
 # Check core Python packages — these are required regardless of which
 # axes were selected.  Provider SDKs are checked separately below so a
 # missing optional SDK doesn't fail verification.
-if .venv/bin/python -c "import fastapi, uvicorn, chromadb, sentence_transformers" 2>/dev/null; then
+if .venv/bin/python -c "import fastapi, uvicorn, numpy, sentence_transformers" 2>/dev/null; then
     info "Core Python packages OK"
 else
     error "Core Python package verification failed"

@@ -1,14 +1,16 @@
-"""Search tools — memory files and past conversations, kept strictly apart.
+"""Search tools — past conversations and memory notes, with navigation for both.
 
-- ``search_memory``: semantic search over context/memory/ (chroma ``memory`` collection).
-- ``search_history``: hybrid keyword + semantic search over past conversation transcripts of
-  every harness (index/history.sqlite3, see utils/history_index.py), grouped by session.
-- ``read_conversation``: read the turns around a ``search_history`` hit.
+- ``search_history`` / ``list_conversations`` / ``grep_conversation`` / ``read_conversation``:
+  every harness's transcripts (index/history.sqlite3, utils/history_index.py + history_nav.py).
+  Results are grouped by session, LLM re-ranked, say how to open each session, which memory
+  notes were written from it, and which memory notes match the same query.
+- ``search_memory`` / ``browse_memory`` / ``grep_memory``: the memory wiki
+  (index/memory.sqlite3, utils/memory_index.py); read notes with ``read_file``.
 
-Both searches go through a persistent search-server subprocess that loads the embedding model
-once and accepts queries over stdin/stdout (JSON-line protocol). This avoids the ~60-70 second
-cold-start penalty on ARM devices (Jetson Nano) for every search. Falls back to one-shot
-search.py if the warm server can't be started.
+Searches go through a persistent search-server subprocess that keeps the embedding model loaded
+(stdin/stdout JSON lines) — ~100 s cold start on the Jetson otherwise — and run the same
+utils/search_service.py code as the one-shot fallback (search.py), used only when the server
+can't start.
 """
 
 from __future__ import annotations
@@ -18,7 +20,6 @@ import json
 import logging
 import re
 import sys
-from functools import lru_cache
 from pathlib import Path
 from utils.paths import PROJECT_ROOT
 from typing import Any
@@ -32,92 +33,6 @@ _PROJECT_DIR = PROJECT_ROOT
 _SEARCH_SERVER = _PROJECT_DIR / "shared" / "scripts" / "search-server.py"
 _SEARCH_SCRIPT = _PROJECT_DIR / "shared" / "scripts" / "search.py"
 _RUN_SH = _PROJECT_DIR / "context" / "scripts" / "run.sh"
-_MEMORY_DIR = (_PROJECT_DIR / "context" / "memory").resolve()
-
-# Frontmatter parser — simple YAML subset (no nested structures except a list
-# under `references:`). Keeps the dependency surface zero.
-_FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
-
-
-def _parse_frontmatter(text: str) -> dict[str, Any] | None:
-    """Extract YAML frontmatter from the head of a markdown file.
-
-    Returns a dict of {key: value}, with `references` as a list and `tags` as a
-    list when bracketed-inline (e.g. `tags: [a, b]`). Returns None when there
-    is no frontmatter or it can't be parsed.
-    """
-    m = _FRONTMATTER_RE.match(text)
-    if not m:
-        return None
-    block = m.group(1)
-    out: dict[str, Any] = {}
-    current_key: str | None = None
-    for raw in block.splitlines():
-        line = raw.rstrip()
-        if not line:
-            continue
-        # List continuation: "  - value"
-        if line.lstrip().startswith("- ") and current_key is not None:
-            existing = out.get(current_key)
-            if not isinstance(existing, list):
-                out[current_key] = []
-            out[current_key].append(line.lstrip()[2:].strip())
-            continue
-        # Key: value
-        if ":" in line:
-            key, _, value = line.partition(":")
-            key = key.strip()
-            value = value.strip()
-            if value == "":
-                # Block-style list begins on next line
-                current_key = key
-                out[key] = []
-            elif value.startswith("[") and value.endswith("]"):
-                # Inline list: [a, b, c]
-                items = [v.strip() for v in value[1:-1].split(",")]
-                out[key] = [v for v in items if v]
-                current_key = None
-            else:
-                out[key] = value
-                current_key = None
-    return out
-
-
-@lru_cache(maxsize=128)
-def _read_frontmatter_cached(file_path: str, mtime_ns: int) -> dict[str, Any] | None:
-    """Cache-keyed read of frontmatter. mtime_ns invalidates on edits."""
-    try:
-        text = Path(file_path).read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return None
-    return _parse_frontmatter(text)
-
-
-def _frontmatter_for(file_path: str) -> dict[str, Any] | None:
-    """Read frontmatter for a file, using mtime-keyed cache."""
-    try:
-        mtime_ns = Path(file_path).stat().st_mtime_ns
-    except OSError:
-        return None
-    return _read_frontmatter_cached(file_path, mtime_ns)
-
-
-def _enrich_memory_results(results: list[dict[str, Any]]) -> None:
-    """In-place: attach `frontmatter` to each memory search hit.
-
-    Each result chunk gets a `frontmatter` field with the parsed YAML
-    metadata block from the head of its source file (name, category,
-    tags, created, modified, summary, source, references). Missing
-    frontmatter yields `null` — common only for MEMORY.md and
-    ORCHESTRATOR_MEMORY*.md which intentionally skip it.
-    """
-    for r in results:
-        fp = r.get("file_path")
-        if not fp:
-            r["frontmatter"] = None
-            continue
-        r["frontmatter"] = _frontmatter_for(fp)
-
 
 # Singleton warm server process
 _server_proc: asyncio.subprocess.Process | None = None
@@ -141,10 +56,8 @@ async def _ensure_server() -> asyncio.subprocess.Process | None:
 
         logger.info("Starting search server subprocess...")
         try:
-            # `--socket` opens a Unix domain socket transport in addition
-            # to the stdio one used by this client. The socket lets
-            # external writers (embed.py, manager/index_utils.py) reach
-            # the same warm server, keeping chroma single-writer.
+            # `--socket` also opens a Unix domain socket so other processes
+            # (the indexers, search.py) can borrow the warm model.
             proc = await asyncio.create_subprocess_exec(
                 str(_RUN_SH), str(_SEARCH_SERVER), "--socket",
                 stdin=asyncio.subprocess.PIPE,
@@ -155,8 +68,8 @@ async def _ensure_server() -> asyncio.subprocess.Process | None:
             logger.error("Failed to start search server: %s", e)
             return None
 
-        # Forward the server's stderr to our logger so boot-probe /
-        # boot-repair / write-error messages surface in journalctl.
+        # Forward the server's stderr to our logger so its ready/error
+        # messages surface in journalctl.
         # We start this BEFORE waiting on `ready` so any messages
         # emitted during the model-load window aren't lost.
         asyncio.create_task(_forward_stderr(proc))
@@ -193,14 +106,14 @@ async def _ensure_server() -> asyncio.subprocess.Process | None:
 async def _forward_stderr(proc: asyncio.subprocess.Process) -> None:
     """Pipe the search server's stderr into our logger one line at a time.
 
-    Lines that look like our own `[search-server]` markers (boot-probe,
-    boot-repair, etc.) are logged at WARNING — they're once-per-boot
+    Lines that look like our own `[search-server]` markers (ready, request
+    failures) are logged at WARNING — they're once-per-boot
     events worth surfacing under the default log config without
     needing to flip the orchestrator logger to INFO. Lines from chatty
     libraries we trust (sentence-transformers' "Loading weights:"
     progress bar, huggingface_hub's auth warning) are dropped.
     Anything else also goes to WARNING — that's the bucket for genuine
-    surprises like chroma tracebacks."""
+    surprises like tracebacks."""
     if proc.stderr is None:
         return
     # Patterns we silence outright — high-volume noise that's not
@@ -263,76 +176,11 @@ async def _query_server(
         return None
 
 
-async def _do_search_cold(
-    query: str,
-    collection_name: str,
-    max_results: int,
-) -> list[dict[str, Any]]:
-    """Fallback: run search.py as a one-shot subprocess (cold start)."""
-    args = [
-        str(_RUN_SH), str(_SEARCH_SCRIPT),
-        query,
-        "--collection", collection_name,
-        "--n", str(max_results),
-        "--json",
-    ]
-
-    logger.info("Cold search '%s' for: %s", collection_name, query)
-
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=120,
-        )
-    except asyncio.TimeoutError:
-        logger.error("Cold search timed out for query: %s", query)
-        proc.kill()
-        return [{"error": "Search timed out"}]
-
-    if proc.returncode != 0:
-        stderr_text = stderr.decode().strip()
-        # Tail of stderr carries the actual exception; the head is just the
-        # traceback boilerplate ("Traceback (most recent call last)... in <module>").
-        tail = stderr_text[-800:]
-        print(
-            f"[search cold-fallback FAILED] rc={proc.returncode} collection={collection_name} "
-            f"query={query!r}\n--- stderr tail ---\n{tail}\n--- end ---",
-            file=sys.stderr,
-            flush=True,
-        )
-        if proc.returncode < 0:
-            return [{"error": f"Search crashed (signal {-proc.returncode})"}]
-        if "No index found" in stderr_text:
-            return [{"error": "Index not found. Run index-memory.py to rebuild."}]
-        elif "Collection" in stderr_text and "not found" in stderr_text:
-            return [{"error": f"Collection '{collection_name}' not found."}]
-        elif "empty" in stderr_text.lower():
-            return [{"error": f"Collection '{collection_name}' is empty."}]
-        else:
-            return [{"error": f"Search failed: {tail}"}]
-
-    stdout_text = stdout.decode().strip()
-    if not stdout_text or stdout_text == "No results found.":
-        return []
-
-    try:
-        return json.loads(stdout_text)
-    except json.JSONDecodeError:
-        return []
-
-
 async def _server_request(request: dict, label: str) -> dict | None:
     """Send one request to the warm server, restarting it once if it's unresponsive.
 
     Returns the reply dict, or None when the warm server can't be brought up at all (the
-    caller then uses its cold fallback). Once the warm server is up, every query goes through
-    it — chromadb's PersistentClient is not safe for concurrent multi-process access against
-    the same path, so a cold subprocess opening the same index while the warm server holds it
-    crashes with "Failed to apply logs to the hnsw segment writer".
+    caller then uses its cold fallback, which loads the model in a subprocess).
     """
     # Serialize concurrent queries — the warm server is single-threaded and
     # request/response pairing on its stdio is positional.
@@ -364,36 +212,6 @@ async def _server_request(request: dict, label: str) -> dict | None:
     return None
 
 
-async def _do_search(
-    query: str,
-    collection_name: str,
-    max_results: int,
-) -> list[dict[str, Any]]:
-    """Search a chroma collection (memory) through the warm server, cold fallback otherwise."""
-    logger.info("Searching '%s' for: %s", collection_name, query)
-    label = f"collection={collection_name} query={query!r}"
-    response = await _server_request(
-        {"query": query, "collection": collection_name, "n_results": max_results}, label
-    )
-    if response is not None:
-        error = response.get("error")
-        if error:
-            msg = f"[search warm-server ERROR] {label}: {error}"
-            logger.warning(msg)
-            print(msg, file=sys.stderr, flush=True)
-            return [{"error": error}]
-        results = response.get("results", [])
-        logger.info("Warm search returned %d results.", len(results))
-        return results
-
-    # Cold fallback only runs when the warm server cannot be brought up.
-    # This is mutually exclusive with a healthy warm server (so chromadb
-    # multi-process access is not an issue here).
-    results = await _do_search_cold(query, collection_name, max_results)
-    logger.info("Cold search returned %d results.", len(results))
-    return results
-
-
 async def _history_search_cold(request: dict) -> dict:
     """Fallback: search.py --collection history as a one-shot subprocess. The history index is
     plain SQLite, so this is safe even next to a live warm server."""
@@ -408,6 +226,14 @@ async def _history_search_cold(request: dict) -> dict:
             args += [f"--{key}", request[key]]
     if request.get("session_id"):
         args += ["--session", request["session_id"]]
+    if request.get("kind"):
+        args += ["--kind", request["kind"]]
+    if request.get("window"):
+        args += ["--window", *request["window"]]
+    for q in request.get("queries") or ():
+        args += ["--also", q]
+    if request.get("rerank"):
+        args += ["--rerank"]
     try:
         proc = await asyncio.create_subprocess_exec(
             *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
@@ -489,38 +315,75 @@ def _iso_bound(value: Any) -> str | None:
     return None
 
 
+_KINDS = ("orchestrator", "agent", "claude", "qwen", "gemini")
+
+
+def _time_window(query: str, when: str | None) -> tuple[dict | None, str]:
+    """Server-side time understanding: an explicit `when`, or a time phrase inside the query
+    ("back in June", "semana passada"). Returns ({after, before, label} | None, query without
+    the time words)."""
+    from datetime import date
+
+    from utils.timewords import find_time_expression, resolve_when
+
+    today = date.today()
+    if when:
+        w = resolve_when(when, today)
+        return ({"after": w.after.isoformat(), "before": w.before.isoformat(), "label": w.label} if w else None), query
+    w, cleaned = find_time_expression(query, today)
+    if not w or len(cleaned.split()) < 2:  # keep the words if nothing but the date would remain
+        return ({"after": w.after.isoformat(), "before": w.before.isoformat(), "label": w.label} if w else None), query
+    return {"after": w.after.isoformat(), "before": w.before.isoformat(), "label": w.label}, cleaned
+
+
 @registry.register(
     name="search_history",
     description=(
-        "Search PAST CONVERSATION TRANSCRIPTS (every chat, voice and agent session, including ones "
-        "never digested into memory). Not for memory files — use search_memory for those. "
-        "Combines exact keyword matching (names, rare words, Portuguese terms) with semantic "
-        "similarity, and returns the best-matching sessions with title, dates and up to 3 "
-        "matching excerpts each (with their turn numbers). 'relevance: weak' means only loose "
-        "matches were found — say so instead of presenting them as the answer. Keep queries "
-        "short and specific: distinctive words the conversation would actually contain. To read "
-        "more of a hit, call read_conversation(session_id, turn). The current conversation is "
-        "always excluded."
+        "Find PAST CONVERSATIONS — orchestrator (voice/text) sessions and agent sessions (Claude "
+        "Code, Qwen, Gemini) — by what was said in them, including ones never saved to memory. "
+        "Matches exact words (names, rare terms, Portuguese) and meaning. Returns sessions, best "
+        "first, each with title, kind, dates, working directory, `relevance` (strong/weak), up to "
+        "3 excerpts with their `turn` numbers, and `open` (how to get into it: agent sessions can "
+        "be resumed with open_agent_session(resume_sdk_id); orchestrator ones read with "
+        "read_conversation). Tips: pass 2–3 different phrasings in `queries` (e.g. English and "
+        "Portuguese, or different words for the same thing) — they are searched together; put "
+        "remembered times in `when` ('last week', 'em junho', '2026-05') — dates are worked out "
+        "for you, and sessions from other times still show if they match strongly. If nothing "
+        "matches strongly the results come back as `weak_matches`: say you didn't find it. For 'what did we do "
+        "yesterday'-style questions with no topic words, use list_conversations. The current "
+        "conversation is always excluded."
     ),
     input_schema={
         "type": "object",
         "properties": {
             "query": {
                 "type": "string",
-                "description": "Distinctive words or a short phrase, e.g. 'Shroud of Turin' or 'bicameral mind rituals'.",
+                "description": "What the conversation was about, in a few distinctive words, e.g. 'Shroud of Turin' or 'OBS not connecting to JACK'.",
+            },
+            "queries": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional extra phrasings of the same request (another language, synonyms), searched together with `query`.",
+            },
+            "when": {
+                "type": "string",
+                "description": "When it happened, in plain words or a date: 'yesterday', 'last week', 'back in June', 'uns dois meses atrás', '2026-05'.",
+            },
+            "kind": {
+                "type": "string",
+                "enum": ["all", "orchestrator", "agent"],
+                "description": "Only when the user clearly said which: 'orchestrator' (our voice/text chats) or 'agent' (Claude/Qwen/Gemini coding sessions). A preference — the other kind still shows if it matches better. Default all.",
+            },
+            "session_id": {
+                "type": "string",
+                "description": "Search inside one conversation only.",
             },
             "max_results": {
                 "type": "integer",
                 "description": "Maximum number of sessions to return (default 5, max 10).",
             },
-            "after": {
-                "type": "string",
-                "description": "Only messages on or after this date (YYYY-MM-DD).",
-            },
-            "before": {
-                "type": "string",
-                "description": "Only messages before this date (YYYY-MM-DD).",
-            },
+            "after": {"type": "string", "description": "Hard lower date bound (YYYY-MM-DD)."},
+            "before": {"type": "string", "description": "Hard upper date bound (YYYY-MM-DD)."},
         },
         "required": ["query"],
     },
@@ -528,52 +391,176 @@ def _iso_bound(value: Any) -> str | None:
 async def search_history(
     context: dict[str, Any],
     query: str,
+    queries: list[str] | None = None,
+    when: str | None = None,
+    kind: str | None = None,
+    session_id: str | None = None,
     max_results: int = 5,
     after: str | None = None,
     before: str | None = None,
 ) -> str:
     current = _current_session_uuid(context)
+    window, query_text = _time_window(query, when)
+    extra = [q for q in (queries or []) if isinstance(q, str) and q.strip() and q.strip() != query.strip()][:3]
     request = {
         "command": "history_search",
-        "query": query,
+        "query": query_text,
+        "queries": extra,
         "max_sessions": max(1, min(int(max_results or 5), 10)),
         "exclude_sessions": [current] if current else [],
         "after": _iso_bound(after),
         "before": _iso_bound(before),
+        "kind": kind if kind in _KINDS else None,
+        "kind_mode": "prefer",
+        "session_id": (session_id or "").strip() or None,
+        "window": [window["after"], window["before"]] if window else None,
+        "window_mode": "prefer",
+        "include_memory": True,
+        "rerank": True,
+        "request_text": query,
     }
-    logger.info("Searching history for: %s", query)
+    logger.info("Searching history for: %s (+%d phrasings, window=%s)", query, len(extra), window)
     response = await _server_request(request, f"history query={query!r}")
     if response is None:
         response = await _history_search_cold(request)
     if response.get("error"):
         return json.dumps({"query": query, "error": response["error"], "sessions": []})
     sessions = response.get("sessions", [])
-    out: dict[str, Any] = {
-        "query": query,
-        "sessions": sessions,
-        "count": len(sessions),
-        "total_matching_sessions": response.get("total_sessions", len(sessions)),
-    }
-    if not sessions:
-        out["note"] = "No past conversation matches. Try other distinctive words, or search_memory."
+    out: dict[str, Any] = {"query": query}
+    if window:
+        out["time_window"] = window
+    if any(s.get("relevance") == "strong" for s in sessions):
+        out["sessions"] = sessions
+    else:
+        # Nothing clearly matches: keep loose matches apart so they aren't presented as the answer.
+        out["sessions"] = []
+        out["weak_matches"] = sessions
+        out["note"] = (
+            "No conversation clearly matches. Tell the user you didn't find it (or try once more with "
+            "different words); mention a weak match only if it is obviously what they mean."
+            if sessions else "No past conversation matches. Try other words, or search_memory."
+        )
+    if response.get("note"):
+        out["note"] = f"{response['note']}. {out.get('note', '')}".strip(". ") + "."
+    out["total_matching_sessions"] = response.get("total_sessions", len(sessions))
+    if response.get("memory"):
+        # Memory notes on the same subject (curated, maybe written from these very conversations).
+        out["memory"] = response["memory"]
     return json.dumps(out, ensure_ascii=False)
+
+
+@registry.register(
+    name="list_conversations",
+    description=(
+        "Browse past conversations (orchestrator and agent sessions), newest first: by time "
+        "('yesterday', 'last week', 'em agosto'), kind, or words in the title / first message. "
+        "Use it for 'what did we do yesterday?' or 'the sessions from last week' when there are "
+        "no topic words to search for. Each entry has title, kind, dates, working directory and "
+        "how to open it. Page with `offset`."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "when": {"type": "string", "description": "Time window in plain words or a date ('yesterday', 'last week', '2026-08')."},
+            "kind": {"type": "string", "enum": ["all", "orchestrator", "agent"], "description": "Default all."},
+            "text": {"type": "string", "description": "Words that must appear in the title or first message."},
+            "limit": {"type": "integer", "description": "How many (default 10, max 30)."},
+            "offset": {"type": "integer", "description": "Skip this many (paging)."},
+        },
+    },
+)
+async def list_conversations(
+    context: dict[str, Any],
+    when: str | None = None,
+    kind: str | None = None,
+    text: str | None = None,
+    limit: int = 10,
+    offset: int = 0,
+) -> str:
+    from utils import history_index, history_nav
+
+    window, _ = _time_window("", when) if when else (None, "")
+    if when and not window:
+        return json.dumps({"error": f"Could not understand the time {when!r}; try 'last week', 'em junho' or '2026-06'."})
+    current = _current_session_uuid(context)
+
+    def run() -> dict:
+        db = history_index.get_history_db_path()
+        if not db.exists():
+            return {"error": "history index not built yet"}
+        conn = history_index.connect(db, readonly=True)
+        try:
+            return history_nav.list_conversations(
+                conn,
+                after=window["after"] if window else None,
+                before=window["before"] if window else None,
+                kind=kind if kind in _KINDS else None,
+                text=text,
+                limit=int(limit or 10),
+                offset=max(0, int(offset or 0)),
+                exclude=(current,) if current else (),
+            )
+        finally:
+            conn.close()
+
+    result = await asyncio.to_thread(run)
+    if window:
+        result["time_window"] = window
+    return json.dumps(result, ensure_ascii=False)
+
+
+@registry.register(
+    name="grep_conversation",
+    description=(
+        "Find exact words inside ONE past conversation (accent- and case-insensitive; `regex` "
+        "for patterns). Returns the turn numbers and snippets where they occur — then "
+        "read_conversation(session_id, turn) to read around them."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "session_id": {"type": "string"},
+            "pattern": {"type": "string", "description": "Words to find, e.g. 'JACK' or 'Iriun'."},
+            "regex": {"type": "boolean", "description": "Treat pattern as a regular expression."},
+            "max_hits": {"type": "integer", "description": "Default 10."},
+        },
+        "required": ["session_id", "pattern"],
+    },
+)
+async def grep_conversation(
+    context: dict[str, Any],
+    session_id: str,
+    pattern: str,
+    regex: bool = False,
+    max_hits: int = 10,
+) -> str:
+    from utils import history_nav
+
+    result = await asyncio.to_thread(
+        history_nav.grep_conversation, session_id.strip(), pattern, regex=bool(regex), max_hits=int(max_hits or 10)
+    )
+    return json.dumps(result, ensure_ascii=False)
 
 
 @registry.register(
     name="read_conversation",
     description=(
-        "Read part of a past conversation as clean user/assistant turns (no tool noise). Use it "
-        "after search_history to explore a hit: pass the session_id and the hit's turn number "
-        "to see what was said around it. Omit turn to read from the beginning; page forward by "
-        "calling again with a later turn."
+        "Read any part of a past conversation as clean user/assistant turns (no tool noise). "
+        "After search_history: pass the session_id and a hit's `turn` to read around it "
+        "(default 3 before, 6 after). Or pass `start`/`end` for an exact range (max 30 turns), "
+        "or start=end for one turn in full (long turns are paged: call again with "
+        "`char_offset` = the returned next_char_offset). Omit everything to read from the start."
     ),
     input_schema={
         "type": "object",
         "properties": {
-            "session_id": {"type": "string", "description": "session_id from a search_history result."},
+            "session_id": {"type": "string", "description": "session_id from search_history / list_conversations."},
             "turn": {"type": "integer", "description": "Turn number to center on (from a search hit)."},
             "before": {"type": "integer", "description": "Turns to include before it (default 3)."},
             "after": {"type": "integer", "description": "Turns to include after it (default 6)."},
+            "start": {"type": "integer", "description": "First turn of an exact range."},
+            "end": {"type": "integer", "description": "Last turn of an exact range (inclusive)."},
+            "char_offset": {"type": "integer", "description": "For a single long turn: where to continue reading."},
         },
         "required": ["session_id"],
     },
@@ -584,56 +571,138 @@ async def read_conversation(
     turn: int | None = None,
     before: int = 3,
     after: int = 6,
+    start: int | None = None,
+    end: int | None = None,
+    char_offset: int = 0,
 ) -> str:
-    from utils import history_index
+    from utils import history_nav
 
     result = await asyncio.to_thread(
-        history_index.read_turns,
+        history_nav.read_conversation,
         session_id.strip(),
         turn=turn,
-        before=max(0, min(int(before), 20)),
-        after=max(0, min(int(after), 30)),
+        before=int(before if before is not None else 3),
+        after=int(after if after is not None else 6),
+        start=start,
+        end=end,
+        char_offset=int(char_offset or 0),
     )
     return json.dumps(result, ensure_ascii=False)
 
 
-def _under_memory_dir(file_path: str | None) -> bool:
-    if not file_path:
-        return False
+async def _memory_search_cold(request: dict) -> dict:
+    args = [str(_RUN_SH), str(_SEARCH_SCRIPT), request["query"], "--collection", "memory",
+            "--n", str(request.get("max_files") or 5), "--json"]
+    for q in request.get("queries") or ():
+        args += ["--also", q]
+    if request.get("folder"):
+        args += ["--folder", request["folder"]]
     try:
-        return Path(file_path).resolve().is_relative_to(_MEMORY_DIR)
-    except (OSError, ValueError):
-        return False
+        proc = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
+    except asyncio.TimeoutError:
+        proc.kill()
+        return {"files": [], "error": "Search timed out"}
+    if proc.returncode != 0:
+        return {"files": [], "error": f"Search failed: {stderr.decode(errors='replace')[-600:]}"}
+    try:
+        return json.loads(stdout.decode())
+    except json.JSONDecodeError:
+        return {"files": [], "error": "Search returned no parseable output"}
 
 
 @registry.register(
     name="search_memory",
     description=(
-        "Search the MEMORY FILES (context/memory/: curated notes, project docs, people, decisions) "
-        "using semantic search. Not for raw past conversations — use search_history for those. "
-        "Each hit carries the file's frontmatter (category, tags) and line range; read the file "
-        "with read_file for the full content."
+        "Search the MEMORY FILES (context/memory/: curated notes on projects, people, devices, "
+        "decisions) by keyword and meaning. Not raw past conversations — that's search_history "
+        "(which also shows the best memory notes for its query). Returns notes, best first, with "
+        "title, description, `relevance`, the matching sections (`lines` — read them with "
+        "read_file(path, start_line, end_line)), and `from_conversations` when the note was "
+        "written from a past conversation. Pass extra phrasings in `queries` (e.g. Portuguese)."
     ),
     input_schema={
         "type": "object",
         "properties": {
-            "query": {
-                "type": "string",
-                "description": "The search query.",
-            },
-            "max_results": {
-                "type": "integer",
-                "description": "Maximum number of results (default: 5).",
-            },
+            "query": {"type": "string", "description": "What you want to know, in a few distinctive words."},
+            "queries": {"type": "array", "items": {"type": "string"}, "description": "Optional extra phrasings, searched together."},
+            "folder": {"type": "string", "description": "Only notes under this folder, e.g. 'projects/qvcm'."},
+            "max_results": {"type": "integer", "description": "Maximum number of notes (default 5)."},
         },
         "required": ["query"],
     },
 )
 async def search_memory(
-    context: dict[str, Any], query: str, max_results: int = 5
+    context: dict[str, Any],
+    query: str,
+    queries: list[str] | None = None,
+    folder: str | None = None,
+    max_results: int = 5,
 ) -> str:
-    results = await _do_search(query, "memory", max_results)
-    # Only memory files: the chroma collection once had conversation chunks replayed into it.
-    results = [r for r in results if "error" in r or _under_memory_dir(r.get("file_path"))]
-    _enrich_memory_results(results)
-    return json.dumps({"query": query, "results": results, "count": len(results)})
+    request = {
+        "command": "memory_search",
+        "query": query,
+        "queries": [q for q in (queries or []) if isinstance(q, str) and q.strip()][:3],
+        "folder": (folder or "").strip().strip("/").removeprefix("context/memory").strip("/") or None,
+        "max_files": max(1, min(int(max_results or 5), 10)),
+    }
+    response = await _server_request(request, f"memory query={query!r}")
+    if response is None:
+        response = await _memory_search_cold(request)
+    if response.get("error"):
+        return json.dumps({"query": query, "error": response["error"], "files": []})
+    files = response.get("files", [])
+    out: dict[str, Any] = {"query": query}
+    if any(f.get("relevance") == "strong" for f in files):
+        out["files"] = files
+    else:
+        out["files"] = []
+        out["weak_matches"] = files
+        out["note"] = "No memory note clearly matches; try search_history (it may never have been saved to memory)."
+    return json.dumps(out, ensure_ascii=False)
+
+
+@registry.register(
+    name="browse_memory",
+    description=(
+        "List one folder of the memory wiki: its subfolders and its notes (title, one-line "
+        "description, modified date), plus the folder's INDEX.md. Start with no folder for the "
+        "top level. Read a note with read_file."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {"folder": {"type": "string", "description": "e.g. 'projects' or 'assistant/voice'. Empty for the top level."}},
+    },
+)
+async def browse_memory(context: dict[str, Any], folder: str = "") -> str:
+    from utils import memory_index
+
+    return json.dumps(await asyncio.to_thread(memory_index.browse, folder or ""), ensure_ascii=False)
+
+
+@registry.register(
+    name="grep_memory",
+    description=(
+        "Find exact words (accent- and case-insensitive; `regex` for patterns) across the memory "
+        "notes, optionally within one folder. Returns file:line hits — then read_file around them."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "pattern": {"type": "string"},
+            "folder": {"type": "string", "description": "Only under this folder."},
+            "regex": {"type": "boolean"},
+            "max_hits": {"type": "integer", "description": "Default 20."},
+        },
+        "required": ["pattern"],
+    },
+)
+async def grep_memory(
+    context: dict[str, Any], pattern: str, folder: str = "", regex: bool = False, max_hits: int = 20
+) -> str:
+    from utils import memory_index
+
+    result = await asyncio.to_thread(
+        memory_index.grep, pattern, folder=folder or "", regex=bool(regex), max_hits=int(max_hits or 20)
+    )
+    return json.dumps(result, ensure_ascii=False)

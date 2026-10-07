@@ -43,6 +43,8 @@ enum class ToolBody(val id: String) {
     SendToAgent("send-to-agent"),
     AgentSession("agent-session"),
     Search("search"),
+    SearchHistory("search-history"),
+    ReadConversation("read-conversation"),
     Generic("generic"),
 }
 
@@ -127,6 +129,16 @@ object ToolCatalog {
         return if (!s.isNullOrEmpty()) "/${s.removePrefix("/")}" else ""
     }
 
+    /** `session 1a2b3c4d · turn 40` (web `readConversationSummary`). */
+    private fun readConversationSummary(i: ToolInput): String {
+        val id = i.str("session_id")?.trim().orEmpty()
+        val turn = i.num("turn")
+        return listOfNotNull(
+            id.takeIf { it.isNotEmpty() }?.let { "session ${shortId(it)}" },
+            turn?.let { "turn ${jsNumber(it)}" },
+        ).joinToString(" · ")
+    }
+
     private fun listenSummary(i: ToolInput): String {
         val s = i.num("start_ms")
         val e = i.num("end_ms")
@@ -182,7 +194,8 @@ object ToolCatalog {
         "interrupt_agent_session" to spec(ToolCategory.Agent, "stop", "interrupt_agent_session", session, ToolBody.AgentSession),
         "respond_to_agent_permission" to spec(ToolCategory.Agent, "smart_toy", "respond_to_agent_permission", { i -> i.str("decision") ?: "" }, ToolBody.AgentSession),
         "list_history" to spec(ToolCategory.Agent, "history", "list_history", fixed("List session history"), ToolBody.AgentSession),
-        "search_history" to spec(ToolCategory.Search, "search", "search_history", quoted("query"), ToolBody.Search),
+        "search_history" to spec(ToolCategory.Search, "search", "search_history", quoted("query"), ToolBody.SearchHistory),
+        "read_conversation" to spec(ToolCategory.Read, "history", "read_conversation", ::readConversationSummary, ToolBody.ReadConversation),
         "search_memory" to spec(ToolCategory.Search, "search", "search_memory", quoted("query"), ToolBody.Search),
         "get_assistant_config" to spec(ToolCategory.System, "tune", "get_assistant_config", fixed("")),
         "update_assistant_config" to spec(ToolCategory.System, "tune", "update_assistant_config", { i -> i.keys.joinToString(", ") }),

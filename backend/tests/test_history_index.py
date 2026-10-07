@@ -329,23 +329,48 @@ class TestSearch:
             hi.HistorySearcher(tmp_path / "nope.sqlite3").search("x", None)
 
 
-# ── reading ──────────────────────────────────────────────────────────────────
+# ── stage 2: phrasings, kind, time window, session metadata ─────────────────
 
 
-class TestReadTurns:
-    def test_window_around_turn(self, ctx):
-        _write(ctx / "chats" / "r.jsonl", [
-            {"type": "user" if i % 2 == 0 else "assistant",
-             "message": {"role": "user" if i % 2 == 0 else "model", "parts": [{"text": f"message number {i}"}]}}
-            for i in range(10)
-        ])
-        out = hi.read_turns("r", turn=5, before=2, after=1, context_dir=ctx)
-        assert out["total_turns"] == 10 and out["range"] == [3, 6]
-        assert [t["turn"] for t in out["turns"]] == [3, 4, 5, 6]
-        assert out["turns"][2]["text"] == "message number 5"
+class TestSearchStage2:
+    def test_extra_phrasings_are_fused(self, ctx, conn):
+        s = _build(ctx, conn, {
+            "pt": [_claude("user", "a gente configurou o roteamento de audio do OBS com o JACK ontem")],
+            "en": [_claude("user", "the tarot canvas layout uses a grid of cards")],
+        })
+        alone = _search(s, "audio routing setup")
+        both = s.search("audio routing setup", _vec("audio routing setup"),
+                        extra_queries=[("roteamento de audio OBS JACK", _vec("roteamento de audio OBS JACK"))])
+        assert [x["session_id"] for x in both["sessions"]][:1] == ["pt"]
+        assert "pt" not in [x["session_id"] for x in alone["sessions"]]
 
-    def test_from_start_and_missing(self, ctx):
-        _write(ctx / "s.jsonl", [_claude("user", "first message here"), _claude("assistant", "reply here")])
-        out = hi.read_turns("s", before=0, after=5, context_dir=ctx)
-        assert [t["turn"] for t in out["turns"]] == [0, 1]
-        assert "error" in hi.read_turns("nope", context_dir=ctx)
+    def test_kind_filter(self, ctx, conn):
+        s = _build(ctx, conn, {
+            "o1": [_orch_meta(), _orch("user", "the soundbar movie mode keeps resetting")],
+            "c1": [_claude("user", "the soundbar movie mode keeps resetting after reboot")],
+        })
+        ids = lambda **kw: sorted(x["session_id"] for x in s.search("soundbar movie mode", _vec("soundbar movie mode"), **kw)["sessions"])
+        assert ids(kind="orchestrator") == ["o1"]
+        assert ids(kind="agent") == ["c1"]
+        assert ids() == ["c1", "o1"]
+
+    def test_window_filter_with_fallback(self, ctx, conn):
+        s = _build(ctx, conn, {
+            "june": [_claude("user", "the jetson fan curve was too loud", ts="2026-06-10T10:00:00Z")],
+            "sept": [_claude("user", "the jetson fan curve again too loud", ts="2026-09-10T10:00:00Z")],
+        })
+        r = s.search("jetson fan curve", _vec("jetson fan curve"), window=("2026-06-01", "2026-07-01"))
+        assert [x["session_id"] for x in r["sessions"]] == ["june"]
+        r = s.search("jetson fan curve", _vec("jetson fan curve"), window=("2025-01-01", "2025-02-01"))
+        assert {x["session_id"] for x in r["sessions"]} == {"june", "sept"} and "note" in r
+
+    def test_results_say_how_to_open_and_where(self, ctx, conn):
+        s = _build(ctx, conn, {
+            "o1": [_orch_meta(), _orch("user", "remember the lamps automation with tuya scenes")],
+            "c1": [_claude("user", "fix the tuya lamps automation script", cwd="/home/rodrigo/assistant")],
+        })
+        by_id = {x["session_id"]: x for x in _search(s, "tuya lamps automation")["sessions"]}
+        assert by_id["o1"]["open"]["can_resume"] is False and "read_conversation" in by_id["o1"]["open"]["how"]
+        assert by_id["c1"]["open"]["can_resume"] is True and "resume_sdk_id='c1'" in by_id["c1"]["open"]["how"]
+        assert by_id["c1"]["cwd"] == "/home/rodrigo/assistant" and by_id["c1"]["file"].endswith("c1.jsonl")
+        assert by_id["c1"]["kind"] == "claude"

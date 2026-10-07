@@ -16,18 +16,10 @@ uvicorn[standard]>=0.34.0
 starlette>=0.45.0
 httpx>=0.27.0
 
-# Vector search & embeddings.
-# chromadb is pinned to a narrow range because:
-#   - 1.5.x has a Rust-based HNSW reader that can SIGSEGV on corrupt
-#     segments rather than recover (see chroma#7069, #6975).
-#   - We tune hnsw:sync_threshold=200 and rely on the single-writer
-#     warm search-server (shared/scripts/search-server.py) to avoid
-#     concurrent PersistentClient opens, which the maintainers state
-#     is not safe (chroma#3792).
-# Different machines have shipped with different versions historically
-# (laptop 1.4.x, Jetson 1.5.x). Keep them in lockstep going forward.
-chromadb>=1.5.0,<1.6.0
+# Search over memory and conversation history: SQLite (FTS5, stdlib) + embeddings in numpy
+# (backend/utils/{history,memory}_index.py). The embedding model runs in sentence-transformers.
 sentence-transformers>=3.0.0
+numpy
 
 # Background file watching
 watchfiles>=1.0.0

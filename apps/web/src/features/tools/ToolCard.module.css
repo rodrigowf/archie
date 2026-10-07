@@ -538,3 +538,67 @@
 .optionLabel {
   font-weight: 500;
 }
+
+/* ---------- conversation history (search_history, read_conversation) ---------- */
+.hist {
+  font-family: var(--md-sys-typescale-body-medium-font);
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: var(--md-sys-typescale-body-small-line-height);
+}
+
+.hist > * + * {
+  margin-top: 8px;
+}
+
+.histSession > * + * {
+  margin-top: 4px;
+}
+
+.histSession + .histSession {
+  padding-top: 8px;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.histWeak {
+  opacity: 0.7;
+}
+
+.histHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.histHead > * + * {
+  margin-left: 8px;
+}
+
+.histTitle {
+  color: var(--md-sys-color-on-surface);
+  font-weight: 500;
+  overflow-wrap: break-word;
+}
+
+.histMeta {
+  font-family: var(--md-sys-typescale-code-font);
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.histTurn {
+  display: block;
+}
+
+.histTurnHead {
+  display: block;
+  font-family: var(--md-sys-typescale-code-font);
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.histText {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}

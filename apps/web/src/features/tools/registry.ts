@@ -27,6 +27,7 @@ import {
   WriteBody,
 } from './renderers/files';
 import { EditMeta } from './renderers/DiffView';
+import { ReadConversationBody, SearchHistoryBody, readConversationSummary } from './renderers/history';
 import { AgentSessionBody, GenericBody, SearchBody, SendToAgentBody, WebFetchBody, WebSearchBody } from './renderers/other';
 import { AskUserQuestionBody, TaskBody, TodoBody, parseQuestions, todoProgress } from './renderers/tasks';
 import type { ToolBodyProps } from './renderers/types';
@@ -158,7 +159,8 @@ export const TOOL_SPECS: Readonly<Record<string, ToolSpec>> = {
   interrupt_agent_session: spec('agent', 'stop', 'interrupt_agent_session', session, AgentSessionBody),
   respond_to_agent_permission: spec('agent', 'smart_toy', 'respond_to_agent_permission', (i) => str(i, 'decision') ?? '', AgentSessionBody),
   list_history: spec('agent', 'history', 'list_history', fixed('List session history'), AgentSessionBody),
-  search_history: spec('search', 'search', 'search_history', quoted('query'), SearchBody),
+  search_history: spec('search', 'search', 'search_history', quoted('query'), SearchHistoryBody),
+  read_conversation: spec('read', 'history', 'read_conversation', readConversationSummary, ReadConversationBody),
   search_memory: spec('search', 'search', 'search_memory', quoted('query'), SearchBody),
   get_assistant_config: spec('system', 'tune', 'get_assistant_config', fixed(''), GenericBody),
   update_assistant_config: spec('system', 'tune', 'update_assistant_config', (i) => Object.keys(i).join(', '), GenericBody),

@@ -1,73 +1,30 @@
 #!/usr/bin/env python3
 """
-Persistent search/index server — SINGLE owner of the chroma PersistentClient.
+Persistent search server: keeps the embedding model warm for the history and memory indexes.
 
-This process is the ONLY one that opens the chroma index (memory). Other
-code (embed.py, the orchestrator's search tools) sends requests to this
-server via a Unix domain socket. Chroma's PersistentClient is not safe across concurrent
-processes; routing every access through one long-lived process removes
-that risk class entirely.
+Loading PyTorch + sentence-transformers + a model takes ~100 s on the Jetson, so this process
+loads once and answers many requests. The indexes themselves are plain SQLite files
+(index/history.sqlite3, index/memory.sqlite3 — see backend/utils/{history,memory}_index.py);
+this server only encodes text and runs searches over them through utils/search_service.py,
+the same code the one-shot fallback (search.py) and the eval harness use.
 
-The server supports TWO transports for backward compatibility:
+Two transports, same JSON-line protocol:
 
-1. stdin/stdout (legacy) — when the server is spawned as a child
-   subprocess by the orchestrator; the parent already owns stdio. This
-   path is what `backend/orchestrator/tools/search.py` uses today.
-2. Unix domain socket at <INDEX_DIR>/.search-server.sock — usable by any
-   client process that knows the index path. This is how out-of-tree
-   writers like embed.py reach the server.
+1. stdin/stdout — when spawned by the orchestrator (backend/orchestrator/tools/search.py).
+2. Unix domain socket at <index>/.search-server.sock — for other processes on the machine
+   (the indexers in index-memory.py borrow the warm model through it; search.py too).
 
-Both transports speak the same JSON-line protocol:
+Requests
+--------
+  {"command": "ping"}                                   -> {"status": "ready"}
+  {"command": "encode", "text": "...", "model": "..."}   -> {"embedding": [float], "error": null}
+  {"command": "encode_many", "texts": [...], "model": "..."} -> {"embeddings": [[float]], "error": null}
+  {"command": "history_search", "query": "...", ...}     -> {"sessions": [...], "memory": [...], "error": null}
+  {"command": "memory_search", "query": "...", ...}      -> {"files": [...], "error": null}
+  {"command": "shutdown"}                               -> process exits cleanly
 
-  Read commands
-  -------------
-  {"query": "...", "collection": "memory", "n_results": 5,
-   "threshold": 1.5, "file_filter": "...optional..."}
-    -> {"results": [...], "error": null}
-
-  {"command": "ping"}                            -> {"status": "ready"}
-  {"command": "count", "collection": "history"}  -> {"count": int, "error": null}
-  {"command": "list_collections"}                -> {"collections": [str], "error": null}
-  {"command": "get_by_file", ...}                -> {"ids": [str], "error": null}
-  {"command": "list_file_paths", "collection": "memory"}
-                                                 -> {"file_paths": [str], "error": null}
-  {"command": "encode", "text": "..."}           -> {"embedding": [float], "error": null}
-  {"command": "history_search", "query": "...", "max_sessions": 5,
-   "exclude_sessions": [...], "after": "ISO", "before": "ISO", "session_id": "..."}
-    -> {"sessions": [...], "total_sessions": int, "error": null}
-       Conversation history lives in index/history.sqlite3, not in chroma; see
-       backend/utils/history_index.py. This server only lends it the warm model.
-
-  Write commands
-  --------------
-  {"command": "add_chunks", "collection": "history", "chunks": [...]}
-    -> {"added": int, "error": null}
-  {"command": "delete_ids", "collection": "...", "ids": [...]}
-    -> {"deleted": int, "error": null}
-  {"command": "delete_where", "collection": "...", "where": {...}}
-    -> {"deleted": int, "error": null}
-  {"command": "reset_collection", "name": "..."}
-    -> {"reset": true, "error": null}
-
-  Maintenance
-  -----------
-  {"command": "validate", "collection": "..."}
-    -> {"healthy": bool, "details": {...}, "error": null}
-  {"command": "repair", "collection": "...", "tier": "auto"|"wal_replay"|"full_reembed"}
-    -> {"tier_used": str, "before": int, "after": int, "error": str|None}
-  {"command": "shutdown"}
-    -> process exits cleanly
-
-Crash-safety
-------------
-- A POSIX flock on <INDEX_DIR>/.search-server.lock prevents two servers
-  from running against the same index. If the lock is held, this process
-  exits non-zero with a clear error.
-- Collections created here use hnsw:sync_threshold=200 (vs chroma's
-  default 1000) to shrink the corruption window if the process is killed
-  mid-flush.
-- validate/repair commands run their work in subprocesses so a chroma
-  SIGSEGV is a recoverable exit code, not a server crash.
+`model` defaults to the model the history index was built with. A flock on
+<index>/.search-server.lock keeps a second server from starting.
 """
 import errno
 import fcntl
@@ -79,39 +36,25 @@ import threading
 import traceback
 from pathlib import Path
 
-# Add project root to path for utils import (and sibling shared/scripts)
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SCRIPT_DIR.parent.parent  # shared/scripts/ → repo root
 sys.path.insert(0, str(PROJECT_DIR / "backend"))  # backend packages (utils, …)
-sys.path.insert(0, str(SCRIPT_DIR))
 
-from utils.paths import get_index_dir
+from utils.paths import get_index_dir  # noqa: E402
 
-INDEX_DIR = get_index_dir() / "chroma"
+INDEX_DIR = get_index_dir()
 LOCKFILE = INDEX_DIR / ".search-server.lock"
 SOCKET_PATH = INDEX_DIR / ".search-server.sock"
 
-HNSW_METADATA = {"hnsw:space": "cosine", "hnsw:sync_threshold": 200}
-
-# sentence-transformers batches its internal forward() pass in groups of
-# this many texts. Default 32 keeps a single encode_many request from
-# pinning the CPU for minutes on a large input — between batches the GIL
-# releases, letting concurrent search queries get a slice.
+# sentence-transformers batches its forward pass in groups of this many texts; between batches
+# the GIL is released, so a long encode_many doesn't starve concurrent searches.
 ENCODE_BATCH = 32
 
-
-# ── stdio helpers ────────────────────────────────────────────────────────────
 
 def stdio_send(data: dict) -> None:
     sys.stdout.write(json.dumps(data) + "\n")
     sys.stdout.flush()
 
-
-def stdio_send_error(message: str) -> None:
-    stdio_send({"results": [], "error": message})
-
-
-# ── locking ──────────────────────────────────────────────────────────────────
 
 def acquire_lock(lockfile: Path):
     lockfile.parent.mkdir(parents=True, exist_ok=True)
@@ -120,257 +63,65 @@ def acquire_lock(lockfile: Path):
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError as e:
         if e.errno in (errno.EWOULDBLOCK, errno.EAGAIN):
-            print(
-                f"[search-server] lockfile {lockfile} held by another process; refusing to start",
-                file=sys.stderr, flush=True,
-            )
+            print(f"[search-server] lockfile {lockfile} held by another process; refusing to start",
+                  file=sys.stderr, flush=True)
             sys.exit(2)
         raise
     os.write(fd, f"{os.getpid()}\n".encode())
     return fd
 
 
-# ── request dispatch ─────────────────────────────────────────────────────────
+def default_model() -> str:
+    """The model the history index was built with (what searches will need first)."""
+    from utils import history_index
+
+    db = history_index.get_history_db_path()
+    if db.exists():
+        conn = history_index.connect(db, readonly=True)
+        try:
+            return history_index.index_model(conn)
+        finally:
+            conn.close()
+    return history_index.MODEL_NAME
+
 
 class IndexServer:
-    """Owns the chroma client and dispatches requests. Methods return dicts
-    (the wire format); they never write to stdio/socket directly."""
+    """Dispatches requests; methods return the reply dict (never write to stdio/socket)."""
 
     def __init__(self):
-        import chromadb
-        from sentence_transformers import SentenceTransformer
+        from utils import search_service
 
-        self.client = chromadb.PersistentClient(path=str(INDEX_DIR))
-        self.model = SentenceTransformer("all-MiniLM-L6-v2")
-        # All writes serialize through this lock so concurrent socket
-        # clients can't interleave inside a single chroma write.
-        self._write_lock = threading.Lock()
-        # History search state (embedding matrix) is reloaded lazily; one search at a time.
-        self._history = None
-        self._history_lock = threading.Lock()
-
-    def get_or_create_collection(self, name: str):
-        return self.client.get_or_create_collection(name=name, metadata=HNSW_METADATA)
+        self.load_model = search_service.sentence_transformer_loader()
+        self.service = search_service.SearchService(self.load_model)
+        self.default_model = default_model()
+        self.load_model(self.default_model)  # warm before announcing readiness
 
     def handle(self, request: dict) -> dict:
-        """Dispatch one request → reply dict."""
         try:
-            if "command" in request:
-                return self._handle_command(request)
-            return self._handle_query(request)
+            cmd = request.get("command")
+            if cmd == "ping":
+                return {"status": "ready"}
+            if cmd == "shutdown":
+                return {"shutting_down": True}
+            if cmd == "encode":
+                model = self.load_model(request.get("model") or self.default_model)
+                return {"embedding": model.encode([request["text"]], batch_size=ENCODE_BATCH)[0].tolist(), "error": None}
+            if cmd == "encode_many":
+                model = self.load_model(request.get("model") or self.default_model)
+                texts = request.get("texts") or []
+                return {"embeddings": [v.tolist() for v in model.encode(texts, batch_size=ENCODE_BATCH)] if texts else [],
+                        "error": None}
+            if cmd == "history_search":
+                return self.service.history_search(request)
+            if cmd == "memory_search":
+                return self.service.memory_search(request)
+            return {"error": f"Unknown command: {cmd}"}
         except Exception as e:
-            tb = traceback.format_exc()
-            print(
-                f"[search-server FAILED] req={request!r}\n{tb}",
-                file=sys.stderr, flush=True,
-            )
+            print(f"[search-server FAILED] req={str(request)[:300]}\n{traceback.format_exc()}", file=sys.stderr, flush=True)
             return {"error": f"{type(e).__name__}: {e}"}
 
-    def _handle_command(self, request: dict) -> dict:
-        cmd = request["command"]
-
-        if cmd == "ping":
-            return {"status": "ready"}
-        if cmd == "shutdown":
-            # Caller writes the reply then we exit.
-            return {"shutting_down": True}
-        if cmd == "list_collections":
-            return {"collections": [c.name for c in self.client.list_collections()], "error": None}
-        if cmd == "count":
-            name = request["collection"]
-            try:
-                return {"count": self.client.get_collection(name).count(), "error": None}
-            except Exception as e:
-                return {"count": None, "error": f"{type(e).__name__}: {e}"}
-        if cmd == "encode":
-            emb = self.model.encode([request["text"]], batch_size=ENCODE_BATCH)[0].tolist()
-            return {"embedding": emb, "error": None}
-        if cmd == "encode_many":
-            texts = request["texts"]
-            embs = [v.tolist() for v in self.model.encode(texts, batch_size=ENCODE_BATCH)] if texts else []
-            return {"embeddings": embs, "error": None}
-        if cmd == "history_search":
-            return self._history_search(request)
-        if cmd == "get_by_file":
-            return self._get_by_file(request["collection"], request["file_path"])
-        if cmd == "list_file_paths":
-            col = self.get_or_create_collection(request["collection"])
-            metas = col.get(include=["metadatas"]).get("metadatas") or []
-            return {"file_paths": sorted({m.get("file_path", "") for m in metas} - {""}), "error": None}
-        if cmd == "get_meta_by_file":
-            return self._get_meta_by_file(request["collection"], request["file_path"])
-        if cmd == "add_chunks":
-            return self._add_chunks(request["collection"], request["chunks"])
-        if cmd == "delete_ids":
-            return self._delete_ids(request["collection"], request["ids"])
-        if cmd == "delete_where":
-            return self._delete_where(request["collection"], request["where"])
-        if cmd == "reset_collection":
-            return self._reset_collection(request["name"])
-        if cmd == "validate":
-            import repair
-            details = repair.validate_collection(INDEX_DIR, request["collection"])
-            return {"healthy": details.get("healthy", False), "details": details, "error": None}
-        if cmd == "repair":
-            return self._repair(request["collection"], request.get("tier", "auto"))
-        return {"error": f"Unknown command: {cmd}"}
-
-    def _history_search(self, request: dict) -> dict:
-        from utils import history_index
-
-        query = (request.get("query") or "").strip()
-        if not query:
-            return {"sessions": [], "error": "Missing 'query' field"}
-        with self._history_lock:
-            if self._history is None:
-                self._history = history_index.HistorySearcher()
-            vec = self.model.encode([query])[0].tolist()
-            try:
-                result = self._history.search(
-                    query,
-                    vec,
-                    max_sessions=int(request.get("max_sessions") or 5),
-                    hits_per_session=int(request.get("hits_per_session") or 3),
-                    exclude_sessions=request.get("exclude_sessions") or (),
-                    session_id=request.get("session_id"),
-                    after=request.get("after"),
-                    before=request.get("before"),
-                )
-            except FileNotFoundError as e:
-                return {"sessions": [], "error": str(e)}
-        result["error"] = None
-        return result
-
-    def _get_by_file(self, name: str, file_path: str) -> dict:
-        col = self.get_or_create_collection(name)
-        try:
-            res = col.get(where={"file_path": file_path}, include=[])
-            return {"ids": res.get("ids", []), "error": None}
-        except Exception:
-            res = col.get(include=["metadatas"])
-            ids = [i for i, m in zip(res["ids"], res["metadatas"]) if m.get("file_path") == file_path]
-            return {"ids": ids, "error": None}
-
-    def _get_meta_by_file(self, name: str, file_path: str) -> dict:
-        """Return one metadata dict for any chunk matching file_path, or
-        null if none. Used by embed.py to detect unchanged files via
-        stored mtime and skip re-embedding."""
-        col = self.get_or_create_collection(name)
-        try:
-            res = col.get(where={"file_path": file_path}, include=["metadatas"], limit=1)
-            metas = res.get("metadatas") or []
-            return {"meta": metas[0] if metas else None, "error": None}
-        except Exception as e:
-            return {"meta": None, "error": f"{type(e).__name__}: {e}"}
-
-    def _add_chunks(self, name: str, chunks: list) -> dict:
-        with self._write_lock:
-            col = self.get_or_create_collection(name)
-            if chunks:
-                col.add(
-                    ids=[c["id"] for c in chunks],
-                    embeddings=[c["embedding"] for c in chunks],
-                    documents=[c["document"] for c in chunks],
-                    metadatas=[c["metadata"] for c in chunks],
-                )
-            return {"added": len(chunks), "error": None}
-
-    def _delete_ids(self, name: str, ids: list) -> dict:
-        with self._write_lock:
-            col = self.get_or_create_collection(name)
-            if ids:
-                col.delete(ids=ids)
-            return {"deleted": len(ids), "error": None}
-
-    def _delete_where(self, name: str, where: dict) -> dict:
-        with self._write_lock:
-            col = self.get_or_create_collection(name)
-            try:
-                res = col.get(where=where, include=[])
-                ids = res.get("ids", [])
-            except Exception:
-                res = col.get(include=["metadatas"])
-                ids = [i for i, m in zip(res["ids"], res["metadatas"])
-                       if all(m.get(k) == v for k, v in where.items())]
-            if ids:
-                col.delete(ids=ids)
-            return {"deleted": len(ids), "error": None}
-
-    def _reset_collection(self, name: str) -> dict:
-        with self._write_lock:
-            try:
-                self.client.delete_collection(name)
-            except Exception:
-                pass
-            self.get_or_create_collection(name)
-            return {"reset": True, "error": None}
-
-    def _repair(self, name: str, tier: str) -> dict:
-        # Repair tears down + rebuilds chroma state. We acquire the write
-        # lock for the full duration, drop our chroma client, run the
-        # repair in a subprocess, then reopen.
-        import repair
-        with self._write_lock:
-            try:
-                self.client.clear_system_cache()  # type: ignore[attr-defined]
-            except Exception:
-                pass
-            self.client = None  # type: ignore[assignment]
-            try:
-                result = repair.auto_repair(INDEX_DIR, name, preferred_tier=tier)
-            finally:
-                import chromadb
-                self.client = chromadb.PersistentClient(path=str(INDEX_DIR))
-            return result
-
-    def _handle_query(self, request: dict) -> dict:
-        query = request.get("query", "")
-        collection_name = request.get("collection", "memory")
-        n_results = request.get("n_results", 5)
-        threshold = request.get("threshold", 1.5)
-        file_filter = request.get("file_filter")
-
-        if not query:
-            return {"results": [], "error": "Missing 'query' field"}
-
-        try:
-            collection = self.client.get_collection(collection_name)
-        except Exception:
-            return {"results": [], "error": f"Collection '{collection_name}' not found."}
-
-        count = collection.count()
-        if count == 0:
-            return {"results": [], "error": f"Collection '{collection_name}' is empty."}
-
-        query_embedding = self.model.encode([query])[0].tolist()
-        results = collection.query(
-            query_embeddings=[query_embedding],
-            n_results=min(n_results, count),
-        )
-
-        formatted = []
-        for i, doc in enumerate(results["documents"][0]):
-            meta = results["metadatas"][0][i]
-            distance = results["distances"][0][i]
-            if distance > threshold:
-                continue
-            if file_filter and file_filter not in meta.get("file_path", ""):
-                continue
-            formatted.append({
-                "text": doc,
-                "file_path": meta["file_path"],
-                "start_line": int(meta["start_line"]),
-                "end_line": int(meta["end_line"]),
-                "file_name": meta.get("file_name", ""),
-                "distance": round(distance, 4),
-            })
-        return {"results": formatted, "error": None}
-
-
-# ── transports ───────────────────────────────────────────────────────────────
 
 def run_stdio_loop(server: IndexServer, shutdown_flag: threading.Event) -> None:
-    """Read JSON-line requests on stdin, write replies on stdout."""
     for line in sys.stdin:
         if shutdown_flag.is_set():
             return
@@ -380,18 +131,15 @@ def run_stdio_loop(server: IndexServer, shutdown_flag: threading.Event) -> None:
         try:
             request = json.loads(line)
         except json.JSONDecodeError:
-            stdio_send_error(f"Invalid JSON: {line[:200]}")
+            stdio_send({"error": f"Invalid JSON: {line[:200]}"})
             continue
-        reply = server.handle(request)
-        stdio_send(reply)
+        stdio_send(server.handle(request))
         if request.get("command") == "shutdown":
             shutdown_flag.set()
             return
 
 
 def _create_listening_socket(sock_path: Path) -> socket.socket:
-    """Bind + listen on the Unix domain socket. Returns the listening
-    socket. Caller should accept() in a loop."""
     sock_path.parent.mkdir(parents=True, exist_ok=True)
     if sock_path.exists():
         sock_path.unlink()
@@ -404,15 +152,9 @@ def _create_listening_socket(sock_path: Path) -> socket.socket:
 
 
 def run_socket_loop(server: IndexServer, sock: socket.socket, sock_path: Path, shutdown_flag: threading.Event) -> None:
-    """Accept connections on a pre-bound socket."""
-
     def serve_conn(conn: socket.socket) -> None:
-        # Buffered I/O (default 8KB block). Unbuffered mode (`buffering=0`)
-        # made `readline()` fall back to single-byte recv() calls, which
-        # was both slow AND lost data on requests larger than ~200KB (the
-        # default Linux socket buffer) because partial reads weren't
-        # accumulated correctly. Buffered mode uses chunked recv() and
-        # accumulates until `\n`. Must explicitly flush() after each write.
+        # Buffered file I/O: readline() accumulates large requests correctly (unbuffered mode
+        # lost data past the ~200 KB socket buffer). Flush after each write.
         try:
             f = conn.makefile("rwb")
             while not shutdown_flag.is_set():
@@ -422,13 +164,10 @@ def run_socket_loop(server: IndexServer, sock: socket.socket, sock_path: Path, s
                 try:
                     request = json.loads(line.decode().strip())
                 except json.JSONDecodeError:
-                    try:
-                        f.write(json.dumps({"error": "Invalid JSON"}).encode() + b"\n")
-                        f.flush()
-                    except BrokenPipeError:
-                        return
-                    continue
-                reply = server.handle(request)
+                    reply = {"error": "Invalid JSON"}
+                    request = {}
+                else:
+                    reply = server.handle(request)
                 try:
                     f.write(json.dumps(reply).encode() + b"\n")
                     f.flush()
@@ -449,8 +188,7 @@ def run_socket_loop(server: IndexServer, sock: socket.socket, sock_path: Path, s
                 conn, _ = sock.accept()
             except socket.timeout:
                 continue
-            t = threading.Thread(target=serve_conn, args=(conn,), daemon=True)
-            t.start()
+            threading.Thread(target=serve_conn, args=(conn,), daemon=True).start()
     finally:
         sock.close()
         try:
@@ -459,105 +197,23 @@ def run_socket_loop(server: IndexServer, sock: socket.socket, sock_path: Path, s
             pass
 
 
-# ── entry point ──────────────────────────────────────────────────────────────
-
-def _boot_validate_and_repair(skip: bool = False) -> None:
-    """At server boot, probe each existing collection in a subprocess
-    (so a chroma SIGSEGV stays out of this process). On detection, run
-    the auto-repair tier dispatcher. The lockfile is already held by us
-    at this point — the repair subprocess opens its own
-    chromadb.PersistentClient briefly. That is single-writer-safe
-    because we are the lock holder and the repair runs synchronously
-    before we accept any external requests.
-    """
-    if skip:
-        print("[search-server] boot validation skipped (--skip-validate)", file=sys.stderr, flush=True)
-        return
-    # We can list collections via sqlite without opening chroma at all.
-    import sqlite3
-    db_path = INDEX_DIR / "chroma.sqlite3"
-    if not db_path.exists():
-        print("[search-server] no chroma.sqlite3 yet; skipping boot validation", file=sys.stderr, flush=True)
-        return
-    try:
-        db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        names = [r[0] for r in db.execute("SELECT name FROM collections")]
-        db.close()
-    except Exception as e:
-        print(f"[search-server] sqlite read failed during boot: {e}", file=sys.stderr, flush=True)
-        return
-
-    if not names:
-        print("[search-server] no collections to validate", file=sys.stderr, flush=True)
-        return
-
-    sys.path.insert(0, str(SCRIPT_DIR))
-    import repair  # noqa: E402
-
-    for name in names:
-        result = repair.validate_collection(INDEX_DIR, name)
-        if result.get("healthy"):
-            print(
-                f"[search-server] boot-probe '{name}': OK count={result.get('count')} "
-                f"({result.get('duration_s', 0):.1f}s)",
-                file=sys.stderr, flush=True,
-            )
-            continue
-        print(
-            f"[search-server] boot-probe '{name}': UNHEALTHY stage={result.get('stage')} "
-            f"error={result.get('error')} signal={result.get('signal')}",
-            file=sys.stderr, flush=True,
-        )
-        rep = repair.auto_repair(INDEX_DIR, name)
-        print(
-            f"[search-server] boot-repair '{name}': tier={rep.get('tier_used')} "
-            f"before={rep.get('before')} after={rep.get('after')} error={rep.get('error')}",
-            file=sys.stderr, flush=True,
-        )
-
-
 def main() -> None:
     INDEX_DIR.mkdir(parents=True, exist_ok=True)
-    _ = acquire_lock(LOCKFILE)  # kept open for process lifetime
-
-    # --socket flag opens a Unix domain socket transport in addition to
-    # the stdio one. Default is stdio-only to preserve the existing
-    # orchestrator integration. When --socket is set, both transports
-    # run concurrently on separate threads.
+    _ = acquire_lock(LOCKFILE)  # kept open for the process lifetime
     use_socket = "--socket" in sys.argv
-
-    # Boot-time validation: probe every existing collection in a child
-    # subprocess so a corrupt segment can't crash us before we even
-    # accept requests. If we find corruption, auto-repair (cheap tier
-    # first) so subsequent queries don't fail.
-    _boot_validate_and_repair(skip="--skip-validate" in sys.argv)
 
     server = IndexServer()
     shutdown_flag = threading.Event()
+    sock = _create_listening_socket(SOCKET_PATH) if use_socket else None  # bind before announcing
 
-    # Bind the socket BEFORE announcing readiness — otherwise clients
-    # can race and find no socket on disk.
-    sock = None
-    if use_socket:
-        sock = _create_listening_socket(SOCKET_PATH)
+    ready: dict = {"status": "ready", "model": server.default_model}
+    if sock is not None:
+        ready["socket"] = str(SOCKET_PATH)
+    stdio_send(ready)
+    print(f"[search-server] ready, model={server.default_model}", file=sys.stderr, flush=True)
 
-    # Announce readiness (and the socket path if applicable) on stdout.
-    # The orchestrator waits for this to know the model is loaded.
-    ready_payload: dict = {"status": "ready"}
-    if use_socket:
-        ready_payload["socket"] = str(SOCKET_PATH)
-    stdio_send(ready_payload)
-
-    if use_socket and sock is not None:
-        sock_thread = threading.Thread(
-            target=run_socket_loop, args=(server, sock, SOCKET_PATH, shutdown_flag),
-            daemon=True,
-        )
-        sock_thread.start()
-
-    # The stdio loop runs on the main thread (it owns sys.stdin). When a
-    # shutdown command arrives via either transport, the flag fires and
-    # both loops drain.
+    if sock is not None:
+        threading.Thread(target=run_socket_loop, args=(server, sock, SOCKET_PATH, shutdown_flag), daemon=True).start()
     run_stdio_loop(server, shutdown_flag)
     shutdown_flag.set()
 
