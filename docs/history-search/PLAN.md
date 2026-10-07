@@ -65,9 +65,9 @@ Done and deployed (Jetson, commit `934fe7d` via `local` `22cc377`): stages 1, 2,
 model switch (stage 6) done early; stage 4 measured and not kept (no clear gain). Chroma retired.
 
 Open:
-- **Re-ranker on the held-out test set** and a full agent-level confirmation: blocked — the
-  OpenAI account ran out of credits during the evals (also stops voice mode and new session
-  summaries; search keeps working on its calibrated labels; re-rank resumes automatically).
+- ~~Re-ranker on the held-out test set~~ done after credits were restored: top-1 0.70, hit@5
+  0.92, MRR 0.80, negatives falsely strong 0.13 (RESULTS.md). Paid evals are now budgeted
+  per run (the realtime-model agent runs cost ~$15 in total).
 - Strength thresholds generalise worse than on dev (test: 0.27 of negatives falsely strong
   without re-rank) — revisit with more negatives rather than re-tuning on the 15 test ones.
 - Android build with the history cards not yet installed on the phone (no adb device).

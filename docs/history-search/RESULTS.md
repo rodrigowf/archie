@@ -141,13 +141,15 @@ per-model strength thresholds, time/kind preferences, gpt-4.1-mini re-rank.
 |---|---|---|---|---|---|
 | baseline | 0.57 | 0.80 | 0.67 | 0.26 | 0.27 |
 | final, without re-rank | 0.55 | **0.91** | 0.70 | **0.89** | 0.27 |
-| final, with re-rank | *pending — the OpenAI account ran out of credits on 2026-10-06* | | | | |
+| **final, with re-rank** | **0.70** | **0.92** | **0.80** | **0.89** | **0.13** |
 
 Honest reading: recall and Portuguese generalise (hit@5 +0.11, PT +0.63). Two dev gains did
 **not** generalise without the re-ranker: top-1 stays flat, and the strength thresholds that
 gave 0.00 false "strong" on dev give 0.27 here — they were partly fitted to the 15 dev
 negatives. The re-ranker (dev: top-1 0.57 → 0.73, every negative rejected) is the component
-meant to fix both; its test score is the open item. No parameter was changed after seeing test.
+meant to fix both — and on test it does: top-1 0.57 → 0.70, MRR 0.67 → 0.80, Portuguese top-1
+0.16 → 0.74, negatives falsely strong 0.27 → 0.13 (2 of 15). Cost of that run: ~$0.15
+(gpt-4.1-mini). No parameter was changed after seeing test.
 
 **Memory** (52 questions):
 
