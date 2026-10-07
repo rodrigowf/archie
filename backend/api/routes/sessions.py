@@ -175,7 +175,11 @@ def get_session_config(session_id: str):
 @router.put("/{session_id}/config")
 def update_session_config(session_id: str, body: dict):
     """Save per-session configuration overrides."""
-    from api.routes.session_config import save_session_config
+    from api.routes.session_config import save_session_config, validate_session_config
+    try:
+        body = validate_session_config(session_id, body)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return save_session_config(session_id, body)
 
 

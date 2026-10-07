@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from typing import Any
 from pathlib import Path
 from utils.paths import PROJECT_ROOT
 
@@ -41,13 +42,18 @@ class ManagerConfig:
     """Configuration for the manager library."""
 
     project_dir: str = str(_DEFAULT_PROJECT_DIR)
-    provider: str = "claude"  # "claude" | "qwen"
+    provider: str = "claude"  # registered harness id
     model: str | None = None
     permission_mode: str = "default"
     max_budget_usd: float | None = None
     max_turns: int | None = None
     mcp_servers: dict[str, McpServerConfig] | None = None
     extra_args: dict[str, str | None] | None = None
+    # Resolved harness options (global ``harness_options[provider]`` overlaid
+    # by the session's), already validated and stripped of unset keys — see
+    # :mod:`manager.harness_catalog`.  Each session manager maps the keys it
+    # knows onto its CLI and ignores the rest.
+    harness_options: dict[str, Any] | None = None
 
     # SSH remote execution fields (all None = run locally).
     # Naming kept for backward compat with existing assistant_config.json;

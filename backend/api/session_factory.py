@@ -105,6 +105,9 @@ def build_session_config(
         config = replace(config, provider=resolved_provider)
     if resolved_model is not None:
         config = replace(config, model=resolved_model)
+    harness_options = _resolve_harness_options(config.provider, session_cfg, assistant_cfg)
+    if harness_options:
+        config = replace(config, harness_options=harness_options)
 
     # --- MCP servers ----------------------------------------------------
     mcp_servers = _resolve_mcp_servers(
@@ -126,11 +129,33 @@ def build_session_config(
         "ssh_host": config.ssh_host,
         "provider": config.provider,
         "model": config.model,
+        "harness_options": dict(config.harness_options or {}),
         "chrome_extension": bool(chrome),
         "mcp_servers": sorted(mcp_servers.keys()) if mcp_servers else [],
         "persist_provider": persist_provider,
     }
     return config, mcp_servers, resolution_info
+
+
+def _resolve_harness_options(
+    provider: str,
+    session_cfg: dict[str, Any],
+    assistant_cfg: dict[str, Any],
+) -> dict[str, Any]:
+    """Global ``harness_options[provider]`` overlaid by the session's map.
+
+    Not re-validated here (that happens on save); session managers ignore
+    keys they don't know, so a stale key after a harness switch is inert.
+    """
+    from manager.harness_catalog import merge_options
+
+    global_all = assistant_cfg.get("harness_options") or {}
+    global_opts = global_all.get(provider) if isinstance(global_all, dict) else None
+    session_opts = session_cfg.get("harness_options")
+    return merge_options(
+        global_opts if isinstance(global_opts, dict) else None,
+        session_opts if isinstance(session_opts, dict) else None,
+    )
 
 
 def _resolve_working_directory(
