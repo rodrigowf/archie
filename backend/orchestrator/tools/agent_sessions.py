@@ -79,7 +79,8 @@ def _open_agent_session_schema(static: dict[str, Any]) -> dict[str, Any]:
 @registry.register(
     name="open_agent_session",
     description=(
-        "Start a new Claude Code agent session OR re-open a past one from history. "
+        "Start a new Claude Code agent session OR re-open a past one from history "
+        "(to continue a conversation found with search_history, prefer resume_conversation). "
         "This is the single entry point for both: omit all parameters to start fresh, "
         "or pass resume_sdk_id with any sdk_session_id from list_history / "
         "list_agent_sessions to resume that exact conversation (full context restored). "
@@ -210,6 +211,41 @@ async def open_agent_session(
             "mcp_servers": info["mcp_servers"],
         },
     })
+
+
+@registry.register(
+    name="resume_conversation",
+    description=(
+        "Reopen a PAST agent conversation (Claude Code, Qwen, Gemini) with its full context so work "
+        "can continue in it — pass the session_id from a search_history / list_conversations result. "
+        "Only when the user wants to continue or open it, not merely to find or summarise it. "
+        "Orchestrator conversations can't be resumed (read them with read_conversation). Returns the "
+        "live session_id to use with send_to_agent_session."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "session_id": {
+                "type": "string",
+                "description": "session_id of the past conversation (from search_history / list_conversations).",
+            },
+        },
+        "required": ["session_id"],
+    },
+)
+async def resume_conversation(context: dict[str, Any], session_id: str = "") -> str:
+    """Single-purpose resume: the voice model dropped the optional resume_sdk_id of
+    open_agent_session and opened blank sessions instead (agent eval, 2026-10-06)."""
+    sid = (session_id or "").strip()
+    if not sid:
+        return json.dumps({"error": "session_id is required: take it from a search_history or list_conversations result."})
+    out = json.loads(await open_agent_session(context, resume_sdk_id=sid))
+    if "error" in out:
+        if "orchestrator session" in out["error"]:
+            out["hint"] = f"Read it instead: read_conversation(session_id='{sid}')."
+    else:
+        out["resumed"] = sid
+    return json.dumps(out)
 
 
 @registry.register(
@@ -496,7 +532,7 @@ async def respond_to_agent_permission(
     description=(
         "List all past conversation sessions (closed agents from history). "
         "Each entry has a 'session_id' (the sdk_session_id) and a 'type': "
-        "pass any 'agent' entry's session_id to open_agent_session(resume_sdk_id=...) "
+        "pass any 'agent' entry's session_id to resume_conversation(session_id=...) "
         "to re-open and continue that exact conversation with full context. "
         "'orchestrator' sessions CANNOT be re-opened as agent sessions."
     ),

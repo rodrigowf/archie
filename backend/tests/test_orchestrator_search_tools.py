@@ -134,3 +134,28 @@ class TestMemoryNavigation:
         assert sub["notes"][0]["file"] == "context/memory/projects/lamps.md"
         assert hits["hits"] == [{"file": "context/memory/projects/lamps.md", "line": 3, "text": "The Tuya scenes run at dusk."}]
         assert "error" in bad
+
+
+class TestResumeConversation:
+    async def test_requires_a_session_id(self):
+        from orchestrator.tools import agent_sessions
+
+        out = json.loads(await agent_sessions.resume_conversation({}, ""))
+        assert "required" in out["error"]
+
+    async def test_resumes_through_open_agent_session(self):
+        from orchestrator.tools import agent_sessions
+
+        fake = AsyncMock(return_value=json.dumps({"session_id": "live-1", "status": "started"}))
+        with patch.object(agent_sessions, "open_agent_session", fake):
+            out = json.loads(await agent_sessions.resume_conversation({}, " abc "))
+        assert fake.call_args.kwargs == {"resume_sdk_id": "abc"}
+        assert out == {"session_id": "live-1", "status": "started", "resumed": "abc"}
+
+    async def test_orchestrator_sessions_point_to_read_conversation(self):
+        from orchestrator.tools import agent_sessions
+
+        err = {"error": "Session 'o1' is an orchestrator session and cannot be resumed as an agent session."}
+        with patch.object(agent_sessions, "open_agent_session", AsyncMock(return_value=json.dumps(err))):
+            out = json.loads(await agent_sessions.resume_conversation({}, "o1"))
+        assert out["hint"] == "Read it instead: read_conversation(session_id='o1')."

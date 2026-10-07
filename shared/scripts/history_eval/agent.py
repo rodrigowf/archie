@@ -88,8 +88,12 @@ class Env:
     async def execute(self, name: str, args: dict) -> str:
         from orchestrator.tools import registry
 
-        if name == "open_agent_session":
-            out = json.dumps({"session_id": "eval-session", "resumed": args.get("resume_sdk_id") or None})
+        if name in ("open_agent_session", "resume_conversation"):
+            target = args.get("resume_sdk_id") or args.get("session_id")
+            if name == "resume_conversation" and not target:
+                out = json.dumps({"error": "session_id is required"})
+            else:
+                out = json.dumps({"session_id": "eval-session", "resumed": target or None})
         elif name in READ_ONLY:
             context: dict = {}
             if name == "list_history":
@@ -213,7 +217,7 @@ def score(q: dict, calls: list[dict], claims: bool, copies: dict) -> dict:
             if s.get("session_id") in ok or ok & set(s.get("copies", [])):
                 surfaced = i + 1 if surfaced is None else min(surfaced, i + 1)
         target = c["args"].get("session_id") or c["args"].get("resume_sdk_id")
-        if c["name"] in OPENING | {"open_agent_session"} and target:
+        if c["name"] in OPENING | {"open_agent_session", "resume_conversation"} and target:
             if target in ok:
                 opened = True
             else:
