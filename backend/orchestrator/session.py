@@ -91,8 +91,11 @@ class VoiceLifecycle(enum.Enum):
         ``end_voice`` is tearing down. Late events are dropped. New
         ``voice_start`` for the same ``local_id`` must wait for ``ENDED``.
     ENDED
-        Terminal. The session is cleaned up. A fresh start uses a new
-        ``OrchestratorSession`` instance.
+        The voice connection is torn down. Not terminal for the session:
+        a new ``voice_start`` re-arms voice on the SAME
+        ``OrchestratorSession`` via :meth:`OrchestratorSession.restart_voice`
+        (ENDED → IDLE → STARTING). The route falls back to a new session
+        only if ``restart_voice`` fails.
     """
 
     IDLE = "idle"

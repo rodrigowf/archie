@@ -16,7 +16,7 @@ from pathlib import Path
 from fastapi import APIRouter
 
 from api.models import MemoryNodeResponse
-from utils.paths import get_memory_dir
+from utils.paths import get_memory_dir, is_within_memory
 
 router = APIRouter(prefix="/api/memory", tags=["memory"])
 
@@ -41,9 +41,8 @@ def _build_tree(directory: Path, root: Path) -> list[MemoryNodeResponse]:
         if entry.name.startswith("."):
             continue
         try:
-            # Don't follow symlinks out of the memory tree.
-            resolved = entry.resolve()
-            if not resolved.is_relative_to(root):
+            # Don't follow symlinks out of the memory tree (links into docs/ are part of it).
+            if not is_within_memory(entry, root):
                 continue
         except OSError:
             continue

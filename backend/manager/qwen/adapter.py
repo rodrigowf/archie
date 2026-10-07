@@ -6,6 +6,12 @@ Qwen JSONL characteristics:
   "ui_telemetry", "attribution_snapshot", etc.)
 - Messages: ``message.parts`` is a list of ``{text, thought?}`` /
   ``{functionCall: {id, name, args}}`` objects
+- Tool results are separate lines with ``type: "tool_result"`` and
+  ``message: {role: "user", parts: [{functionResponse: {id, name,
+  response: {output} | {error}}}]}``, plus a ``toolCallResult`` summary
+  (``{callId, status: "success"|"error"|"cancelled", resultDisplay}``).
+  They normalize to a ``user`` message of ``tool_result`` blocks, the
+  same shape Claude writes natively and the Gemini adapter synthesizes.
 - Qwen uses ``role: "model"`` instead of ``"assistant"``
 - System events with subtypes (telemetry, attribution) are skipped for display
 - Runtime metadata lives in ``<session-id>.runtime.json`` alongside the JSONL
@@ -38,13 +44,48 @@ def _extract_text_from_parts(parts: list[dict]) -> str:
     return "\n".join(text_parts)
 
 
-def _parts_to_content(parts: list[dict]) -> list[dict]:
+def _function_response_to_block(
+    func_resp: dict, call_result: dict | None = None,
+) -> dict:
+    """Convert a ``functionResponse`` part to a ``tool_result`` block.
+
+    ``response`` carries ``output`` on success and ``error`` on failure
+    (including cancelled / rejected calls).  ``call_result`` is the line's
+    ``toolCallResult`` summary, whose ``status`` also marks errors.
+    """
+    response = func_resp.get("response")
+    if not isinstance(response, dict):
+        response = {}
+    is_error = response.get("output") is None and response.get("error") is not None
+    output = response.get("output")
+    if output is None:
+        output = response.get("error")
+    if output is None:
+        output = ""
+    elif not isinstance(output, str):
+        output = json.dumps(output)
+    status = (call_result or {}).get("status")
+    if status in ("error", "cancelled"):
+        is_error = True
+    return {
+        "type": "tool_result",
+        "tool_use_id": func_resp.get("id"),
+        "content": output,
+        "is_error": is_error,
+    }
+
+
+def _parts_to_content(
+    parts: list[dict], call_result: dict | None = None,
+) -> list[dict]:
     """Convert Qwen ``message.parts`` to normalized content blocks.
 
     Qwen parts can be one of:
-    - ``{text, thought: true}``   → ``{type: "thinking", text}``
-    - ``{text}``                  → ``{type: "text", text}``
-    - ``{functionCall: {...}}``   → ``{type: "tool_use", id, name, input}``
+    - ``{text, thought: true}``     → ``{type: "thinking", text}``
+    - ``{text}``                    → ``{type: "text", text}``
+    - ``{functionCall: {...}}``     → ``{type: "tool_use", id, name, input}``
+    - ``{functionResponse: {...}}`` → ``{type: "tool_result", tool_use_id,
+      content, is_error}``
     """
     content: list[dict] = []
     for part in parts:
@@ -71,6 +112,11 @@ def _parts_to_content(parts: list[dict]) -> list[dict]:
                 "name": func_call.get("name"),
                 "input": func_call.get("args", {}),
             })
+            continue
+
+        func_resp = part.get("functionResponse")
+        if isinstance(func_resp, dict):
+            content.append(_function_response_to_block(func_resp, call_result))
 
     return content
 
@@ -115,6 +161,9 @@ class QwenAdapter(ProviderAdapter):
         - "model" role → "assistant"
         - ``parts`` → ``content`` blocks
         - ``functionCall`` → ``tool_use`` block
+        - ``type: "tool_result"`` lines (``functionResponse`` parts) →
+          a ``user`` message of ``tool_result`` blocks, paired with the
+          ``tool_use`` by id
         - System events (telemetry, attribution) are skipped
         """
         messages: list[dict] = []
@@ -130,7 +179,7 @@ class QwenAdapter(ProviderAdapter):
                         continue
 
                     msg_type = obj.get("type")
-                    if msg_type not in ("user", "assistant"):
+                    if msg_type not in ("user", "assistant", "tool_result"):
                         continue
 
                     msg = obj.get("message", {})
@@ -138,6 +187,14 @@ class QwenAdapter(ProviderAdapter):
                     role = msg.get("role", "")
                     if role == "model":
                         role = "assistant"
+                    call_result = None
+                    if msg_type == "tool_result":
+                        # Tool output goes back to the model as a user turn;
+                        # normalize like Claude's tool_result user lines.
+                        msg_type = role = "user"
+                        call_result = obj.get("toolCallResult")
+                        if not isinstance(call_result, dict):
+                            call_result = None
 
                     normalized: dict = {
                         "type": msg_type,
@@ -147,7 +204,7 @@ class QwenAdapter(ProviderAdapter):
                         "sessionId": obj.get("sessionId"),
                         "message": {
                             "role": role,
-                            "content": _parts_to_content(parts),
+                            "content": _parts_to_content(parts, call_result),
                         },
                     }
                     if "usageMetadata" in obj:

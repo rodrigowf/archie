@@ -3,7 +3,7 @@
     Windows prerequisite checker / installer for the Personal Assistant.
 
 .DESCRIPTION
-    Checks that Python 3.12+, Node.js 20+, npm, and git are present.
+    Checks that Python 3.11+, Node.js 20+, npm, and git are present.
     When something is missing, offers to install it via winget (Microsoft's
     package manager built into Windows 10 1809+ / Windows 11).
 
@@ -67,7 +67,7 @@ function Show-WingetMissing {
     Write-Host "    Once winget is available, re-run this script."
     Write-Host ""
     Write-Host "    Manual fallback (download installers):"
-    Write-Host "      Python 3.12+:  https://www.python.org/downloads/"
+    Write-Host "      Python 3.11+:  https://www.python.org/downloads/"
     Write-Host "      Node.js 20+:   https://nodejs.org/  (LTS)"
     Write-Host "      Git:           https://git-scm.com/download/win"
     Write-Host ""
@@ -140,10 +140,10 @@ function Get-PythonVersion {
 $pyVersion = Get-PythonVersion
 if ($pyVersion) {
     $pyParts = $pyVersion -split '\.'
-    if ([int]$pyParts[0] -ge 3 -and [int]$pyParts[1] -ge 12) {
+    if ([int]$pyParts[0] -ge 3 -and [int]$pyParts[1] -ge 11) {
         Write-Info "Python $pyVersion"
     } else {
-        Write-Err "Python $pyVersion (need 3.12+)"
+        Write-Err "Python $pyVersion (need 3.11+)"
         $Missing += @{ Id = 'Python.Python.3.12'; Name = 'Python 3.12' }
     }
 } else {

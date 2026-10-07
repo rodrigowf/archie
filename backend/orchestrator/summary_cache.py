@@ -60,13 +60,17 @@ Not in cache (intentional):
 
 Triggers (in order of how the cache stays warm):
 
-1. On voice session stop — the cheapest moment, conversation just
-   ended. ``OrchestratorSession.stop`` schedules a background
-   refresh via ``refresh_summary_cache_if_stale``.
-2. On chat WS start (= history reopen / app foreground reconnect) —
-   ``_handle_start`` schedules a background refresh for non-voice
-   sessions so subsequent wake-word voice_start finds the cache
-   warm.
+1. On voice stop — the cheapest moment, conversation just ended.
+   ``OrchestratorSession.end_voice`` schedules a background refresh
+   via ``refresh_summary_cache_if_stale``. (``OrchestratorSession.stop``,
+   the full session shutdown, also schedules one after it calls
+   ``end_voice``.)
+2. On a text (non-voice) ``start`` that creates a new orchestrator
+   session (= history reopen / app reconnect with no live session) —
+   ``_handle_start`` in ``api/routes/orchestrator.py`` schedules a
+   background refresh so a subsequent wake-word voice_start finds the
+   cache warm. A ``start`` that re-attaches to an already-live session
+   returns before this point and does not refresh.
 3. Read trigger fallback — ``_build_history_for_prompt`` itself
    reads the cache, falls back to synchronous compute on miss, and
    writes back so the next call is fast.

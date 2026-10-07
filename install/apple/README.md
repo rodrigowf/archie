@@ -13,7 +13,7 @@ here when they detect `OSTYPE=darwin*`.
 |------|---------|
 | `install.sh` | Deterministic installer (macOS variant). Same flags and behavior as the Linux version, with portable `readlink` / `sed -i` handling. |
 | `install-with-agent.sh` | Conversational installer. Launches one of the agent CLIs and hands it `INSTALL.md`. |
-| `install-prerequisites.sh` | Bootstraps Homebrew (if missing), then installs Python 3.12+ and Node 20+ via brew. Handles both Apple Silicon (`/opt/homebrew`) and Intel (`/usr/local`) prefixes. |
+| `install-prerequisites.sh` | Bootstraps Homebrew (if missing), then installs Python 3.12 and Node 20+ via brew (3.11+ accepted if already present). Handles both Apple Silicon (`/opt/homebrew`) and Intel (`/usr/local`) prefixes. |
 
 ## macOS-specific notes
 

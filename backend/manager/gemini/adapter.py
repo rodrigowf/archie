@@ -8,6 +8,8 @@ where ``<project-label>`` is the value the CLI assigns to the current
 working directory in ``~/.gemini/projects.json``, and ``<uuid-prefix>``
 is the first 8 chars of the session UUID (the file name does NOT carry
 the full session id — we have to peek at the header line to learn it).
+The installer symlinks ``~/.gemini/tmp/<project-label>`` to the
+project's ``context/``, so these files land in ``context/chats/``.
 
 JSONL line shapes
 -----------------
@@ -487,7 +489,7 @@ def _gemini_chats_dir(project_dir: str) -> Path:
     """Where Gemini JSONLs live for *project_dir*.
 
     install.sh symlinks ``~/.gemini/tmp/<label>`` → ``<project_dir>/context``
-    (see ``install/setup-gemini-storage.sh``), so the Gemini CLI writes its
+    (the Gemini step of ``install/linux/install.sh``), so the Gemini CLI writes its
     session files into the same ``context/chats/`` directory Qwen uses.
     Same path resolution as :meth:`SessionStore._resolve_chats_dir`.
     """
@@ -527,7 +529,7 @@ def _gemini_jsonl_candidates(session_id: str) -> list[Path]:
         except OSError:
             pass
     # Legacy location: ~/.gemini/tmp/<label>/chats/.  Only relevant on hosts
-    # that haven't run install/setup-gemini-storage.sh yet; once the symlink
+    # where the installer hasn't created the symlink yet; once the symlink
     # is in place the chats_dir resolves to the same path via two routes.
     tmp_root = _gemini_home() / "tmp"
     if tmp_root.is_dir():

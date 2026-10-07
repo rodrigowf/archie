@@ -1,49 +1,67 @@
-# Assistant Memory Index
+# Memory Index
 
-Reference index to detailed memory files. Keep this under 200 lines.
+Root index for `context/memory/`. This is a **two-level index**: this file holds the memory rules,
+the folder ontology and each folder's key files; each folder's `INDEX.md` lists every file in it.
+To find something, open the folder's `INDEX.md`.
 
-## Getting Started
+## Ontology
 
-Welcome to your personal assistant! This memory file helps the AI remember
-important context across sessions.
+| Folder | What goes there |
+|---|---|
+| `archie/` | **Archie's documentation** — how the assistant itself works. A symlink to `docs/` in the code repo (created by `shared/scripts/setup-context.sh`), versioned with the code. Start at [archie/INDEX.md](archie/INDEX.md). Public: no personal or secret content. |
+| `people/` | People in the user's life, one folder each (start with the user: `people/<name>/`) |
+| `projects/` | The user's projects, one folder each, plus `projects/INDEX.md` |
+| `deployment/` | Private specifics of this installation: addresses, credential locations, backups |
+| `references/` | External source material |
 
-### How Memory Works
+Create folders as you need them — folders are cheap, misplaced files are expensive — and add each
+new folder to this table and give it an `INDEX.md`.
 
-- This file (`MEMORY.md`) is an index — keep it under 200 lines
-- Store detailed content in separate `.md` files in this folder
-- Add one-line references here: `- filename.md — Brief description`
+## Rules
 
-## Quick Reference
+Every note starts with YAML frontmatter (except `INDEX.md` files, this file and
+`ORCHESTRATOR_*.md`):
 
-### Running the Assistant
+```yaml
+---
+name: <filename without .md>
+category: <folder path, e.g. people/alex>
+tags: [<keyword>, ...]
+created: <YYYY-MM-DD>
+modified: <YYYY-MM-DD>
+summary: <one line, ≤ 20 words>
+source: <session UUID + title, OR "curated (<reason>)", OR external URL>
+references:
+  - <relative/path/to/another-note.md>
+---
+```
 
-1. Start the backend:
+- Reuse before creating: extend the closest existing note.
+- Cross-link with relative markdown links and list them in `references:`; keep links bidirectional.
+- Add a one-line entry to the folder's `INDEX.md` in the same edit.
+- `context/` is gitignored by the code repo, so a search from the repo root skips it — pass an
+  explicit `context/memory/` path. Ripgrep doesn't follow the `archie/` symlink: grep `docs/` for
+  the docs.
 
-       context/scripts/run.sh -m uvicorn api.app:create_app --factory --port 8765
+## Quick reference
 
-2. Start the frontend (new terminal):
-
-       cd apps/web && npm run dev
-
-3. Open https://localhost:5450 (Vite dev server; http:// when no certificate is in context/certs/)
-
-### Useful Commands
+1. Start the backend: `context/scripts/run.sh -m uvicorn api.app:create_app --factory --port 8765`
+2. Start the frontend (new terminal): `cd apps/web && npm run dev`
+3. Open https://localhost:5450 (http:// when no certificate is in `context/certs/`)
 
 | Command | Description |
-|---------|-------------|
-| `/recall <query>` | Search memory and history |
+|---|---|
+| `/recall <query>` | Search memory and conversation history |
 | `/scaffold-skill` | Create a new skill |
 | `/scaffold-agent` | Create a new agent |
-| `/help` | List available skills |
 
-## Memory Files
+## Key files
 
-_Add references to topic files as you create them, one line each._
+### archie/ → [index](archie/INDEX.md)
+- [overview/archie.md](archie/overview/archie.md) — what the assistant is and how it is built.
 
-## Tracked Projects
+### people/
+_Add the user's folder (e.g. `people/<name>/<name>_context.md`) as you learn about them._
 
-_Add active project entries here, one line each, with a link to the detailed memory file._
-
-## User
-
-_Personalize this section as you learn about the user. Detailed personal context can live in `user_context.md` (or similar) and be linked from here._
+### projects/
+_Add active projects here, one line each, with a link to the project's start file._

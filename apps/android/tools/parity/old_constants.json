@@ -1,7 +1,7 @@
 {
   "source_commit": "e871d05",
   "generated_by": "android/tools/parity/extract_old_constants.py",
-  "inventory": "docs/frontend-refactor/inventory/04-android-voice-and-device.md §4",
+  "inventory": "docs/projects/frontend-refactor/inventory/04-android-voice-and-device.md §4",
   "count": 133,
   "constants": [
     {

@@ -3,7 +3,7 @@
 The single source for color, type, shape, spacing, elevation, motion and state
 layers, shared by the web apps (`apps/web/`, compat build) and the Android
 apps (`apps/android/`, lite app). Decisions D3 and D6 in
-`docs/frontend-refactor/README.md`.
+`docs/projects/frontend-refactor/README.md`.
 
 ```
 apps/design-tokens/
@@ -41,7 +41,7 @@ extensions), so it is pinned to 0.3.0.
 
 Preview: `python3 -m http.server -d apps/design-tokens 8791`, then open
 `http://127.0.0.1:8791/preview.html` (`?theme=light` or `?theme=system` to pick a
-theme). Screenshots are in `docs/frontend-refactor/audit/screenshots/tokens-preview-*.png`.
+theme). Screenshots are in `docs/projects/frontend-refactor/audit/screenshots/tokens-preview-*.png`.
 
 ## How the color scheme is made
 

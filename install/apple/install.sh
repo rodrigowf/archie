@@ -50,7 +50,7 @@ ask() { echo -e "${CYAN}?${NC} $1"; }
 # GNU readlink.  Macs 11+ ship a readlink with -f; older macOS (10.x) don't.
 # We try `realpath` first (Apple Silicon Macs have it via coreutils via brew,
 # and modern macOS ships its own), fall back to readlink -f, then to a Python
-# one-liner (always present since we already require Python 3.12+).
+# one-liner (always present since we already require Python 3.11+).
 resolve_path() {
     local p="$1"
     if command -v realpath >/dev/null 2>&1; then
@@ -298,12 +298,15 @@ if [ "$WITH_ANTHROPIC" = false ] && [ "$WITH_OPENAI" = false ]; then
 fi
 echo ""
 
-# Default provider written into assistant_config.json.  Claude wins if both
-# are installed (historical default); otherwise Qwen.
+# Default provider written into assistant_config.json: the first installed
+# harness in the order Claude, Qwen, Gemini (Claude is the historical
+# default).  At least one is installed — checked above.
 if [ "$WITH_CLAUDE" = true ]; then
     DEFAULT_PROVIDER="claude"
-else
+elif [ "$WITH_QWEN" = true ]; then
     DEFAULT_PROVIDER="qwen"
+else
+    DEFAULT_PROVIDER="gemini"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -427,6 +430,7 @@ if [ "$CONTEXT_SETUP_NEEDED" = true ]; then
             cd context/scripts
             for script in ../../shared/scripts/*; do
                 script_name=$(basename "$script")
+                [ "$script_name" = "__pycache__" ] && continue  # bytecode cache, not a script
                 if [ ! -e "$script_name" ]; then
                     ln -s "../../shared/scripts/$script_name" "$script_name"
                 fi
@@ -524,6 +528,7 @@ if [ "$CONTEXT_SETUP_NEEDED" = true ]; then
                 cd context/scripts
                 for script in ../../shared/scripts/*; do
                     script_name=$(basename "$script")
+                    [ "$script_name" = "__pycache__" ] && continue  # bytecode cache, not a script
                     if [ ! -e "$script_name" ]; then
                         ln -s "../../shared/scripts/$script_name" "$script_name"
                     fi
@@ -587,6 +592,13 @@ if [ "$WITH_CLAUDE" = true ]; then
     if [ ! -L ".claude_config/skills" ]; then
         ln -sf "../context/skills" ".claude_config/skills"
         info "Created skills discovery symlink"
+    fi
+
+    # And agents: the bundled CLI loads user agents from
+    # $CLAUDE_CONFIG_DIR/agents, which run.sh points at .claude_config/.
+    if [ ! -L ".claude_config/agents" ] && [ ! -e ".claude_config/agents" ]; then
+        ln -s "../context/agents" ".claude_config/agents"
+        info "Created agents discovery symlink"
     fi
 
     echo ""

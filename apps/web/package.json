@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Archie web app (main + Safari 12 compat builds). See docs/frontend-refactor/spec/13-web-architecture.md",
+  "description": "Archie web app (main + Safari 12 compat builds). See docs/specs/13-web-architecture.md",
   "engines": {
     "node": ">=22.12.0"
   },

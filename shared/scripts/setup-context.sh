@@ -5,6 +5,8 @@
 # This script:
 #   1. Creates the context folder structure if it doesn't exist
 #   2. Creates symlinks to shared/skills, shared/scripts, shared/agents
+#      (files and folders alike; existing entries are never overwritten —
+#      re-run after adding something to shared/ to link it)
 #   3. Sets up the Claude SDK compatibility symlink
 #   4. Creates a template .env file if none exists
 #
@@ -91,6 +93,7 @@ step "Creating script symlinks..."
 cd context/scripts
 for script_file in ../../shared/scripts/*; do
     script_name=$(basename "$script_file")
+    [ "$script_name" = "__pycache__" ] && continue  # bytecode cache, not a script
 
     if [ "$FORCE" = true ] && [ -L "$script_name" ]; then
         rm "$script_name"
@@ -157,6 +160,28 @@ fi
 if [ ! -L ".claude_config/skills" ]; then
     ln -sf "../context/skills" ".claude_config/skills"
     info "Created skills discovery symlink"
+fi
+
+# The bundled CLI loads user agents from $CLAUDE_CONFIG_DIR/agents.
+if [ "$FORCE" = true ] && [ -L ".claude_config/agents" ]; then
+    rm ".claude_config/agents"
+fi
+
+if [ ! -L ".claude_config/agents" ] && [ ! -e ".claude_config/agents" ]; then
+    ln -sf "../context/agents" ".claude_config/agents"
+    info "Created agents discovery symlink"
+fi
+
+# Archie's documentation (docs/, versioned with the code) is part of the memory wiki
+# as context/memory/archie — indexed, searchable and browsable like any other notes.
+mkdir -p "context/memory"
+if [ -L "context/memory/archie" ]; then
+    info "Docs symlink already exists"
+elif [ -e "context/memory/archie" ]; then
+    warn "context/memory/archie exists but is not a symlink - skipping"
+else
+    ln -s "../../docs" "context/memory/archie"
+    info "Created docs symlink: context/memory/archie -> ../../docs"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────

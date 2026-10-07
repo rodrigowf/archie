@@ -119,3 +119,15 @@ def test_instantiate_keeps_flash_only_voice_for_discovered_flash_model():
     assert get_model_entry("qwen", "qwen3.8-omni-flash-realtime")["voices"] is _QWEN_FLASH_VOICES
     provider = instantiate_provider("qwen", "qwen3.8-omni-flash-realtime", voice="Cherry")
     assert provider._voice == "Cherry"
+
+
+def test_constructor_default_voice_matches_registry_default():
+    # The provider's constructor default (used when a caller builds the
+    # provider directly, bypassing instantiate_provider) must agree with
+    # the registry's per-model default, as OpenAI (cedar) and Gemini (Puck)
+    # already do. It drifted once: registry Aiden vs constructor Tina.
+    from orchestrator.providers.qwen_voice import QWEN_VOICE_MODEL, QwenVoiceProvider
+
+    registry_default = get_model_entry("qwen", QWEN_VOICE_MODEL)["voice"]
+    assert QwenVoiceProvider(model=QWEN_VOICE_MODEL)._voice == registry_default
+    assert instantiate_provider("qwen", QWEN_VOICE_MODEL)._voice == registry_default

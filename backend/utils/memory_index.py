@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sqlite3
 import time
@@ -29,7 +30,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Sequence
 
 from utils import history_index as hi
-from utils.paths import get_index_dir, get_memory_dir
+from utils.paths import get_index_dir, get_memory_dir, is_within_memory
 
 INDEX_VERSION = 1
 NAVIGATION_FILES = {"MEMORY.md", "INDEX.md", "ARCHIVE.md"}  # lists of links: findable, ranked lower
@@ -279,8 +280,22 @@ def index_file(conn: sqlite3.Connection, path: Path, root: Path, encode: Encoder
 
 
 def memory_files(root: Path | None = None) -> list[Path]:
+    """Every note under ``root``, as paths below ``root``. Follows directory symlinks that stay
+    in the memory tree or point into a linked directory (context/memory/archie → docs/), each
+    real directory once, so the docs are indexed and searched like any other notes."""
     root = Path(root or get_memory_dir())
-    return sorted(p for p in root.rglob("*.md") if ".git" not in p.parts)
+    seen: set[Path] = set()
+    found: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=True):
+        here = Path(dirpath)
+        real = here.resolve()
+        if real in seen or not is_within_memory(here, root):
+            dirnames[:] = []
+            continue
+        seen.add(real)
+        dirnames[:] = [d for d in dirnames if d != ".git"]
+        found.extend(here / f for f in filenames if f.endswith(".md"))
+    return sorted(found)
 
 
 def index_all(
@@ -468,8 +483,8 @@ def browse(folder: str = "", *, root: Path | None = None, db_path: Path | None =
     one-line description, modified), plus the folder's INDEX.md if it has one."""
     root = Path(root or get_memory_dir())
     folder = folder.strip().strip("/").removeprefix("context/memory").strip("/")
-    base = (root / folder).resolve()
-    if not base.is_dir() or not base.is_relative_to(root.resolve()):
+    base = root / folder
+    if ".." in Path(folder).parts or not base.is_dir() or not is_within_memory(base, root):
         return {"error": f"No memory folder {folder!r}."}
     meta: dict[str, dict] = {}
     db = Path(db_path or get_memory_db_path())
@@ -485,7 +500,8 @@ def browse(folder: str = "", *, root: Path | None = None, db_path: Path | None =
         if p.name.startswith(".") or p.name == "__pycache__":
             continue
         if p.is_dir():
-            folders.append({"folder": str(p.relative_to(root)), "notes": sum(1 for _ in p.rglob("*.md"))})
+            if is_within_memory(p, root):
+                folders.append({"folder": str(p.relative_to(root)), "notes": len(memory_files(p))})
         elif p.suffix == ".md":
             rel = str(p.relative_to(root))
             m = meta.get(rel, {})
@@ -502,6 +518,8 @@ def grep(pattern: str, *, folder: str = "", regex: bool = False, max_hits: int =
     root = Path(root or get_memory_dir())
     folder = folder.strip().strip("/").removeprefix("context/memory").strip("/")
     base = (root / folder) if folder else root
+    if ".." in Path(folder).parts:
+        return {"error": f"No memory folder {folder!r}."}
     if not pattern.strip():
         return {"error": "Empty pattern."}
     try:

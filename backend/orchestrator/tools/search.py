@@ -679,7 +679,7 @@ async def search_memory(
     ),
     input_schema={
         "type": "object",
-        "properties": {"folder": {"type": "string", "description": "e.g. 'projects' or 'assistant/voice'. Empty for the top level."}},
+        "properties": {"folder": {"type": "string", "description": "e.g. 'projects' or 'archie/voice'. Empty for the top level."}},
     },
 )
 async def browse_memory(context: dict[str, Any], folder: str = "") -> str:

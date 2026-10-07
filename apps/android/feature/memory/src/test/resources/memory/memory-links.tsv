@@ -1,14 +1,14 @@
-# from	href	kind	target	fragment	inTree  (generated from the live /api/memory/tree + context/memory links, B-07)
+# from	href	kind	target	fragment	inTree  (generated from the live /api/memory/tree + context/memory links, B-07; file names and anchors anonymized)
 ARCHIVE.md	assistant/INDEX.md	memory	assistant/INDEX.md		true
 ARCHIVE.md	references/llm_wiki_karpathy.md	memory	references/llm_wiki_karpathy.md		true
 MEMORY.md	feedback/browser_control_x_snapshot_timeout.md	memory	feedback/browser_control_x_snapshot_timeout.md		true
-MEMORY.md	project/alice_twitter_workflow_observation_active.md	memory	project/alice_twitter_workflow_observation_active.md		true
+MEMORY.md	project/lamp_presets_observation_active.md	memory	project/lamp_presets_observation_active.md		true
 ORCHESTRATOR_MEMORY.md	assistant/android/android_photo_server_project.md	memory	assistant/android/android_photo_server_project.md		true
 ORCHESTRATOR_MEMORY.md	assistant/devices/ios_photo_server_project.md	memory	assistant/devices/ios_photo_server_project.md		true
 ORCHESTRATOR_MEMORY.md	assistant/devices/peripheral_devices.md	memory	assistant/devices/peripheral_devices.md		true
 ORCHESTRATOR_MEMORY.md	assistant/utilities/markdown_workflow.md	memory	assistant/utilities/markdown_workflow.md		true
+ORCHESTRATOR_MEMORY.md	people/owner_personal_context.md	memory	people/owner_personal_context.md		true
 ORCHESTRATOR_MEMORY.md	projects/personal_projects_index.md	memory	projects/personal_projects_index.md		true
-ORCHESTRATOR_MEMORY.md	rodrigo/rodrigo_personal_context.md	memory	rodrigo/rodrigo_personal_context.md		true
 ORCHESTRATOR_MEMORY_qwen.md	assistant/devices/peripheral_devices.md	memory	assistant/devices/peripheral_devices.md		true
 ORCHESTRATOR_MEMORY_qwen.md	assistant/infrastructure/features_and_integrations_summary.md	memory	assistant/infrastructure/features_and_integrations_summary.md		true
 ORCHESTRATOR_MEMORY_qwen.md	assistant/infrastructure/server_hub_project.md	memory	assistant/infrastructure/server_hub_project.md		true
@@ -27,19 +27,19 @@ assistant/INDEX.md	architecture/voice_command_device_control.md	memory	assistant
 assistant/INDEX.md	architecture/voice_prompt_budget.md	memory	assistant/architecture/voice_prompt_budget.md		true
 assistant/INDEX.md	architecture/voice_subsystem.md	memory	assistant/architecture/voice_subsystem.md		true
 assistant/INDEX.md	architecture/wakeword_subsystem.md	memory	assistant/architecture/wakeword_subsystem.md		true
-assistant/INDEX.md	devices/antix_laptop_linuxholic.md	memory	assistant/devices/antix_laptop_linuxholic.md		true
 assistant/INDEX.md	devices/browser_control_extension.md	memory	assistant/devices/browser_control_extension.md		true
 assistant/INDEX.md	devices/frontend-compat.md	memory	assistant/devices/frontend-compat.md		true
 assistant/INDEX.md	devices/ios_photo_server_project.md	memory	assistant/devices/ios_photo_server_project.md		true
+assistant/INDEX.md	devices/old_laptop.md	memory	assistant/devices/old_laptop.md		true
 assistant/INDEX.md	devices/peripheral_devices.md	memory	assistant/devices/peripheral_devices.md		true
 assistant/INDEX.md	devices/television_integration_project.md	memory	assistant/devices/television_integration_project.md		true
 assistant/INDEX.md	folder/file.md	memory	assistant/folder/file.md		false
-assistant/INDEX.md	identity/alignment-neural-patterns.md	memory	assistant/identity/alignment-neural-patterns.md		true
-assistant/INDEX.md	identity/communication_style_for_qwen.md	memory	assistant/identity/communication_style_for_qwen.md		true
 assistant/INDEX.md	infrastructure/features_and_integrations_summary.md	memory	assistant/infrastructure/features_and_integrations_summary.md		true
-assistant/INDEX.md	infrastructure/hotmic_installation.md	memory	assistant/infrastructure/hotmic_installation.md		true
 assistant/INDEX.md	infrastructure/server_hub_project.md	memory	assistant/infrastructure/server_hub_project.md		true
 assistant/INDEX.md	infrastructure/ssh-remote-execution.md	memory	assistant/infrastructure/ssh-remote-execution.md		true
+assistant/INDEX.md	infrastructure/work_install.md	memory	assistant/infrastructure/work_install.md		true
+assistant/INDEX.md	persona/alignment-notes.md	memory	assistant/persona/alignment-notes.md		true
+assistant/INDEX.md	persona/communication_style_for_qwen.md	memory	assistant/persona/communication_style_for_qwen.md		true
 assistant/INDEX.md	plans/memory_improvements.md	memory	assistant/plans/memory_improvements.md		true
 assistant/INDEX.md	plans/wakeword_vosk_migration_log_2026_06_09.md	memory	assistant/plans/wakeword_vosk_migration_log_2026_06_09.md		true
 assistant/INDEX.md	plans/wakeword_vosk_migration_plan_2026_06_09.md	memory	assistant/plans/wakeword_vosk_migration_plan_2026_06_09.md		true
@@ -77,9 +77,9 @@ assistant/architecture/voice_command_device_control.md	./wakeword_subsystem.md	m
 assistant/architecture/voice_subsystem.md	../providers/openai_audio_model_gpt_audio.md	memory	assistant/providers/openai_audio_model_gpt_audio.md		true
 assistant/architecture/voice_subsystem.md	./voice_prompt_budget.md	memory	assistant/architecture/voice_prompt_budget.md		true
 assistant/architecture/wakeword_subsystem.md	../providers/openai_audio_model_gpt_audio.md	memory	assistant/providers/openai_audio_model_gpt_audio.md		true
-assistant/devices/antix_laptop_linuxholic.md	./peripheral_devices.md	memory	assistant/devices/peripheral_devices.md		true
 assistant/devices/browser_control_extension.md	../utilities/memory_url_and_hardlink_edit_gotcha.md	memory	assistant/utilities/memory_url_and_hardlink_edit_gotcha.md		true
 assistant/devices/ios_photo_server_project.md	https://github.com/9001/copyparty	external	https://github.com/9001/copyparty		
+assistant/devices/old_laptop.md	./peripheral_devices.md	memory	assistant/devices/peripheral_devices.md		true
 assistant/devices/peripheral_devices.md	../../projects/content-creation/devices_video_presentation_project.md	memory	projects/content-creation/devices_video_presentation_project.md		true
 assistant/devices/peripheral_devices.md	../android/android_device_project.md	memory	assistant/android/android_device_project.md		true
 assistant/devices/peripheral_devices.md	../android/android_peripheral_project.md	memory	assistant/android/android_peripheral_project.md		true
@@ -87,20 +87,20 @@ assistant/devices/peripheral_devices.md	../infrastructure/server_hub_project.md	
 assistant/devices/peripheral_devices.md	./frontend-compat.md	memory	assistant/devices/frontend-compat.md		true
 assistant/devices/peripheral_devices.md	./ios_photo_server_project.md	memory	assistant/devices/ios_photo_server_project.md		true
 assistant/devices/peripheral_devices.md	./television_integration_project.md	memory	assistant/devices/television_integration_project.md		true
-assistant/identity/alignment-neural-patterns.md	../../projects/content-creation/content_creation_project.md	memory	projects/content-creation/content_creation_project.md		true
-assistant/identity/alignment-neural-patterns.md	../../projects/qvcm/QVCM.md	memory	projects/qvcm/QVCM.md		true
-assistant/identity/communication_style_for_qwen.md	../../ORCHESTRATOR_MEMORY.md	memory	ORCHESTRATOR_MEMORY.md		true
-assistant/identity/communication_style_for_qwen.md	../../projects/qvcm/QVCM-simplified.md	memory	projects/qvcm/QVCM-simplified.md		true
-assistant/identity/communication_style_for_qwen.md	../../projects/qvcm/QVCM.md	memory	projects/qvcm/QVCM.md		true
-assistant/identity/communication_style_for_qwen.md	../../rodrigo/rodrigo_personal_context.md	memory	rodrigo/rodrigo_personal_context.md		true
-assistant/identity/communication_style_for_qwen.md	./alignment-neural-patterns.md	memory	assistant/identity/alignment-neural-patterns.md		true
 assistant/infrastructure/features_and_integrations_summary.md	../architecture/wakeword_subsystem.md	memory	assistant/architecture/wakeword_subsystem.md		true
 assistant/infrastructure/server_hub_project.md	../../api/indexer.py	outside	/memory/api/indexer.py		
 assistant/infrastructure/ssh-remote-execution.md	server_hub_project.md	memory	assistant/infrastructure/server_hub_project.md		true
+assistant/persona/alignment-notes.md	../../projects/content-creation/content_creation_project.md	memory	projects/content-creation/content_creation_project.md		true
+assistant/persona/alignment-notes.md	../../projects/optics/OPTICS.md	memory	projects/optics/OPTICS.md		true
+assistant/persona/communication_style_for_qwen.md	../../ORCHESTRATOR_MEMORY.md	memory	ORCHESTRATOR_MEMORY.md		true
+assistant/persona/communication_style_for_qwen.md	../../people/owner_personal_context.md	memory	people/owner_personal_context.md		true
+assistant/persona/communication_style_for_qwen.md	../../projects/optics/OPTICS-simplified.md	memory	projects/optics/OPTICS-simplified.md		true
+assistant/persona/communication_style_for_qwen.md	../../projects/optics/OPTICS.md	memory	projects/optics/OPTICS.md		true
+assistant/persona/communication_style_for_qwen.md	./alignment-notes.md	memory	assistant/persona/alignment-notes.md		true
 assistant/plans/memory_improvements.md	../../../AGENTS.md	outside	/AGENTS.md		
 assistant/plans/memory_improvements.md	../../MEMORY.md	memory	MEMORY.md		true
+assistant/plans/memory_improvements.md	../../people/owner_personal_context.md	memory	people/owner_personal_context.md		true
 assistant/plans/memory_improvements.md	../../references/llm_wiki_karpathy.md	memory	references/llm_wiki_karpathy.md		true
-assistant/plans/memory_improvements.md	../../rodrigo/rodrigo_personal_context.md	memory	rodrigo/rodrigo_personal_context.md		true
 assistant/plans/memory_improvements.md	../folder/other-file.md	memory	assistant/folder/other-file.md		false
 assistant/plans/memory_improvements.md	../voice/voice_lifecycle_and_wake_after_stop.md	memory	assistant/voice/voice_lifecycle_and_wake_after_stop.md		true
 assistant/plans/wakeword_vosk_migration_log_2026_06_09.md	../architecture/wakeword_subsystem.md	memory	assistant/architecture/wakeword_subsystem.md		true
@@ -117,8 +117,8 @@ assistant/utilities/markdown_workflow.md	../../ORCHESTRATOR_MEMORY.md	memory	ORC
 assistant/utilities/markdown_workflow.md	../../projects/content-creation/devices_video_presentation_project.md#lesson-script-review-on-ipad	memory	projects/content-creation/devices_video_presentation_project.md	lesson-script-review-on-ipad	true
 assistant/utilities/markdown_workflow.md	../../projects/content-creation/first_reel_script.md	memory	projects/content-creation/first_reel_script.md		true
 assistant/utilities/markdown_workflow.md	../../projects/content-creation/revised_reel_script.md	memory	projects/content-creation/revised_reel_script.md		true
-assistant/utilities/markdown_workflow.md	https://192.168.0.200/markdown_reader.html?file=memory/projects/behavioral_modeling/task_extremes_model.md	external	https://192.168.0.200/markdown_reader.html?file=memory/projects/behavioral_modeling/task_extremes_model.md		
 assistant/utilities/markdown_workflow.md	https://192.168.0.200/markdown_reader.html?file=memory/projects/content-creation/revised_reel_script.md	external	https://192.168.0.200/markdown_reader.html?file=memory/projects/content-creation/revised_reel_script.md		
+assistant/utilities/markdown_workflow.md	https://192.168.0.200/markdown_reader.html?file=memory/projects/habit_modeling/sleep_extremes_model.md	external	https://192.168.0.200/markdown_reader.html?file=memory/projects/habit_modeling/sleep_extremes_model.md		
 assistant/utilities/memory_url_and_hardlink_edit_gotcha.md	../../../../api/app.py	outside	/api/app.py		
 assistant/utilities/memory_url_and_hardlink_edit_gotcha.md	../devices/browser_control_extension.md	memory	assistant/devices/browser_control_extension.md		true
 assistant/utilities/memory_url_and_hardlink_edit_gotcha.md	./review_artifacts_location.md	memory	assistant/utilities/review_artifacts_location.md		true
@@ -138,6 +138,22 @@ assistant/voice/voice_lifecycle_and_wake_after_stop.md	./feedback_voice_debug_di
 assistant/voice/voice_lifecycle_and_wake_after_stop.md	./gemini_live_voice_adaptation.md	memory	assistant/voice/gemini_live_voice_adaptation.md		true
 assistant/voice/voice_lifecycle_and_wake_after_stop.md	./qwen_omni_voice_adaptation.md	memory	assistant/voice/qwen_omni_voice_adaptation.md		true
 assistant/voice/voice_lifecycle_and_wake_after_stop.md	./voice-multimodel-plan.md	memory	assistant/voice/voice-multimodel-plan.md		true
+people/hiking_journal.md	../projects/optics/OPTICS.md	memory	projects/optics/OPTICS.md		true
+people/hiking_journal.md	../projects/optics/optics_framework.md	memory	projects/optics/optics_framework.md		true
+people/hiking_journal.md	../projects/optics/optics_framework.md#the-lens-metaphor--a-teaching-diagram	memory	projects/optics/optics_framework.md	the-lens-metaphor--a-teaching-diagram	true
+people/hiking_journal.md	reading_narrative.md	memory	people/reading_narrative.md		true
+people/hiking_stories_pending.md	../projects/optics/optics_framework.md	memory	projects/optics/optics_framework.md		true
+people/hiking_stories_pending.md	../projects/optics/optics_framework.md#earlier-work	memory	projects/optics/optics_framework.md	earlier-work	true
+people/hiking_stories_pending.md	../projects/optics/optics_framework.md#the-first-measurement	memory	projects/optics/optics_framework.md	the-first-measurement	true
+people/hiking_stories_pending.md	../projects/optics/optics_two_lenses.md	memory	projects/optics/optics_two_lenses.md		true
+people/owner_personal_context.md	../projects/optics/OPTICS.md	memory	projects/optics/OPTICS.md		true
+people/owner_personal_context.md	../projects/optics/optics_framework.md	memory	projects/optics/optics_framework.md		true
+people/owner_personal_context.md	../projects/optics/optics_two_lenses.md	memory	projects/optics/optics_two_lenses.md		true
+people/owner_personal_context.md	hiking_journal.md	memory	people/hiking_journal.md		true
+people/reading_narrative.md	../projects/habit_modeling/sleep_debt_response.md	memory	projects/habit_modeling/sleep_debt_response.md		true
+people/reading_narrative.md	../projects/habit_modeling/sleep_extremes_model.md	memory	projects/habit_modeling/sleep_extremes_model.md		true
+people/reading_narrative.md	hiking_journal.md	memory	people/hiking_journal.md		true
+people/reading_narrative.md	podcast_episode_transcript.md	memory	people/podcast_episode_transcript.md		true
 projects/INDEX.md	../MEMORY.md	memory	MEMORY.md		true
 projects/INDEX.md	archie-avatar/emoji_expression_system.md	memory	projects/archie-avatar/emoji_expression_system.md		true
 projects/INDEX.md	archie-avatar/image_asset_pipeline.md	memory	projects/archie-avatar/image_asset_pipeline.md		true
@@ -158,10 +174,7 @@ projects/INDEX.md	archie-vid2/project_plan.md	memory	projects/archie-vid2/projec
 projects/INDEX.md	archie-vid2/recording_plan.md	memory	projects/archie-vid2/recording_plan.md		true
 projects/INDEX.md	archie-vid2/script_clean.md	memory	projects/archie-vid2/script_clean.md		true
 projects/INDEX.md	assistant-launch/launch_strategy_v2.md	memory	projects/assistant-launch/launch_strategy_v2.md		true
-projects/INDEX.md	behavioral_modeling/task_extremes_model.md	memory	projects/behavioral_modeling/task_extremes_model.md		true
-projects/INDEX.md	behavioral_modeling/task_paralysis_model.md	memory	projects/behavioral_modeling/task_paralysis_model.md		true
-projects/INDEX.md	behavioral_modeling/task_paralysis_threat_response.md	memory	projects/behavioral_modeling/task_paralysis_threat_response.md		true
-projects/INDEX.md	biography/personal_biography_project.md	memory	projects/biography/personal_biography_project.md		true
+projects/INDEX.md	card-app/fluxo_animacao_e_visão_3d.md	memory	projects/card-app/fluxo_animacao_e_visão_3d.md		true
 projects/INDEX.md	content-creation/content_creation_project.md	memory	projects/content-creation/content_creation_project.md		true
 projects/INDEX.md	content-creation/devices_video_presentation_project.md	memory	projects/content-creation/devices_video_presentation_project.md		true
 projects/INDEX.md	content-creation/first_reel_script.md	memory	projects/content-creation/first_reel_script.md		true
@@ -169,40 +182,43 @@ projects/INDEX.md	content-creation/google_photos_integration.md	memory	projects/
 projects/INDEX.md	content-creation/revised_reel_script.md	memory	projects/content-creation/revised_reel_script.md		true
 projects/INDEX.md	content-creation/youtube_integration_project.md	memory	projects/content-creation/youtube_integration_project.md		true
 projects/INDEX.md	folder/file.md	memory	projects/folder/file.md		false
-projects/INDEX.md	gender-vid1/carryover_lessons.md	memory	projects/gender-vid1/carryover_lessons.md		true
-projects/INDEX.md	gender-vid1/editor_page.md	memory	projects/gender-vid1/editor_page.md		true
-projects/INDEX.md	gender-vid1/final_script.md	memory	projects/gender-vid1/final_script.md		true
-projects/INDEX.md	gender-vid1/final_script_v3.md	memory	projects/gender-vid1/final_script_v3.md		true
-projects/INDEX.md	gender-vid1/final_script_v4.md	memory	projects/gender-vid1/final_script_v4.md		true
-projects/INDEX.md	gender-vid1/pipeline.md	memory	projects/gender-vid1/pipeline.md		true
-projects/INDEX.md	gender-vid1/progress_log.md	memory	projects/gender-vid1/progress_log.md		true
-projects/INDEX.md	gender-vid1/project_plan.md	memory	projects/gender-vid1/project_plan.md		true
-projects/INDEX.md	gender-vid1/recording_plan.md	memory	projects/gender-vid1/recording_plan.md		true
-projects/INDEX.md	gender-vid1/script_outline.md	memory	projects/gender-vid1/script_outline.md		true
-projects/INDEX.md	gender-vid1/silence_gaps_in_order.md	memory	projects/gender-vid1/silence_gaps_in_order.md		true
-projects/INDEX.md	gender-vid1/silence_gaps_over_1200ms.md	memory	projects/gender-vid1/silence_gaps_over_1200ms.md		true
-projects/INDEX.md	gender-vid1/title_reveal_pipeline.md	memory	projects/gender-vid1/title_reveal_pipeline.md		true
-projects/INDEX.md	gender-vid1/transcript_with_gaps.md	memory	projects/gender-vid1/transcript_with_gaps.md		true
-projects/INDEX.md	gender-vid1/transcripts/pickup.md	memory	projects/gender-vid1/transcripts/pickup.md		true
-projects/INDEX.md	gender-vid1/transcripts/primary.md	memory	projects/gender-vid1/transcripts/primary.md		true
+projects/INDEX.md	garden-vid1/carryover_lessons.md	memory	projects/garden-vid1/carryover_lessons.md		true
+projects/INDEX.md	garden-vid1/pipeline.md	memory	projects/garden-vid1/pipeline.md		true
+projects/INDEX.md	garden-vid1/progress_log.md	memory	projects/garden-vid1/progress_log.md		true
+projects/INDEX.md	garden-vid1/project_plan.md	memory	projects/garden-vid1/project_plan.md		true
+projects/INDEX.md	garden-vid1/recording_plan.md	memory	projects/garden-vid1/recording_plan.md		true
+projects/INDEX.md	garden-vid1/script_outline.md	memory	projects/garden-vid1/script_outline.md		true
+projects/INDEX.md	habit_modeling/sleep_debt_model.md	memory	projects/habit_modeling/sleep_debt_model.md		true
+projects/INDEX.md	habit_modeling/sleep_debt_response.md	memory	projects/habit_modeling/sleep_debt_response.md		true
+projects/INDEX.md	habit_modeling/sleep_extremes_model.md	memory	projects/habit_modeling/sleep_extremes_model.md		true
 projects/INDEX.md	home-automation/home_automation_project.md	memory	projects/home-automation/home_automation_project.md		true
 projects/INDEX.md	home-automation/lamp_environment_presets.md	memory	projects/home-automation/lamp_environment_presets.md		true
 projects/INDEX.md	home-automation/tuya_local_control.md	memory	projects/home-automation/tuya_local_control.md		true
-projects/INDEX.md	identity-vid1/carryover_lessons.md	memory	projects/identity-vid1/carryover_lessons.md		true
-projects/INDEX.md	identity-vid1/pipeline.md	memory	projects/identity-vid1/pipeline.md		true
-projects/INDEX.md	identity-vid1/progress_log.md	memory	projects/identity-vid1/progress_log.md		true
-projects/INDEX.md	identity-vid1/project_plan.md	memory	projects/identity-vid1/project_plan.md		true
-projects/INDEX.md	identity-vid1/recording_plan.md	memory	projects/identity-vid1/recording_plan.md		true
-projects/INDEX.md	identity-vid1/script_outline.md	memory	projects/identity-vid1/script_outline.md		true
+projects/INDEX.md	journal/personal_journal_project.md	memory	projects/journal/personal_journal_project.md		true
+projects/INDEX.md	lamp-vid1/carryover_lessons.md	memory	projects/lamp-vid1/carryover_lessons.md		true
+projects/INDEX.md	lamp-vid1/editor_page.md	memory	projects/lamp-vid1/editor_page.md		true
+projects/INDEX.md	lamp-vid1/final_script.md	memory	projects/lamp-vid1/final_script.md		true
+projects/INDEX.md	lamp-vid1/final_script_v3.md	memory	projects/lamp-vid1/final_script_v3.md		true
+projects/INDEX.md	lamp-vid1/final_script_v4.md	memory	projects/lamp-vid1/final_script_v4.md		true
+projects/INDEX.md	lamp-vid1/pipeline.md	memory	projects/lamp-vid1/pipeline.md		true
+projects/INDEX.md	lamp-vid1/progress_log.md	memory	projects/lamp-vid1/progress_log.md		true
+projects/INDEX.md	lamp-vid1/project_plan.md	memory	projects/lamp-vid1/project_plan.md		true
+projects/INDEX.md	lamp-vid1/recording_plan.md	memory	projects/lamp-vid1/recording_plan.md		true
+projects/INDEX.md	lamp-vid1/script_outline.md	memory	projects/lamp-vid1/script_outline.md		true
+projects/INDEX.md	lamp-vid1/silence_gaps_in_order.md	memory	projects/lamp-vid1/silence_gaps_in_order.md		true
+projects/INDEX.md	lamp-vid1/silence_gaps_over_1200ms.md	memory	projects/lamp-vid1/silence_gaps_over_1200ms.md		true
+projects/INDEX.md	lamp-vid1/title_reveal_pipeline.md	memory	projects/lamp-vid1/title_reveal_pipeline.md		true
+projects/INDEX.md	lamp-vid1/transcript_with_gaps.md	memory	projects/lamp-vid1/transcript_with_gaps.md		true
+projects/INDEX.md	lamp-vid1/transcripts/pickup.md	memory	projects/lamp-vid1/transcripts/pickup.md		true
+projects/INDEX.md	lamp-vid1/transcripts/primary.md	memory	projects/lamp-vid1/transcripts/primary.md		true
+projects/INDEX.md	optics/OPTICS-article.md	memory	projects/optics/OPTICS-article.md		true
+projects/INDEX.md	optics/OPTICS-simplified.md	memory	projects/optics/OPTICS-simplified.md		true
+projects/INDEX.md	optics/OPTICS.md	memory	projects/optics/OPTICS.md		true
+projects/INDEX.md	optics/OPTICS_final_abstract_backup.md	memory	projects/optics/OPTICS_final_abstract_backup.md		true
+projects/INDEX.md	optics/optics_framework.md	memory	projects/optics/optics_framework.md		true
+projects/INDEX.md	optics/optics_hypothesis_project.md	memory	projects/optics/optics_hypothesis_project.md		true
+projects/INDEX.md	optics/optics_two_lenses.md	memory	projects/optics/optics_two_lenses.md		true
 projects/INDEX.md	personal_projects_index.md	memory	projects/personal_projects_index.md		true
-projects/INDEX.md	qvcm/QVCM-article.md	memory	projects/qvcm/QVCM-article.md		true
-projects/INDEX.md	qvcm/QVCM-simplified.md	memory	projects/qvcm/QVCM-simplified.md		true
-projects/INDEX.md	qvcm/QVCM.md	memory	projects/qvcm/QVCM.md		true
-projects/INDEX.md	qvcm/QVCM_final_abstract_backup.md	memory	projects/qvcm/QVCM_final_abstract_backup.md		true
-projects/INDEX.md	qvcm/qvcm_bicameral_mind.md	memory	projects/qvcm/qvcm_bicameral_mind.md		true
-projects/INDEX.md	qvcm/qvcm_hypothesis_project.md	memory	projects/qvcm/qvcm_hypothesis_project.md		true
-projects/INDEX.md	qvcm/qvcm_spiritual_framework.md	memory	projects/qvcm/qvcm_spiritual_framework.md		true
-projects/INDEX.md	tarot-app/fluxo_animacao_e_visão_3d.md	memory	projects/tarot-app/fluxo_animacao_e_visão_3d.md		true
 projects/INDEX.md	video-editing/hair_occlusion_through_title.md	memory	projects/video-editing/hair_occlusion_through_title.md		true
 projects/INDEX.md	video-editing/interactive_editor_pattern.md	memory	projects/video-editing/interactive_editor_pattern.md		true
 projects/INDEX.md	video-editing/large_assets_outside_context.md	memory	projects/video-editing/large_assets_outside_context.md		true
@@ -240,10 +256,10 @@ projects/archie-vid2/progress_log.md	./recording_plan.md	memory	projects/archie-
 projects/archie-vid2/progress_log.md	./script_clean.md	memory	projects/archie-vid2/script_clean.md		true
 projects/archie-vid2/project_plan.md	./script_clean.md	memory	projects/archie-vid2/script_clean.md		true
 projects/assistant-launch/launch_strategy_v2.md	../../assistant/infrastructure/features_and_integrations_summary.md	memory	assistant/infrastructure/features_and_integrations_summary.md		true
-projects/assistant-launch/launch_strategy_v2.md	../../rodrigo/cognition_narrative.md	memory	rodrigo/cognition_narrative.md		true
-projects/assistant-launch/launch_strategy_v2.md	../../rodrigo/rodrigo_personal_context.md	memory	rodrigo/rodrigo_personal_context.md		true
-projects/assistant-launch/launch_strategy_v2.md	../behavioral_modeling/task_extremes_model.md	memory	projects/behavioral_modeling/task_extremes_model.md		true
+projects/assistant-launch/launch_strategy_v2.md	../../people/owner_personal_context.md	memory	people/owner_personal_context.md		true
+projects/assistant-launch/launch_strategy_v2.md	../../people/reading_narrative.md	memory	people/reading_narrative.md		true
 projects/assistant-launch/launch_strategy_v2.md	../content-creation/devices_video_presentation_project.md	memory	projects/content-creation/devices_video_presentation_project.md		true
+projects/assistant-launch/launch_strategy_v2.md	../habit_modeling/sleep_extremes_model.md	memory	projects/habit_modeling/sleep_extremes_model.md		true
 projects/assistant-launch/launch_strategy_v2.md	../personal_projects_index.md	memory	projects/personal_projects_index.md		true
 projects/assistant-launch/launch_strategy_v2.md	https://business.daily.dev/resources/promote-open-source-project-proven-channels/	external	https://business.daily.dev/resources/promote-open-source-project-proven-channels/		
 projects/assistant-launch/launch_strategy_v2.md	https://dev.to/dfarrell/how-to-crush-your-hacker-news-launch-10jk	external	https://dev.to/dfarrell/how-to-crush-your-hacker-news-launch-10jk		
@@ -265,145 +281,155 @@ projects/assistant-launch/launch_strategy_v2.md	https://www.indiehackers.com/pos
 projects/assistant-launch/launch_strategy_v2.md	https://www.lucasfcosta.com/blog/hn-launch	external	https://www.lucasfcosta.com/blog/hn-launch		
 projects/assistant-launch/launch_strategy_v2.md	https://www.theunwindai.com/p/claude-code-s-hidden-multi-agent-orchestration-now-open-source	external	https://www.theunwindai.com/p/claude-code-s-hidden-multi-agent-orchestration-now-open-source		
 projects/assistant-launch/launch_strategy_v2.md	https://www.vellum.ai/blog/best-open-source-personal-ai-assistants	external	https://www.vellum.ai/blog/best-open-source-personal-ai-assistants		
-projects/behavioral_modeling/task_extremes_model.md	../../rodrigo/cognition_narrative.md	memory	rodrigo/cognition_narrative.md		true
-projects/behavioral_modeling/task_extremes_model.md	../../rodrigo/cognition_narrative.md#computer-science-as-cognitive-architecture	memory	rodrigo/cognition_narrative.md	computer-science-as-cognitive-architecture	true
-projects/behavioral_modeling/task_extremes_model.md	../../rodrigo/cognition_narrative.md#flow-state-the-middle-ground	memory	rodrigo/cognition_narrative.md	flow-state-the-middle-ground	true
-projects/behavioral_modeling/task_extremes_model.md	../../rodrigo/cognition_narrative.md#mental-health--neurodivergence	memory	rodrigo/cognition_narrative.md	mental-health--neurodivergence	true
-projects/behavioral_modeling/task_extremes_model.md	../../rodrigo/cognition_narrative.md#physical-exercise-as-critical-need	memory	rodrigo/cognition_narrative.md	physical-exercise-as-critical-need	true
-projects/behavioral_modeling/task_extremes_model.md	../../rodrigo/cognition_narrative.md#social-connection-as-motivational-fuel	memory	rodrigo/cognition_narrative.md	social-connection-as-motivational-fuel	true
-projects/behavioral_modeling/task_extremes_model.md	../assistant-launch/launch_strategy_v2.md	memory	projects/assistant-launch/launch_strategy_v2.md		true
-projects/behavioral_modeling/task_paralysis_model.md	../../rodrigo/cognition_narrative.md	memory	rodrigo/cognition_narrative.md		true
-projects/behavioral_modeling/task_paralysis_model.md	../../rodrigo/cognition_narrative.md#computer-science-as-cognitive-architecture	memory	rodrigo/cognition_narrative.md	computer-science-as-cognitive-architecture	true
-projects/behavioral_modeling/task_paralysis_model.md	../../rodrigo/cognition_narrative.md#mental-health--neurodivergence	memory	rodrigo/cognition_narrative.md	mental-health--neurodivergence	true
-projects/behavioral_modeling/task_paralysis_model.md	../../rodrigo/kurt_mendonca_trauma_vs_tda_transcript.md	memory	rodrigo/kurt_mendonca_trauma_vs_tda_transcript.md		true
-projects/behavioral_modeling/task_paralysis_model.md	task_paralysis_threat_response.md	memory	projects/behavioral_modeling/task_paralysis_threat_response.md		true
-projects/behavioral_modeling/task_paralysis_threat_response.md	../../rodrigo/cognition_narrative.md	memory	rodrigo/cognition_narrative.md		true
-projects/behavioral_modeling/task_paralysis_threat_response.md	../../rodrigo/cognition_narrative.md#childhood--effort	memory	rodrigo/cognition_narrative.md	childhood--effort	true
-projects/behavioral_modeling/task_paralysis_threat_response.md	../../rodrigo/kurt_mendonca_trauma_vs_tda_transcript.md	memory	rodrigo/kurt_mendonca_trauma_vs_tda_transcript.md		true
-projects/behavioral_modeling/task_paralysis_threat_response.md	task_paralysis_model.md	memory	projects/behavioral_modeling/task_paralysis_model.md		true
 projects/content-creation/content_creation_project.md	../../assistant/utilities/markdown_workflow.md	memory	assistant/utilities/markdown_workflow.md		true
 projects/content-creation/content_creation_project.md	./devices_video_presentation_project.md#second-recording-session-june-11-2026	memory	projects/content-creation/devices_video_presentation_project.md	second-recording-session-june-11-2026	true
 projects/content-creation/content_creation_project.md	./google_photos_integration.md	memory	projects/content-creation/google_photos_integration.md		true
 projects/content-creation/content_creation_project.md	./youtube_integration_project.md	memory	projects/content-creation/youtube_integration_project.md		true
 projects/content-creation/content_creation_project.md	https://github.com/remotion-dev/skills	external	https://github.com/remotion-dev/skills		
 projects/content-creation/devices_video_presentation_project.md	../assistant-launch/launch_strategy_v2.md	memory	projects/assistant-launch/launch_strategy_v2.md		true
-projects/content-creation/devices_video_presentation_project.md	../behavioral_modeling/task_extremes_model.md	memory	projects/behavioral_modeling/task_extremes_model.md		true
+projects/content-creation/devices_video_presentation_project.md	../habit_modeling/sleep_extremes_model.md	memory	projects/habit_modeling/sleep_extremes_model.md		true
 projects/content-creation/devices_video_presentation_project.md	./first_reel_script.md	memory	projects/content-creation/first_reel_script.md		true
 projects/content-creation/devices_video_presentation_project.md	./revised_reel_script.md	memory	projects/content-creation/revised_reel_script.md		true
-projects/gender-vid1/editor_page.md	../../assistant/utilities/memory_url_and_hardlink_edit_gotcha.md	memory	assistant/utilities/memory_url_and_hardlink_edit_gotcha.md		true
-projects/gender-vid1/pipeline.md	../../assistant/utilities/review_artifacts_location.md	memory	assistant/utilities/review_artifacts_location.md		true
-projects/gender-vid1/pipeline.md	../video-editing/interactive_editor_pattern.md	memory	projects/video-editing/interactive_editor_pattern.md		true
-projects/gender-vid1/pipeline.md	./editor_page.md	memory	projects/gender-vid1/editor_page.md		true
-projects/gender-vid1/progress_log.md	../../../../projects/gender-vid1/scripts/17b_extract_words_v2.py	outside	/projects/gender-vid1/scripts/17b_extract_words_v2.py		
-projects/gender-vid1/progress_log.md	../../../../projects/gender-vid1/scripts/19a_brighten_words.py	outside	/projects/gender-vid1/scripts/19a_brighten_words.py		
-projects/gender-vid1/progress_log.md	../../../../projects/gender-vid1/scripts/19c_whiten_words.py	outside	/projects/gender-vid1/scripts/19c_whiten_words.py		
-projects/gender-vid1/progress_log.md	../../../../projects/gender-vid1/scripts/19d_soften_shadows.py	outside	/projects/gender-vid1/scripts/19d_soften_shadows.py		
-projects/gender-vid1/progress_log.md	../../../../projects/gender-vid1/scripts/20_compose_final.py	outside	/projects/gender-vid1/scripts/20_compose_final.py		
-projects/gender-vid1/progress_log.md	../../../../projects/gender-vid1/scripts/22_apply_edits.py	outside	/projects/gender-vid1/scripts/22_apply_edits.py		
-projects/gender-vid1/progress_log.md	../../../../projects/gender-vid1/scripts/26_realign_v3.py	outside	/projects/gender-vid1/scripts/26_realign_v3.py		
-projects/gender-vid1/progress_log.md	../../../../projects/gender-vid1/scripts/27_build_rollback_editor.py	outside	/projects/gender-vid1/scripts/27_build_rollback_editor.py		
-projects/gender-vid1/progress_log.md	../../../../projects/gender-vid1/scripts/28_apply_rollback.py	outside	/projects/gender-vid1/scripts/28_apply_rollback.py		
-projects/gender-vid1/progress_log.md	../../assistant/utilities/memory_url_and_hardlink_edit_gotcha.md	memory	assistant/utilities/memory_url_and_hardlink_edit_gotcha.md		true
-projects/gender-vid1/progress_log.md	../../public/memory/projects/gender-vid1/mockups/karaoke_demo_reveal.mp4	outside	/memory/public/memory/projects/gender-vid1/mockups/karaoke_demo_reveal.mp4		
-projects/gender-vid1/progress_log.md	../video-editing/	outside	/memory/projects/video-editing/		
-projects/gender-vid1/progress_log.md	../video-editing/hair_occlusion_through_title.md	memory	projects/video-editing/hair_occlusion_through_title.md		true
-projects/gender-vid1/progress_log.md	../video-editing/interactive_editor_pattern.md	memory	projects/video-editing/interactive_editor_pattern.md		true
-projects/gender-vid1/progress_log.md	../video-editing/long_running_jobs_laptop.md	memory	projects/video-editing/long_running_jobs_laptop.md		true
-projects/gender-vid1/progress_log.md	../video-editing/motion_tracking_title_anchor.md	memory	projects/video-editing/motion_tracking_title_anchor.md		true
-projects/gender-vid1/progress_log.md	../video-editing/wav2vec2_forced_alignment.md	memory	projects/video-editing/wav2vec2_forced_alignment.md		true
-projects/gender-vid1/progress_log.md	../video-editing/whisper_word_timing_lag.md	memory	projects/video-editing/whisper_word_timing_lag.md		true
-projects/gender-vid1/progress_log.md	./editor/index.html	outside	/memory/projects/gender-vid1/editor/index.html		
-projects/gender-vid1/progress_log.md	./editor_page.md	memory	projects/gender-vid1/editor_page.md		true
-projects/gender-vid1/progress_log.md	./project_plan.md	memory	projects/gender-vid1/project_plan.md		true
-projects/gender-vid1/progress_log.md	./silence_gaps_in_order.md	memory	projects/gender-vid1/silence_gaps_in_order.md		true
-projects/gender-vid1/progress_log.md	./silence_gaps_over_1200ms.md	memory	projects/gender-vid1/silence_gaps_over_1200ms.md		true
-projects/gender-vid1/progress_log.md	./title_reveal_pipeline.md	memory	projects/gender-vid1/title_reveal_pipeline.md		true
-projects/gender-vid1/progress_log.md	./transcripts/pickup.md	memory	projects/gender-vid1/transcripts/pickup.md		true
-projects/gender-vid1/progress_log.md	./transcripts/primary.md	memory	projects/gender-vid1/transcripts/primary.md		true
-projects/gender-vid1/project_plan.md	../video-editing/wav2vec2_forced_alignment.md	memory	projects/video-editing/wav2vec2_forced_alignment.md		true
-projects/gender-vid1/project_plan.md	./carryover_lessons.md	memory	projects/gender-vid1/carryover_lessons.md		true
-projects/gender-vid1/project_plan.md	./pipeline.md	memory	projects/gender-vid1/pipeline.md		true
-projects/gender-vid1/project_plan.md	./silence_gaps_over_1200ms.md	memory	projects/gender-vid1/silence_gaps_over_1200ms.md		true
-projects/gender-vid1/project_plan.md	./title_reveal_pipeline.md	memory	projects/gender-vid1/title_reveal_pipeline.md		true
-projects/gender-vid1/script_outline.md	./project_plan.md	memory	projects/gender-vid1/project_plan.md		true
-projects/gender-vid1/script_outline.md	./transcripts/pickup.md	memory	projects/gender-vid1/transcripts/pickup.md		true
-projects/gender-vid1/script_outline.md	./transcripts/primary.md	memory	projects/gender-vid1/transcripts/primary.md		true
-projects/gender-vid1/silence_gaps_in_order.md	/markdown_reader.html?file=memory/projects/gender-vid1/silence_gaps_over_1200ms.md	backend	/markdown_reader.html?file=memory/projects/gender-vid1/silence_gaps_over_1200ms.md		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=107.69	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=107.69		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=142.29	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=142.29		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=149.59	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=149.59		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=154.85	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=154.85		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=163.05	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=163.05		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=170.25	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=170.25		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=203.57	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=203.57		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=219.81	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=219.81		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=225.79	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=225.79		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=23.38	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=23.38		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=253.77	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=253.77		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=260.93	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=260.93		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=265.31	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=265.31		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=282.69	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=282.69		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=32.38	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=32.38		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=323.83	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=323.83		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=337.75	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=337.75		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=342.73	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=342.73		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=348.75	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=348.75		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=358.23	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=358.23		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=56.58	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=56.58		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=64.34	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=64.34		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=73.34	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=73.34		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=9.20	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=9.20		
-projects/gender-vid1/silence_gaps_in_order.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=96.77	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=96.77		
-projects/gender-vid1/title_reveal_pipeline.md	../../../../projects/gender-vid1/scripts/20_compose_final.py	outside	/projects/gender-vid1/scripts/20_compose_final.py		
-projects/gender-vid1/title_reveal_pipeline.md	../video-editing/hair_occlusion_through_title.md	memory	projects/video-editing/hair_occlusion_through_title.md		true
-projects/gender-vid1/title_reveal_pipeline.md	../video-editing/motion_tracking_title_anchor.md	memory	projects/video-editing/motion_tracking_title_anchor.md		true
-projects/gender-vid1/title_reveal_pipeline.md	../video-editing/wav2vec2_forced_alignment.md	memory	projects/video-editing/wav2vec2_forced_alignment.md		true
-projects/gender-vid1/title_reveal_pipeline.md	../video-editing/whisper_word_timing_lag.md	memory	projects/video-editing/whisper_word_timing_lag.md		true
-projects/gender-vid1/transcript_with_gaps.md	/markdown_reader.html?file=memory/projects/gender-vid1/silence_gaps_in_order.md	backend	/markdown_reader.html?file=memory/projects/gender-vid1/silence_gaps_in_order.md		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=0.00	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=0.00		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=108.19	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=108.19		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=122.93	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=122.93		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=142.79	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=142.79		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=143.09	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=143.09		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=150.09	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=150.09		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=155.35	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=155.35		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=163.55	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=163.55		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=168.43	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=168.43		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=170.75	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=170.75		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=193.51	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=193.51		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=204.07	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=204.07		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=218.73	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=218.73		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=220.31	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=220.31		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=226.29	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=226.29		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=23.88	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=23.88		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=244.13	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=244.13		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=254.27	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=254.27		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=261.43	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=261.43		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=265.81	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=265.81		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=269.23	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=269.23		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=283.19	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=283.19		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=294.87	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=294.87		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=30.00	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=30.00		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=32.88	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=32.88		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=320.21	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=320.21		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=324.33	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=324.33		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=338.25	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=338.25		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=343.23	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=343.23		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=346.01	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=346.01		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=349.25	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=349.25		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=358.73	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=358.73		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=55.44	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=55.44		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=57.08	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=57.08		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=64.84	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=64.84		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=73.84	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=73.84		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=81.06	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=81.06		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=9.70	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=9.70		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=97.27	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=97.27		
-projects/gender-vid1/transcript_with_gaps.md	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=97.75	backend	/memory/projects/gender-vid1/assembled/assembled_v1_raw_720p.mp4#t=97.75		
+projects/garden-vid1/project_plan.md	./carryover_lessons.md	memory	projects/garden-vid1/carryover_lessons.md		true
+projects/garden-vid1/project_plan.md	./pipeline.md	memory	projects/garden-vid1/pipeline.md		true
+projects/habit_modeling/sleep_debt_model.md	../../people/podcast_episode_transcript.md	memory	people/podcast_episode_transcript.md		true
+projects/habit_modeling/sleep_debt_model.md	../../people/reading_narrative.md	memory	people/reading_narrative.md		true
+projects/habit_modeling/sleep_debt_model.md	../../people/reading_narrative.md#books-as-architecture	memory	people/reading_narrative.md	books-as-architecture	true
+projects/habit_modeling/sleep_debt_model.md	../../people/reading_narrative.md#evening--reading	memory	people/reading_narrative.md	evening--reading	true
+projects/habit_modeling/sleep_debt_model.md	sleep_debt_response.md	memory	projects/habit_modeling/sleep_debt_response.md		true
+projects/habit_modeling/sleep_debt_response.md	../../people/podcast_episode_transcript.md	memory	people/podcast_episode_transcript.md		true
+projects/habit_modeling/sleep_debt_response.md	../../people/reading_narrative.md	memory	people/reading_narrative.md		true
+projects/habit_modeling/sleep_debt_response.md	../../people/reading_narrative.md#morning--routine	memory	people/reading_narrative.md	morning--routine	true
+projects/habit_modeling/sleep_debt_response.md	sleep_debt_model.md	memory	projects/habit_modeling/sleep_debt_model.md		true
+projects/habit_modeling/sleep_extremes_model.md	../../people/reading_narrative.md	memory	people/reading_narrative.md		true
+projects/habit_modeling/sleep_extremes_model.md	../../people/reading_narrative.md#books-as-architecture	memory	people/reading_narrative.md	books-as-architecture	true
+projects/habit_modeling/sleep_extremes_model.md	../../people/reading_narrative.md#evening--reading	memory	people/reading_narrative.md	evening--reading	true
+projects/habit_modeling/sleep_extremes_model.md	../../people/reading_narrative.md#exercise-as-a-need	memory	people/reading_narrative.md	exercise-as-a-need	true
+projects/habit_modeling/sleep_extremes_model.md	../../people/reading_narrative.md#flow-state-the-middle-ground	memory	people/reading_narrative.md	flow-state-the-middle-ground	true
+projects/habit_modeling/sleep_extremes_model.md	../../people/reading_narrative.md#friends-as-fuel	memory	people/reading_narrative.md	friends-as-fuel	true
+projects/habit_modeling/sleep_extremes_model.md	../assistant-launch/launch_strategy_v2.md	memory	projects/assistant-launch/launch_strategy_v2.md		true
 projects/home-automation/home_automation_project.md	./tuya_local_control.md	memory	projects/home-automation/tuya_local_control.md		true
 projects/home-automation/lamp_environment_presets.md	./tuya_local_control.md	memory	projects/home-automation/tuya_local_control.md		true
-projects/identity-vid1/project_plan.md	./carryover_lessons.md	memory	projects/identity-vid1/carryover_lessons.md		true
-projects/identity-vid1/project_plan.md	./pipeline.md	memory	projects/identity-vid1/pipeline.md		true
+projects/lamp-vid1/editor_page.md	../../assistant/utilities/memory_url_and_hardlink_edit_gotcha.md	memory	assistant/utilities/memory_url_and_hardlink_edit_gotcha.md		true
+projects/lamp-vid1/pipeline.md	../../assistant/utilities/review_artifacts_location.md	memory	assistant/utilities/review_artifacts_location.md		true
+projects/lamp-vid1/pipeline.md	../video-editing/interactive_editor_pattern.md	memory	projects/video-editing/interactive_editor_pattern.md		true
+projects/lamp-vid1/pipeline.md	./editor_page.md	memory	projects/lamp-vid1/editor_page.md		true
+projects/lamp-vid1/progress_log.md	../../../../projects/lamp-vid1/scripts/17b_extract_words_v2.py	outside	/projects/lamp-vid1/scripts/17b_extract_words_v2.py		
+projects/lamp-vid1/progress_log.md	../../../../projects/lamp-vid1/scripts/19a_brighten_words.py	outside	/projects/lamp-vid1/scripts/19a_brighten_words.py		
+projects/lamp-vid1/progress_log.md	../../../../projects/lamp-vid1/scripts/19c_whiten_words.py	outside	/projects/lamp-vid1/scripts/19c_whiten_words.py		
+projects/lamp-vid1/progress_log.md	../../../../projects/lamp-vid1/scripts/19d_soften_shadows.py	outside	/projects/lamp-vid1/scripts/19d_soften_shadows.py		
+projects/lamp-vid1/progress_log.md	../../../../projects/lamp-vid1/scripts/20_compose_final.py	outside	/projects/lamp-vid1/scripts/20_compose_final.py		
+projects/lamp-vid1/progress_log.md	../../../../projects/lamp-vid1/scripts/22_apply_edits.py	outside	/projects/lamp-vid1/scripts/22_apply_edits.py		
+projects/lamp-vid1/progress_log.md	../../../../projects/lamp-vid1/scripts/26_realign_v3.py	outside	/projects/lamp-vid1/scripts/26_realign_v3.py		
+projects/lamp-vid1/progress_log.md	../../../../projects/lamp-vid1/scripts/27_build_rollback_editor.py	outside	/projects/lamp-vid1/scripts/27_build_rollback_editor.py		
+projects/lamp-vid1/progress_log.md	../../../../projects/lamp-vid1/scripts/28_apply_rollback.py	outside	/projects/lamp-vid1/scripts/28_apply_rollback.py		
+projects/lamp-vid1/progress_log.md	../../assistant/utilities/memory_url_and_hardlink_edit_gotcha.md	memory	assistant/utilities/memory_url_and_hardlink_edit_gotcha.md		true
+projects/lamp-vid1/progress_log.md	../../public/memory/projects/lamp-vid1/mockups/karaoke_demo_reveal.mp4	outside	/memory/public/memory/projects/lamp-vid1/mockups/karaoke_demo_reveal.mp4		
+projects/lamp-vid1/progress_log.md	../video-editing/	outside	/memory/projects/video-editing/		
+projects/lamp-vid1/progress_log.md	../video-editing/hair_occlusion_through_title.md	memory	projects/video-editing/hair_occlusion_through_title.md		true
+projects/lamp-vid1/progress_log.md	../video-editing/interactive_editor_pattern.md	memory	projects/video-editing/interactive_editor_pattern.md		true
+projects/lamp-vid1/progress_log.md	../video-editing/long_running_jobs_laptop.md	memory	projects/video-editing/long_running_jobs_laptop.md		true
+projects/lamp-vid1/progress_log.md	../video-editing/motion_tracking_title_anchor.md	memory	projects/video-editing/motion_tracking_title_anchor.md		true
+projects/lamp-vid1/progress_log.md	../video-editing/wav2vec2_forced_alignment.md	memory	projects/video-editing/wav2vec2_forced_alignment.md		true
+projects/lamp-vid1/progress_log.md	../video-editing/whisper_word_timing_lag.md	memory	projects/video-editing/whisper_word_timing_lag.md		true
+projects/lamp-vid1/progress_log.md	./editor/index.html	outside	/memory/projects/lamp-vid1/editor/index.html		
+projects/lamp-vid1/progress_log.md	./editor_page.md	memory	projects/lamp-vid1/editor_page.md		true
+projects/lamp-vid1/progress_log.md	./project_plan.md	memory	projects/lamp-vid1/project_plan.md		true
+projects/lamp-vid1/progress_log.md	./silence_gaps_in_order.md	memory	projects/lamp-vid1/silence_gaps_in_order.md		true
+projects/lamp-vid1/progress_log.md	./silence_gaps_over_1200ms.md	memory	projects/lamp-vid1/silence_gaps_over_1200ms.md		true
+projects/lamp-vid1/progress_log.md	./title_reveal_pipeline.md	memory	projects/lamp-vid1/title_reveal_pipeline.md		true
+projects/lamp-vid1/progress_log.md	./transcripts/pickup.md	memory	projects/lamp-vid1/transcripts/pickup.md		true
+projects/lamp-vid1/progress_log.md	./transcripts/primary.md	memory	projects/lamp-vid1/transcripts/primary.md		true
+projects/lamp-vid1/project_plan.md	../video-editing/wav2vec2_forced_alignment.md	memory	projects/video-editing/wav2vec2_forced_alignment.md		true
+projects/lamp-vid1/project_plan.md	./carryover_lessons.md	memory	projects/lamp-vid1/carryover_lessons.md		true
+projects/lamp-vid1/project_plan.md	./pipeline.md	memory	projects/lamp-vid1/pipeline.md		true
+projects/lamp-vid1/project_plan.md	./silence_gaps_over_1200ms.md	memory	projects/lamp-vid1/silence_gaps_over_1200ms.md		true
+projects/lamp-vid1/project_plan.md	./title_reveal_pipeline.md	memory	projects/lamp-vid1/title_reveal_pipeline.md		true
+projects/lamp-vid1/script_outline.md	./project_plan.md	memory	projects/lamp-vid1/project_plan.md		true
+projects/lamp-vid1/script_outline.md	./transcripts/pickup.md	memory	projects/lamp-vid1/transcripts/pickup.md		true
+projects/lamp-vid1/script_outline.md	./transcripts/primary.md	memory	projects/lamp-vid1/transcripts/primary.md		true
+projects/lamp-vid1/silence_gaps_in_order.md	/markdown_reader.html?file=memory/projects/lamp-vid1/silence_gaps_over_1200ms.md	backend	/markdown_reader.html?file=memory/projects/lamp-vid1/silence_gaps_over_1200ms.md		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=107.69	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=107.69		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=142.29	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=142.29		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=149.59	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=149.59		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=154.85	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=154.85		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=163.05	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=163.05		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=170.25	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=170.25		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=203.57	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=203.57		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=219.81	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=219.81		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=225.79	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=225.79		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=23.38	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=23.38		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=253.77	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=253.77		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=260.93	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=260.93		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=265.31	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=265.31		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=282.69	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=282.69		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=32.38	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=32.38		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=323.83	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=323.83		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=337.75	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=337.75		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=342.73	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=342.73		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=348.75	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=348.75		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=358.23	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=358.23		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=56.58	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=56.58		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=64.34	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=64.34		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=73.34	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=73.34		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=9.20	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=9.20		
+projects/lamp-vid1/silence_gaps_in_order.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=96.77	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=96.77		
+projects/lamp-vid1/title_reveal_pipeline.md	../../../../projects/lamp-vid1/scripts/20_compose_final.py	outside	/projects/lamp-vid1/scripts/20_compose_final.py		
+projects/lamp-vid1/title_reveal_pipeline.md	../video-editing/hair_occlusion_through_title.md	memory	projects/video-editing/hair_occlusion_through_title.md		true
+projects/lamp-vid1/title_reveal_pipeline.md	../video-editing/motion_tracking_title_anchor.md	memory	projects/video-editing/motion_tracking_title_anchor.md		true
+projects/lamp-vid1/title_reveal_pipeline.md	../video-editing/wav2vec2_forced_alignment.md	memory	projects/video-editing/wav2vec2_forced_alignment.md		true
+projects/lamp-vid1/title_reveal_pipeline.md	../video-editing/whisper_word_timing_lag.md	memory	projects/video-editing/whisper_word_timing_lag.md		true
+projects/lamp-vid1/transcript_with_gaps.md	/markdown_reader.html?file=memory/projects/lamp-vid1/silence_gaps_in_order.md	backend	/markdown_reader.html?file=memory/projects/lamp-vid1/silence_gaps_in_order.md		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=0.00	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=0.00		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=108.19	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=108.19		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=122.93	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=122.93		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=142.79	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=142.79		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=143.09	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=143.09		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=150.09	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=150.09		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=155.35	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=155.35		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=163.55	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=163.55		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=168.43	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=168.43		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=170.75	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=170.75		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=193.51	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=193.51		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=204.07	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=204.07		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=218.73	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=218.73		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=220.31	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=220.31		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=226.29	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=226.29		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=23.88	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=23.88		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=244.13	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=244.13		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=254.27	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=254.27		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=261.43	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=261.43		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=265.81	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=265.81		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=269.23	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=269.23		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=283.19	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=283.19		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=294.87	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=294.87		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=30.00	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=30.00		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=32.88	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=32.88		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=320.21	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=320.21		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=324.33	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=324.33		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=338.25	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=338.25		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=343.23	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=343.23		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=346.01	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=346.01		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=349.25	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=349.25		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=358.73	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=358.73		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=55.44	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=55.44		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=57.08	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=57.08		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=64.84	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=64.84		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=73.84	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=73.84		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=81.06	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=81.06		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=9.70	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=9.70		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=97.27	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=97.27		
+projects/lamp-vid1/transcript_with_gaps.md	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=97.75	backend	/memory/projects/lamp-vid1/assembled/assembled_v1_raw_720p.mp4#t=97.75		
+projects/optics/optics_framework.md	../../people/hiking_journal.md	memory	people/hiking_journal.md		true
+projects/optics/optics_framework.md	../../people/hiking_stories_pending.md	memory	people/hiking_stories_pending.md		true
+projects/optics/optics_framework.md	./OPTICS.md	memory	projects/optics/OPTICS.md		true
+projects/optics/optics_framework.md	./optics_two_lenses.md	memory	projects/optics/optics_two_lenses.md		true
+projects/optics/optics_hypothesis_project.md	../../people/hiking_journal.md	memory	people/hiking_journal.md		true
+projects/optics/optics_hypothesis_project.md	./OPTICS.md	memory	projects/optics/OPTICS.md		true
+projects/optics/optics_hypothesis_project.md	./optics_framework.md	memory	projects/optics/optics_framework.md		true
+projects/optics/optics_hypothesis_project.md	./optics_two_lenses.md	memory	projects/optics/optics_two_lenses.md		true
+projects/optics/optics_two_lenses.md	../../people/reading_narrative.md	memory	people/reading_narrative.md		true
+projects/optics/optics_two_lenses.md	./optics_framework.md	memory	projects/optics/optics_framework.md		true
 projects/personal_projects_index.md	../assistant/android/android_device_project.md	memory	assistant/android/android_device_project.md		true
 projects/personal_projects_index.md	../assistant/android/android_peripheral_project.md	memory	assistant/android/android_peripheral_project.md		true
 projects/personal_projects_index.md	../assistant/android/android_photo_server_project.md	memory	assistant/android/android_photo_server_project.md		true
@@ -411,9 +437,9 @@ projects/personal_projects_index.md	../assistant/architecture/permissions_branch
 projects/personal_projects_index.md	../assistant/devices/frontend-compat.md	memory	assistant/devices/frontend-compat.md		true
 projects/personal_projects_index.md	../assistant/devices/ios_photo_server_project.md	memory	assistant/devices/ios_photo_server_project.md		true
 projects/personal_projects_index.md	../assistant/devices/television_integration_project.md	memory	assistant/devices/television_integration_project.md		true
-projects/personal_projects_index.md	../assistant/infrastructure/hotmic_installation.md	memory	assistant/infrastructure/hotmic_installation.md		true
 projects/personal_projects_index.md	../assistant/infrastructure/server_hub_project.md	memory	assistant/infrastructure/server_hub_project.md		true
 projects/personal_projects_index.md	../assistant/infrastructure/ssh-remote-execution.md	memory	assistant/infrastructure/ssh-remote-execution.md		true
+projects/personal_projects_index.md	../assistant/infrastructure/work_install.md	memory	assistant/infrastructure/work_install.md		true
 projects/personal_projects_index.md	../assistant/providers/gemini_cli_adaptation.md	memory	assistant/providers/gemini_cli_adaptation.md		true
 projects/personal_projects_index.md	../assistant/providers/provider_generalization.md	memory	assistant/providers/provider_generalization.md		true
 projects/personal_projects_index.md	../assistant/providers/qwen_code_adaptation.md	memory	assistant/providers/qwen_code_adaptation.md		true
@@ -421,49 +447,23 @@ projects/personal_projects_index.md	../assistant/voice/gemini_live_voice_adaptat
 projects/personal_projects_index.md	../assistant/voice/qwen_omni_voice_adaptation.md	memory	assistant/voice/qwen_omni_voice_adaptation.md		true
 projects/personal_projects_index.md	../assistant/voice/voice-multimodel-plan.md	memory	assistant/voice/voice-multimodel-plan.md		true
 projects/personal_projects_index.md	./archie-avatar/project_overview.md	memory	projects/archie-avatar/project_overview.md		true
-projects/personal_projects_index.md	./biography/personal_biography_project.md	memory	projects/biography/personal_biography_project.md		true
 projects/personal_projects_index.md	./content-creation/content_creation_project.md	memory	projects/content-creation/content_creation_project.md		true
 projects/personal_projects_index.md	./content-creation/devices_video_presentation_project.md	memory	projects/content-creation/devices_video_presentation_project.md		true
 projects/personal_projects_index.md	./content-creation/google_photos_integration.md	memory	projects/content-creation/google_photos_integration.md		true
 projects/personal_projects_index.md	./content-creation/youtube_integration_project.md	memory	projects/content-creation/youtube_integration_project.md		true
 projects/personal_projects_index.md	./home-automation/home_automation_project.md	memory	projects/home-automation/home_automation_project.md		true
-projects/personal_projects_index.md	./qvcm/QVCM-simplified.md	memory	projects/qvcm/QVCM-simplified.md		true
-projects/personal_projects_index.md	./qvcm/QVCM.md	memory	projects/qvcm/QVCM.md		true
-projects/personal_projects_index.md	./qvcm/qvcm_bicameral_mind.md	memory	projects/qvcm/qvcm_bicameral_mind.md		true
-projects/personal_projects_index.md	./qvcm/qvcm_hypothesis_project.md	memory	projects/qvcm/qvcm_hypothesis_project.md		true
-projects/personal_projects_index.md	./qvcm/qvcm_spiritual_framework.md	memory	projects/qvcm/qvcm_spiritual_framework.md		true
-projects/qvcm/qvcm_bicameral_mind.md	../../rodrigo/cognition_narrative.md	memory	rodrigo/cognition_narrative.md		true
-projects/qvcm/qvcm_bicameral_mind.md	./qvcm_spiritual_framework.md	memory	projects/qvcm/qvcm_spiritual_framework.md		true
-projects/qvcm/qvcm_hypothesis_project.md	../../rodrigo/spiritual_journey.md	memory	rodrigo/spiritual_journey.md		true
-projects/qvcm/qvcm_hypothesis_project.md	./QVCM.md	memory	projects/qvcm/QVCM.md		true
-projects/qvcm/qvcm_hypothesis_project.md	./qvcm_bicameral_mind.md	memory	projects/qvcm/qvcm_bicameral_mind.md		true
-projects/qvcm/qvcm_hypothesis_project.md	./qvcm_spiritual_framework.md	memory	projects/qvcm/qvcm_spiritual_framework.md		true
-projects/qvcm/qvcm_spiritual_framework.md	../../rodrigo/spiritual_journey.md	memory	rodrigo/spiritual_journey.md		true
-projects/qvcm/qvcm_spiritual_framework.md	../../rodrigo/spiritual_stories_pending.md	memory	rodrigo/spiritual_stories_pending.md		true
-projects/qvcm/qvcm_spiritual_framework.md	./QVCM.md	memory	projects/qvcm/QVCM.md		true
-projects/qvcm/qvcm_spiritual_framework.md	./qvcm_bicameral_mind.md	memory	projects/qvcm/qvcm_bicameral_mind.md		true
-projects/video-editing/hair_occlusion_through_title.md	../../../../projects/gender-vid1/scripts/20_compose_final.py	outside	/projects/gender-vid1/scripts/20_compose_final.py		
+projects/personal_projects_index.md	./journal/personal_journal_project.md	memory	projects/journal/personal_journal_project.md		true
+projects/personal_projects_index.md	./optics/OPTICS-simplified.md	memory	projects/optics/OPTICS-simplified.md		true
+projects/personal_projects_index.md	./optics/OPTICS.md	memory	projects/optics/OPTICS.md		true
+projects/personal_projects_index.md	./optics/optics_framework.md	memory	projects/optics/optics_framework.md		true
+projects/personal_projects_index.md	./optics/optics_hypothesis_project.md	memory	projects/optics/optics_hypothesis_project.md		true
+projects/personal_projects_index.md	./optics/optics_two_lenses.md	memory	projects/optics/optics_two_lenses.md		true
+projects/video-editing/hair_occlusion_through_title.md	../../../../projects/lamp-vid1/scripts/20_compose_final.py	outside	/projects/lamp-vid1/scripts/20_compose_final.py		
 projects/video-editing/hair_occlusion_through_title.md	./motion_tracking_title_anchor.md	memory	projects/video-editing/motion_tracking_title_anchor.md		true
 projects/video-editing/interactive_editor_pattern.md	../../assistant/utilities/memory_url_and_hardlink_edit_gotcha.md	memory	assistant/utilities/memory_url_and_hardlink_edit_gotcha.md		true
-projects/video-editing/motion_tracking_title_anchor.md	../../../../projects/gender-vid1/scripts/20_compose_final.py	outside	/projects/gender-vid1/scripts/20_compose_final.py		
-projects/video-editing/motion_tracking_title_anchor.md	../../../../projects/gender-vid1/scripts/30_track_scene_motion.py	outside	/projects/gender-vid1/scripts/30_track_scene_motion.py		
+projects/video-editing/motion_tracking_title_anchor.md	../../../../projects/lamp-vid1/scripts/20_compose_final.py	outside	/projects/lamp-vid1/scripts/20_compose_final.py		
+projects/video-editing/motion_tracking_title_anchor.md	../../../../projects/lamp-vid1/scripts/30_track_scene_motion.py	outside	/projects/lamp-vid1/scripts/30_track_scene_motion.py		
 projects/video-editing/wav2vec2_forced_alignment.md	./whisper_word_timing_lag.md	memory	projects/video-editing/whisper_word_timing_lag.md		true
 projects/video-editing/whisper_word_timing_lag.md	./wav2vec2_forced_alignment.md	memory	projects/video-editing/wav2vec2_forced_alignment.md		true
 references/llm_wiki_karpathy.md	https://github.com/tobi/qmd	external	https://github.com/tobi/qmd		
 references/llm_wiki_karpathy.md	https://tolkiengateway.net/wiki/Main_Page	external	https://tolkiengateway.net/wiki/Main_Page		
-rodrigo/cognition_narrative.md	../projects/behavioral_modeling/task_extremes_model.md	memory	projects/behavioral_modeling/task_extremes_model.md		true
-rodrigo/cognition_narrative.md	../projects/behavioral_modeling/task_paralysis_threat_response.md	memory	projects/behavioral_modeling/task_paralysis_threat_response.md		true
-rodrigo/cognition_narrative.md	kurt_mendonca_trauma_vs_tda_transcript.md	memory	rodrigo/kurt_mendonca_trauma_vs_tda_transcript.md		true
-rodrigo/cognition_narrative.md	spiritual_journey.md	memory	rodrigo/spiritual_journey.md		true
-rodrigo/rodrigo_personal_context.md	../projects/qvcm/QVCM.md	memory	projects/qvcm/QVCM.md		true
-rodrigo/rodrigo_personal_context.md	../projects/qvcm/qvcm_bicameral_mind.md	memory	projects/qvcm/qvcm_bicameral_mind.md		true
-rodrigo/rodrigo_personal_context.md	../projects/qvcm/qvcm_spiritual_framework.md	memory	projects/qvcm/qvcm_spiritual_framework.md		true
-rodrigo/rodrigo_personal_context.md	spiritual_journey.md	memory	rodrigo/spiritual_journey.md		true
-rodrigo/spiritual_journey.md	../projects/qvcm/QVCM.md	memory	projects/qvcm/QVCM.md		true
-rodrigo/spiritual_journey.md	../projects/qvcm/qvcm_spiritual_framework.md	memory	projects/qvcm/qvcm_spiritual_framework.md		true
-rodrigo/spiritual_journey.md	../projects/qvcm/qvcm_spiritual_framework.md#the-forest-metaphor--rodrigos-teaching-diagram-for-the-lore	memory	projects/qvcm/qvcm_spiritual_framework.md	the-forest-metaphor--rodrigos-teaching-diagram-for-the-lore	true
-rodrigo/spiritual_journey.md	cognition_narrative.md	memory	rodrigo/cognition_narrative.md		true
-rodrigo/spiritual_stories_pending.md	../projects/qvcm/qvcm_bicameral_mind.md	memory	projects/qvcm/qvcm_bicameral_mind.md		true
-rodrigo/spiritual_stories_pending.md	../projects/qvcm/qvcm_spiritual_framework.md	memory	projects/qvcm/qvcm_spiritual_framework.md		true
-rodrigo/spiritual_stories_pending.md	../projects/qvcm/qvcm_spiritual_framework.md#ancient-civilizations-recognized-this	memory	projects/qvcm/qvcm_spiritual_framework.md	ancient-civilizations-recognized-this	true
-rodrigo/spiritual_stories_pending.md	../projects/qvcm/qvcm_spiritual_framework.md#the-mediumship-account	memory	projects/qvcm/qvcm_spiritual_framework.md	the-mediumship-account	true

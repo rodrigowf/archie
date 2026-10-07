@@ -165,3 +165,16 @@ def test_skips_symlink_escaping_the_tree(
     _write(memory_dir / "legit.md")
 
     assert _names(client.get("/api/memory/tree").json()) == ["legit.md"]
+
+
+def test_follows_the_docs_symlink(
+    client: TestClient, memory_dir: Path, tmp_path: Path
+) -> None:
+    # context/memory/archie → docs/ is part of the wiki.
+    _write(tmp_path / "docs" / "voice" / "lifecycle.md")
+    (memory_dir / "archie").symlink_to(tmp_path / "docs", target_is_directory=True)
+
+    tree = client.get("/api/memory/tree").json()
+    archie = _find(tree, "archie")
+    voice = _find(archie["children"], "voice")
+    assert _find(voice["children"], "lifecycle.md")["path"] == "archie/voice/lifecycle.md"

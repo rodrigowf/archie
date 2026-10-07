@@ -84,6 +84,33 @@ def _qwen_function_call(call_id: str, name: str, args: dict) -> dict:
     return {"functionCall": {"id": call_id, "name": name, "args": args}}
 
 
+def _qwen_tool_result(
+    call_id: str,
+    name: str,
+    response: dict,
+    status: str = "success",
+    ts: str = "2026-05-15T01:00:02.000Z",
+) -> dict:
+    """Build a Qwen ``type: "tool_result"`` line (real-world shape: one
+    ``functionResponse`` part plus a ``toolCallResult`` summary)."""
+    return {
+        "uuid": "t1",
+        "parentUuid": "a1",
+        "sessionId": "s1",
+        "timestamp": ts,
+        "type": "tool_result",
+        "message": {
+            "role": "user",
+            "parts": [{"functionResponse": {
+                "id": call_id, "name": name, "response": response,
+            }}],
+        },
+        "toolCallResult": {
+            "callId": call_id, "status": status, "resultDisplay": "shown",
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # provider_name
 # ---------------------------------------------------------------------------
@@ -220,6 +247,74 @@ class TestReadMessages:
 
     def test_missing_file_returns_empty(self, tmp_path: Path, adapter: QwenAdapter):
         assert adapter.read_messages(tmp_path / "gone.jsonl") == []
+
+    def test_tool_result_line_pairs_with_tool_use(
+        self, tmp_path: Path, adapter: QwenAdapter,
+    ):
+        """``type: "tool_result"`` lines become a user message of
+        ``tool_result`` blocks keyed by the ``functionCall`` id, so a
+        reopened chat shows each tool call with its output."""
+        path = tmp_path / "session.jsonl"
+        _write_jsonl(path, [
+            _qwen_user("run date"),
+            _qwen_assistant([_qwen_function_call("call_1", "run_shell_command", {"command": "date"})]),
+            _qwen_tool_result("call_1", "run_shell_command", {"output": "Fri 15 May"}),
+            _qwen_assistant([{"text": "It is Friday."}], ts="2026-05-15T01:00:03.000Z"),
+        ])
+
+        msgs = adapter.read_messages(path)
+        assert [m["type"] for m in msgs] == ["user", "assistant", "user", "assistant"]
+        assert msgs[2]["message"] == {
+            "role": "user",
+            "content": [{
+                "type": "tool_result",
+                "tool_use_id": "call_1",
+                "content": "Fri 15 May",
+                "is_error": False,
+            }],
+        }
+
+        previews = adapter.to_previews(msgs)
+        result = previews[2].blocks[0]
+        assert result.type == "tool_result"
+        assert result.tool_use_id == previews[1].blocks[0].tool_use_id == "call_1"
+        assert result.output == "Fri 15 May"
+
+    def test_tool_result_error_and_cancelled(
+        self, tmp_path: Path, adapter: QwenAdapter,
+    ):
+        """Failed calls carry ``response.error``; cancelled ones also carry
+        an error text and ``status: "cancelled"``.  Both are errors."""
+        path = tmp_path / "session.jsonl"
+        _write_jsonl(path, [
+            _qwen_tool_result("c1", "web_fetch", {"error": "bad params"}, status="error"),
+            _qwen_tool_result("c2", "exit_plan_mode", {"error": "[Operation Cancelled]"}, status="cancelled"),
+        ])
+
+        blocks = [m["message"]["content"][0] for m in adapter.read_messages(path)]
+        assert [(b["tool_use_id"], b["content"], b["is_error"]) for b in blocks] == [
+            ("c1", "bad params", True),
+            ("c2", "[Operation Cancelled]", True),
+        ]
+
+    def test_tool_result_lines_are_not_visible_turns(
+        self, tmp_path: Path, adapter: QwenAdapter,
+    ):
+        """Tool results are protocol wrappers, not user turns — they must
+        not count as visible messages (truncate) or user messages (info)."""
+        path = tmp_path / "session.jsonl"
+        lines = [
+            _qwen_user("run date"),
+            _qwen_assistant([_qwen_function_call("call_1", "run_shell_command", {})]),
+            _qwen_tool_result("call_1", "run_shell_command", {"output": "x"}),
+        ]
+        _write_jsonl(path, lines)
+
+        assert adapter.visible_line_indices(lines) == [0, 1]
+        info = adapter.parse_session_info(path, "s1")
+        assert info is not None
+        assert info.message_count == 2
+        assert info.title == "run date"
 
     def test_empty_parts_yields_empty_content(self, tmp_path: Path, adapter: QwenAdapter):
         """Defensive: empty parts list should produce empty content, not crash."""

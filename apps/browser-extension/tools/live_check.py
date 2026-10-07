@@ -5,11 +5,13 @@ Drives the *running* browser daemon over HTTP, exactly as `browser_cmd.py`
 does. Not a unit test: this needs a real Chrome with the extension loaded and
 attached, and the fixture server on :8899.
 
-    context/scripts/run.sh browser-extension/tools/live_check.py recon
-    context/scripts/run.sh browser-extension/tools/live_check.py full
+    context/scripts/run.sh apps/browser-extension/tools/live_check.py recon
+    context/scripts/run.sh apps/browser-extension/tools/live_check.py full
 
 `recon` is strictly read-only. `full` navigates the active tab to local fixture
-pages (served from browser-extension/ on :8899) and restores the original URL.
+pages (served from apps/browser-extension/ on :8899, e.g.
+`python3 -m http.server 8899 --bind 127.0.0.1 -d apps/browser-extension`)
+and restores the original URL.
 
 The daemon is started automatically if it isn't already up.
 """

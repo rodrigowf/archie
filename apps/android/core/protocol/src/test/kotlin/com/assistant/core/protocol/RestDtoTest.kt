@@ -28,7 +28,7 @@ class RestDtoTest {
     @Test
     fun sessionsAndPool() {
         val list = decode<List<SessionInfoDto>>(
-            """[{"session_id":"528dbf6f","started_at":"2026-08-28T07:57:31.607864+00:00","last_activity":"2026-08-28T21:18:36.502531+00:00","title":"Alice Twitter","message_count":190,"is_orchestrator":true,"provider":"claude","local_id":null,"future_field":1}]""",
+            """[{"session_id":"528dbf6f","started_at":"2026-08-28T07:57:31.607864+00:00","last_activity":"2026-08-28T21:18:36.502531+00:00","title":"Lamp presets","message_count":190,"is_orchestrator":true,"provider":"claude","local_id":null,"future_field":1}]""",
         )
         val s = list.single().toModel()
         assertEquals("528dbf6f", s.sdkId)
@@ -37,7 +37,7 @@ class RestDtoTest {
         assertNull(s.localId)
 
         val pool = decode<List<PoolSessionDto>>(
-            """[{"local_id":"3540ff69","sdk_session_id":"528dbf6f","status":"idle","cost":0.0,"turns":0,"title":"twitter browser test","is_orchestrator":false},{"local_id":"x","sdk_session_id":null,"status":"weird","cost":1,"turns":2,"title":null,"is_orchestrator":false}]""",
+            """[{"local_id":"3540ff69","sdk_session_id":"528dbf6f","status":"idle","cost":0.0,"turns":0,"title":"lamp presets test","is_orchestrator":false},{"local_id":"x","sdk_session_id":null,"status":"weird","cost":1,"turns":2,"title":null,"is_orchestrator":false}]""",
         ).map { it.toModel() }
         assertEquals(LiveStatus.IDLE, pool[0].status)
         assertNull("unknown status maps to null, not idle (ST-1)", pool[1].status)

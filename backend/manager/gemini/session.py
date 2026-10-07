@@ -33,10 +33,10 @@ Resume + session ids
 --------------------
 
 We generate session ids ourselves (UUIDv4) and pass them via
-``--session-id`` so the CLI uses ours instead of inventing one.  On
-subsequent turns we pass ``--resume <session-id>``.  The CLI happily
-re-uses the same id across spawns because that's what its own
-``--list-sessions`` machinery expects.
+``--session-id`` on a fresh session's first turn so the CLI uses ours
+instead of inventing one.  On subsequent turns — and on every turn of a
+session resumed from history — we pass ``--resume <session-id>``; the
+CLI refuses ``--session-id`` for an id that already exists on disk.
 
 Storage layout
 --------------
@@ -47,6 +47,8 @@ The CLI writes session JSONL to
 ``~/.gemini/projects.json``.  This means our session manager and the
 JSONL adapter must agree on cwd: we pass ``self._config.project_dir``
 as the subprocess cwd so the CLI lands files in the directory we expect.
+The installer symlinks ``~/.gemini/tmp/<project-label>`` to ``context/``,
+so the files end up in ``context/chats/``.
 """
 
 from __future__ import annotations
@@ -115,7 +117,8 @@ class GeminiSessionManager(BaseSessionManager):
     Because ``gemini -p`` is one-shot, the lifecycle here is much smaller
     than Claude's: ``start()`` just records that the session exists; each
     ``send()`` spawns a fresh subprocess for the turn.  Resume is handled
-    transparently via ``--resume <session-id>`` after the first turn.
+    transparently via ``--resume <session-id>`` after the first turn (from
+    the first turn when the manager was created with a resume id).
     """
 
     def __init__(
@@ -617,18 +620,35 @@ class GeminiSessionManager(BaseSessionManager):
         ]
 
         if self._provider_session_id:
-            # On the first turn we PIN the id we generated in
-            # _run_lifecycle; on subsequent turns we additionally pass
-            # --resume so the CLI knows to load prior turns from disk.
-            if self._turns == 0:
-                argv += ["--session-id", self._provider_session_id]
-            else:
+            # A fresh session's first turn PINS the id we generated in
+            # _run_lifecycle with --session-id.  Every later turn, and
+            # every turn of a resumed session (the id already exists on
+            # disk), passes --resume so the CLI loads prior turns.  The
+            # CLI rejects --session-id for an existing id ("Session ID
+            # ... already exists. Use --resume") and exits.
+            if self._session_written():
                 argv += ["--resume", self._provider_session_id]
+            else:
+                argv += ["--session-id", self._provider_session_id]
 
         if self._config.model:
             argv += ["--model", self._config.model]
 
         return argv
+
+    def _session_written(self) -> bool:
+        """True if the CLI has already written this session, so it must be ``--resume``d.
+
+        Decided by the JSONL on disk, not by the turn count: a turn that fails before the CLI
+        writes anything (bad model, auth error) must not flip the next turn to ``--resume``,
+        which the CLI rejects for an id it cannot find. The same check covers a resume id whose
+        JSONL was never written (a tab reopened before its first turn). Remote (SSH) sessions
+        write on the remote host, so there a resume id or a completed turn is trusted as-is.
+        """
+        if self._config.ssh_host:
+            return bool(self._resume_id) or self._turns > 0
+        from .adapter import _gemini_jsonl_candidates
+        return bool(_gemini_jsonl_candidates(self._provider_session_id))
 
     def _build_env(self) -> dict[str, str]:
         """Construct the env for the gemini subprocess."""
