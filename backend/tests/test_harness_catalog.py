@@ -164,6 +164,12 @@ def test_get_catalog_survives_a_raising_loader(monkeypatch: pytest.MonkeyPatch, 
 
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_harness) -> TestClient:
+    from dataclasses import replace
+
+    reg = get_registry()
+    for name, spec in list(reg._specs.items()):  # real loaders may hit the network
+        if name != "fakeh":
+            monkeypatch.setitem(reg._specs, name, replace(spec, catalog_loader=None))
     monkeypatch.setenv("QWEN_HOME", str(tmp_path / "qwen"))
     import utils.paths
     monkeypatch.setattr(utils.paths, "PROJECT_ROOT", tmp_path)

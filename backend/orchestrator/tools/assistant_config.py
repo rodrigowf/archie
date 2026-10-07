@@ -59,7 +59,7 @@ async def get_assistant_config(context: dict[str, Any]) -> str:
         "page in the UI uses for the coding-agent section. Scope is "
         "deliberately limited: this tool only edits settings the next "
         "open_agent_session will inherit (working directory, MCPs, "
-        "chrome flag, harness provider + model). Voice and orchestrator-runtime "
+        "chrome flag, harness provider + model + options). Voice and orchestrator-runtime "
         "settings are intentionally NOT exposed here — changing them mid-call "
         "would disrupt your own session. "
         "All changes are validated server-side (working directory ids must exist "
@@ -114,6 +114,17 @@ async def get_assistant_config(context: dict[str, Any]) -> str:
                 ),
                 "additionalProperties": {"type": "string"},
             },
+            "harness_options": {
+                "type": "object",
+                "description": (
+                    "Per-provider harness options, e.g. "
+                    "{'claude': {'effort': 'high'}, 'codex': {'reasoning_summary': 'auto'}}. "
+                    "Merged key by key into the saved options; a null value resets that "
+                    "key to the CLI default. Valid keys and values per harness come from "
+                    "list_harness_catalog."
+                ),
+                "additionalProperties": {"type": "object"},
+            },
         },
     },
 )
@@ -124,6 +135,7 @@ async def update_assistant_config(
     chrome_extension: bool | None = None,
     provider: str | None = None,
     harness_model: dict[str, str] | None = None,
+    harness_options: dict[str, dict[str, Any]] | None = None,
 ) -> str:
     # Build a kwargs dict of only the fields the caller actually supplied
     # (i.e. everything that isn't None).  The signature must declare each
@@ -142,6 +154,7 @@ async def update_assistant_config(
             "chrome_extension": chrome_extension,
             "provider": provider,
             "harness_model": harness_model,
+            "harness_options": harness_options,
         }.items() if v is not None
     }
     if not fields:
@@ -170,3 +183,34 @@ async def update_assistant_config(
         return json.dumps({"error": str(e)})
 
     return json.dumps(updated)
+
+
+@registry.register(
+    name="list_harness_catalog",
+    description=(
+        "List the coding-agent harnesses (claude, qwen, gemini, codex, ...) with "
+        "the models each can run and the options it accepts (reasoning effort, "
+        "thinking, ...): option keys, valid values, and which models they apply "
+        "to. Use it before setting harness_model / harness_options with "
+        "update_assistant_config. Pass a provider id to get just that harness."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "provider": {
+                "type": "string",
+                "description": "Optional harness id to limit the result to.",
+            },
+        },
+    },
+)
+async def list_harness_catalog(context: dict[str, Any], provider: str | None = None) -> str:
+    from api.routes.config import list_harness_catalogs
+
+    data = await list_harness_catalogs()
+    rows = data["harnesses"]
+    if provider:
+        rows = [h for h in rows if h["id"] == provider]
+        if not rows:
+            return json.dumps({"error": f"Unknown harness {provider!r}"})
+    return json.dumps({"harnesses": rows})
