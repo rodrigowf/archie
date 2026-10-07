@@ -38,7 +38,12 @@ import com.assistant.archie.feature.toolcards.OutputFooter
 import com.assistant.archie.feature.toolcards.OutputKind
 import com.assistant.archie.feature.toolcards.OutputRender
 import com.assistant.archie.feature.toolcards.ToolOutputRules
+import com.assistant.archie.feature.toolcards.HistoryTurn
 import com.assistant.archie.feature.toolcards.formatClock
+import com.assistant.archie.feature.toolcards.historySessionMeta
+import com.assistant.archie.feature.toolcards.historyTurnHead
+import com.assistant.archie.feature.toolcards.parseConversationRead
+import com.assistant.archie.feature.toolcards.parseHistorySearch
 import com.assistant.archie.feature.toolcards.groupDigits
 import com.assistant.archie.feature.toolcards.parseScriptResult
 import com.assistant.archie.feature.toolcards.plural
@@ -156,6 +161,9 @@ private fun TextOutput(block: ToolBlock, modifier: Modifier, label: String, rend
                 Markdown(shown, Modifier.fillMaxWidth(), style = richMarkdownStyle(), onLinkClick = onLink, cacheId = "tool:${block.id}")
             }
             OutputRender.Script -> ScriptOutput(shown, isError)
+            // Parsed from the full output: the 20 KB cap would cut the JSON.
+            OutputRender.HistorySearch -> HistorySearchOutput(clean, shown, isError)
+            OutputRender.ConversationRead -> ConversationReadOutput(clean, shown, isError)
         }
         if (cut.truncated) {
             ArchieButton(
@@ -184,6 +192,66 @@ private fun ScriptOutput(text: String, isError: Boolean) {
         if (r.stderr.isNotEmpty()) Text(r.stderr.removeSuffix("\n"), color = c.error)
         if (r.stdout.isEmpty() && r.stderr.isEmpty()) Text("No output", Modifier.alpha(0.7f))
         if (r.exitCode != null) Text("exit ${r.exitCode}", color = if (r.exitCode == 0) ArchieTheme.extended.success.color else c.error)
+    }
+}
+
+/** search_history: one block per session (title, date · relevance · id), then its excerpts. */
+@Composable
+private fun HistorySearchOutput(full: String, shown: String, isError: Boolean) {
+    val c = ArchieTheme.colors
+    val r = remember(full) { parseHistorySearch(full) }
+    when {
+        r == null -> Text(shown, color = if (isError) c.error else LocalContentColor.current)
+        r.error != null -> Text(r.error, color = c.error)
+        r.sessions.isEmpty() -> Text(r.note ?: "No matching conversations", Modifier.alpha(0.7f))
+        else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            r.sessions.forEach { s ->
+                Column(
+                    Modifier.alpha(if (s.relevance == "weak") 0.7f else 1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    HistoryHead(s.title ?: "Untitled conversation", historySessionMeta(s))
+                    if (s.note != null) Text(s.note, Modifier.alpha(0.7f))
+                    s.hits.forEach { HistoryTurnView(it) }
+                }
+            }
+        }
+    }
+}
+
+/** read_conversation: the title, "turns a–b of N", then the turns. */
+@Composable
+private fun ConversationReadOutput(full: String, shown: String, isError: Boolean) {
+    val c = ArchieTheme.colors
+    val r = remember(full) { parseConversationRead(full) }
+    when {
+        r == null -> Text(shown, color = if (isError) c.error else LocalContentColor.current)
+        r.error != null -> Text(r.error, color = c.error)
+        else -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            val range = if (r.turns.isEmpty()) {
+                "no turns"
+            } else {
+                "turns ${r.turns.first().turn}–${r.turns.last().turn}" + (r.total?.let { " of $it" } ?: "")
+            }
+            HistoryHead(r.title ?: "Untitled conversation", range)
+            r.turns.forEach { HistoryTurnView(it) }
+        }
+    }
+}
+
+@Composable
+private fun HistoryHead(title: String, meta: String) {
+    Column {
+        Text(title, color = ArchieTheme.colors.onSurface, fontWeight = FontWeight.W500, style = ArchieTheme.typography.bodySmall)
+        Text(meta, Modifier.alpha(0.8f), fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun HistoryTurnView(t: HistoryTurn) {
+    Column {
+        Text(historyTurnHead(t), Modifier.alpha(0.75f), fontSize = 11.sp)
+        Text(t.text, style = ArchieTheme.typography.bodySmall)
     }
 }
 

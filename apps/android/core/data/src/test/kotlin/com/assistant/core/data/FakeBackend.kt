@@ -39,6 +39,9 @@ class FakeBackend {
 
     /** `POST /api/sessions/{id}/permission` answer (§6.9): code + JSON body; bodies received are recorded. */
     @Volatile var permissionResponse: MockResponse? = null
+
+    /** The orchestrator `session_started.jsonl_id` for a `start` with this `resume_sdk_id` (null: none). */
+    @Volatile var orchJsonl: (resumeSdkId: String?) -> String = { "JSONL" }
     val permissionBodies = CopyOnWriteArrayList<String>()
 
     val url: String get() = "ws://${server.hostName}:${server.port}"
@@ -85,7 +88,8 @@ class FakeBackend {
             frames += endpoint to text
             if (text.contains("\"type\":\"start\"")) {
                 val localId = Regex("\"local_id\":\"([^\"]+)\"").find(text)?.groupValues?.get(1) ?: "x"
-                val jsonl = if (endpoint == "orch") ""","jsonl_id":"JSONL"""" else ""
+                val resume = Regex("\"resume_sdk_id\":\"([^\"]+)\"").find(text)?.groupValues?.get(1)
+                val jsonl = if (endpoint == "orch") ""","jsonl_id":"${orchJsonl(resume)}"""" else ""
                 webSocket.send("""{"type":"session_started","session_id":"$localId"$jsonl}""".encodeUtf8())
             }
         }

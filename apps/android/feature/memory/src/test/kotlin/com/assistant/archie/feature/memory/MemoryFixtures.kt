@@ -8,12 +8,15 @@ import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 
-/** Test data: the live memory tree (read-only GET from the Jetson, 138 files) and the link fixture. */
+/**
+ * Test data: the live memory tree (read-only GET from the Jetson, 138 files) and the link fixture.
+ * Both are anonymized (personal file, folder and anchor names renamed; see gen_links.py).
+ */
 object MemoryFixtures {
     private fun resource(name: String): String =
         requireNotNull(javaClass.classLoader!!.getResource("memory/$name")) { "missing test resource memory/$name" }.readText()
 
-    /** `GET /api/memory/tree` as captured on 2026-10-04 (paths only). */
+    /** `GET /api/memory/tree` as captured on 2026-10-04 (paths only, anonymized). */
     val liveTree: List<MemoryNode> by lazy { parse(Json.parseToJsonElement(resource("live-tree.json")).jsonArray) }
 
     private fun parse(a: JsonArray): List<MemoryNode> = a.map { e ->

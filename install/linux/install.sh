@@ -281,12 +281,15 @@ if [ "$WITH_ANTHROPIC" = false ] && [ "$WITH_OPENAI" = false ]; then
 fi
 echo ""
 
-# Default provider written into assistant_config.json.  Claude wins if both
-# are installed (historical default); otherwise Qwen.
+# Default provider written into assistant_config.json: the first installed
+# harness in the order Claude, Qwen, Gemini (Claude is the historical
+# default).  At least one is installed — checked above.
 if [ "$WITH_CLAUDE" = true ]; then
     DEFAULT_PROVIDER="claude"
-else
+elif [ "$WITH_QWEN" = true ]; then
     DEFAULT_PROVIDER="qwen"
+else
+    DEFAULT_PROVIDER="gemini"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -410,6 +413,7 @@ if [ "$CONTEXT_SETUP_NEEDED" = true ]; then
             cd context/scripts
             for script in ../../shared/scripts/*; do
                 script_name=$(basename "$script")
+                [ "$script_name" = "__pycache__" ] && continue  # bytecode cache, not a script
                 if [ ! -e "$script_name" ]; then
                     ln -s "../../shared/scripts/$script_name" "$script_name"
                 fi
@@ -504,6 +508,7 @@ if [ "$CONTEXT_SETUP_NEEDED" = true ]; then
                 cd context/scripts
                 for script in ../../shared/scripts/*; do
                     script_name=$(basename "$script")
+                    [ "$script_name" = "__pycache__" ] && continue  # bytecode cache, not a script
                     if [ ! -e "$script_name" ]; then
                         ln -s "../../shared/scripts/$script_name" "$script_name"
                     fi
@@ -567,6 +572,13 @@ if [ "$WITH_CLAUDE" = true ]; then
     if [ ! -L ".claude_config/skills" ]; then
         ln -sf "../context/skills" ".claude_config/skills"
         info "Created skills discovery symlink"
+    fi
+
+    # And agents: the bundled CLI loads user agents from
+    # $CLAUDE_CONFIG_DIR/agents, which run.sh points at .claude_config/.
+    if [ ! -L ".claude_config/agents" ] && [ ! -e ".claude_config/agents" ]; then
+        ln -s "../context/agents" ".claude_config/agents"
+        info "Created agents discovery symlink"
     fi
 
     echo ""
@@ -1104,7 +1116,7 @@ VERIFICATION_FAILED=false
 # Check core Python packages — these are required regardless of which
 # axes were selected.  Provider SDKs are checked separately below so a
 # missing optional SDK doesn't fail verification.
-if .venv/bin/python -c "import fastapi, uvicorn, chromadb, sentence_transformers" 2>/dev/null; then
+if .venv/bin/python -c "import fastapi, uvicorn, numpy, sentence_transformers" 2>/dev/null; then
     info "Core Python packages OK"
 else
     error "Core Python package verification failed"

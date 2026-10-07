@@ -268,7 +268,7 @@ Tracks active (local_id → WebSocket) pairs for WebSocket routing.
 
 ## 3. Frontend (`apps/web/src/`)
 
-React 18 + Vite + zustand. One source tree, two builds: main (`vite.config.main.ts` → `dist/`, base `/`) and Safari 12 / iOS 12 compat (`vite.config.compat.ts` → `dist-compat/`, base `/compat/`). Dev: `npm run dev` (port 5450) / `npm run dev:compat` (5451); `npm run mock` for a mock backend; `npm run verify` is the full gate. Architecture spec: `docs/frontend-refactor/spec/13-web-architecture.md`; the client protocol it implements: `docs/frontend-refactor/spec/12-client-protocol.md` (conformance fixtures in `apps/protocol-fixtures/`, shared with the Android apps).
+React 18 + Vite + zustand. One source tree, two builds: main (`vite.config.main.ts` → `dist/`, base `/`) and Safari 12 / iOS 12 compat (`vite.config.compat.ts` → `dist-compat/`, base `/compat/`). Dev: `npm run dev` (port 5450) / `npm run dev:compat` (5451); `npm run mock` for a mock backend; `npm run verify` is the full gate. Architecture spec: `docs/specs/13-web-architecture.md`; the client protocol it implements: `docs/specs/12-client-protocol.md` (conformance fixtures in `apps/protocol-fixtures/`, shared with the Android apps).
 
 The pre-cutover app (the `hooks/useChatInstance.ts` / `context/TabsContext.tsx` / `components/*` design) lives in `legacy/frontend/src/` and is served at `/legacy/`.
 

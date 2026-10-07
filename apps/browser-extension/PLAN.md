@@ -284,7 +284,7 @@ selectors it never saw, or reuses coordinates after the page scrolled.
 
 - Update `apps/browser-extension/README.md` (status table, new commands, setup,
   the "Allow User Scripts" step)
-- Memory file under `context/memory/assistant/devices/`, per reuse-before-
+- Memory file under `context/memory/assistant/devices/` (since 2026-10-07: `docs/clients/browser-extension.md`), per reuse-before-
   creating; update that topic's `INDEX.md`
 - Note the `chrome_extension` vs `browser-extension` distinction in `AGENTS.md`
   so a future session doesn't conflate them

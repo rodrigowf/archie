@@ -904,9 +904,9 @@ class VoiceRelay:
                 await self._emit_voice_vad_state("listening")
 
         # Safety commit: some upstreams cap continuous audio in manual
-        # mode (DashScope: 60s; Gemini: no documented cap but we chunk
-        # defensively anyway to avoid losing the segment if the upstream
-        # silently truncates). When our VAD is still saying "speech"
+        # mode (DashScope: 60s). Gemini has no documented cap and its
+        # ``activityEnd`` always provokes a reply, so its provider returns
+        # ``[]`` here (no safety commit). When our VAD is still saying "speech"
         # past _MANUAL_VAD_SAFETY_COMMIT_S, close the current segment
         # WITHOUT triggering a model response — the user is still
         # mid-monologue. The provider's ``manual_vad_safety_commit_frames``

@@ -70,6 +70,7 @@ const SCHEMAS: Readonly<Record<ServerFrameType, Schema>> = {
   nested_session_event: { session_id: STR, event_type: STR, event_data: OBJ },
   agent_session_opened: { session_id: STR, sdk_session_id: OPT_STR, is_orchestrator: OPT_BOOL },
   agent_session_closed: { session_id: STR, is_orchestrator: OPT_BOOL },
+  orchestrator_switch: { sdk_session_id: STR, title: OPT_STR, voice: OPT_BOOL, from_session_id: OPT_STR },
   audio_upload: {},
   ping: {},
   voice_event: { event: OBJ },

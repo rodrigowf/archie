@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -79,7 +80,8 @@ def _open_agent_session_schema(static: dict[str, Any]) -> dict[str, Any]:
 @registry.register(
     name="open_agent_session",
     description=(
-        "Start a new Claude Code agent session OR re-open a past one from history. "
+        "Start a new Claude Code agent session OR re-open a past one from history "
+        "(to continue a conversation found with search_history, prefer resume_conversation). "
         "This is the single entry point for both: omit all parameters to start fresh, "
         "or pass resume_sdk_id with any sdk_session_id from list_history / "
         "list_agent_sessions to resume that exact conversation (full context restored). "
@@ -210,6 +212,125 @@ async def open_agent_session(
             "mcp_servers": info["mcp_servers"],
         },
     })
+
+
+@registry.register(
+    name="resume_conversation",
+    description=(
+        "Reopen a PAST agent conversation (Claude Code, Qwen, Gemini) with its full context so work "
+        "can continue in it — pass the session_id from a search_history / list_conversations result. "
+        "Only when the user wants to continue or open it, not merely to find or summarise it. "
+        "For a past orchestrator conversation (yours) use switch_conversation instead. Returns the "
+        "live session_id to use with send_to_agent_session."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "session_id": {
+                "type": "string",
+                "description": "session_id of the past conversation (from search_history / list_conversations).",
+            },
+        },
+        "required": ["session_id"],
+    },
+)
+async def resume_conversation(context: dict[str, Any], session_id: str = "") -> str:
+    """Single-purpose resume: the voice model dropped the optional resume_sdk_id of
+    open_agent_session and opened blank sessions instead (agent eval, 2026-10-06)."""
+    sid = (session_id or "").strip()
+    if not sid:
+        return json.dumps({"error": "session_id is required: take it from a search_history or list_conversations result."})
+    out = json.loads(await open_agent_session(context, resume_sdk_id=sid))
+    if "error" in out:
+        if "orchestrator session" in out["error"]:
+            out["hint"] = (f"That is one of your own past conversations: switch_conversation(session_id='{sid}') "
+                           f"to continue in it, or read_conversation(session_id='{sid}') to just read it.")
+    else:
+        out["resumed"] = sid
+    return json.dumps(out)
+
+
+# Pause before acting so the tool result reaches the model and the device first.
+SWITCH_SETTLE_S = 0.5
+# Text mode: the switch waits for the current turn (the one that called the tool) to end.
+SWITCH_BUSY_WAIT_S = 60.0
+_switch_tasks: set[asyncio.Task] = set()
+
+
+@registry.register(
+    name="switch_conversation",
+    description=(
+        "Leave this conversation and continue in one of YOUR OWN past (orchestrator) conversations, "
+        "with its full context — pass the session_id from a search_history / list_conversations result "
+        "(kind 'orchestrator'). The current conversation is saved and closed, the app reopens the past "
+        "one and, in a voice call, the call reconnects inside it. Only when the user wants to go back "
+        "into that conversation, not to find or summarise it (read_conversation does that). In a voice "
+        "call, say a short line like 'switching now' BEFORE calling it: nothing said after it is heard. "
+        "For Claude/Qwen/Gemini conversations use resume_conversation."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "session_id": {
+                "type": "string",
+                "description": "session_id of the past orchestrator conversation.",
+            },
+        },
+        "required": ["session_id"],
+    },
+)
+async def switch_conversation(context: dict[str, Any], session_id: str = "") -> str:
+    sid = (session_id or "").strip()
+    if not sid:
+        return json.dumps({"error": "session_id is required: take it from a search_history or list_conversations result."})
+    pool = context.get("pool")
+    session = pool.get_orchestrator() if pool is not None else None
+    if session is None:
+        return json.dumps({"error": "No active orchestrator conversation to switch from."})
+    if sid == session.jsonl_id:
+        return json.dumps({"error": "That is the current conversation already."})
+    info = context["store"].get_session_info(sid)
+    if info is None:
+        return json.dumps({"error": f"Conversation {sid!r} not found. Use list_conversations or search_history."})
+    if not info.is_orchestrator:
+        return json.dumps({"error": f"{sid!r} is an agent conversation, not one of yours.",
+                           "hint": f"resume_conversation(session_id='{sid}') opens it as an agent session."})
+    voice = session.is_voice
+    target_ws = (session.voice_owner_ws if voice else None) or session.last_input_ws
+    if target_ws is None:
+        return json.dumps({"error": "No connected app to reopen the conversation on."})
+
+    frame = {"type": "orchestrator_switch", "sdk_session_id": sid, "title": info.title,
+             "voice": voice, "from_session_id": session.local_id}
+    task = asyncio.create_task(_run_switch(pool, session, target_ws, frame))
+    _switch_tasks.add(task)
+    task.add_done_callback(_switch_tasks.discard)
+    return json.dumps({"status": "switching", "session_id": sid, "title": info.title,
+                       "note": "This conversation is closing now; do not say anything else."})
+
+
+async def _run_switch(pool: Any, session: Any, ws: Any, frame: dict) -> None:
+    """End voice, stop the current orchestrator, then tell the requesting app which one to open.
+
+    The frame goes out after the stop so the app's resume start never meets the old session
+    (``orchestrator_active``). Other devices follow through the pool watcher events."""
+    try:
+        await asyncio.sleep(SWITCH_SETTLE_S)
+        if not frame["voice"]:
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + SWITCH_BUSY_WAIT_S
+            while session.is_busy and loop.time() < deadline:
+                await asyncio.sleep(0.2)
+        if pool.get_orchestrator() is not session:
+            logger.info("switch_conversation: orchestrator changed meanwhile; not switching")
+            return
+        if session.is_voice:
+            await session.end_voice("switch")
+        await pool.stop_orchestrator()
+        await ws.send_bytes(json.dumps(frame).encode())
+        logger.info("switch_conversation: %s -> %s (voice=%s)", frame["from_session_id"], frame["sdk_session_id"], frame["voice"])
+    except Exception:
+        logger.exception("switch_conversation failed")
 
 
 @registry.register(
@@ -496,7 +617,7 @@ async def respond_to_agent_permission(
     description=(
         "List all past conversation sessions (closed agents from history). "
         "Each entry has a 'session_id' (the sdk_session_id) and a 'type': "
-        "pass any 'agent' entry's session_id to open_agent_session(resume_sdk_id=...) "
+        "pass any 'agent' entry's session_id to resume_conversation(session_id=...) "
         "to re-open and continue that exact conversation with full context. "
         "'orchestrator' sessions CANNOT be re-opened as agent sessions."
     ),

@@ -15,6 +15,7 @@ Adding a future provider (e.g. a self-hosted realtime model) requires only:
 
 from __future__ import annotations
 
+import re
 from typing import TypedDict
 
 # Lazy class lookup — both providers self-register on first use so a
@@ -134,7 +135,7 @@ _OPENAI_VOICES: list[VoiceEntry] = [
 # 47 multilingual presets + 7 Chinese-dialect presets. Voice-cloning is
 # also supported on Plus but uses a separate API path; only presets here.
 _QWEN_PLUS_VOICES: list[VoiceEntry] = [
-    {"id": "Tina",        "label": "Tina",        "description": "Female, warm (default)"},
+    {"id": "Tina",        "label": "Tina",        "description": "Female, warm"},
     {"id": "Cindy",       "label": "Cindy",       "description": "Female, Taiwanese-accented young woman"},
     {"id": "Liora Mira",  "label": "Liora Mira",  "description": "Female, gentle"},
     {"id": "Sunnybobi",   "label": "Sunnybobi",   "description": "Female, cheerful"},
@@ -391,6 +392,53 @@ def get_provider_class(provider: str) -> type[BaseVoiceProvider]:
     return cls
 
 
+_DATE_SUFFIX_RE = re.compile(r"-(\d{4}-\d{2}-\d{2})$")
+_QWEN_OMNI_ID_RE = re.compile(r"^qwen([\d.]*)-omni-(\w+)-realtime$")
+
+
+def _humanize_qwen(model: str) -> str:
+    """``qwen3.8-omni-flash-realtime`` → ``Qwen3.8-Omni Flash``."""
+    m = _QWEN_OMNI_ID_RE.match(model)
+    if not m:
+        return model
+    return f"Qwen{m.group(1)}-Omni {m.group(2).capitalize()}"
+
+
+def qwen_model_entry(model: str) -> VoiceModelEntry:
+    """Return the entry for a Qwen-Omni realtime model, static or discovered.
+
+    Dated snapshots (``qwen3.5-omni-plus-realtime-2026-03-15``) inherit the
+    curated entry of their alias. Anything else gets the Flash or Plus
+    voice catalog by family name. Both the settings dropdown and session
+    instantiation resolve through here so they agree on the voice list.
+    """
+    entries = VOICE_MODELS["qwen"]
+    for entry in entries:
+        if entry["id"] == model:
+            return entry
+    m = _DATE_SUFFIX_RE.search(model)
+    if m:
+        base = model[: m.start()]
+        for entry in entries:
+            if entry["id"] == base:
+                return {**entry, "id": model,
+                        "label": f"{entry['label']} ({m.group(1)})",
+                        "default": False}
+        label = f"{_humanize_qwen(base)} ({m.group(1)})"
+    else:
+        label = _humanize_qwen(model)
+    is_flash = "flash" in model or "turbo" in model
+    return {
+        "id": model,
+        "label": label,
+        "voice": "Aiden",  # present in both the Plus and Flash catalogs
+        "voices": _QWEN_FLASH_VOICES if is_flash else _QWEN_PLUS_VOICES,
+        "transcription_languages": _QWEN_ASR_LANGUAGES,
+        "default_transcription_language": "en",
+        "default": False,
+    }
+
+
 def get_model_entry(provider: str, model: str) -> VoiceModelEntry:
     """Return the registered model entry for the given provider+model.
 
@@ -399,6 +447,8 @@ def get_model_entry(provider: str, model: str) -> VoiceModelEntry:
     synthetic entry is built from the provider's default template so
     session instantiation can proceed without a static entry.
     """
+    if provider == "qwen":
+        return qwen_model_entry(model)
     entries = VOICE_MODELS.get(provider, [])
     for entry in entries:
         if entry["id"] == model:

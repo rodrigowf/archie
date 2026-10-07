@@ -2,12 +2,14 @@
 
 Scans two locations:
 - ``context/*.jsonl`` — Claude Code sessions (flat in root)
-- ``context/chats/*.jsonl`` — Qwen Code sessions (in chats/ subdir)
+- ``context/chats/*.jsonl`` — Qwen Code sessions (``<uuid>.jsonl``) and
+  Gemini CLI sessions (``session-*.jsonl``, found by Gemini's
+  ``session_discoverer``)
 
-Uses provider adapters (``claude_adapter``, ``qwen_adapter``) to parse each
-file's native JSONL format into normalized messages. Provider detection
-happens automatically for existing sessions; new sessions should write a
-``.provider`` marker file alongside the JSONL.
+Uses the provider adapters (``manager.<harness>.adapter``) to parse each
+file's native JSONL format into normalized messages.  The provider is
+detected from each file's content (``detect_provider``) and cached per
+session id; there is no marker file.
 """
 
 from __future__ import annotations
@@ -52,7 +54,8 @@ class SessionStore:
     - ``context/<session-id>.jsonl`` (Claude)
     - ``context/chats/<session-id>.jsonl`` (Qwen)
     - Anywhere a registered harness's ``session_discoverer`` reports
-      (e.g. Gemini at ``~/.gemini/tmp/<label>/chats/session-*.jsonl``).
+      (Gemini: ``context/chats/session-*.jsonl``, via the installer's
+      ``~/.gemini/tmp/<label>`` → ``context/`` symlink).
 
     Each line is a JSON object with a ``type`` field. Provider adapters
     translate native formats into normalized messages.
@@ -329,12 +332,11 @@ class SessionStore:
     def delete_session(self, session_id: str, *, skip_index_cleanup: bool = False) -> bool:
         """Soft-delete a session: move its JSONL into context/trash/.
 
-        The vector-index cleanup spawns a chromadb subprocess (multi-second
-        cold start) and is the slow part of deletion. Callers that want to
-        return to the user immediately can pass ``skip_index_cleanup=True``
-        and schedule :func:`remove_session_from_index` themselves (e.g. via
-        ``asyncio.to_thread``).  Cleanup is best-effort either way — a
-        leftover index chunk is harmless until the next re-index pass.
+        The history-index cleanup (:func:`remove_session_from_index`, a SQLite
+        transaction) can be skipped with ``skip_index_cleanup=True`` by
+        callers that schedule it themselves (e.g. via ``asyncio.to_thread``).
+        Cleanup is best-effort either way — the next indexer run removes
+        entries whose JSONL is gone.
         """
         jsonl_path = self._locate_jsonl(session_id)
         if jsonl_path is None:
@@ -491,9 +493,8 @@ class SessionStore:
             return None
         if not self.truncate_session(new_id, drop_last_n):
             # Roll back the duplicate so we don't leave orphan JSONLs around.
-            # The copy was never added to the vector index, so skip the
-            # chromadb cleanup — it's a multi-second cold start on the
-            # Jetson and would otherwise dominate the failure response time.
+            # The copy was never added to the history index, so skip the
+            # index cleanup.
             try:
                 self.delete_session(new_id, skip_index_cleanup=True)
             except Exception:

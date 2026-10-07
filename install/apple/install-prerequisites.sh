@@ -6,7 +6,7 @@
 # bootstrap dependencies via Homebrew when missing.
 #
 # Required:
-#   - Python 3.12+
+#   - Python 3.11+ (3.12 recommended)
 #   - Node.js 20+ (Qwen Code and Gemini CLI depend on it)
 #   - npm (comes with Node)
 #
@@ -68,7 +68,7 @@ ensure_brew() {
     fi
     warn "Homebrew is not installed."
     echo "    Homebrew is the recommended package manager on macOS — it's what we"
-    echo "    use to install Python 3.12+ and Node.js 20+."
+    echo "    use to install Python 3.12 and Node.js 20+."
     echo ""
     if is_interactive; then
         ask "Install Homebrew now? [Y/n] "
@@ -129,10 +129,10 @@ if command -v python3 >/dev/null 2>&1; then
     PY_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
     PY_MAJOR=$(echo "$PY_VERSION" | cut -d. -f1)
     PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
-    if [ "$PY_MAJOR" -ge 3 ] && [ "$PY_MINOR" -ge 12 ]; then
+    if [ "$PY_MAJOR" -ge 3 ] && [ "$PY_MINOR" -ge 11 ]; then
         info "Python $PY_VERSION"
     else
-        error "Python $PY_VERSION (need 3.12+)"
+        error "Python $PY_VERSION (need 3.11+)"
         MISSING+=("python")
     fi
 else
@@ -195,7 +195,7 @@ if ! is_interactive; then
     cat <<MSG
 Non-interactive shell detected — install the missing tools manually:
 
-  Python 3.12+:
+  Python 3.11+ (3.12 recommended):
     brew install python@3.12
 
   Node.js 20+:

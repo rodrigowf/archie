@@ -2,8 +2,10 @@
 # install.sh — Install context-sync as a systemd user service.
 #
 # Run this on EACH machine that should participate in the sync.
-# Before running: copy install/sync.env to infra/sync/config.env (or
-# infra/sync/config.jetson.env) and fill in the paths and SSH key.
+# Before running: create infra/sync/config.env (gitignored, per machine) —
+# copy install/sync.env (or, on the Jetson, infra/sync/config.jetson.env) to
+# infra/sync/config.env and fill in the paths and SSH key. Both machines
+# install the same unit, context-sync.service.
 #
 # Usage: bash infra/sync/install.sh
 
@@ -37,7 +39,7 @@ chmod +x "${SCRIPT_DIR}/context-sync.sh"
 SYSTEMD_DIR="$HOME/.config/systemd/user"
 mkdir -p "$SYSTEMD_DIR"
 
-# Use the right service file (jetson or desktop)
+# Same unit on both machines; the per-machine difference lives in config.env
 if [[ -f "${SCRIPT_DIR}/context-sync.service" ]]; then
   SERVICE_FILE="${SCRIPT_DIR}/context-sync.service"
 else

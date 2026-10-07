@@ -1,6 +1,6 @@
 # apps/web
 
-The new Archie web app: one codebase, two builds (spec `docs/frontend-refactor/spec/13-web-architecture.md`).
+The new Archie web app: one codebase, two builds (spec `docs/specs/13-web-architecture.md`).
 
 | Build | Config | Output | Served at | Targets |
 |---|---|---|---|---|

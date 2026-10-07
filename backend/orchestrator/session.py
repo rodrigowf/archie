@@ -91,8 +91,11 @@ class VoiceLifecycle(enum.Enum):
         ``end_voice`` is tearing down. Late events are dropped. New
         ``voice_start`` for the same ``local_id`` must wait for ``ENDED``.
     ENDED
-        Terminal. The session is cleaned up. A fresh start uses a new
-        ``OrchestratorSession`` instance.
+        The voice connection is torn down. Not terminal for the session:
+        a new ``voice_start`` re-arms voice on the SAME
+        ``OrchestratorSession`` via :meth:`OrchestratorSession.restart_voice`
+        (ENDED → IDLE → STARTING). The route falls back to a new session
+        only if ``restart_voice`` fails.
     """
 
     IDLE = "idle"
@@ -326,6 +329,9 @@ class OrchestratorSession:
         # the api layer dep (the route layer hands us a Starlette WS
         # but the session doesn't import starlette).
         self._voice_owner_ws: Any | None = None
+        # The WebSocket that sent the latest typed/spoken-upload prompt —
+        # where switch_conversation sends ``orchestrator_switch`` in text mode.
+        self.last_input_ws: Any | None = None
 
         # Injection window — set by the listen_recording tool while it's
         # pumping past audio into the live voice WS.  See the is_injecting

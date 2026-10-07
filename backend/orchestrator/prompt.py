@@ -419,15 +419,15 @@ def _memory_section(
 
     section = f"""## Memory System
 
-`context/memory/` is a structured wiki — files live in semantic category folders, carry YAML frontmatter, and link to related files inline. `MEMORY.md` is the index: it documents the current folder ontology, the frontmatter schema, the cross-reference format, and lists every file with its location. Read MEMORY.md to discover what categories exist and what files already cover a topic — it is loaded below.
+`context/memory/` is a structured wiki — files live in semantic category folders, carry YAML frontmatter, and link to related files inline. The index has two levels: `MEMORY.md` (loaded below) documents the folder ontology, the frontmatter schema and the cross-reference format, and names each folder's key files; each folder's `INDEX.md` lists every file in it. Read MEMORY.md, then open the relevant folder's `INDEX.md` — a file not named in MEMORY.md may still exist. `archie/` is Archie's own documentation (the public `docs/` folder of the code repo): keep anything you write there free of secrets and personal details.
 
 ### Adding or updating memory
 
 1. **Reuse before creating.** Search the existing index for the closest file. If the new info extends or revises an existing topic, edit that file — do not create a new one for every fact.
-2. **Pick the category.** If no existing file fits, place the new file under the most specific matching folder from the ontology in MEMORY.md. If no folder fits, create a new subfolder — folders are cheap; misplaced files are expensive. Mirror new folders as new sections in MEMORY.md.
+2. **Pick the category.** If no existing file fits, place the new file under the most specific matching folder from the ontology in MEMORY.md. If no folder fits, create a new subfolder — folders are cheap; misplaced files are expensive. Give a new folder an `INDEX.md` and add it to MEMORY.md's ontology.
 3. **Fill all frontmatter fields.** Set `created` and `modified` to today. Set `source` to the originating session UUID + title when knowable; otherwise `curated (<short reason>)`. Compute `references` from the files you cite.
 4. **Cross-link.** Where prose mentions another memory file, link it inline with a relative markdown link `[name.md](../folder/name.md)`. Add the same path to the `references:` array. Then update those other files' `references:` arrays so the link is bidirectional.
-5. **Update MEMORY.md** in the same edit pass — add a one-line entry under the correct section header.
+5. **Update the folder's `INDEX.md`** in the same edit pass — add a one-line entry. Touch MEMORY.md only for a new folder or a new start-here file.
 
 ### Editing rules
 
@@ -436,11 +436,17 @@ def _memory_section(
 - When you move a file to a different category, update its `category` field and grep the memory tree for inbound references to the old path.
 - Never omit existing index entries unless they are clearly obsolete.
 
-### Searching memory
+### Searching memory and past conversations
 
-- `search_memory` returns chunks enriched with the source file's `frontmatter` — use category and tags to triage before reading the full file.
-- `search_history` returns chunks enriched with `session_uuid`, `session_title`, `session_datetime`, and `linked_memories` — follow `linked_memories` to jump from a conversation back to relevant memory files.
-- For directed retrieval, prefer direct file lookup via MEMORY.md over semantic search. Search is a supplement.
+Two separate sources:
+- **Memory files** (curated notes): `search_memory`. Hits carry the file's `frontmatter` — use category and tags to triage before reading the full file.
+- **Past conversations** (raw transcripts of every orchestrator, voice and agent session, including ones never saved to memory):
+  - `search_history` finds them by what was said. Give it a few distinctive words, plus 2–3 other phrasings in `queries` when the user's words may differ from the conversation's (say it in English *and* Portuguese). Put remembered times in `when` ("last week", "em junho") — never compute dates yourself. Use `kind` for only orchestrator or only agent sessions.
+  - `list_conversations` browses by time/kind/title — for "what did we do yesterday?" questions with no topic words.
+  - `grep_conversation` finds exact words inside one conversation; `read_conversation` reads any part of one (around a hit's `turn`, an exact range, or one long turn in full).
+  - Every result says how to get into it (`open`): agent sessions are continued with `resume_conversation(session_id=...)` (opens alongside you); your own past orchestrator conversations with `switch_conversation(session_id=...)`, which closes this conversation and reopens that one (in a call, the call reconnects inside it — say a short 'switching now' first). Finding or telling about a conversation is not resuming it — only reopen one when the user asks to continue/open it.
+  - When nothing matches strongly, results come back as `weak_matches`: tell the user you didn't find it instead of presenting them. Before concluding something was never discussed, try one more search with different words.
+- For directed retrieval, prefer direct file lookup (MEMORY.md → the folder's `INDEX.md` → the file) over semantic search. Search is a supplement.
 
 ### Your private memory (`{relative_path}`)
 

@@ -1,7 +1,9 @@
 """Background indexers for memory and history.
 
 - MemoryWatcher: Watches memory folder, indexes on file changes
-- HistoryIndexer: Periodically indexes session history (every 2 min if changed)
+- HistoryIndexer: Periodically indexes conversation history (every 5 min if any session
+  JSONL changed). The run is incremental (index/history.sqlite3 keeps per-session state), so
+  a tick usually embeds only the messages added since the last one.
 """
 
 from __future__ import annotations
@@ -11,7 +13,7 @@ import hashlib
 import logging
 from pathlib import Path
 
-from utils.paths import get_memory_dir, get_sessions_dir, get_project_dir
+from utils.paths import get_chats_dir, get_memory_dir, get_memory_link_targets, get_sessions_dir, get_project_dir
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +36,12 @@ async def _run_index_script(project_dir: Path, *args: str) -> bool:
     stdout, stderr = await proc.communicate()
 
     if proc.returncode != 0:
-        logger.error(f"Indexer failed: {stderr.decode()}")
+        # Per-session failures are printed as "FAILED <file>: <error>"; keep the tail of both
+        # streams so the actual cause reaches journald (stderr alone was just "[embed] mode=…").
+        out = stdout.decode(errors="replace").strip()[-1500:]
+        err = stderr.decode(errors="replace").strip()[-1500:]
+        logger.error("Indexer %s failed (exit %s)\n--- stdout tail ---\n%s\n--- stderr tail ---\n%s",
+                     " ".join(args), proc.returncode, out, err)
         return False
 
     return True
@@ -82,9 +89,12 @@ class MemoryWatcher:
         # the event in the cancel path, anyio's CancelScope retries
         # cancellation forever and burns 100% CPU. Set it in finally so it
         # fires for both CancelledError and any other exit.
+        # The memory tree links into docs/ (context/memory/archie); inotify doesn't follow the
+        # symlink, so watch the linked directories too.
+        watched = [memory_dir, *(d for d in get_memory_link_targets() if d.is_dir())]
         try:
             async for changes in awatch(
-                memory_dir,
+                *watched,
                 debounce=self._debounce_ms,
                 stop_event=self._stop_event,
             ):
@@ -119,7 +129,7 @@ class HistoryIndexer:
     Only re-indexes when session files have changed since the last run.
     """
 
-    def __init__(self, project_dir: Path, interval_seconds: int = 600):
+    def __init__(self, project_dir: Path, interval_seconds: int = 300):
         self._project_dir = project_dir.resolve()
         self._interval = interval_seconds
         self._running = True
@@ -130,17 +140,21 @@ class HistoryIndexer:
         return get_sessions_dir()
 
     def _compute_sessions_hash(self) -> str:
-        """Compute a hash of all session file mtimes and sizes."""
+        """Compute a hash of all session file mtimes and sizes (every harness)."""
         sessions_dir = self._get_sessions_dir()
         if not sessions_dir.exists():
             return ""
 
         # Hash based on file names, sizes, and modification times
+        paths = list(sessions_dir.glob("*.jsonl"))
+        chats_dir = get_chats_dir()
+        if chats_dir.is_dir():
+            paths.extend(chats_dir.glob("*.jsonl"))
         entries = []
-        for jsonl_path in sorted(sessions_dir.glob("*.jsonl")):
+        for jsonl_path in sorted(paths):
             try:
                 stat = jsonl_path.stat()
-                entries.append(f"{jsonl_path.name}:{stat.st_size}:{stat.st_mtime}")
+                entries.append(f"{jsonl_path.parent.name}/{jsonl_path.name}:{stat.st_size}:{stat.st_mtime}")
             except OSError:
                 continue
 

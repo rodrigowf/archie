@@ -50,10 +50,11 @@ AdapterLoader = Callable[[], "ProviderAdapter"]
 KillHelperLoader = Callable[[], Callable[[int], bool]]
 JsonlPathResolver = Callable[[str], list[Path]]
 # Yields (session_id, jsonl_path) for every JSONL this harness has on disk
-# for the given project_dir.  Lets SessionStore enumerate sessions that
-# live outside the project's context/ folder (notably Gemini, which writes
-# under ~/.gemini/tmp/<label>/chats/ — globally, so the discoverer must
-# filter by project to keep the listing project-scoped).
+# for the given project_dir.  Lets SessionStore enumerate sessions whose
+# id is not the file name (notably Gemini: the installer symlinks
+# ~/.gemini/tmp/<label> to context/, so the CLI writes
+# context/chats/session-<iso>-<uuid-prefix>.jsonl and the discoverer reads
+# the full session id from each file's header line).
 SessionDiscoverer = Callable[[str], "Iterable[tuple[str, Path]]"]
 
 
@@ -101,10 +102,14 @@ class HarnessSpec:
     session_discoverer
         Optional.  Yields ``(session_id, jsonl_path)`` for every JSONL
         this harness has on disk.  Used by :class:`SessionStore` to
-        enumerate sessions stored *outside* the project's ``context/``
-        folder (Gemini writes under ``~/.gemini/tmp/<label>/chats/``;
-        Claude and Qwen both live inside ``context/`` and don't need
-        this hook — the store scans those directories directly).
+        enumerate sessions whose id can't be read from the file name.
+        Gemini needs it: its files are
+        ``context/chats/session-<iso>-<uuid-prefix>.jsonl`` (the
+        installer symlinks ``~/.gemini/tmp/<label>`` to ``context/``),
+        so the discoverer scans ``context/chats/session-*.jsonl`` and
+        reads each header for the full id.  Claude and Qwen name files
+        ``<session-id>.jsonl`` and don't need this hook — the store
+        scans those directories directly.
     requirements_file
         Pip requirements file specific to this harness (used by
         ``install.sh``'s registry-driven loop).  None for harnesses that

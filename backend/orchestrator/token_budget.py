@@ -9,17 +9,19 @@ from __future__ import annotations
 
 from typing import Any
 
-# gpt-realtime context window
-MODEL_CONTEXT_TOKENS = 32_000
+# The binding limit on the voice system prompt is OpenAI Realtime's cap on
+# ``session.instructions``: 16,384 tokens (tiktoken o200k_base).  The API
+# rejects a longer prompt ("Instructions cannot be longer than 16384 tokens").
+# The backend never measures the assembled prompt or checks this cap itself,
+# and must NOT clamp/truncate it to fit (Rodrigo's rule: no hard caps on the
+# assembled output).  The prompt is kept under the cap by sizing the two budgets
+# below; measure the real size with context/scripts/measure_voice_prompt.py.
+#
+# (2026-10-07: removed MODEL_CONTEXT_TOKENS=32k / MAX_VOICE_PROMPT_TOKENS=24k /
+# HISTORY_SECTION_TOKENS=18k — old design references from before the 16,384
+# cap was known; nothing read them.)
 
-# Soft target for the voice system prompt size.  Not enforced anywhere — the
-# summarizer is never truncated; this is just a design reference.
-MAX_VOICE_PROMPT_TOKENS = 24_000
-
-# Within the prompt, the history section (summary + recent verbatim) gets ~18k.
-HISTORY_SECTION_TOKENS = 18_000
-
-# Of that, 5k (est) is kept verbatim (newest messages).  The summary side is
+# The newest 5k (est) of history is kept verbatim.  The summary side is
 # uncapped at the API level — the model decides how long it needs to be — but
 # we steer it via ``summary_target_word_range`` (see below) and
 # ``_summarize_history`` in ``orchestrator/session.py``.
@@ -50,8 +52,9 @@ RECENT_VERBATIM_TOKENS = 5_000
 #
 # Sized to the real budget, not the old 24k design reference: the assembled
 # voice prompt must stay under OpenAI Realtime's 16,384-token cap.  Fixed cost
-# is static sections (~6.0k) + verbatim (~5.3k at the 6k est budget) ≈ 11.3k,
-# leaving ~4-5k of room for the summary.  We steer toward ~3.5k so an overshoot
+# was measured on 2026-07-21 as static sections (~6.0k) + verbatim (~5.3k at
+# the then-6k est budget; now 5k, see above) ≈ 11.3k, leaving ~4-5k of room for
+# the summary.  We steer toward ~3.5k so an overshoot
 # (the model exceeded its target ~1.5x in the 2026-07-21 measurement) still
 # lands under the cap.  If a future prompt genuinely needs more room, grow the
 # budget by trimming static sections or lowering the verbatim budget — never by
@@ -193,8 +196,8 @@ def summary_target_word_range(
     model can always finish, even if it goes over the suggested range.
 
     Shorter prefixes → shorter targets. Longer prefixes → longer targets,
-    capped at the word-equivalent of ``SUMMARY_SOFT_TARGET_TOKENS`` (~7,500
-    words ≈ 10,000 tokens at the standard 0.75 words/token ratio).
+    capped at the word-equivalent of ``SUMMARY_SOFT_TARGET_TOKENS`` (3,500
+    tokens ≈ 2,625 words at the standard 0.75 words/token ratio).
     """
     if prefix_message_count == 0:
         return (0, 0)
@@ -202,8 +205,9 @@ def summary_target_word_range(
     # 0.75 words per token, rounded for readability.
     soft_max_words = int(SUMMARY_SOFT_TARGET_TOKENS * 0.75)
 
-    # The digest keeps a short version of every user message plus a narrative
-    # arc + topics + decisions + entities.  It scales with the input, but must
+    # The digest distils the prefix (narrative arc, topics, notable user asks,
+    # decisions, open threads, entities) rather than listing every user message
+    # (that rule was removed in 3b0671d).  It scales with the input, but must
     # stay within the room the voice prompt has for it (see
     # SUMMARY_SOFT_TARGET_TOKENS).  ~18% of the input keeps long conversations
     # dense enough to fit while still covering the whole prefix — no content is

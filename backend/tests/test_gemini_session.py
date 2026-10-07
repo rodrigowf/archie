@@ -236,11 +236,63 @@ class TestArgvConstruction:
     async def test_argv_uses_resume_after_first_turn(self):
         sm = GeminiSessionManager(local_id="local")
         await sm.start()
-        # Simulate one completed turn.
+        # Simulate one completed turn: the CLI has written the session.
         sm._turns = 1
-        argv = sm._build_argv("second prompt")
+        with patch(
+            "manager.gemini.adapter._gemini_jsonl_candidates",
+            return_value=["/chats/session-2026-10-07T10-00-abc.jsonl"],
+        ):
+            argv = sm._build_argv("second prompt")
         assert "--resume" in argv
         assert "--session-id" not in argv
+        await sm.stop()
+
+    @pytest.mark.asyncio
+    async def test_argv_pins_again_after_a_failed_first_turn(self):
+        """A first turn that failed before the CLI wrote the session must not
+        flip the next turn to --resume (the CLI can't find the id and every
+        later turn would fail): with no JSONL on disk, keep --session-id."""
+        sm = GeminiSessionManager(local_id="local")
+        await sm.start()
+        sm._turns = 1  # the failed turn still counted
+        with patch(
+            "manager.gemini.adapter._gemini_jsonl_candidates", return_value=[],
+        ):
+            argv = sm._build_argv("retry")
+        assert "--session-id" in argv
+        assert "--resume" not in argv
+        await sm.stop()
+
+    @pytest.mark.asyncio
+    async def test_argv_uses_resume_on_first_turn_of_resumed_session(self):
+        """A manager opened on an existing session must --resume from the
+        very first turn: the CLI exits with "Session ID ... already exists"
+        when given --session-id for an id it already has on disk."""
+        sm = GeminiSessionManager(session_id="existing-gemini-id", local_id="local")
+        await sm.start()
+        with patch(
+            "manager.gemini.adapter._gemini_jsonl_candidates",
+            return_value=["/chats/session-2026-10-07T10-00-existing.jsonl"],
+        ):
+            argv = sm._build_argv("continue")
+        i = argv.index("--resume")
+        assert argv[i + 1] == "existing-gemini-id"
+        assert "--session-id" not in argv
+        await sm.stop()
+
+    @pytest.mark.asyncio
+    async def test_argv_pins_resume_id_never_written_to_disk(self):
+        """A resume id with no JSONL yet (tab reopened before its first
+        turn) still pins with --session-id; --resume would not find it."""
+        sm = GeminiSessionManager(session_id="unwritten-gemini-id", local_id="local")
+        await sm.start()
+        with patch(
+            "manager.gemini.adapter._gemini_jsonl_candidates", return_value=[],
+        ):
+            argv = sm._build_argv("first")
+        i = argv.index("--session-id")
+        assert argv[i + 1] == "unwritten-gemini-id"
+        assert "--resume" not in argv
         await sm.stop()
 
     @pytest.mark.asyncio

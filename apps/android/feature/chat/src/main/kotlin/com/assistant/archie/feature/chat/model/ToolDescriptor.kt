@@ -50,7 +50,7 @@ object BasicToolCatalog {
         name == "Bash" || name == "BashOutput" || name == "KillShell" -> ToolCategory.Execute to "bash"
         name == "Edit" || name == "MultiEdit" || name == "replace" || name == "NotebookEdit" -> ToolCategory.Write to "edit"
         name == "Write" || (name == "write_file" && kind == SessionKind.ORCHESTRATOR) -> ToolCategory.Write to "write"
-        name == "Read" || name == "ReadManyFiles" || name == "ListFiles" ||
+        name == "Read" || name == "ReadManyFiles" || name == "ListFiles" || name == "read_conversation" ||
             (name == "read_file" && kind == SessionKind.ORCHESTRATOR) -> ToolCategory.Read to "read"
         name == "Grep" || name == "Glob" || name == "WebSearch" || name == "search_history" ||
             name == "search_memory" || name == "list_history" -> ToolCategory.Search to "search"
@@ -101,6 +101,9 @@ object BasicToolCatalog {
             }
             "run_script" -> listOfNotNull(s("name") ?: s("script"), s("args")).joinToString(" ").ifEmpty { null }
             "send_to_agent_session" -> s("message")?.lineSequence()?.firstOrNull()
+            "read_conversation" -> s("session_id")?.let { id ->
+                "session ${id.trim().take(8)}" + ((input["turn"] as? JsonPrimitive)?.contentOrNull?.let { " · turn $it" } ?: "")
+            }
             else -> null
         } ?: firstString(input) ?: ""
     }

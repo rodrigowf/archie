@@ -42,7 +42,8 @@ context/
 .claude.json.backup.*
 debug/
 !apps/android/**/src/debug/
-projects/
+# Repo-root runtime/media dir only (anchored: docs/projects/ and fixture folders named projects/ are tracked)
+/projects/
 todos/
 plugins/
 
@@ -73,7 +74,7 @@ apps/android-device/local.properties
 apps/android-device/**/*.apk
 apps/android-device/**/*.aab
 infra/sync/config.env
-docs/frontend-refactor/audit/screenshots/
+docs/projects/frontend-refactor/audit/screenshots/
 
 # Android apps (apps/android/, own .gitignore): signing paths/passwords, never committed (spec 14 §1.8)
 apps/android/keystore.properties

@@ -18,6 +18,7 @@ import {
   type AgentSessionClosedFrame,
   type AgentSessionOpenedFrame,
   type LiveStatus,
+  type OrchestratorSwitchFrame,
   type Provider,
   type ServerFrame,
 } from '@/protocol';
@@ -95,7 +96,7 @@ function findBySdk(sdkId: string): AnyRuntime | undefined {
 }
 
 function getChannel(): OrchestratorChannel {
-  if (!channel) channel = new OrchestratorChannel(onWatcherEvent, policy);
+  if (!channel) channel = new OrchestratorChannel(onWatcherEvent, policy, onOrchestratorSwitch);
   return channel;
 }
 
@@ -359,6 +360,63 @@ function onClosed(f: AgentSessionClosedFrame): void {
   }
 }
 
+// ───────────────────────── agent-initiated switch (§6.11a) ─────────────────────────
+
+/**
+ * SW-2: start voice on the resumed Archie view without a gesture, and tell the user about the
+ * switch. Registered by the voice feature (services do not reach the voice engine).
+ */
+export type SwitchVoiceHandler = (localId: string, title: string) => void;
+
+let switchVoiceHandler: SwitchVoiceHandler | null = null;
+/** SW-1: the switches already acted on (`sdk_session_id` + `from_session_id`). */
+const switchesDone = new Set<string>();
+
+/** Returns the unregister function. */
+export function setSwitchVoiceHandler(fn: SwitchVoiceHandler | null): () => void {
+  switchVoiceHandler = fn;
+  return () => {
+    if (switchVoiceHandler === fn) switchVoiceHandler = null;
+  };
+}
+
+function dropView(localId: string): void {
+  removeSession(localId, true);
+  removeTab(localId);
+}
+
+/**
+ * §6.11a `orchestrator_switch`, from the channel (SW-1). The server already ended voice and
+ * stopped the old orchestrator (WATCH-1 stopped its view), so: drop the old view locally (no
+ * REST close, it is gone), resume the past conversation focused with a new `local_id` (no
+ * conflict dialog, nothing runs any more), and start voice on it when voice was live (SW-2).
+ */
+export function onOrchestratorSwitch(f: OrchestratorSwitchFrame): ArchieRuntime | null {
+  const sdkId = f.sdk_session_id;
+  if (!sdkId) return null;
+  const from = f.from_session_id ?? '';
+  const key = `${sdkId}\n${from}`;
+  if (switchesDone.has(key)) return null;
+  switchesDone.add(key);
+  if (from) {
+    const old = getSessionRuntime(from);
+    if (!old || old.kind === 'orchestrator') dropView(from);
+  }
+  // One orchestrator per pool and the server just stopped it: any other live Archie view is stale.
+  const stale = getArchieRuntime();
+  if (stale) dropView(stale.localId);
+  orchestratorRef = null;
+  // a read-only view of the same conversation would be reused by sdk id: it goes first
+  for (const r of listRuntimes()) if (r instanceof ArchieRuntime && r.readOnly && r.conv.ref.sdkId === sdkId) dropView(r.localId);
+  const title = (f.title ?? '').trim();
+  const rt = openSession({ kind: 'archie', localId: generateUUID(), sdkId, focus: true, ...(title ? { titleHint: title } : {}) }) as ArchieRuntime;
+  const label = title || titleOf(rt.localId);
+  if (f.voice === true && switchVoiceHandler) switchVoiceHandler(rt.localId, label);
+  else showSnackbar(`Switched to ${label}`);
+  scheduleListRefresh();
+  return rt;
+}
+
 function scheduleListRefreshNow(): void {
   void refreshSessionList();
   void refreshVisuals();
@@ -595,6 +653,7 @@ export function stopServices(): void {
   channel = null;
   orchestratorRef = null;
   poolFetch = null;
+  switchesDone.clear();
   cancelScheduledRefreshes();
   started = false;
 }

@@ -35,6 +35,29 @@ def get_memory_dir() -> Path:
     return get_context_dir() / "memory"
 
 
+def get_docs_dir() -> Path:
+    """Get Archie's documentation directory (docs/ at the repo root, versioned with the code)."""
+    return PROJECT_ROOT / "docs"
+
+
+def get_memory_link_targets() -> tuple[Path, ...]:
+    """Directories outside context/memory/ that the memory tree may link into.
+
+    context/memory/archie is a symlink to docs/, so the documentation is part of the
+    memory wiki (search, browse, the tree view, /memory/ URLs) while it stays in the
+    public repo. Readers of the memory tree follow symlinks into these and nowhere else.
+    """
+    return (get_docs_dir(),)
+
+
+def is_within_memory(path: Path, root: Path | None = None) -> bool:
+    """True when ``path`` resolves inside the memory tree (``root``, default
+    context/memory/) or inside one of the directories it links into."""
+    resolved = path.resolve()
+    bases = (Path(root or get_memory_dir()), *get_memory_link_targets())
+    return any(resolved.is_relative_to(b.resolve()) for b in bases)
+
+
 def get_public_dir() -> Path:
     """Get the public static files directory.
 

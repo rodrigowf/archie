@@ -1,7 +1,7 @@
 # Protocol conformance fixtures
 
 Shared test vectors for the client data layer specified in
-`docs/frontend-refactor/spec/12-client-protocol.md` (§3.6 connection manager, §4 reducer, §5 history).
+`docs/specs/12-client-protocol.md` (§3.6 connection manager, §4 reducer, §5 history).
 The web client (TypeScript, vitest) and the Android client (Kotlin `:core`, JUnit) MUST both pass every
 fixture in this directory. A fixture that fails on one platform is a spec bug or a platform bug, never an
 accepted "platform difference".

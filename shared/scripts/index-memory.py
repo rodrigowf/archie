@@ -1,190 +1,143 @@
 #!/usr/bin/env python3
 """
 Usage: context/scripts/index-memory.py [options]
-Description: Index memory and session history into the vector store.
+Description: Index memory and conversation history for search.
 
-This indexes from the context/ directory:
-  - context/memory/*.md -> 'memory' collection
-  - context/*.jsonl -> 'history' collection
+  - context/memory/**/*.md                          -> index/memory.sqlite3  (utils/memory_index.py)
+  - context/*.jsonl + context/chats/*.jsonl (every harness) -> index/history.sqlite3 (utils/history_index.py)
+    preceded by session summaries for new/grown sessions -> index/session_summaries.sqlite3
+    (utils/session_summaries.py; needs OPENAI_API_KEY, skipped without it)
+
+Both are incremental: unchanged files are skipped, changed ones re-derived with only their new
+chunks embedded, deleted ones removed; one failing file never blocks the others. Embeddings use
+each index's own model (meta.model), borrowed from the warm search server when it runs.
 
 Options:
-    --memory-only    Only re-index memory files
-    --history-only   Only re-index session history
-    --reset          Clear collections before indexing
+    --memory-only    Only index memory
+    --history-only   Only index conversation history
+    --reset          Rebuild the selected index files from scratch
+    --no-summaries   History: skip generating session summaries this run
+    --local-model    Embed in-process even if a warm server is running
+
+Exit status is 1 when any file failed (the others are still indexed).
 
 Examples:
-    context/scripts/index-memory.py
-    context/scripts/index-memory.py --memory-only
-    context/scripts/index-memory.py --reset
+    context/scripts/run.sh context/scripts/index-memory.py
+    context/scripts/run.sh context/scripts/index-memory.py --history-only --local-model
 """
 import argparse
 import json
-import os
-import subprocess
 import sys
 from pathlib import Path
 
-# Add project root to path for utils import
-# Resolve the file first (follows symlinks), then get parent directory
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SCRIPT_DIR.parent.parent  # shared/scripts/ → repo root
 sys.path.insert(0, str(PROJECT_DIR / "backend"))  # backend packages (utils, …)
+sys.path.insert(0, str(SCRIPT_DIR))
 
-from utils.paths import get_memory_dir, get_sessions_dir, get_index_dir
-
-EMBED_SCRIPT = SCRIPT_DIR / "embed.py"
-
-
-def run_embed(command: str, *args) -> bool:
-    """Run embed.py with given arguments."""
-    cmd = [sys.executable, str(EMBED_SCRIPT), command, *args]
-    result = subprocess.run(cmd, capture_output=False)
-    return result.returncode == 0
+from utils import history_index as hi  # noqa: E402
 
 
-def extract_session_text(jsonl_path: Path) -> str:
-    """Extract human-readable text from a session JSONL file."""
-    lines = []
+def _remove_db(path: Path) -> None:
+    for suffix in ("", "-wal", "-shm"):
+        Path(str(path) + suffix).unlink(missing_ok=True)
+
+
+def _encoder(model: str, local: bool):
+    import index_client
+
+    return index_client.Encoder(model, use_server=not local)
+
+
+def index_history(reset: bool = False, local_model: bool = False, summaries: bool = True) -> bool:
+    """Index every conversation JSONL (all harnesses) into index/history.sqlite3. Returns False
+    if any session failed."""
+    from utils import session_summaries as ss
+
+    lock = hi.IndexLock()
+    if not lock.acquire():
+        print("History indexer already running; skipping this run")
+        return True
     try:
-        with open(jsonl_path) as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    obj = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
+        db_path = hi.get_history_db_path()
+        if reset:
+            _remove_db(db_path)
+        conn = hi.connect(db_path)
+        sources = hi.session_sources()
+        print(f"=== Indexing history: {len(sources)} session files -> {db_path} ===")
 
-                msg_type = obj.get("type")
-                if msg_type not in ("user", "assistant"):
-                    continue
+        sconn = ss.connect()
+        if summaries:
+            ss.summarize_pending(sconn, sources)
+        all_summaries = {sid: json.loads(d) for sid, d in sconn.execute("SELECT session_id, data FROM summaries")}
+        sconn.close()
 
-                # Extract text content
-                msg = obj.get("message", {})
-                content = msg.get("content", "")
+        with _encoder(hi.index_model(conn), local_model) as enc:
+            print(f"[history] model={hi.index_model(conn)} encoder={enc.mode}")
+            stats = hi.index_all(conn, sources, enc.encode_many, summaries=all_summaries)
 
-                if isinstance(content, str):
-                    text = content
-                else:
-                    # Content is a list of blocks
-                    text_parts = []
-                    for block in content:
-                        if isinstance(block, dict) and block.get("type") == "text":
-                            text_parts.append(block.get("text", ""))
-                    text = "\n".join(text_parts)
-
-                if text.strip():
-                    role = "User" if msg_type == "user" else "Assistant"
-                    lines.append(f"## {role}\n\n{text}\n")
-    except (OSError, PermissionError):
-        pass
-
-    return "\n".join(lines)
-
-
-def index_memory(reset: bool = False) -> None:
-    """Index memory files from context/memory/."""
-    memory_dir = get_memory_dir()
-
-    if not memory_dir.exists():
-        print(f"Memory directory not found: {memory_dir}")
-        print("(This is normal if no memory files exist yet)")
-        return
-
-    md_files = list(memory_dir.rglob("*.md"))
-    if not md_files:
-        print("No memory files found, skipping")
-        return
-
-    print(f"=== Indexing {len(md_files)} memory files (recursive) ===")
-    if reset:
-        run_embed("reset", "--collection", "memory")
-
-    run_embed("index", str(memory_dir), "--collection", "memory")
-
-
-def index_history(reset: bool = False) -> None:
-    """Index session JSONL files from context/."""
-    sessions_dir = get_sessions_dir()
-
-    if not sessions_dir.exists():
-        print(f"Sessions directory not found: {sessions_dir}")
-        return
-
-    jsonl_files = list(sessions_dir.glob("*.jsonl"))
-    if not jsonl_files:
-        print("No session files found, skipping")
-        return
-
-    print(f"=== Indexing {len(jsonl_files)} session files ===")
-    if reset:
-        run_embed("reset", "--collection", "history")
-
-    # Convert JSONL files to temporary markdown for embedding
-    temp_dir = PROJECT_DIR / ".index-temp"
-    # Ensure temp dir exists and is clean
-    if temp_dir.exists():
-        for f in temp_dir.glob("*"):
-            f.unlink()
-    else:
-        temp_dir.mkdir(parents=True, exist_ok=True)
-
-    try:
-        for jsonl_path in jsonl_files:
-            text = extract_session_text(jsonl_path)
-            if text.strip():
-                # Use session ID as filename
-                md_path = temp_dir / f"{jsonl_path.stem}.md"
-                md_path.write_text(f"# Session: {jsonl_path.stem}\n\n{text}")
-                # Mirror the source JSONL's mtime onto the .md so embed.py's
-                # mtime-skip detects unchanged sessions. Without this every
-                # re-extraction would look "new" (mtime = now) and force a
-                # full re-embed of the whole history corpus.
-                try:
-                    src = jsonl_path.stat()
-                    os.utime(md_path, (src.st_atime, src.st_mtime))
-                except OSError:
-                    pass
-
-        # Index the temp directory
-        if any(temp_dir.iterdir()):
-            run_embed("index", str(temp_dir), "--collection", "history")
+        total = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+        n_sessions = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+        conn.close()
+        print(
+            f"History: {stats.indexed} indexed, {stats.unchanged} unchanged, {stats.removed} removed, "
+            f"{stats.embedded_chunks} chunks embedded; {n_sessions} sessions / {total} chunks in index"
+        )
+        for name, err in stats.failed:
+            print(f"FAILED {name}: {err}", file=sys.stderr)
+        return not stats.failed
     finally:
-        # Clean up temp files
-        for f in temp_dir.glob("*"):
-            f.unlink()
-        if temp_dir.exists():
-            temp_dir.rmdir()
+        lock.release()
+
+
+def index_memory(reset: bool = False, local_model: bool = False) -> bool:
+    """Index the memory wiki into index/memory.sqlite3. Returns False if any file failed."""
+    from utils import memory_index as mi
+
+    root = mi.get_memory_dir()
+    if not root.exists():
+        print(f"Memory directory not found: {root}")
+        return True
+    lock = hi.IndexLock(mi.get_memory_db_path())
+    if not lock.acquire():
+        print("Memory indexer already running; skipping this run")
+        return True
+    try:
+        db_path = mi.get_memory_db_path()
+        if reset:
+            _remove_db(db_path)
+        conn = mi.connect(db_path)
+        with _encoder(hi.index_model(conn), local_model) as enc:
+            print(f"=== Indexing memory: {root} -> {db_path} (model={hi.index_model(conn)}, encoder={enc.mode}) ===")
+            stats = mi.index_all(conn, enc.encode_many, root=root)
+        n_files, n_chunks = conn.execute("SELECT COUNT(*), COALESCE(SUM(n_chunks), 0) FROM files").fetchone()
+        conn.close()
+        print(
+            f"Memory: {stats.indexed} indexed, {stats.unchanged} unchanged, {stats.removed} removed, "
+            f"{stats.embedded_chunks} chunks embedded; {n_files} files / {n_chunks} chunks in index"
+        )
+        for name, err in stats.failed:
+            print(f"FAILED {name}: {err}", file=sys.stderr)
+        return not stats.failed
+    finally:
+        lock.release()
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Index memory and history")
-    parser.add_argument("--memory-only", action="store_true", help="Only index memory/")
-    parser.add_argument("--history-only", action="store_true", help="Only index history/")
-    parser.add_argument("--reset", action="store_true", help="Clear collections first")
+    parser = argparse.ArgumentParser(description="Index memory and conversation history")
+    parser.add_argument("--memory-only", action="store_true")
+    parser.add_argument("--history-only", action="store_true")
+    parser.add_argument("--reset", action="store_true")
+    parser.add_argument("--no-summaries", action="store_true")
+    parser.add_argument("--local-model", action="store_true")
     args = parser.parse_args()
 
-    do_memory = not args.history_only
-    do_history = not args.memory_only
-
-    memory_dir = get_memory_dir()
-    sessions_dir = get_sessions_dir()
-    index_dir = get_index_dir()
-
-    print(f"Memory dir:   {memory_dir}")
-    print(f"Sessions dir: {sessions_dir}")
-    print(f"Index dir:    {index_dir}\n")
-
-    if do_memory:
-        index_memory(reset=args.reset)
-
-    if do_history:
-        index_history(reset=args.reset)
-
-    print("\n=== Stats ===")
-    run_embed("stats", "--collection", "memory")
-    run_embed("stats", "--collection", "history")
+    ok = True
+    if not args.history_only:
+        ok = index_memory(reset=args.reset, local_model=args.local_model) and ok
+    if not args.memory_only:
+        ok = index_history(reset=args.reset, local_model=args.local_model, summaries=not args.no_summaries) and ok
+    sys.exit(0 if ok else 1)
 
 
 if __name__ == "__main__":

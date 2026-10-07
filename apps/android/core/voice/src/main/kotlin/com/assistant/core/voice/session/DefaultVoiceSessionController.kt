@@ -266,7 +266,11 @@ class DefaultVoiceSessionController(
                 if (!isOwner()) return log.d(TAG, "Ignoring voice_ended/stopped — not the voice owner")
                 // TurnComplete never arrives in voice mode: finalize the streaming text, then tear down (RS-17).
                 deps.transcripts.voiceEnded()
-                finalize()
+                // §6.11a SW-3: a switch is a quiet end — the call goes on in the resumed conversation,
+                // whose start cancels this re-arm; the wake word is not cycled in between.
+                val switching = (frame as? VoiceInbound.Ended)?.reason == END_REASON_SWITCH
+                if (switching) log.i(TAG, "voice ended for a conversation switch — quiet end, wake re-arm deferred")
+                finalize(wakeRearmDelayMs = if (switching) VoiceTuning.SWITCH_WAKE_REARM_DELAY_MS else VoiceTuning.MIC_RELEASE_DELAY_MS)
             }
             is VoiceInbound.VadState -> _state.update { it.copy(vadState = frame.state, vadDurationMs = frame.durationMs) }
         }
@@ -550,9 +554,15 @@ class DefaultVoiceSessionController(
 
     /**
      * Local teardown; idempotent per session (`voiceStopFinalized`). Tears the transport down,
-     * releases audio, and re-arms the wake word [VoiceTuning.MIC_RELEASE_DELAY_MS] later (RS-30).
+     * releases audio, and re-arms the wake word [wakeRearmDelayMs] later (RS-30; default
+     * [VoiceTuning.MIC_RELEASE_DELAY_MS], longer for a conversation switch, §6.11a SW-3).
      */
-    private fun finalize(endPhase: SessionPhase = SessionPhase.OFF, message: String? = null, keepLink: Boolean = false) {
+    private fun finalize(
+        endPhase: SessionPhase = SessionPhase.OFF,
+        message: String? = null,
+        keepLink: Boolean = false,
+        wakeRearmDelayMs: Long = VoiceTuning.MIC_RELEASE_DELAY_MS,
+    ) {
         val t: VoiceTransport?
         val token: Any?
         synchronized(lock) {
@@ -596,7 +606,7 @@ class DefaultVoiceSessionController(
         }
         val resume = scope.launch {
             // WebRTC holds the AudioRecord after stop(): re-arming earlier fails 20+ times (`0bc612f`).
-            delay(VoiceTuning.MIC_RELEASE_DELAY_MS)
+            delay(wakeRearmDelayMs)
             val ack = deps.wake.resumeWake()
             withTimeoutOrNull(VoiceTuning.WAKE_WORD_ACK_TIMEOUT_MS) { ack.await() }
                 ?: log.w(TAG, "resumeWakeWord ack timeout — service may be slow or short-circuited")
@@ -662,6 +672,9 @@ class DefaultVoiceSessionController(
     private companion object {
         const val TAG = "VoiceController"
         const val LINK_FAILED_MESSAGE = "Voice connection lost"
+
+        /** `voice_ended.reason` of an agent-initiated conversation switch (spec 12 §6.11a, §7.6). */
+        const val END_REASON_SWITCH = "switch"
 
         fun ProviderPhase.toSessionPhase(): SessionPhase = when (this) {
             ProviderPhase.OFF -> SessionPhase.OFF

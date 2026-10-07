@@ -17,7 +17,7 @@ also run them directly from PowerShell:
 |------|---------|
 | `install.ps1` | Deterministic installer. Same two-axis decision model (session harness + orchestrator backends) as the POSIX scripts, ported to PowerShell. |
 | `install-with-agent.ps1` | Conversational installer. Detects which CLI is installed, picks (or asks for) a driver, then launches it with `INSTALL.md` as its boot prompt. |
-| `install-prerequisites.ps1` | Verifies Python 3.12+, Node 20+, npm, and git are present. When something is missing, offers to install it via **winget** (Microsoft's built-in package manager). |
+| `install-prerequisites.ps1` | Verifies Python 3.11+, Node 20+, npm, and git are present. When something is missing, offers to install it via **winget** (Microsoft's built-in package manager). |
 
 The shared templates (`AGENTS.md`, `MEMORY.md`, `context.env`, etc.) live
 one level up in `install/` and are reused across every OS.

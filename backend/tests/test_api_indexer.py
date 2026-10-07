@@ -122,6 +122,18 @@ class TestHistoryIndexer:
 
             assert hash2 != hash1
 
+    def test_compute_hash_covers_other_harness_chats(self, tmp_path):
+        """Qwen/Gemini sessions live in context/chats/ and must trigger re-indexing too."""
+        chats_dir = tmp_path / "context" / "chats"
+        chats_dir.mkdir(parents=True)
+        (chats_dir / "qwen.jsonl").write_text("one")
+
+        with patch("utils.paths.PROJECT_ROOT", tmp_path):
+            indexer = HistoryIndexer(tmp_path)
+            before = indexer._compute_sessions_hash()
+            (chats_dir / "qwen.jsonl").write_text("one two")
+            assert indexer._compute_sessions_hash() != before
+
     def test_stop(self):
         indexer = HistoryIndexer(Path("/tmp/test"))
         indexer.stop()

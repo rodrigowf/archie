@@ -7,7 +7,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from utils.paths import PROJECT_ROOT
+from utils.paths import PROJECT_ROOT, is_within_memory
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -67,7 +67,7 @@ async def lifespan(app: FastAPI):
     memory_task = asyncio.create_task(memory_watcher.run())
     app.state.memory_watcher = memory_watcher
 
-    history_indexer = HistoryIndexer(project_path, interval_seconds=600)
+    history_indexer = HistoryIndexer(project_path, interval_seconds=300)
     history_task = asyncio.create_task(history_indexer.run())
     app.state.history_indexer = history_indexer
 
@@ -328,12 +328,10 @@ def create_app() -> FastAPI:
         async def serve_memory(full_path: str):
             if not full_path:
                 raise HTTPException(status_code=404)
-            candidate = (context_memory / full_path).resolve()
-            if (
-                candidate.is_relative_to(context_memory_resolved)
-                and candidate.is_file()
-            ):
-                return FileResponse(candidate)
+            candidate = context_memory / full_path
+            # Symlinks may point into docs/ (context/memory/archie), never elsewhere.
+            if is_within_memory(candidate, context_memory) and candidate.is_file():
+                return FileResponse(candidate.resolve())
             # Directory listing not supported — return 404. Use the index
             # at /memory/ or fetch specific files.
             raise HTTPException(status_code=404)

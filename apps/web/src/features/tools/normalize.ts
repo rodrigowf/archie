@@ -57,6 +57,7 @@ export const ORCHESTRATOR_TOOLS: ReadonlySet<string> = new Set([
   'respond_to_agent_permission',
   'list_history',
   'search_history',
+  'read_conversation',
   'search_memory',
   'get_assistant_config',
   'update_assistant_config',
