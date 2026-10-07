@@ -4,6 +4,11 @@
 2. python3 gen_links.py  (reads every file of the live tree from context/memory/, extracts each
    markdown link once per (file, href), and classifies it with an independent reference of MEM-2:
    posixpath-style normalisation, urljoin for targets outside the memory root).
+3. Anonymize before committing: this repo is public and the raw output lists the private memory
+   tree's file names and heading anchors. The committed live-tree.json / memory-links.tsv had
+   personal folder, file and anchor names renamed to neutral ones (one consistent rename per path
+   segment, then every row re-classified with classify() below and checked to keep its kind and
+   inTree), so the 138-file shape and all 468 link cases are unchanged.
 """
 import json, re, os, posixpath, urllib.parse, urllib.request
 tree = json.load(open('live-tree.json'))

@@ -415,10 +415,11 @@ class BaseVoiceProvider(ABC):
 
         The intent is to close the current segment on the wire WITHOUT
         triggering a model response — the user is still mid-monologue.
-        Qwen sends ``input_audio_buffer.commit`` only. Gemini's manual
-        activity mode sends ``activityEnd`` followed by ``activityStart``
-        (chunking the long utterance into two segments without provoking
-        a reply).
+        Qwen sends ``input_audio_buffer.commit`` only. Gemini returns
+        ``[]``: its ``activityEnd`` always provokes a reply, so there is
+        no way to chunk a long utterance silently (an earlier
+        ``activityEnd`` + ``activityStart`` attempt cut the user off; see
+        ``GeminiVoiceProviderBase.manual_vad_safety_commit_frames``).
 
         Default: ``[]`` (no safety commit — appropriate if the provider
         has no documented duration cap in manual mode).

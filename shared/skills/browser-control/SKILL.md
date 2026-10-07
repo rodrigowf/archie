@@ -183,4 +183,4 @@ clicking through it. Navigating the active tab replaces whatever he was looking
 at, so note the original URL if you'll need to put it back.
 
 Full design notes: `apps/browser-extension/README.md`,
-`context/memory/assistant/devices/browser_control_extension.md`.
+`docs/clients/browser-extension.md`.

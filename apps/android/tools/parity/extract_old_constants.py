@@ -357,7 +357,7 @@ def extract(rev: str) -> dict:
     return {
         "source_commit": rev,
         "generated_by": "android/tools/parity/extract_old_constants.py",
-        "inventory": "docs/frontend-refactor/inventory/04-android-voice-and-device.md §4",
+        "inventory": "docs/projects/frontend-refactor/inventory/04-android-voice-and-device.md §4",
         "count": len(results),
         "constants": results,
     }

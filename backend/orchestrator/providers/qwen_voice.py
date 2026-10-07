@@ -55,7 +55,7 @@ logger = logging.getLogger(__name__)
 
 # Default model + voice (overridable via constructor).
 QWEN_VOICE_MODEL = "qwen3.5-omni-plus-realtime"
-QWEN_VOICE_NAME = "Tina"
+QWEN_VOICE_NAME = "Aiden"  # matches the registry default (voice_registry.VOICE_MODELS)
 
 QWEN_INTL_WS = "wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime"
 
@@ -413,7 +413,7 @@ class QwenVoiceProvider(BaseVoiceProvider, ToolCallAccumulator):
         # Voice-mode behavior tweaks. Qwen has no `speed`, `verbosity`, or
         # output-modality-routing parameters — every behavior we want has
         # to be requested in prose. The communication-style guidance below
-        # is distilled from `context/memory/assistant/identity/communication_style_for_qwen.md`
+        # is distilled from `context/memory/identity/communication_style_for_qwen.md`
         # (full file is the canonical source; this is a compact runtime copy).
         voice_directives = (
             "\n\n# Voice Mode — Aligned Partnership\n"

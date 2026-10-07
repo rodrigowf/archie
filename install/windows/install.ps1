@@ -256,9 +256,10 @@ if (-not $AnthropicAxis -and -not $OpenAIAxis) {
 }
 Write-Host ""
 
-# Default provider written into assistant_config.json.  Claude wins if both
-# are installed (historical default); otherwise Qwen.
-$DefaultProvider = if ($ClaudeAxis) { 'claude' } else { 'qwen' }
+# Default provider written into assistant_config.json: the first installed
+# harness in the order Claude, Qwen, Gemini (Claude is the historical
+# default).  At least one is installed - checked above.
+$DefaultProvider = if ($ClaudeAxis) { 'claude' } elseif ($QwenAxis) { 'qwen' } else { 'gemini' }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Symlink strategy.  Windows symbolic links require either:
@@ -471,6 +472,7 @@ if ($ContextSetupNeeded) {
                 Write-Step "Creating $($b.Label) symlinks..."
                 foreach ($item in Get-ChildItem -LiteralPath (Join-Path $ScriptDir $b.Public) -Force) {
                     if ($b.Kind -eq 'directory' -and -not $item.PSIsContainer) { continue }
+                    if ($item.Name -eq '__pycache__') { continue }  # bytecode cache, not a script
                     $dest = Join-Path $b.Private $item.Name
                     if (Test-Path $dest) { continue }
                     New-Link -Path $dest -Target $item.FullName
@@ -528,6 +530,7 @@ if ($ContextSetupNeeded) {
             foreach ($b in $bundles) {
                 foreach ($item in Get-ChildItem -LiteralPath (Join-Path $ScriptDir $b.Public) -Force) {
                     if ($b.Kind -eq 'directory' -and -not $item.PSIsContainer) { continue }
+                    if ($item.Name -eq '__pycache__') { continue }  # bytecode cache, not a script
                     $dest = Join-Path $b.Private $item.Name
                     if (Test-Path $dest) { continue }
                     New-Link -Path $dest -Target $item.FullName
@@ -583,6 +586,11 @@ if ($ClaudeAxis) {
     if (-not (Test-Path '.claude_config\skills')) {
         New-Link -Path '.claude_config\skills' -Target (Join-Path $ScriptDir 'context\skills')
         Write-Info "Created skills discovery link"
+    }
+    # And agents: the bundled CLI loads user agents from $CLAUDE_CONFIG_DIR\agents.
+    if (-not (Test-Path '.claude_config\agents')) {
+        New-Link -Path '.claude_config\agents' -Target (Join-Path $ScriptDir 'context\agents')
+        Write-Info "Created agents discovery link"
     }
     Write-Host ""
 } else {
@@ -818,7 +826,7 @@ Write-Host ""
 # ─────────────────────────────────────────────────────────────────────────────
 Write-Step "Setting up Python virtual environment..."
 
-# Find a python launcher that resolves to 3.12+.  `py -3.12` is the canonical
+# Find a python launcher that resolves to 3.11+.  `py -3.12` is the canonical
 # Windows entry point; `python` and `python3` are common fallbacks.
 function Get-PythonExe {
     foreach ($cand in 'py -3.12', 'py -3', 'python3', 'python') {
@@ -829,7 +837,7 @@ function Get-PythonExe {
             $v = & $exe @args -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
             if ($LASTEXITCODE -eq 0) {
                 $parts2 = $v.Trim() -split '\.'
-                if ([int]$parts2[0] -ge 3 -and [int]$parts2[1] -ge 12) {
+                if ([int]$parts2[0] -ge 3 -and [int]$parts2[1] -ge 11) {
                     return @{ Exe = $exe; Args = $args }
                 }
             }
@@ -840,7 +848,7 @@ function Get-PythonExe {
 
 $Py = Get-PythonExe
 if (-not $Py) {
-    Write-Err "Python 3.12+ not found on PATH.  Install it via:  winget install Python.Python.3.12  (then re-open PowerShell)"
+    Write-Err "Python 3.11+ not found on PATH.  Install it via:  winget install Python.Python.3.12  (then re-open PowerShell)"
 }
 
 if (-not (Test-Path '.venv')) {

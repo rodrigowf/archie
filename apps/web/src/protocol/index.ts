@@ -1,6 +1,6 @@
 /**
  * `@/protocol` (W-05): the framework-free TypeScript implementation of
- * docs/frontend-refactor/spec/12-client-protocol.md. Pure and deterministic: no DOM, no timers,
+ * docs/specs/12-client-protocol.md. Pure and deterministic: no DOM, no timers,
  * no clock, no I/O. Proven against every fixture in apps/protocol-fixtures/.
  *
  * Typical runtime loop (W-06):

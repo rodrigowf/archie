@@ -13,7 +13,7 @@ here based on `$OSTYPE`.
 |------|---------|
 | `install.sh` | Deterministic installer. Asks two axis questions (session harness + orchestrator backends), then runs every step automatically. |
 | `install-with-agent.sh` | Conversational installer. Launches one of the agent CLIs and hands it `INSTALL.md` as instructions; the agent walks the user through the install. |
-| `install-prerequisites.sh` | Verifies Python 3.12+, Node 20+, npm, and git are present; prints platform-specific install commands for what's missing. Called by `install.sh` Step 1. |
+| `install-prerequisites.sh` | Verifies Python 3.11+, Node 20+, npm, and git are present; prints platform-specific install commands for what's missing. Called by `install.sh` Step 1. |
 
 The shared templates (`AGENTS.md`, `MEMORY.md`, `context.env`,
 `assistant_config.json`, `manager.json`, `sync.env`, `cli-runtime/`) live one

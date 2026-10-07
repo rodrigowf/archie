@@ -78,7 +78,7 @@ The wrappers at the project root (`install.sh`, `install-with-agent.sh`, `instal
 
 ## Prerequisites
 
-- **Python 3.12+**
+- **Python 3.11+** (3.12 recommended; the always-on server runs 3.11, and the per-OS prerequisite checkers accept 3.11 or newer)
 - **Node.js 22.12+** for the web frontend's toolchain (`apps/web/package.json` `engines`); Qwen Code and Gemini CLI also depend on Node
 - **npm** (comes with Node)
 - **git**
@@ -134,7 +134,7 @@ Which agent CLI runs your chats?  You can pick more than one.
 - **Qwen Code** (Alibaba) — open-weights models served via the OpenAI-compatible endpoint, OAuth or DashScope key.
 - **Gemini CLI** (Google) — OAuth or `GEMINI_API_KEY`.
 
-If you pick multiple, the UI's Session Provider selector lets you switch per chat.  Default for new chats is set in `assistant_config.json` (`provider` field) and is whichever you picked first.
+If you pick multiple, the UI's Session Provider selector lets you switch per chat.  Default for new chats is set in `assistant_config.json` (`provider` field): the first installed harness in the order Claude, Qwen, Gemini.
 
 ### Axis 2: Orchestrator backends
 
@@ -209,18 +209,18 @@ Run the per-OS prereq checker (`install/linux/install-prerequisites.sh`, `instal
 Then create the symlink trees:
 
 - `context/skills/` — symlinks to every `shared/skills/*/`
-- `context/scripts/` — symlinks to every `shared/scripts/*`
+- `context/scripts/` — symlinks to every `shared/scripts/*` (except `__pycache__`)
 - `context/agents/` — symlinks to every `shared/agents/*`
 
-These let `context/` reach the public framework while keeping personal additions in the same directory.
+These let `context/` reach the public framework while keeping personal additions in the same directory.  Existing entries are never replaced.  After adding something to `shared/`, re-run `shared/scripts/setup-context.sh` to link it.
 
 ### Step 3 (a, b, c): Per-harness SDK config dirs
 
 For each enabled harness, create the project-local config dir the CLI expects:
 
-- **Claude** — `.claude_config/` symlinked into `context/`.  Specifically: `.claude_config/projects/<mangled-cwd>` → `context/`, plus `.claude_config/skills` → `context/skills`, `.claude_config/agents` → `context/agents`.
+- **Claude** — `.claude_config/` symlinked into `context/`.  Specifically: `.claude_config/projects/<mangled-cwd>` → `context/`, plus `.claude_config/skills` → `context/skills` and `.claude_config/agents` → `context/agents` (the bundled CLI finds skills and agents under `$CLAUDE_CONFIG_DIR`, which `run.sh` points at `.claude_config/`).
 - **Qwen** — `~/.qwen/projects/<mangled-cwd>` → `context/`.  Qwen mangles the cwd by replacing `/` with `-`, e.g. `-home-rodrigo-assistant`.
-- **Gemini** — `~/.gemini/tmp/<label>/` symlinked similarly.  Gemini uses a hash-based label rather than a mangled path.
+- **Gemini** — `~/.gemini/tmp/<label>/` → `context/`, so the CLI writes `context/chats/session-*.jsonl`.  `<label>` is the one `~/.gemini/projects.json` assigns to the repo path, or the repo folder name when the CLI has not registered it yet (that is what the CLI uses on first run).
 
 The exact mangling logic is in the per-OS installer — read it there.  Idempotent: re-runs leave existing symlinks alone.
 
@@ -318,8 +318,8 @@ If `--with-claude` and `~/.claude/.credentials.json` exists, symlink `.claude_co
 Copy `install/assistant_config.json` to the repo root, substituting:
 
 - `@@SCRIPT_DIR@@` → the absolute path to the project root
-- `@@DEFAULT_PROVIDER@@` → `claude` if `--with-claude`, else `qwen` (whichever was picked first)
-- `@@DEFAULT_MODEL@@` → provider-appropriate (Claude Sonnet vs. Qwen 3 Plus)
+- `@@DEFAULT_PROVIDER@@` → the first installed harness in the order `claude`, `qwen`, `gemini`
+- `@@DEFAULT_MODEL@@` → the orchestrator's default model: `qwen3.6-plus` when the default provider is `qwen`, otherwise Claude Sonnet
 
 ### Step 11: .manager.json
 

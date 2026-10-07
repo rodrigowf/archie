@@ -5,7 +5,7 @@ in memory/files.json. Near-duplicate files (sharing half their chunks, plus the 
 writers flagged) count as correct for each other.
 
 Searches utils/memory_index (--db picks an index file). The old chroma baseline was recorded
-in docs/history-search/RESULTS.md before chroma was retired.
+in docs/projects/history-search/RESULTS.md before chroma was retired.
 
 Usage: context/scripts/run.sh shared/scripts/history_eval/memory_eval.py --split dev --name x [--db index/memory_x.sqlite3]
 """

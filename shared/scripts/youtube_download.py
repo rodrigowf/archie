@@ -2,7 +2,7 @@
 """
 Usage: youtube_download.py <url> [--mode video|audio|both] [--output-dir DIR]
                                    [--audio-format wav|flac|mp3|opus]
-                                   [--video-quality best|1080p|720p|480p]
+                                   [--video-quality best|2160p|1440p|1080p|720p|480p]
                                    [--keep-source]
 
 Description: Download a YouTube video and/or extract audio for content creation.
@@ -20,9 +20,11 @@ Examples:
 
 Notes:
   - Avoid output-dir inside `context/` — context-sync interferes with downloads.
-  - On the Jetson (ffmpeg < 4.3) Opus-in-MP4 is not supported, so the script
-    automatically falls back to MKV when picking the best audio (Opus 153kbps).
-    On the Laptop (ffmpeg >= 4.3) MP4 with Opus works fine.
+  - The script checks the ffmpeg MAJOR version: ffmpeg < 4 (the Jetson has 3.4)
+    can't put Opus in MP4, so it falls back to MKV when picking the best audio
+    (Opus 153kbps). With ffmpeg >= 4 (the Laptop) MP4 with Opus works fine.
+  - --video-quality caps the SHORT edge: 1080p limits a landscape video's
+    height and a portrait video's width, so portrait clips keep full resolution.
   - Audio defaults to WAV (PCM 16-bit, 48kHz stereo) — Reaper-ready.
 """
 
@@ -60,34 +62,42 @@ def ffmpeg_major_version() -> int:
         sys.exit("Error: ffmpeg not found. Install it via your package manager.")
 
 
-def height_filter(quality: str) -> str:
-    """Build yt-dlp height constraint, accounting for portrait videos.
+def quality_filters(quality: str) -> list[str]:
+    """yt-dlp filters capping the SHORT edge of the video at N.
 
-    For portrait videos `height` refers to the long edge, so we constrain by
-    the short edge via `width<=N`. yt-dlp accepts both, so we OR them together.
+    `--video-quality 1080p` means "1080p-class": landscape videos are capped by
+    height and portrait videos by width, so a 1080x1920 portrait clip still
+    downloads at full resolution. yt-dlp has no OR inside one filter, so this
+    returns one alternative per orientation (joined with `/` by the callers);
+    a video is only ever one orientation, so only one alternative can match.
+    `best` applies no cap.
     """
     if quality == "best":
-        return ""
+        return [""]
     n = quality.rstrip("p")
-    return f"[height<={n}][width<={n}]"
+    return [
+        f"[aspect_ratio>=1][height<={n}]",  # landscape / square: short edge = height
+        f"[aspect_ratio<1][width<={n}]",    # portrait: short edge = width
+    ]
 
 
 def build_video_format(quality: str) -> str:
     """Format selector for best H.264 video (most editor-compatible)."""
-    constraint = height_filter(quality)
-    return (
-        f"bestvideo{constraint}[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/"
-        f"best{constraint}[ext=mp4]"
+    filters = quality_filters(quality)
+    return "/".join(
+        [f"bestvideo{c}[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]" for c in filters]
+        + [f"best{c}[ext=mp4]" for c in filters]
     )
 
 
 def build_best_format(quality: str, ffmpeg_major: int) -> str:
     """Best video + best audio. On old ffmpeg, force AAC for MP4 compatibility."""
-    constraint = height_filter(quality)
+    filters = quality_filters(quality)
     if ffmpeg_major >= 4:
-        return (
-            f"bestvideo{constraint}[ext=mp4][vcodec^=avc]+bestaudio/"
-            f"bestvideo{constraint}+bestaudio/best{constraint}"
+        return "/".join(
+            [f"bestvideo{c}[ext=mp4][vcodec^=avc]+bestaudio" for c in filters]
+            + [f"bestvideo{c}+bestaudio" for c in filters]
+            + [f"best{c}" for c in filters]
         )
     return build_video_format(quality)
 

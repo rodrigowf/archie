@@ -1,7 +1,7 @@
 /**
  * W-04 gallery sections: navigation (rail, tab strip with the all-tabs menu, top app bar, drawer,
  * session switcher sheet, tablet list-pane overlay, M3 tabs, tree) and overlays (menu, dialogs,
- * sheets, snackbars, tooltip, busy overlay). Frames mirror docs/frontend-refactor/mockups.
+ * sheets, snackbars, tooltip, busy overlay). Frames mirror docs/projects/frontend-refactor/mockups.
  * Static specimens use each overlay's `inline` mode; the "Try it" buttons open the real modal
  * versions (focus trap, Escape, Back, scroll lock).
  *

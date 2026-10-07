@@ -26,10 +26,10 @@ if command -v python3 &> /dev/null; then
     PY_MAJOR=$(echo "$PY_VERSION" | cut -d. -f1)
     PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
 
-    if [ "$PY_MAJOR" -ge 3 ] && [ "$PY_MINOR" -ge 12 ]; then
+    if [ "$PY_MAJOR" -ge 3 ] && [ "$PY_MINOR" -ge 11 ]; then
         info "Python $PY_VERSION"
     else
-        error "Python $PY_VERSION (need 3.12+)"
+        error "Python $PY_VERSION (need 3.11+)"
         MISSING+=("python")
     fi
 else
@@ -106,7 +106,7 @@ if [ ${#MISSING[@]} -gt 0 ]; then
     for item in "${MISSING[@]}"; do
         case $item in
             python)
-                echo "  Python 3.12+:"
+                echo "  Python 3.11+ (3.12 recommended):"
                 case $OS in
                     macos)  echo "    brew install python@3.12" ;;
                     debian) echo "    sudo apt install python3.12 python3.12-venv" ;;

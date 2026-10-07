@@ -35,7 +35,10 @@ ssh-copy-id -i ~/.ssh/id_ed25519 rodrigo@192.168.0.28    # Jetson → Desktop
 
 ```bash
 cd ~/assistant
-# infra/sync/config.env is already configured for the Desktop → Jetson direction
+# config.env is gitignored (per machine), so create it first from the template
+# and point it at the Jetson (REMOTE_HOST=192.168.0.200):
+cp install/sync.env infra/sync/config.env
+$EDITOR infra/sync/config.env
 bash infra/sync/install.sh
 ```
 
@@ -61,8 +64,7 @@ infra/sync/
 ├── context-sync.sh          # Main sync script (same on both machines)
 ├── config.env               # Local machine config (gitignored)
 ├── config.jetson.env        # Jetson config (copy to Jetson as config.env)
-├── context-sync.service     # systemd unit for Desktop
-├── context-sync.jetson.service  # systemd unit for Jetson
+├── context-sync.service     # systemd user unit (same on both machines)
 ├── install.sh               # Installer script
 └── README.md                # This file
 ```
@@ -70,7 +72,7 @@ infra/sync/
 The template for `config.env` lives at the repo root as `install/sync.env` —
 copy it into `infra/sync/config.env` and fill it in.
 
-The systemd units run `%h/assistant/infra/sync/context-sync.sh %h/assistant/infra/sync/config.env`
+The systemd unit runs `%h/assistant/infra/sync/context-sync.sh %h/assistant/infra/sync/config.env`
 (`install.sh` expands `%h` to `$HOME`). After moving the folder, re-run `bash infra/sync/install.sh`
 so the installed unit in `~/.config/systemd/user/` points at the new path.
 

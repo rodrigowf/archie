@@ -13,7 +13,7 @@ import hashlib
 import logging
 from pathlib import Path
 
-from utils.paths import get_chats_dir, get_memory_dir, get_sessions_dir, get_project_dir
+from utils.paths import get_chats_dir, get_memory_dir, get_memory_link_targets, get_sessions_dir, get_project_dir
 
 logger = logging.getLogger(__name__)
 
@@ -89,9 +89,12 @@ class MemoryWatcher:
         # the event in the cancel path, anyio's CancelScope retries
         # cancellation forever and burns 100% CPU. Set it in finally so it
         # fires for both CancelledError and any other exit.
+        # The memory tree links into docs/ (context/memory/archie); inotify doesn't follow the
+        # symlink, so watch the linked directories too.
+        watched = [memory_dir, *(d for d in get_memory_link_targets() if d.is_dir())]
         try:
             async for changes in awatch(
-                memory_dir,
+                *watched,
                 debounce=self._debounce_ms,
                 stop_event=self._stop_event,
             ):

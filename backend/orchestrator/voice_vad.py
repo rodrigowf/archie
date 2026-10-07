@@ -9,7 +9,7 @@ detection on the PCM stream before forwarding to DashScope.
 This module wraps the Silero VAD v5 ONNX model directly via onnxruntime —
 the upstream `silero-vad` pypi package transitively requires torch +
 torchaudio (~600MB) for tooling we don't need. The model itself is
-vendored at `vendor/silero_vad_v5.onnx` (2.3MB, MIT).
+vendored at `backend/vendor/silero_vad_v5.onnx` (~1.3 MB, MIT).
 
 Public API:
 
@@ -26,13 +26,15 @@ Silero expects, runs each through the model, and yields state-transition
 events when the smoothed speech probability crosses the threshold.
 
 The detection logic mirrors Silero's official `VADIterator`:
-- `threshold` (default 0.35) — speech is "on" when prob crosses up; "off"
-  when prob falls below `threshold - 0.15` (= 0.20, hysteresis to avoid
+- `threshold` (default 0.28) — speech is "on" when prob crosses up; "off"
+  when prob falls below `threshold - 0.15` (= 0.13, hysteresis to avoid
   chatter). Tuned down from Silero's vanilla 0.5 default after 2026-06-04
   far-field tests: at arm's length the user's RMS dipped to ~600-1000
   and Silero probability never sustained above 0.5, so speech_started
-  fired late or not at all. 0.35 / 0.20 catches the far-field case
-  without false-positives from typical room noise.
+  fired late or not at all. First lowered to 0.35 / 0.20, then to
+  0.28 / 0.13 on 2026-06-05 (91eb6dd) because speech from arm's length
+  still dipped under 0.35 and committed turns mid-sentence. Overridable
+  per install via `voice_vad_threshold` in `assistant_config.json`.
 - `min_silence_duration_ms` (default 2500) — once below the off-threshold,
   wait this long before emitting `speech_stopped`. Long enough to ride
   through breathing pauses and "uh"-style hesitations mid-sentence
@@ -114,7 +116,7 @@ class VoiceVAD:
         if not _MODEL_PATH.exists():
             raise FileNotFoundError(
                 f"Silero VAD model not found at {_MODEL_PATH}. "
-                "Run scripts/download-silero-vad.sh or re-clone."
+                "It is vendored in git; restore it or re-clone."
             )
 
         self._input_sample_rate = input_sample_rate

@@ -135,7 +135,7 @@ _OPENAI_VOICES: list[VoiceEntry] = [
 # 47 multilingual presets + 7 Chinese-dialect presets. Voice-cloning is
 # also supported on Plus but uses a separate API path; only presets here.
 _QWEN_PLUS_VOICES: list[VoiceEntry] = [
-    {"id": "Tina",        "label": "Tina",        "description": "Female, warm (default)"},
+    {"id": "Tina",        "label": "Tina",        "description": "Female, warm"},
     {"id": "Cindy",       "label": "Cindy",       "description": "Female, Taiwanese-accented young woman"},
     {"id": "Liora Mira",  "label": "Liora Mira",  "description": "Female, gentle"},
     {"id": "Sunnybobi",   "label": "Sunnybobi",   "description": "Female, cheerful"},
