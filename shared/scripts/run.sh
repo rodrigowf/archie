@@ -25,7 +25,7 @@ fi
 
 if [ ! -f "$VENV_PYTHON" ]; then
     echo "Error: Virtual environment not found at $PROJECT_DIR/.venv/" >&2
-    echo "Run: python3 -m venv $PROJECT_DIR/.venv && $PROJECT_DIR/.venv/bin/pip install chromadb sentence-transformers claude-agent-sdk" >&2
+    echo "Run: python3 -m venv $PROJECT_DIR/.venv && $PROJECT_DIR/.venv/bin/pip install -r $PROJECT_DIR/backend/requirements.txt" >&2
     exit 1
 fi
 

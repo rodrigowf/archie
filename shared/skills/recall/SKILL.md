@@ -16,9 +16,9 @@ Search the memory files and the past conversations for information related to th
 
 ## What Gets Searched
 
-- **memory**: the memory files under context/memory/ (semantic search)
+- **memory**: the memory notes under context/memory/ — keyword + meaning (English and Portuguese)
 - **history**: past conversation transcripts from every harness (Claude Code, orchestrator,
-  Qwen, Gemini) — hybrid keyword + semantic search, grouped by session
+  Qwen, Gemini) — keyword + meaning, grouped by session, each with an LLM-written summary
 
 The indexes are updated automatically:
 - Memory: indexed immediately when files change (file watcher)
@@ -34,16 +34,20 @@ The indexes are updated automatically:
    For memory: context/scripts/run.sh context/scripts/search.py <query> --collection memory --n <count>
    For history: context/scripts/run.sh context/scripts/search.py <query> --collection history --n <count>
 
-   History options: `--after YYYY-MM-DD`, `--before YYYY-MM-DD`, `--exclude <session_id>` (pass
-   ${CLAUDE_SESSION_ID} to leave out the current conversation), `--json`.
+   Both accept `--also "<another phrasing>"` (e.g. the same request in Portuguese) and `--json`.
+   Memory: `--folder <folder>`. History: `--when "last week"` (or "em junho", "2026-05"),
+   `--kind orchestrator|agent`, `--rerank` (LLM re-rank, best for "which conversation was it"),
+   `--exclude <session_id>` (pass ${CLAUDE_SESSION_ID} to leave out the current conversation).
 
 3. Review the results.
-   - Memory results: `text`, `file_path`, `start_line` / `end_line`, `distance` (lower = more relevant).
-     Read the file at those lines for full context.
+   - Memory results: one block per note with title, `relevance` (strong/weak), the matching
+     sections with their line ranges (read the file at those lines for full context), and the
+     conversations the note was written from.
    - History results: one block per session with title, session id, date, `relevance`
      (`strong` or `weak`) and up to 3 matching excerpts, each with its turn number and
-     whether it matched by keyword, meaning, or both. To read around an excerpt:
-     context/scripts/run.sh -c "import sys; sys.path.insert(0,'backend'); from utils.history_index import read_turns; import json; print(json.dumps(read_turns('<session_id>', turn=<turn>), indent=1, ensure_ascii=False))"
+     whether it matched by keyword, meaning, or both; plus the session summary, the memory notes
+     already written from it, and the best memory notes for the query. To read around an excerpt:
+     context/scripts/run.sh -c "from utils.history_nav import read_conversation; import json; print(json.dumps(read_conversation('<session_id>', turn=<turn>), indent=1, ensure_ascii=False))"
 
 4. Synthesize and present the findings to the user, citing memory files or session titles/dates.
    If every history result is `weak`, say nothing clearly matching was found.
@@ -51,7 +55,6 @@ The indexes are updated automatically:
 ## Notes
 
 - If the index is empty, run: context/scripts/run.sh context/scripts/index-memory.py
-- If the history index is missing, run: context/scripts/run.sh context/scripts/index-memory.py --history-only
-- Memory distance interpretation: < 0.3 = highly relevant, 0.3-0.7 = relevant, > 1.0 = likely noise
+- If an index is missing, run: context/scripts/run.sh context/scripts/index-memory.py
 - Memory files are at: context/memory/
 - Session files are at: context/*.jsonl and context/chats/*.jsonl

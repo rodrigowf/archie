@@ -684,7 +684,7 @@ async def _handle_start(
         "store": ws.app.state.store,
         "pool": pool,
         "project_dir": project_dir,
-        "index_dir": str(Path(project_dir) / "index" / "chroma"),
+        "index_dir": str(Path(project_dir) / "index"),
     }
 
     session = OrchestratorSession(

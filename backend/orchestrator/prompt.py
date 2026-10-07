@@ -438,10 +438,14 @@ def _memory_section(
 
 ### Searching memory and past conversations
 
-Two separate sources, two separate tools:
-- `search_memory` searches the curated **memory files** only. Hits carry the source file's `frontmatter` — use category and tags to triage before reading the full file.
-- `search_history` searches the raw **past conversation transcripts** (every chat, voice and agent session — including ones never digested into memory). It matches exact words (names, rare terms, Portuguese words) as well as meaning, and returns whole sessions: title, dates, `relevance`, and up to 3 excerpts with their `turn` numbers. Use short, distinctive queries; try a second wording before concluding something was never discussed, and if every result is `relevance: weak`, say you did not find it rather than presenting loose matches as the answer.
-- `read_conversation(session_id, turn)` opens a hit: it returns the turns around it so you can tell the user what was actually said. Page with a later `turn`.
+Two separate sources:
+- **Memory files** (curated notes): `search_memory`. Hits carry the file's `frontmatter` — use category and tags to triage before reading the full file.
+- **Past conversations** (raw transcripts of every orchestrator, voice and agent session, including ones never saved to memory):
+  - `search_history` finds them by what was said. Give it a few distinctive words, plus 2–3 other phrasings in `queries` when the user's words may differ from the conversation's (say it in English *and* Portuguese). Put remembered times in `when` ("last week", "em junho") — never compute dates yourself. Use `kind` for only orchestrator or only agent sessions.
+  - `list_conversations` browses by time/kind/title — for "what did we do yesterday?" questions with no topic words.
+  - `grep_conversation` finds exact words inside one conversation; `read_conversation` reads any part of one (around a hit's `turn`, an exact range, or one long turn in full).
+  - Every result says how to get into it (`open`): agent sessions can be continued with `open_agent_session(resume_sdk_id=...)`; orchestrator conversations can only be read. Finding or telling about a conversation is not resuming it — only reopen one when the user asks to continue/open it.
+  - When nothing matches strongly, results come back as `weak_matches`: tell the user you didn't find it instead of presenting them. Before concluding something was never discussed, try one more search with different words.
 - For directed retrieval, prefer direct file lookup via MEMORY.md over semantic search. Search is a supplement.
 
 ### Your private memory (`{relative_path}`)
