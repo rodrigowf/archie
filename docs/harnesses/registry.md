@@ -141,14 +141,41 @@ harness live in one `context/.titles.json`.
 per-session config `provider` → provider detected from the resumed JSONL → `assistant_config.json`
 `provider`. The harness model comes from the per-session `harness_model` or
 `assistant_config.json` `harness_model[<provider>]` ([per-session config](../architecture/agent-sessions.md)).
+Harness options come from `assistant_config.json` `harness_options[<provider>]` overlaid key by key
+with the per-session `harness_options` (`_resolve_harness_options()`, `merge_options()`); the result
+is `ManagerConfig.harness_options`, already validated and without unset keys.
+
+## Harness catalog (models + options)
+
+`HarnessSpec.catalog_loader` returns a `HarnessCatalog` (`backend/manager/harness_catalog.py`): the
+models the harness can run (`HarnessModel`: id, label, context window, thinking/vision support,
+per-model effort levels, source `builtin`/`settings`/`live`/`cli`) and the options it accepts
+(`HarnessOption`: key, label, kind `select`/`toggle`/`number`, choices, informational default,
+optional `models` restriction; a `Choice` can carry its own `models` restriction too). Shared keys:
+`effort` (reasoning effort) and `thinking`; anything else is harness-specific. `get_catalog()` caches
+each catalog for 5 minutes; a loader may hit a models API or the CLI but must not raise for an
+unreachable upstream (it returns its builtin list plus a `warnings` entry), and a loader that does
+raise yields an empty catalog with a warning.
+
+Values: a missing key means "pass nothing, let the CLI decide". `PUT /api/config` merges
+`harness_options[<provider>]` key by key (`null` deletes a key); `PUT /api/sessions/{id}/config`
+replaces the session's map, where an absent key inherits the global value and a `null` value forces
+the CLI default. Both validate against the catalog (`validate_options()`, 400 on unknown keys or
+values). The session manager maps the keys it knows onto CLI flags, env or SDK options, ignores the
+rest, and must respect the `models` restrictions.
+
+The orchestrator reads catalogs with `list_harness_catalog` and sets defaults through
+`update_assistant_config` (`harness_model`, `harness_options`).
 
 ## Provider config endpoints and the UI
 
 - `GET /api/config/providers` → `{"providers": [{"id", "label", "description"}, …]}` straight from
   the registry.
+- `GET /api/config/harnesses[?refresh=true]` → `{"harnesses": [{"id", "label", "description",
+  "catalog"}, …]}` — every harness with its catalog (or `null`); `GET /api/config/harness/{id}/catalog`
+  for one.
 - `GET /api/config/harness/qwen/models` → Qwen's model catalog from `~/.qwen/settings.json`
-  (`backend/manager/qwen/models.py`). Claude and Gemini have no catalog endpoint; their model field
-  is free text.
+  (`backend/manager/qwen/models.py`); kept for older clients.
 
 Web (`apps/web/`): `services/http/endpoints/config.ts` fetches both; the **Default harness** picker
 is in `features/settings/pages/ModelPages.tsx` (`AgentSessionsForm`) and the per-session override
@@ -175,7 +202,7 @@ These still name harnesses literally. None of them blocks a new harness.
 ## How to add a harness
 
 1. **Subpackage** `backend/manager/<x>/` with `__init__.py`, `adapter.py`, `session.py`
-   (+ `models.py` if the CLI has a model catalog).
+   (+ `catalog.py` with a `catalog_loader` for the settings UIs — models and options).
 2. **Adapter** (`adapter.py`): subclass `ProviderAdapter`; make `detect_provider` reject the other
    harnesses' files (they are tried in registration order); normalize to the content-block shape;
    call `register_provider(...)` and `register_harness(HarnessSpec(...))` at module scope. Fill every
