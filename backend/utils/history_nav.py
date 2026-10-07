@@ -11,7 +11,7 @@ give an agent precise access once it knows roughly where to look:
   by characters, so nothing in a transcript is out of reach.
 
 Every session entry says how to get into it (``open``): agent sessions (Claude, Qwen, Gemini)
-can be resumed with ``open_agent_session(resume_sdk_id=…)``; orchestrator sessions can only be
+can be resumed with ``resume_conversation(session_id=…)``; orchestrator sessions can only be
 read.
 """
 from __future__ import annotations
@@ -43,7 +43,7 @@ def open_hint(kind: str | None, session_id: str) -> dict:
         }
     return {
         "can_resume": True,
-        "how": f"open_agent_session(resume_sdk_id='{session_id}') to continue it, or read_conversation(session_id='{session_id}') to read it",
+        "how": f"resume_conversation(session_id='{session_id}') to continue it, or read_conversation(session_id='{session_id}') to read it",
     }
 
 

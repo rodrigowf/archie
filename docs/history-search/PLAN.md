@@ -58,3 +58,20 @@ session that can read every file.
    worth the latency.
 6. **Multilingual embedding model** — only if Portuguese recall still lags on the eval.
 7. **Held-out test, deploy, docs.**
+
+## Status (2026-10-06, end of day)
+
+Done and deployed (Jetson, commit `934fe7d` via `local` `22cc377`): stages 1, 2, 2b, 3, 5;
+model switch (stage 6) done early; stage 4 measured and not kept (no clear gain). Chroma retired.
+
+Open:
+- ~~Re-ranker on the held-out test set~~ done after credits were restored: top-1 0.70, hit@5
+  0.92, MRR 0.80, negatives falsely strong 0.13 (RESULTS.md). Paid evals are now budgeted
+  per run (the realtime-model agent runs cost ~$15 in total).
+- Strength thresholds generalise worse than on dev (test: 0.27 of negatives falsely strong
+  without re-rank) — revisit with more negatives rather than re-tuning on the 15 test ones.
+- Android build with the history cards not yet installed on the phone (no adb device).
+- The Jetson hard-reset once ~5 min after the deploy restart with nothing in the logs
+  (journal is not persistent); stable since. Worth enabling a persistent journal.
+- Retired chroma folders (`index/chroma`, laptop 1.8 GB / Jetson 2.1 GB) and the Jetson's
+  `index/history.sqlite3.minilm-backup` can be deleted.

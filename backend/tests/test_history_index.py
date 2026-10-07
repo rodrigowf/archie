@@ -371,6 +371,6 @@ class TestSearchStage2:
         })
         by_id = {x["session_id"]: x for x in _search(s, "tuya lamps automation")["sessions"]}
         assert by_id["o1"]["open"]["can_resume"] is False and "read_conversation" in by_id["o1"]["open"]["how"]
-        assert by_id["c1"]["open"]["can_resume"] is True and "resume_sdk_id='c1'" in by_id["c1"]["open"]["how"]
+        assert by_id["c1"]["open"]["can_resume"] is True and "resume_conversation(session_id='c1')" in by_id["c1"]["open"]["how"]
         assert by_id["c1"]["cwd"] == "/home/rodrigo/assistant" and by_id["c1"]["file"].endswith("c1.jsonl")
         assert by_id["c1"]["kind"] == "claude"

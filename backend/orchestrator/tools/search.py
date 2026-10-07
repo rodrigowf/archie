@@ -344,7 +344,7 @@ def _time_window(query: str, when: str | None) -> tuple[dict | None, str]:
         "Matches exact words (names, rare terms, Portuguese) and meaning. Returns sessions, best "
         "first, each with title, kind, dates, working directory, `relevance` (strong/weak), up to "
         "3 excerpts with their `turn` numbers, and `open` (how to get into it: agent sessions can "
-        "be resumed with open_agent_session(resume_sdk_id); orchestrator ones read with "
+        "be resumed with resume_conversation(session_id); orchestrator ones read with "
         "read_conversation). Tips: pass 2–3 different phrasings in `queries` (e.g. English and "
         "Portuguese, or different words for the same thing) — they are searched together; put "
         "remembered times in `when` ('last week', 'em junho', '2026-05') — dates are worked out "
