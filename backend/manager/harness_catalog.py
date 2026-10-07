@@ -55,11 +55,17 @@ class Choice:
     value: str
     label: str
     description: str | None = None
+    # Restrict this value to these model ids (None = every model the option
+    # applies to).  The UI hides it for other models; the session manager
+    # must not send it for them either.
+    models: tuple[str, ...] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {"value": self.value, "label": self.label}
         if self.description:
             out["description"] = self.description
+        if self.models is not None:
+            out["models"] = list(self.models)
         return out
 
 

@@ -29,12 +29,20 @@ import re
 # ``claude-sonnet`` etc.  Numbers are the public documented limits as of
 # the date noted next to each entry.
 _STATIC_WINDOWS: list[tuple[re.Pattern[str], int]] = [
-    # --- Anthropic Claude (claude.com/docs/about-claude/models, 2026-05) ---
-    # Claude 4.x family — 200K standard, 1M with the long-context beta header
-    # (orchestrator does NOT currently set that header, so 200K is right).
+    # --- Anthropic Claude (GET /v1/models max_input_tokens, 2026-10-07) ---
+    # Claude Code's ``[1m]`` suffix selects the 1M variant explicitly.
+    (re.compile(r"^claude-.*\[1m\]$", re.I),                1_000_000),
+    # Every 5.x model and Opus/Sonnet 4.6+ take 1M natively (no beta header).
+    (re.compile(r"claude-(opus|sonnet|haiku|fable)-5", re.I), 1_000_000),
+    (re.compile(r"claude-(opus|sonnet)-4-[6-9](?!\d)", re.I), 1_000_000),
+    # Claude 4.0–4.5 — 200K standard, 1M only with the long-context beta
+    # header (orchestrator does NOT set it, so 200K is right).
     (re.compile(r"claude-(opus|sonnet|haiku)-4", re.I), 200_000),
     (re.compile(r"claude-(opus|sonnet|haiku)-3", re.I), 200_000),
-    (re.compile(r"^(opus|sonnet|haiku)$", re.I),       200_000),
+    # Claude Code aliases (CLI 2.1.292): opus → Opus 5.5, sonnet/default →
+    # Sonnet 5.5, fable → Fable 5.1 (all 1M); haiku → Haiku 4.5 (200K).
+    (re.compile(r"^(opus|sonnet|fable|default)(\[1m\])?$", re.I), 1_000_000),
+    (re.compile(r"^haiku$", re.I),                     200_000),
 
     # --- OpenAI (platform.openai.com/docs/models, 2026-05) ---
     # GPT-5 family (incl. gpt-5.5) — 400K context.
@@ -88,7 +96,10 @@ def context_window_for(provider: str | None, model: str | None) -> int | None:
             return 1_000_000   # Qwen3.x baseline
         if provider == "gemini":
             return 1_000_000
-        if provider in ("claude", None):
+        if provider == "claude":
+            # The CLI default (no --model) is Sonnet 5.5 since CLI 2.1.29x.
+            return 1_000_000
+        if provider is None:
             return 200_000
         return None
 

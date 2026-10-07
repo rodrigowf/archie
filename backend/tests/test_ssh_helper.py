@@ -363,3 +363,39 @@ def test_cleanup_is_idempotent(tmp_path):
     cleanup_ssh_wrapper_script(path)
     cleanup_ssh_wrapper_script(path)   # second call must not raise
     cleanup_ssh_wrapper_script(None)   # nor a None
+
+
+@pytest.mark.parametrize("shell", ["/bin/sh", "/bin/bash"])
+def test_wrapper_round_trips_awkward_args(tmp_path, shell):
+    """Regression: an argument containing an apostrophe used to break the
+    wrapper ("Unterminated quoted string") because sed received ``'\\''``
+    with one backslash too few.  Run the real wrapper with ``ssh`` swapped
+    for ``sh -c`` and the remote CLI for an argv dumper; every argument
+    (apostrophes, double quotes, ``$``, backticks, newlines incl. trailing,
+    empty, dash-leading) must arrive byte-identical."""
+    import json
+    import os
+    import subprocess
+    from pathlib import Path
+
+    if not Path(shell).exists():
+        pytest.skip(f"{shell} not available")
+    dumper = tmp_path / "dump.py"
+    dumper.write_text("#!/usr/bin/env python3\nimport sys, json\nprint(json.dumps(sys.argv[1:]))\n")
+    dumper.chmod(0o755)
+    cmd = RemoteCommand(
+        project_dir=str(tmp_path), remote_cli=str(dumper), env={"K": "it's"},
+    ).render_shell()
+    path = write_ssh_wrapper_script(ssh_argv=["sh", "-c"], remote_cmd=cmd, prefix="test")
+    args = [
+        "x'y", "don't", "a'b'c''", "'", "say \"hi\"", "$HOME", "`id`", "$(id)",
+        "back\\slash", "multi\nline", "trailing\n\n", "", "-dash-leading", "--flag=v'q",
+    ]
+    try:
+        out = subprocess.run(
+            [shell, path, *args], capture_output=True, text=True, timeout=10, env=dict(os.environ),
+        )
+        assert out.returncode == 0, out.stderr
+        assert json.loads(out.stdout) == args
+    finally:
+        cleanup_ssh_wrapper_script(path)

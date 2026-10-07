@@ -287,6 +287,12 @@ def _load_claude_kill_helper():
     return kill_claude_subprocess
 
 
+def _load_claude_catalog():
+    # Lazy: catalog.py pulls in httpx only when the settings UI asks.
+    from .catalog import load_claude_catalog
+    return load_claude_catalog()
+
+
 def _claude_jsonl_candidates(session_id: str):
     # Claude writes to the top-level context dir (context/<id>.jsonl).
     # Kept as a single-element list so the resolver contract stays uniform
@@ -309,4 +315,5 @@ register_harness(HarnessSpec(
     npm_package="@anthropic-ai/claude-code",
     cli_binary="claude",
     env_keys=(),
+    catalog_loader=_load_claude_catalog,
 ))

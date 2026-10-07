@@ -428,9 +428,20 @@ def write_ssh_wrapper_script(
         #!/bin/sh
         _q=''
         for _a in "$@"; do
-          _q="${_q} '$(printf '%s' "$_a" | sed "s/'/'\\''/g")'"
+          _e=$(printf '%sx' "$_a" | sed "s/'/'\\\\\\\\''/g")
+          _q="${_q} '${_e%x}'"
         done
         exec ssh ... "<remote_cmd>${_q}"
+
+    Each embedded single quote must become the POSIX close-escape-reopen
+    sequence (quote, backslash, quote, quote).  The sed program sits in
+    double quotes, which halve the backslashes once, and sed's replacement
+    halves them again — so the script text needs four.  The wrapper used
+    to carry two, sed printed three bare quotes, and any argument with an
+    apostrophe broke the remote command ("Unterminated quoted string").
+    The trailing ``x`` sentinel stops ``$(...)`` from stripping an
+    argument's trailing newlines.  Regression test:
+    ``tests/test_ssh_helper.py::test_wrapper_round_trips_awkward_args``.
 
     *prefix* is included in the tempfile name so the orphan reaper and
     operators can tell which provider's wrapper a stray ``/tmp/...sh``
@@ -446,7 +457,10 @@ def write_ssh_wrapper_script(
         "#!/bin/sh\n"
         "_q=''\n"
         "for _a in \"$@\"; do\n"
-        "  _q=\"${_q} '$(printf '%s' \"$_a\" | sed \"s/'/'\\''/g\")'\"\n"
+        # Shell text (see the docstring for the backslash count):
+        #   _e=$(printf '%sx' "$_a" | sed "s/'/'<4 backslashes>''/g")
+        "  _e=$(printf '%sx' \"$_a\" | sed \"s/'/'\\\\\\\\''/g\")\n"
+        "  _q=\"${_q} '${_e%x}'\"\n"
         "done\n"
         "exec " + ssh_cmd + " \"" + remote_cmd + "${_q}\"\n"
     )
