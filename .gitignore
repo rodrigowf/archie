@@ -42,7 +42,8 @@ context/
 .claude.json.backup.*
 debug/
 !apps/android/**/src/debug/
-projects/
+# Repo-root runtime/media dir only (anchored: docs/projects/ and fixture folders named projects/ are tracked)
+/projects/
 todos/
 plugins/
 
