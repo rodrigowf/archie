@@ -149,3 +149,45 @@ def test_invalid_voice_message_is_not_echoed():
         assert _recv(ws2)["error"] == "invalid_audio"
         assert _recv(ws1)["error"] == "invalid_audio"
     assert session.sent == []
+
+
+def test_switch_conversation_stops_then_tells_only_the_sender(monkeypatch):
+    """switch_conversation over the real route + pool: every watcher sees the orchestrator close,
+    only the socket that asked gets orchestrator_switch, and it comes after the close."""
+    from types import SimpleNamespace
+
+    from orchestrator.tools import agent_sessions
+
+    monkeypatch.setattr(agent_sessions, "SWITCH_SETTLE_S", 0)
+    client, session = _client_with_orchestrator()
+    pool = client.app.state.pool
+    store = MagicMock()
+    store.get_session_info.return_value = SimpleNamespace(is_orchestrator=True, title="Lamps chat")
+    session.local_id, session.is_busy, session.voice_owner_ws, session.last_input_ws = "orch-1", False, None, None
+
+    async def _stop():
+        session.stopped = True
+
+    session.stop = _stop
+
+    async def _send(text):  # the real send() holds the busy lock for the whole turn
+        session.is_busy = True
+        out = await agent_sessions.switch_conversation({"pool": pool, "store": store}, "past-123")
+        yield TextComplete(text=out)
+        session.is_busy = False
+
+    session.send = _send
+    with client.websocket_connect("/api/orchestrator/chat") as ws1, \
+            client.websocket_connect("/api/orchestrator/chat") as ws2:
+        _start_both(ws1, ws2)
+        ws1.send_text(orjson.dumps({"type": "send", "text": "go back to the lamps chat"}).decode())
+        assert _recv(ws2)["type"] == "user_message"
+        for ws in (ws1, ws2):
+            assert _recv(ws) == {"type": "status", "status": "streaming"}
+            assert '"switching"' in _recv(ws)["text"]
+            assert _recv(ws) == {"type": "status", "status": "idle"}
+            assert _recv(ws) == {"type": "agent_session_closed", "session_id": "orch-1", "is_orchestrator": True}
+        assert _recv(ws1) == {"type": "orchestrator_switch", "sdk_session_id": "past-123", "title": "Lamps chat",
+                              "voice": False, "from_session_id": "orch-1"}
+        assert session.stopped and not pool.has_orchestrator()
+        ws2.send_text(orjson.dumps({"type": "ping"}).decode())  # ws2 got nothing else before this

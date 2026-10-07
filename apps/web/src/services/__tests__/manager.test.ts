@@ -23,6 +23,7 @@ import {
   rewindSession,
   SessionActionError,
   SessionRuntime,
+  setSwitchVoiceHandler,
   startServices,
   stopServices,
   syncPool,
@@ -438,5 +439,86 @@ describe('startServices', () => {
     await flushPromises();
     expect(q.conv.inTurn).toBe(false);
     expect(h.fetch.calls('GET', '/api/visualizations/cast').length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('§6.11a orchestrator_switch (agent-initiated switch)', () => {
+  const SWITCH = { type: 'orchestrator_switch', sdk_session_id: 'PAST', title: 'Trip planning', from_session_id: 'O1' };
+
+  function liveArchie(): { rt: ArchieRuntime; ws: FakeWebSocket } {
+    startServices({ skipInitialSync: true });
+    h.fetch.on('GET', /\/messages/, { messages: [], total_count: 0, has_more: false, start_index: 0 });
+    const rt = openSession({ kind: 'archie', localId: 'O1', focus: true }) as ArchieRuntime;
+    const ws = FakeWebSocket.last(ORCH);
+    subscribe(ws, 'O1');
+    return { rt, ws };
+  }
+
+  /** What the server sends after `switch_conversation` (voice part included). */
+  function serverSwitch(ws: FakeWebSocket, voice: boolean): void {
+    if (voice) {
+      ws.emit({ type: 'voice_ending', reason: 'switch', session_id: 'O1' });
+      ws.emit({ type: 'voice_ended', reason: 'switch', session_id: 'O1' });
+    }
+    ws.emit({ type: 'agent_session_closed', session_id: 'O1', is_orchestrator: true }); // WATCH-1
+    ws.emit({ ...SWITCH, voice });
+  }
+
+  afterEach(() => {
+    setSwitchVoiceHandler(null);
+  });
+
+  it('SW-1: handled at the channel level with the old view attached: old view dropped locally, past conversation resumed focused', () => {
+    const { rt, ws } = liveArchie();
+    openSession({ kind: 'agent', localId: 'A1', focus: true });
+    const voice = vi.fn();
+    setSwitchVoiceHandler(voice);
+    serverSwitch(ws, false);
+    expect(rt.isDisposed).toBe(true);
+    expect(getSessionRuntime('O1')).toBeUndefined();
+    const fresh = getArchieRuntime() as ArchieRuntime;
+    expect(fresh.localId).not.toBe('O1');
+    expect(fresh.conv.ref.sdkId).toBe('PAST');
+    const tabs = tabsStore.getState();
+    expect(tabs.tabs.map((t) => t.id)).toEqual([fresh.localId, 'A1']);
+    expect(tabs.activeId).toBe(fresh.localId);
+    // same socket (T-6); no conflict dialog, no REST close: the server already stopped it
+    expect(FakeWebSocket.all(ORCH)).toHaveLength(1);
+    expect(ws.messages().slice(-1)).toEqual([{ type: 'start', local_id: fresh.localId, resume_sdk_id: 'PAST' }]);
+    expect(closeCalls()).toEqual([]);
+    expect(getOrchestratorRef()).toBeNull();
+    expect(voice).not.toHaveBeenCalled(); // voice:false
+    expect(snackbarStore.getState().queue.map((s) => s.message)).toEqual(['Switched to Trip planning']);
+  });
+
+  it('SW-2: voice:true hands the resumed view to the voice handler (which tells the user)', () => {
+    const { ws } = liveArchie();
+    const voice = vi.fn();
+    setSwitchVoiceHandler(voice);
+    serverSwitch(ws, true);
+    const fresh = getArchieRuntime() as ArchieRuntime;
+    expect(voice).toHaveBeenCalledWith(fresh.localId, 'Trip planning');
+    expect(snackbarStore.getState().queue).toEqual([]);
+  });
+
+  it('SW-1: acts at most once per (sdk_session_id, from_session_id)', () => {
+    const { ws } = liveArchie();
+    const voice = vi.fn();
+    setSwitchVoiceHandler(voice);
+    serverSwitch(ws, true);
+    const fresh = getArchieRuntime() as ArchieRuntime;
+    ws.emit({ ...SWITCH, voice: true });
+    expect(getArchieRuntime()).toBe(fresh);
+    expect(voice).toHaveBeenCalledTimes(1);
+    expect(ws.types().filter((t) => t === 'start')).toHaveLength(2);
+  });
+
+  it('a read-only view of the target conversation is replaced by the live one', () => {
+    const { ws } = liveArchie();
+    openSession({ kind: 'archie', localId: 'R1', sdkId: 'PAST', focus: false, readOnly: true });
+    serverSwitch(ws, false);
+    const fresh = getArchieRuntime() as ArchieRuntime;
+    expect(getSessionRuntime('R1')).toBeUndefined();
+    expect(tabsStore.getState().tabs.map((t) => t.id)).toEqual([fresh.localId]);
   });
 });

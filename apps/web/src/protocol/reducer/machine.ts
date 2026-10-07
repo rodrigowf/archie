@@ -995,7 +995,8 @@ class Machine extends Draft {
         return;
       default:
         // voice_ending, voice_command, voice_audio_out, voice_connection_error, models_list,
-        // audio_upload, ping, unknown: handled outside the reducer or ignored
+        // orchestrator_switch (channel level, SW-1), audio_upload, ping, unknown: handled
+        // outside the reducer or ignored
         return;
     }
   }

@@ -11,8 +11,10 @@
  *   (`session is None`), so it is passive.
  * - When an Archie runtime is attached, every frame goes through its conversation (watcher
  *   frames come back as `watcher` effects, and WATCH-1 applies to the conversation itself).
+ * - `orchestrator_switch` (§6.11a SW-1) never goes to the attached conversation: it arrives after
+ *   WATCH-1 already stopped that view, so the channel hands it to `onSwitch` attached or not.
  */
-import type { AgentSessionClosedFrame, AgentSessionOpenedFrame, ServerFrame } from '@/protocol';
+import type { AgentSessionClosedFrame, AgentSessionOpenedFrame, OrchestratorSwitchFrame, ServerFrame } from '@/protocol';
 import { Reconnector, type ReconnectPolicy } from '../ws/reconnect';
 import { ArchieSocket, ORCHESTRATOR_WS_PATH } from '../ws/socket';
 
@@ -36,6 +38,7 @@ export class OrchestratorChannel {
   constructor(
     private readonly onWatcher: (frame: WatcherFrame) => void,
     policy?: ReconnectPolicy,
+    private readonly onSwitch: (frame: OrchestratorSwitchFrame) => void = () => undefined,
   ) {
     this.socket = new ArchieSocket(ORCHESTRATOR_WS_PATH, {
       onOpen: () => {
@@ -99,6 +102,10 @@ export class OrchestratorChannel {
 
   private onFrame(f: ServerFrame): void {
     if (f.type === 'ping') return; // T-4: server pings are ignored
+    if (f.type === 'orchestrator_switch') {
+      this.onSwitch(f); // SW-1: socket level, attached or not
+      return;
+    }
     if (this.client) {
       this.client.onSocketFrame(f);
       return;

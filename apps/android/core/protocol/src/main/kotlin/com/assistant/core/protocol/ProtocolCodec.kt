@@ -119,6 +119,9 @@ object ProtocolCodec {
             "agent_session_closed" -> ServerFrame.AgentSessionClosed(
                 o.str("session_id"), o.bool("is_orchestrator") == true, seq, sid,
             )
+            "orchestrator_switch" -> ServerFrame.OrchestratorSwitch(
+                o.str("sdk_session_id"), o.str("title"), o.bool("voice") == true, o.str("from_session_id"), seq, sid,
+            )
             "audio_upload" -> ServerFrame.AudioUpload(o.str("audio"), o.str("format"), o.str("text"), o.long("size_bytes"), seq, sid)
             "ping" -> ServerFrame.Ping(seq, sid)
             "voice_event" -> {
@@ -224,6 +227,10 @@ object ProtocolCodec {
                 }
                 is ServerFrame.AgentSessionClosed -> {
                     put("session_id", frame.sessionId); put("is_orchestrator", frame.isOrchestrator)
+                }
+                is ServerFrame.OrchestratorSwitch -> {
+                    put("sdk_session_id", frame.sdkSessionId); put("title", frame.title)
+                    put("voice", frame.voice); put("from_session_id", frame.fromSessionId)
                 }
                 is ServerFrame.AudioUpload -> {
                     put("audio", frame.audio); put("format", frame.format); put("text", frame.text); put("size_bytes", frame.sizeBytes)

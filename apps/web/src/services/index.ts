@@ -47,6 +47,7 @@ export {
   getOrchestratorRef,
   getSessionRuntime,
   listRuntimes,
+  onOrchestratorSwitch,
   onWatcherEvent,
   openArchie,
   openSession,
@@ -58,6 +59,7 @@ export {
   servicesStarted,
   SessionActionError,
   setSessionHidden,
+  setSwitchVoiceHandler,
   startServices,
   stopServices,
   syncPool,
@@ -66,6 +68,7 @@ export {
   type OpenArchieResult,
   type OpenSessionOptions,
   type StartServicesOptions,
+  type SwitchVoiceHandler,
 } from './sessions/manager';
 export {
   duplicateSession,

@@ -381,6 +381,20 @@ describe('ending (§7.6) and errors (§7.7)', () => {
     expect(r.c.snapshot).toMatchObject({ status: 'off', remoteActive: false });
   });
 
+  it('§6.11a SW-3: reason switch is a quiet end (no Ending… state, no cue, no local end)', () => {
+    const r = rig();
+    const t = r.live();
+    r.frame({ type: 'voice_ending', reason: 'switch', session_id: 'O1' });
+    expect(r.c.snapshot.status).toBe('active');
+    r.frame({ type: 'voice_ended', reason: 'switch', session_id: 'O1' });
+    r.frame({ type: 'voice_owner_active', active: false, owner_local_id: 'O1' });
+    expect(r.c.snapshot).toMatchObject({ status: 'off', error: null, remoteActive: false });
+    expect(t.closed).toBe(true);
+    expect(r.cues.log).toEqual([]);
+    expect(r.port.localEnds).toBe(0);
+    expect(r.port.types()).not.toContain('voice_stop');
+  });
+
   it('legacy voice_stopped alone also ends', () => {
     const r = rig();
     r.live();

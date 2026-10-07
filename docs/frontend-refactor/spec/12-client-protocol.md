@@ -1384,6 +1384,26 @@ else new: localId = uuid(); start{local_id}            (jsonl id == localId for 
 ```
 `error{orchestrator_active}` → the conflict dialog with three actions: Open the running one (attach) / Stop it and start new (`POST close` on its `localId`, then `start` with a new id) / Cancel (03 §1.7). Resume a past orchestrator conversation: the same dialog when one is active; otherwise `start{local_id: uuid(), resume_sdk_id: <jsonl id>}`. Cold open loads REST history (lossy, §5.7).
 
+### 6.11a Switch to a past orchestrator conversation (agent-initiated)
+
+The orchestrator's `switch_conversation` tool (`backend/orchestrator/tools/agent_sessions.py`) moves the user from the live orchestrator conversation into a past one. The server does the stopping. The client only resumes.
+
+```
+server: [voice] end_voice("switch") ⇒ voice_ending/voice_ended{reason:"switch"} to all subscribers
+        pool.stop_orchestrator()     ⇒ agent_session_closed{session_id: old localId, is_orchestrator:true} to all watchers (WATCH-1)
+        ⇒ orchestrator_switch{sdk_session_id, title, voice, from_session_id} to ONE socket only:
+           the voice owner (voice:true), else the socket that sent the latest send/send_audio/inject_text
+acting client: drop the old (stopped) Archie view locally (no REST close needed, it is already gone);
+        open Archie resuming sdk_session_id: start{local_id: uuid(), resume_sdk_id: sdk_session_id}   (§6.11, no conflict dialog)
+        voice:true ⇒ start voice on it with the device's current voice settings:
+                     voice_start{local_id: <the new id>, resume_sdk_id: sdk_session_id, …}   (§7.3)
+other clients: nothing new; they follow the watcher frames as for any replace from another device.
+```
+- **SW-1.** `orchestrator_switch` is handled at the **socket/channel level**, not by the Archie view's reducer: it arrives after WATCH-1 already ended that view. Each client MUST act on it at most once (dedupe on `sdk_session_id` + `from_session_id`).
+- **SW-2.** The switch is the user's request made by voice or text, so it counts as user intent: focus the resumed view (main apps) and auto-start voice without a gesture when `voice` is true. A client that cannot start voice without a gesture (web autoplay rules) opens the view and shows its normal voice button.
+- **SW-3.** `voice_ended{reason:"switch"}` is a quiet end: no closing cue or "call ended" notice, because the call continues in the resumed conversation.
+- **SW-4.** Clients without conversation history views (app-lite) apply the same sequence through their voice host: resume `sdk_session_id`, start voice when `voice` is true.
+
 ### 6.12 Stall banner
 
 Shown while `stall != null` and the view is busy: "<tool> has been running for <t> with no response." or "No response from the agent for <t>." (provider-neutral copy, W-6.2). `t` = `Ns` under 90 s, else `XmYs`. Its Interrupt button = §6.3.
@@ -1518,7 +1538,7 @@ stopVoice(): WS→ {type:"voice_stop"}; voice.state = ending; start a 5 s timer
 ⇐ voice_stopped{} (legacy alias) → same as voice_ended
 timer fires before voice_ended → close transport, voice_local_end, off
 ```
-`reason ∈ {user_stop, agent_end, client_disconnect, error, shutdown}`. `agent_end` (the agent called `end_voice_session`) SHOULD play the closing state like a user stop. Every end path, including timeouts and errors, MUST deliver `voice_local_end` or `voice_ended` to the reducer (A-4.3 compounding paths).
+`reason ∈ {user_stop, agent_end, client_disconnect, error, shutdown, switch}`. `switch` is quiet (§6.11a SW-3). `agent_end` (the agent called `end_voice_session`) SHOULD play the closing state like a user stop. Every end path, including timeouts and errors, MUST deliver `voice_local_end` or `voice_ended` to the reducer (A-4.3 compounding paths).
 
 ### 7.7 Voice errors and reconnect banners
 

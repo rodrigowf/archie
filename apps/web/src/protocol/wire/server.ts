@@ -213,6 +213,22 @@ export interface AgentSessionClosedFrame extends Sequenced {
   is_orchestrator?: boolean;
 }
 
+/**
+ * §6.11a: the orchestrator's `switch_conversation` tool moved the user into a past orchestrator
+ * conversation. Sent to ONE socket (the voice owner, else the last text sender) after the server
+ * ended voice and stopped the old orchestrator; handled at the channel level (SW-1).
+ */
+export interface OrchestratorSwitchFrame extends Sequenced {
+  type: 'orchestrator_switch';
+  /** The JSONL id of the past conversation to resume. */
+  sdk_session_id: string;
+  title?: string | null;
+  /** Voice was live: start it on the resumed view (SW-2). */
+  voice?: boolean | null;
+  /** The old (now stopped) orchestrator's `localId`. */
+  from_session_id?: string | null;
+}
+
 export interface AudioUploadFrame extends Sequenced {
   type: 'audio_upload';
 }
@@ -296,6 +312,7 @@ export type ServerFrame =
   | NestedSessionEventFrame
   | AgentSessionOpenedFrame
   | AgentSessionClosedFrame
+  | OrchestratorSwitchFrame
   | AudioUploadFrame
   | PingFrame
   | VoiceEventFrame

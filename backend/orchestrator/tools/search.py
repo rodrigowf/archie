@@ -91,16 +91,24 @@ async def _ensure_server() -> asyncio.subprocess.Process | None:
                 return proc
             else:
                 logger.error("Unexpected ready response: %s", ready_data)
-                proc.kill()
+                _kill_quietly(proc)
                 return None
         except asyncio.TimeoutError:
             logger.error("Search server startup timed out (180s)")
-            proc.kill()
+            _kill_quietly(proc)
             return None
         except Exception as e:
             logger.error("Search server startup error: %s", e)
-            proc.kill()
+            _kill_quietly(proc)
             return None
+
+
+def _kill_quietly(proc: asyncio.subprocess.Process) -> None:
+    """Kill a server that failed to start; it may already have exited (e.g. another server holds the lock)."""
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        pass
 
 
 async def _forward_stderr(proc: asyncio.subprocess.Process) -> None:
@@ -240,7 +248,7 @@ async def _history_search_cold(request: dict) -> dict:
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
     except asyncio.TimeoutError:
-        proc.kill()
+        _kill_quietly(proc)
         return {"sessions": [], "error": "Search timed out"}
     if proc.returncode != 0:
         tail = stderr.decode(errors="replace").strip()[-800:]
@@ -282,7 +290,7 @@ async def shutdown_server() -> None:
                 await _server_proc.stdin.drain()
                 await asyncio.wait_for(_server_proc.wait(), timeout=5)
             except Exception:
-                _server_proc.kill()
+                _kill_quietly(_server_proc)
             _server_proc = None
             _server_ready = False
 
@@ -344,8 +352,8 @@ def _time_window(query: str, when: str | None) -> tuple[dict | None, str]:
         "Matches exact words (names, rare terms, Portuguese) and meaning. Returns sessions, best "
         "first, each with title, kind, dates, working directory, `relevance` (strong/weak), up to "
         "3 excerpts with their `turn` numbers, and `open` (how to get into it: agent sessions can "
-        "be resumed with resume_conversation(session_id); orchestrator ones read with "
-        "read_conversation). Tips: pass 2–3 different phrasings in `queries` (e.g. English and "
+        "be resumed with resume_conversation(session_id); your own orchestrator ones continued with "
+        "switch_conversation(session_id); either read with read_conversation). Tips: pass 2–3 different phrasings in `queries` (e.g. English and "
         "Portuguese, or different words for the same thing) — they are searched together; put "
         "remembered times in `when` ('last week', 'em junho', '2026-05') — dates are worked out "
         "for you, and sessions from other times still show if they match strongly. If nothing "
@@ -601,7 +609,7 @@ async def _memory_search_cold(request: dict) -> dict:
         proc = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
     except asyncio.TimeoutError:
-        proc.kill()
+        _kill_quietly(proc)
         return {"files": [], "error": "Search timed out"}
     if proc.returncode != 0:
         return {"files": [], "error": f"Search failed: {stderr.decode(errors='replace')[-600:]}"}

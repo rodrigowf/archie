@@ -22,6 +22,14 @@ object VoiceTuning {
     const val WAKE_WORD_ACK_TIMEOUT_MS = 2_000L
 
     /**
+     * NEW (spec 12 §6.11a SW-3): after `voice_ended{reason:"switch"}` the call continues in the resumed
+     * conversation, whose `voice_start` cancels the pending wake re-arm. The re-arm waits this long
+     * instead of [MIC_RELEASE_DELAY_MS], so the wake word does not start and stop again in between; it
+     * still re-arms if the switch never arrives. *UX*.
+     */
+    const val SWITCH_WAKE_REARM_DELAY_MS = 10_000L
+
+    /**
      * `d36d31b`: the WebRTC ADM / Samsung HAL re-pin the earpiece during native audio init, so the
      * route is re-applied after these SEQUENTIAL delays, i.e. at +1 s, +4 s and +9 s (inv04 §12 errata 1).
      */

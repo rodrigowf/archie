@@ -310,10 +310,12 @@ export class VoiceController {
         return;
       case 'voice_ending':
         if (!this.isOwner() || this.snapshot.link === 'lost' || this.awaitingStarted) return;
+        if (f.reason === 'switch') return; // §6.11a SW-3: quiet, the call continues in the resumed conversation
         if (this.snapshot.status !== 'ending') this.enterEnding();
         return;
       case 'voice_ended':
       case 'voice_stopped':
+        // a quiet end for every reason, `switch` included (SW-3): no cue, no notice
         return this.onVoiceEnded();
       case 'error':
         return this.onErrorFrame(f.error, f.detail ?? null);

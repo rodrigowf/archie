@@ -207,6 +207,7 @@ async def orchestrator_ws(ws: WebSocket):
                         {"type": "user_message", "text": send_text},
                         exclude=ws,
                     )
+                session.last_input_ws = ws
                 await _handle_send(pool, session, send_text)
 
             elif msg_type == "inject_text":
@@ -222,6 +223,7 @@ async def orchestrator_ws(ws: WebSocket):
                         "detail": "Send a 'start' message first",
                     }))
                     continue
+                session.last_input_ws = ws
                 await _handle_inject_text(pool, session, msg.get("text", ""))
 
             elif msg_type == "send_audio":
@@ -231,6 +233,7 @@ async def orchestrator_ws(ws: WebSocket):
                         "detail": "Send a 'start' message first",
                     }))
                     continue
+                session.last_input_ws = ws
                 await _handle_send_audio(
                     pool,
                     session,

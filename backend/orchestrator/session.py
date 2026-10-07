@@ -326,6 +326,9 @@ class OrchestratorSession:
         # the api layer dep (the route layer hands us a Starlette WS
         # but the session doesn't import starlette).
         self._voice_owner_ws: Any | None = None
+        # The WebSocket that sent the latest typed/spoken-upload prompt —
+        # where switch_conversation sends ``orchestrator_switch`` in text mode.
+        self.last_input_ws: Any | None = None
 
         # Injection window — set by the listen_recording tool while it's
         # pumping past audio into the live voice WS.  See the is_injecting

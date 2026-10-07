@@ -66,7 +66,8 @@ data class WorkspaceItem(
  *
  * Focus rules (spec 12 FOCUS-1/3, decision P-6): server events (pool sync, `agent_session_opened`)
  * may add a **background** item with an unread badge but never change [active]; only user calls
- * ([select], [openSession], [newAgentSession], [openMemory], [openVisual]) do. A server-side close
+ * ([select], [openSession], [newAgentSession], [openMemory], [openVisual]) do, plus Archie's
+ * `orchestrator_switch` (§6.11a), which is the user's own request relayed by Archie. A server-side close
  * removes only a sync-opened item the user never focused; anything else stays and shows "stopped".
  *
  * Decision P-1: [close] is the only path that ends a session on the server, and only for an
@@ -101,6 +102,9 @@ class OpenSessionsRepository(
                 _active.compareAndSet(null, ItemKey.Archie)
             }
         }.launchIn(scope)
+        // §6.11a SW-2: Archie moved this device to a past conversation because the user asked it to
+        // (by voice or text), so it is a user action: focus the resumed view.
+        conversations.events.onEach { if (it is ConversationEvent.ArchieSwitched) focus(ItemKey.Archie) }.launchIn(scope)
         // Watcher events (T-7): a session opened elsewhere becomes a background item (P-6).
         val frames = orchestrator.subscribeFrames()
         scope.launch {

@@ -15,6 +15,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -228,5 +229,50 @@ class DataLayerTest {
         b.permissionResponse = okhttp3.mockwebserver.MockResponse().setHeader("Content-Type", "application/json").setBody("""{"ok":true}""")
         assertEquals(ApprovalAnswer.Sent, g.conversations.answerAgentApproval("AG7", "r6", allow = true, preferSocket = false))
         assertEquals(restCalls + 1, b.permissionBodies.size)
+    }
+
+    /**
+     * §6.11a: Archie's `switch_conversation`. The server closed the old orchestrator (WATCH-1) and
+     * sends `orchestrator_switch` to this socket: the Archie view is replaced in place by the past
+     * conversation (new local id, `resume_sdk_id`, history cold-opened) and focused (SW-2), with no
+     * conflict dialog, no close and no stop; a duplicate frame does nothing (SW-1).
+     */
+    @Test fun orchestratorSwitch_resumesThePastConversation_andFocusesIt_section6_11a() {
+        val b = backend()
+        b.poolJson = orchPool
+        b.orchJsonl = { it ?: "JSONL" }
+        val g = graph(b.url)
+        val seen = java.util.Collections.synchronizedList(mutableListOf<ConversationEvent>())
+        g.scope.launch { g.conversations.events.collect { seen += it } }
+        g.connection.start()
+        eventually { g.conversations.current(ConversationKey.ARCHIE)?.connection == com.assistant.core.model.ConnectionState.SUBSCRIBED }
+        val agentKey = ItemKey.Agent(g.conversations.newAgent())
+        g.open.select(agentKey)                                                    // the user is elsewhere
+
+        b.poolJson = "[]"
+        b.pushOrchestrator("""{"type":"agent_session_closed","session_id":"ORCH","is_orchestrator":true}""")
+        b.pushOrchestrator("""{"type":"orchestrator_switch","sdk_session_id":"PAST","title":"Lamps","voice":false,"from_session_id":"ORCH"}""")
+
+        val isResume = { f: Pair<String, String> -> f.first == "orch" && f.second.contains("\"type\":\"start\"") && f.second.contains("\"resume_sdk_id\":\"PAST\"") }
+        eventually(message = { "frames=${b.frames}" }) { b.frames.any(isResume) }
+        eventually(message = { "archie=${g.conversations.current(ConversationKey.ARCHIE)?.ref}" }) {
+            val st = g.conversations.current(ConversationKey.ARCHIE)
+            st?.ref?.sdkId == "PAST" && st.connection == com.assistant.core.model.ConnectionState.SUBSCRIBED
+        }
+        val ref = g.conversations.current(ConversationKey.ARCHIE)!!.ref
+        assertTrue("a new local id, never the stopped one: $ref", ref.localId != "ORCH")
+        assertEquals(ref.localId, g.orchestrator.state.value.orchestrator?.localId)
+        assertTrue(b.frames.first(isResume).second.contains("\"local_id\":\"${ref.localId}\""))
+        eventually { g.open.active.value == ItemKey.Archie }
+        eventually { seen.any { it == ConversationEvent.ArchieSwitched("PAST", "Lamps") } }
+        assertTrue("history of the past conversation", b.requests.any { it.startsWith("GET /api/sessions/PAST/messages") })
+        assertTrue(seen.none { it is ConversationEvent.OrchestratorConflict })
+
+        b.pushOrchestrator("""{"type":"orchestrator_switch","sdk_session_id":"PAST","title":"Lamps","voice":false,"from_session_id":"ORCH"}""")
+        Thread.sleep(300)
+        assertEquals("SW-1: once", 1, b.frames.count(isResume))
+        assertEquals(ref, g.conversations.current(ConversationKey.ARCHIE)!!.ref)
+        assertTrue(b.closeRequests().isEmpty())
+        assertTrue(b.stopFrames().isEmpty())
     }
 }
