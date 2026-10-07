@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 /** The orchestrator pool entry this device is attached to. `sdkId` = its JSONL id (G-14, ID-4). */
 data class OrchestratorRef(val localId: String, val sdkId: String?)
@@ -64,6 +65,21 @@ sealed interface ChannelEvent {
     /** WATCH-1: the attached orchestrator was closed elsewhere (`agent_session_closed{is_orchestrator}`). */
     data class OrchestratorClosed(val localId: String) : ChannelEvent
 
+    /**
+     * Spec 12 §6.11a: the orchestrator's `switch_conversation` stopped [fromLocalId] and asked this
+     * device to continue in a past conversation (`orchestrator_switch`, at most once per
+     * (sdk id, from id), SW-1). The channel already holds [ref] (a client-minted `localId` resuming the
+     * past jsonl id) and counts it as user intent (SW-4: no auto-adoption undoes it). With `autoStart`
+     * the channel sent the `start`; otherwise the conversation repository does (and focuses the view).
+     * [voice]: the voice host starts voice on [ref] after its `session_started` (SW-2).
+     */
+    data class SwitchRequested(
+        val ref: OrchestratorRef,
+        val title: String?,
+        val voice: Boolean,
+        val fromLocalId: String?,
+    ) : ChannelEvent
+
     /** T-9: the app came to the foreground with the socket open; consumers re-send `start`. */
     data object Resync : ChannelEvent
     data class Disconnected(val willReconnect: Boolean) : ChannelEvent
@@ -92,6 +108,8 @@ class OrchestratorChannel(
     private val ids: OrchestratorIdStore,
     private val scope: CoroutineScope,
     private val config: Config = Config(),
+    /** Mints the `localId` of a conversation the server asks this device to resume (§6.11a). */
+    private val newLocalId: () -> String = { UUID.randomUUID().toString() },
 ) {
     class Config(
         /**
@@ -149,6 +167,8 @@ class OrchestratorChannel(
     private var probeJob: Job? = null
     private var userIntent = false
     private val outbox = ArrayDeque<String>()
+    /** `orchestrator_switch` frames already acted on, as "sdkId|fromId" (SW-1). */
+    private val switchesHandled = HashSet<String>()
 
     init {
         scope.launch { socket.events.collect { inbox.send(Cmd.Socket(it)) } }
@@ -364,6 +384,11 @@ class OrchestratorChannel(
                 return
             }
             is ServerFrame.Error -> if (f.error == "orchestrator_active") onOrchestratorActive(f.detail)
+            is ServerFrame.OrchestratorSwitch -> {
+                framesOut.publish(f)
+                onSwitch(f)
+                return
+            }
             is ServerFrame.AgentSessionOpened -> {
                 // Spec 12 §4.4 onWatcherEvent: Archie was opened on another device → follow it, as the
                 // probe would on the next connect. Skipped while this device is starting one itself
@@ -394,6 +419,24 @@ class OrchestratorChannel(
             else -> Unit
         }
         framesOut.publish(f)
+    }
+
+    /**
+     * §6.11a. The server already stopped the old orchestrator (its `agent_session_closed` came first),
+     * so this is a plain resume (§6.11) with no conflict dialog: a new `localId` for the past jsonl
+     * id, armed like [armNewSession] so the next `start` / `voice_start` carries it.
+     */
+    private suspend fun onSwitch(f: ServerFrame.OrchestratorSwitch) {
+        val sdkId = f.sdkSessionId?.takeIf { it.isNotEmpty() } ?: return
+        if (!switchesHandled.add("$sdkId|${f.fromSessionId}")) return              // SW-1: at most once
+        probeJob?.cancel()
+        armedNew = null
+        userIntent = true                                                         // SW-4
+        val ref = OrchestratorRef(newLocalId(), sdkId)
+        ids.save(ref.localId)
+        _state.update { it.copy(orchestrator = ref, subscribed = false, noOrchestrator = false) }
+        emit(ChannelEvent.SwitchRequested(ref, f.title, f.voice, f.fromSessionId))
+        if (config.autoStart && socketOpen) sendStart()
     }
 
     private fun onOrchestratorActive(detail: String?) {

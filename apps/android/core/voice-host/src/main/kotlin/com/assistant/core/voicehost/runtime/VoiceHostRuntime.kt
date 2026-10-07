@@ -7,6 +7,7 @@ import com.assistant.core.model.VoiceConfig
 import com.assistant.core.network.SendResult
 import com.assistant.core.network.SocketState
 import com.assistant.core.protocol.ClientFrame
+import com.assistant.core.protocol.ServerFrame
 import com.assistant.core.session.ChannelEvent
 import com.assistant.core.session.ChannelState
 import com.assistant.core.session.OrchestratorChannel
@@ -60,6 +61,7 @@ import com.assistant.core.wakeword.ports.WakeLoopEvent
 import com.assistant.core.wakeword.ports.WakePhase
 import com.assistant.core.wakeword.ports.WakeWordEngine
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -177,6 +179,13 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
     // ── voice session ───────────────────────────────────────────────────────────────────────────
     @Volatile private var pendingNewLocalId: String? = null
     private var pttStart: Job? = null
+
+    /** §6.11a: the resumed conversation's `localId` whose `session_started` starts voice (taken once). */
+    private val switchVoiceLocalId = AtomicReference<String?>(null)
+
+    /** §6.11a: voice ended for a switch and the call continues in the resumed conversation (keeps the FGS). */
+    @Volatile private var switchHold = false
+    private var switchHoldJob: Job? = null
 
     private val orchestratorContext = object : OrchestratorContext {
         override val isOrchestratorSession: Boolean get() = true
@@ -309,7 +318,7 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
     private val collectors = mutableListOf<Job>()
 
     init {
-        collectors += scope.launch { channel.frames.collect { f -> VoiceFrames.toInbound(f)?.let { session.onInbound(it) } } }
+        collectors += scope.launch { channel.frames.collect { f -> onFrame(f) } }
         collectors += scope.launch { channel.audioFrames.collect { session.onInbound(VoiceInbound.AudioOut(it.audio)) } }
         collectors += scope.launch { channel.events.collect { onChannelEvent(it) } }
         collectors += scope.launch { session.linkEvents.collect { linkCues.onLinkEvent(it) } }
@@ -465,7 +474,7 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
         val s = settingsFlow.value ?: return false
         val p = session.state.value.phase
         val voiceLive = p != SessionPhase.OFF && p != SessionPhase.ERROR
-        return s.enableWakeWord || voiceLive || s.stayConnectedInBackground
+        return s.enableWakeWord || voiceLive || switchHold || s.stayConnectedInBackground
     }
 
     /** The last applied settings (null until loaded). */
@@ -527,14 +536,88 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
         }
     }
 
+    private fun onFrame(f: ServerFrame) {
+        // §6.11a SW-3: hold the service BEFORE the session goes OFF, so the call can go on in the
+        // resumed conversation (the state collector sees OFF only after this).
+        val reason = (f as? ServerFrame.VoiceEnding)?.reason ?: (f as? ServerFrame.VoiceEnded)?.reason
+        if (reason == END_REASON_SWITCH && session.state.value.isOwner) holdForSwitch()
+        VoiceFrames.toInbound(f)?.let { session.onInbound(it) }
+        // After the session saw it: the resume `start`'s session_started{voice:false} has cleared any pre-start state.
+        if (f is ServerFrame.SessionStarted) f.sessionId?.let { startSwitchedVoice(it) }
+    }
+
     private fun onChannelEvent(e: ChannelEvent) {
         when (e) {
             is ChannelEvent.Adopted -> if (!e.reconnect) session.onConnection(ConnectionSignal.Connected)
             is ChannelEvent.NewSessionArmed -> session.onConnection(ConnectionSignal.Connected)
             is ChannelEvent.Reconnected -> session.onConnection(ConnectionSignal.Reconnected(e.ref.localId, e.ref.sdkId))
             is ChannelEvent.Disconnected -> session.onConnection(ConnectionSignal.Disconnected(e.willReconnect))
+            is ChannelEvent.SwitchRequested -> onSwitchRequested(e)
+            is ChannelEvent.Conflict, ChannelEvent.GaveUp -> if (switchVoiceLocalId.getAndSet(null) != null) {
+                log.w(TAG, "switch: the resumed conversation did not start — voice stays off")
+                releaseSwitchHold()
+            }
             else -> Unit
         }
+    }
+
+    /**
+     * Spec 12 §6.11a / SW-4. The channel already armed the resumed conversation (new `localId`, the
+     * past jsonl id) and its `start` goes out from the channel (lite, autoStart) or the conversation
+     * repository (main). With [ChannelEvent.SwitchRequested.voice] voice starts on it once that start's
+     * `session_started` arrives, so the server takes `voice_start` as the re-arm of the same
+     * session; a `voice_start` racing ahead of the `start` would make this device a passive viewer.
+     */
+    private fun onSwitchRequested(e: ChannelEvent.SwitchRequested) {
+        log.i(TAG, "switch: ${e.fromLocalId} → ${e.ref.sdkId} as ${e.ref.localId} (voice=${e.voice})")
+        if (!e.voice) {
+            switchVoiceLocalId.set(null)
+            releaseSwitchHold()
+            return
+        }
+        holdForSwitch()
+        switchVoiceLocalId.set(e.ref.localId)
+        // Its session_started may already have been seen (frames and events run on separate collectors).
+        val st = channel.state.value
+        if (st.subscribed && st.orchestrator?.localId == e.ref.localId) startSwitchedVoice(e.ref.localId)
+    }
+
+    /** SW-2: no gesture and no wake cue — the call simply continues in the resumed conversation. */
+    private fun startSwitchedVoice(localId: String) {
+        if (!switchVoiceLocalId.compareAndSet(localId, null)) return
+        val phase = session.state.value.phase
+        if (phase != SessionPhase.OFF && phase != SessionPhase.ERROR) {
+            log.w(TAG, "switch: voice already $phase — not starting it again")
+        } else {
+            log.i(TAG, "switch: resumed conversation $localId is up — starting voice on it")
+            session.markConnecting()
+            session.startVoice()
+        }
+        releaseSwitchHold()
+        ensureServiceIfForeground()
+    }
+
+    private fun holdForSwitch() {
+        synchronized(this) {
+            switchHold = true
+            switchHoldJob?.cancel()
+            switchHoldJob = scope.launch {
+                delay(HostTuning.SWITCH_HOLD_MS)
+                if (switchVoiceLocalId.getAndSet(null) != null) log.w(TAG, "switch: no session_started for the resumed conversation — giving up on voice")
+                releaseSwitchHold()
+            }
+        }
+    }
+
+    private fun releaseSwitchHold() {
+        val was = synchronized(this) {
+            val held = switchHold
+            switchHold = false
+            switchHoldJob?.cancel()
+            switchHoldJob = null
+            held
+        }
+        if (was && !serviceWanted()) deps.service.stop()
     }
 
     @Synchronized
@@ -612,6 +695,9 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
 
     companion object {
         private const val TAG = "VoiceHost"
+
+        /** `voice_ending` / `voice_ended` reason of an agent-initiated conversation switch (spec 12 §6.11a). */
+        private const val END_REASON_SWITCH = "switch"
 
         fun connectionOf(s: SocketState): HostConnection = when (s) {
             SocketState.Open -> HostConnection.CONNECTED

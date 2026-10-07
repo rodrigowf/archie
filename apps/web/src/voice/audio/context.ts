@@ -81,6 +81,14 @@ export function sharedAudioContext(): AudioContextLike | null {
   return shared;
 }
 
+/**
+ * A tap already unlocked audio on this page: the shared context exists and runs. Creates nothing
+ * (a context made outside a gesture would stay suspended on iOS).
+ */
+export function audioUnlocked(): boolean {
+  return shared !== null && shared.state === 'running';
+}
+
 /** For tests. */
 export function setSharedAudioContext(ctx: AudioContextLike | null): void {
   shared = ctx;

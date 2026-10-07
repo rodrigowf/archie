@@ -68,6 +68,14 @@ sealed interface ConversationEvent {
     data object NoOrchestrator : ConversationEvent {
         override val key: ConversationKey get() = ConversationKey.ARCHIE
     }
+
+    /**
+     * §6.11a: Archie moved this device to a past conversation (its `switch_conversation` tool). The
+     * Archie view now resumes it; the request was the user's (SW-2), so the UI focuses it.
+     */
+    data class ArchieSwitched(val sdkId: String, val title: String?) : ConversationEvent {
+        override val key: ConversationKey get() = ConversationKey.ARCHIE
+    }
 }
 
 /** Result of answering an agent approval (§6.9). */
@@ -175,10 +183,7 @@ class ConversationRepository(
      */
     fun resumeArchie(sdkId: String, localId: String? = null) {
         orchestrator.markUserIntent()
-        val ref = SessionRef(localId = localId ?: newId(), sdkId = sdkId, kind = SessionKind.ORCHESTRATOR, provider = null)
-        val h = OrchestratorHandle(ConversationKey.ARCHIE, ConversationState.initial(ref))
-        install(ConversationKey.ARCHIE, h)
-        if (orchestrator.state.value.socket == SocketState.Open) h.post(ConversationInput.SocketOpened)
+        openArchie(localId ?: newId(), sdkId)
     }
 
     // ───────────────────────── actions (§6) ─────────────────────────
@@ -433,8 +438,31 @@ class ConversationRepository(
             ChannelEvent.Resync -> archieHandle()?.post(ConversationInput.Resync)
             is ChannelEvent.Conflict -> _events.tryEmit(ConversationEvent.OrchestratorConflict(e.detail))
             ChannelEvent.NoOrchestrator, ChannelEvent.GaveUp -> _events.tryEmit(ConversationEvent.NoOrchestrator)
+            is ChannelEvent.SwitchRequested -> switchArchie(e)
             is ChannelEvent.OrchestratorClosed, is ChannelEvent.Reconnected, is ChannelEvent.Recovered -> Unit
         }
+    }
+
+    /**
+     * §6.11a: the server stopped the old orchestrator and asked this device to resume a past one.
+     * The old (stopped) view is replaced in place, no REST close (it is already gone); the new view
+     * cold-opens the past conversation's history and sends `start{local_id, resume_sdk_id}` with the
+     * channel's armed ids (the channel holds the user intent, SW-4). Voice, when the call should go
+     * on, is the voice host's (it waits for this start's `session_started`).
+     */
+    private fun switchArchie(e: ChannelEvent.SwitchRequested) {
+        val sdkId = e.ref.sdkId ?: return
+        openArchie(e.ref.localId, sdkId)
+        history.refreshListSoon()
+        _events.tryEmit(ConversationEvent.ArchieSwitched(sdkId, e.title))
+    }
+
+    /** Replaces the Archie view with [localId] resuming [sdkId]; `start` once the socket is open. */
+    private fun openArchie(localId: String, sdkId: String) {
+        val ref = SessionRef(localId = localId, sdkId = sdkId, kind = SessionKind.ORCHESTRATOR, provider = null)
+        val h = OrchestratorHandle(ConversationKey.ARCHIE, ConversationState.initial(ref))
+        install(ConversationKey.ARCHIE, h)
+        if (orchestrator.state.value.socket == SocketState.Open) h.post(ConversationInput.SocketOpened)
     }
 
     /** Adoption: the socket is open and [ref] is the pool's orchestrator. Same session → resync; another → new view. */

@@ -50,7 +50,7 @@ class TestList:
         orch, claude = r["conversations"]
         assert orch["kind"] == "orchestrator" and orch["title"] is None and orch["first_message"].startswith("Vamos ver")
         assert claude["title"] == "Tarot canvas" and claude["cwd"] == "/home/rodrigo/tarot"
-        assert claude["open"]["can_resume"] and not orch["open"]["can_resume"]
+        assert "resume_conversation" in claude["open"]["how"] and "switch_conversation" in orch["open"]["how"]
 
     def test_filters_and_paging(self, ctx):
         d, conn = ctx
@@ -97,7 +97,7 @@ class TestRead:
     def test_range_is_capped_and_hints(self, ctx):
         d, _ = ctx
         r = nav.read_conversation("orch1", start=0, end=0, context_dir=d)
-        assert r["later"] == "turns 1–1 not shown" and r["open"]["can_resume"] is False
+        assert r["later"] == "turns 1–1 not shown" and "switch_conversation" in r["open"]["how"]
         assert "error" in nav.read_conversation("nope", context_dir=d)
 
 

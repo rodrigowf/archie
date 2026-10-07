@@ -78,6 +78,7 @@ class ProtocolCodecTest {
         ServerFrame.NestedSessionEvent("A1", "permission_request", obj("""{"type":"permission_request","request_id":"r1","tool_name":"ExitPlanMode","tool_input":{},"seq":3,"stream_id":"A1:1"}""")),
         ServerFrame.AgentSessionOpened("A1", "sdk-9", false),
         ServerFrame.AgentSessionClosed("O1", true),
+        ServerFrame.OrchestratorSwitch("past-1", "Lamps", true, "O1"),
         ServerFrame.AudioUpload("AAAA", "webm", "hi", 3),
         ServerFrame.Ping(),
         ServerFrame.VoiceEvent(tree),
@@ -204,6 +205,8 @@ class ProtocolCodecTest {
             """{"type":"models_list","models":[{"provider":"anthropic","model_id":"claude","display_name":"C","supports_audio":false,"supports_vision":true,"supports_tools":true,"max_tokens":8192,"context_window":200000}]}""",
             """{"type":"agent_session_opened","session_id":"A1","sdk_session_id":"S1","is_orchestrator":false}""",
             """{"type":"agent_session_closed","session_id":"A1","is_orchestrator":false}""",
+            // backend/orchestrator/tools/agent_sessions.py switch_conversation (spec 12 §6.11a)
+            """{"type":"orchestrator_switch","sdk_session_id":"past-1","title":"Lamps","voice":true,"from_session_id":"O1"}""",
             """{"type":"voice_command","command":{"type":"conversation.item.create","item":{"type":"function_call_output","call_id":"c","output":"{}"}}}""",
             """{"type":"voice_audio_out","audio":"AAEC"}""",
             """{"type":"voice_connection_error","detail":"x"}""",

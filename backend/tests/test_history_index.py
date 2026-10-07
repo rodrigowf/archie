@@ -370,7 +370,7 @@ class TestSearchStage2:
             "c1": [_claude("user", "fix the tuya lamps automation script", cwd="/home/rodrigo/assistant")],
         })
         by_id = {x["session_id"]: x for x in _search(s, "tuya lamps automation")["sessions"]}
-        assert by_id["o1"]["open"]["can_resume"] is False and "read_conversation" in by_id["o1"]["open"]["how"]
+        assert "switch_conversation(session_id='o1')" in by_id["o1"]["open"]["how"]
         assert by_id["c1"]["open"]["can_resume"] is True and "resume_conversation(session_id='c1')" in by_id["c1"]["open"]["how"]
         assert by_id["c1"]["cwd"] == "/home/rodrigo/assistant" and by_id["c1"]["file"].endswith("c1.jsonl")
         assert by_id["c1"]["kind"] == "claude"

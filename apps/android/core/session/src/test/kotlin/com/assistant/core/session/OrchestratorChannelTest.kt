@@ -26,7 +26,8 @@ class OrchestratorChannelTest {
         val socket = FakeFrameSocket()
         val pool = FakePool { ts.testScheduler.currentTime }
         val ids = FakeIds()
-        val channel = OrchestratorChannel(socket, pool, ids, ts.backgroundScope, OrchestratorChannel.Config(autoStart, cursor))
+        private var minted = 0
+        val channel = OrchestratorChannel(socket, pool, ids, ts.backgroundScope, OrchestratorChannel.Config(autoStart, cursor)) { "NEW${++minted}" }
         val events = channel.subscribeEvents()
         val frames = channel.subscribeFrames()
         fun settle() = ts.runCurrent()
@@ -350,5 +351,95 @@ class OrchestratorChannelTest {
         assertEquals(null, r.ids.value)
         assertEquals(SocketState.Open, r.socket.state.value)                 // the socket stays: watcher events (T-7)
         assertTrue(r.channel.state.value.noOrchestrator)                     // connected, nothing open
+    }
+
+    // ───────────── §6.11a orchestrator_switch (SW-1, SW-4) ─────────────
+
+    private fun switchFrame(voice: Boolean = true, from: String? = "ORCH") =
+        ServerFrame.OrchestratorSwitch("PAST", "Lamps", voice, from)
+
+    /** The server's sequence: voice ended, the old orchestrator closed (WATCH-1), then the switch to ONE socket. */
+    private fun Rig.serverSwitches(voice: Boolean = true) {
+        socket.frame(ServerFrame.VoiceEnded("switch", "ORCH"))
+        socket.frame(ServerFrame.AgentSessionClosed("ORCH", isOrchestrator = true))
+        socket.frame(switchFrame(voice))
+        settle()
+    }
+
+    @Test fun switchArmsTheResumeWithANewLocalId_andAutoStartSendsItsStart() = runTest {
+        val r = Rig(this, autoStart = true)
+        r.pool.script += listOf(orch())
+        r.channel.connect(url); r.socket.open(); r.settle(); r.socket.frame(started()); r.settle()
+        r.events.drain(); r.socket.sent.clear()
+
+        r.serverSwitches()
+        val ref = OrchestratorRef("NEW1", "PAST")
+        assertEquals(
+            listOf(ChannelEvent.OrchestratorClosed("ORCH"), ChannelEvent.SwitchRequested(ref, "Lamps", voice = true, fromLocalId = "ORCH")),
+            r.events.drain(),
+        )
+        assertEquals("§6.11: start{local_id: uuid, resume_sdk_id}", listOf<ClientFrame>(ClientFrame.Start("NEW1", "PAST")), r.socket.sent)
+        val st = r.channel.state.value
+        assertEquals(ref, st.orchestrator)
+        assertFalse(st.noOrchestrator)
+        assertFalse("not subscribed until its session_started", st.subscribed)
+        assertEquals("NEW1", r.ids.value)
+        assertTrue("the frame still reaches the frame subscribers", r.frames.drain().any { it is ServerFrame.OrchestratorSwitch })
+
+        r.socket.frame(started("NEW1", "PAST")); r.settle()
+        assertEquals(ref, r.channel.state.value.orchestrator)
+        assertTrue(r.channel.state.value.subscribed)
+        assertTrue(r.events.drain().isEmpty())
+        assertEquals("P-1: no stop / voice_stop", emptyList<ClientFrame>(), r.socket.stopLikeFrames())
+    }
+
+    @Test fun sw1_aSwitchIsActedOnAtMostOnce() = runTest {
+        val r = Rig(this, autoStart = true)
+        r.pool.script += listOf(orch())
+        r.channel.connect(url); r.socket.open(); r.settle(); r.socket.frame(started()); r.settle()
+        r.serverSwitches()
+        r.events.drain(); r.socket.sent.clear()
+
+        r.socket.frame(switchFrame()); r.settle()                              // a duplicate delivery
+        assertTrue(r.events.drain().isEmpty())
+        assertTrue(r.socket.sent.isEmpty())
+        assertEquals(OrchestratorRef("NEW1", "PAST"), r.channel.state.value.orchestrator)
+
+        // A later switch (another from id) is a new request.
+        r.socket.frame(ServerFrame.OrchestratorSwitch("PAST", "Lamps", false, "NEW1")); r.settle()
+        assertEquals(
+            listOf<ChannelEvent>(ChannelEvent.SwitchRequested(OrchestratorRef("NEW2", "PAST"), "Lamps", false, "NEW1")),
+            r.events.drain(),
+        )
+        assertEquals(listOf<ClientFrame>(ClientFrame.Start("NEW2", "PAST")), r.socket.sent)
+    }
+
+    @Test fun sw4_aSwitchIsUserIntent_noAutoAdoptionUndoesIt_andTheRepositoryOwnsTheStart() = runTest {
+        val r = Rig(this)                                                      // main app: no autoStart
+        r.pool.script += listOf(orch())
+        r.channel.connect(url); r.socket.open(); r.settle(); r.socket.frame(started()); r.settle()
+        r.serverSwitches(voice = false)
+        r.events.drain()
+        assertTrue("the conversation repository sends the start", r.socket.sent.isEmpty())
+
+        // Another device's orchestrator showing up before our session_started must not be adopted.
+        r.socket.frame(ServerFrame.AgentSessionOpened("OTHER", "J-OTHER", isOrchestrator = true)); r.settle()
+        assertEquals(OrchestratorRef("NEW1", "PAST"), r.channel.state.value.orchestrator)
+        assertTrue(r.events.drain().isEmpty())
+        // The echo of our own resumed session neither.
+        r.socket.frame(ServerFrame.AgentSessionOpened("NEW1", "PAST", isOrchestrator = true)); r.settle()
+        assertTrue(r.events.drain().isEmpty())
+        assertTrue(r.socket.sent.isEmpty())
+    }
+
+    @Test fun aSwitchWithoutAnSdkIdIsIgnored() = runTest {
+        val r = Rig(this, autoStart = true)
+        r.pool.script += listOf(orch())
+        r.channel.connect(url); r.socket.open(); r.settle(); r.socket.frame(started()); r.settle()
+        r.events.drain(); r.socket.sent.clear()
+        r.socket.frame(ServerFrame.OrchestratorSwitch(null, "x", true, "ORCH")); r.settle()
+        assertTrue(r.events.drain().isEmpty())
+        assertTrue(r.socket.sent.isEmpty())
+        assertEquals(OrchestratorRef("ORCH", "JSONL"), r.channel.state.value.orchestrator)
     }
 }

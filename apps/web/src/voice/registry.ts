@@ -9,7 +9,7 @@ import type { SessionStartedFrame } from '@/protocol';
 import { api, ArchieRuntime, getSessionRuntime, listRuntimes } from '@/services';
 import { serverConfigStore, sessionRegistryVersion } from '@/stores';
 import { workletNodeCtor, workletUrl } from './audio/capture/worklet';
-import { sharedAudioContext, sharedAudioElement, unlockAudio } from './audio/context';
+import { audioUnlocked, sharedAudioContext, sharedAudioElement, unlockAudio } from './audio/context';
 import { WebAudioCuePlayer } from './audio/cues';
 import { transportForProvider, voiceUnsupportedReason } from './core/support';
 import type { ConnectionType, NetworkSource, TransportFactory, VoicePort } from './core/types';
@@ -170,18 +170,44 @@ export function getVoiceController(localId: string): VoiceController | undefined
   return c;
 }
 
+/** The controller that may start voice on `localId`, or the reason it cannot. */
+function startableController(localId: string): VoiceController | string {
+  const c = getVoiceController(localId);
+  if (!c) return 'Open Archie to start voice';
+  const cfg = serverConfigStore.getState().config;
+  return voiceUnsupportedReason(getCapabilities(), transportForProvider(cfg?.default_voice_provider)) ?? c;
+}
+
+function startController(c: VoiceController): void {
+  if (c.snapshot.status === 'error') c.dismissError();
+  c.start();
+}
+
 /**
  * The composer's Voice action (W-11 `setStartVoiceHandler`). Call from the tap: unlocks audio
  * synchronously (iOS), then starts. Returns the reason when voice cannot run here.
  */
 export function startVoiceFromGesture(localId: string): string | null {
-  const c = getVoiceController(localId);
-  if (!c) return 'Open Archie to start voice';
-  const cfg = serverConfigStore.getState().config;
-  const reason = voiceUnsupportedReason(getCapabilities(), transportForProvider(cfg?.default_voice_provider));
-  if (reason) return reason;
+  const c = startableController(localId);
+  if (typeof c === 'string') return c;
   unlockAudio();
-  if (c.snapshot.status === 'error') c.dismissError();
-  c.start();
+  startController(c);
+  return null;
+}
+
+/** `startVoiceWithoutGesture` did not start: the browser needs a tap before it plays audio. */
+export const VOICE_NEEDS_TAP = 'Tap Voice to continue the call';
+
+/**
+ * §6.11a SW-2: start voice with no tap (the orchestrator switched conversations while voice was
+ * live on this device). Only when audio is already unlocked on this page (the tap that started
+ * the previous call); otherwise autoplay rules would leave the call silent, so it returns
+ * `VOICE_NEEDS_TAP` and the view keeps its normal voice button.
+ */
+export function startVoiceWithoutGesture(localId: string): string | null {
+  const c = startableController(localId);
+  if (typeof c === 'string') return c;
+  if (!audioUnlocked()) return VOICE_NEEDS_TAP;
+  startController(c);
   return null;
 }

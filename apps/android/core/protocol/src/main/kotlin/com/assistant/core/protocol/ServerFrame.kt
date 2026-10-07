@@ -265,6 +265,21 @@ sealed interface ServerFrame {
         override val streamId: String? = null,
     ) : ServerFrame { override val type get() = "agent_session_closed" }
 
+    /**
+     * Spec 12 §6.11a: the orchestrator's `switch_conversation` stopped the live orchestrator
+     * ([fromSessionId], its old `localId`) and asks THIS socket to resume [sdkSessionId] (a past
+     * orchestrator jsonl id) and, when [voice], to start voice on it. Sent to one socket only;
+     * handled at the channel level (SW-1), never by the conversation reducer.
+     */
+    data class OrchestratorSwitch(
+        val sdkSessionId: String?,
+        val title: String? = null,
+        val voice: Boolean = false,
+        val fromSessionId: String? = null,
+        override val seq: Long? = null,
+        override val streamId: String? = null,
+    ) : ServerFrame { override val type get() = "orchestrator_switch" }
+
     /** Legacy side effect of `POST /api/orchestrator/audio`; nothing consumes it. */
     data class AudioUpload(
         val audio: String?,

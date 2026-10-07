@@ -71,6 +71,15 @@ object HostTuning {
     /** The track is stopped this long after the last frame (old: `playMs + 80`). */
     const val CUE_RELEASE_PAD_MS = 80L
 
+    // ---- Conversation switch (NEW, spec 12 §6.11a) ----
+
+    /**
+     * After `voice_ended{reason:"switch"}` the host keeps the foreground service (and its microphone
+     * FGS type) while it resumes the past conversation and restarts voice on it, at most this long.
+     * Longer than the 30 s voice-start budget would be pointless; the resume `start` takes ~1 s. *UX*.
+     */
+    const val SWITCH_HOLD_MS = 30_000L
+
     // ---- P-2 link-loss cues (NEW, decision P-2; *UX*, tune with Rodrigo) ----
 
     /**

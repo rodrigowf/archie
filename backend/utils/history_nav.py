@@ -38,8 +38,9 @@ def fold(text: str) -> str:
 def open_hint(kind: str | None, session_id: str) -> dict:
     if kind == "orchestrator":
         return {
-            "can_resume": False,
-            "how": f"read_conversation(session_id='{session_id}') — orchestrator conversations can be read, not resumed",
+            "can_resume": True,
+            "how": f"switch_conversation(session_id='{session_id}') to continue in it (closes the current one), "
+                   f"or read_conversation(session_id='{session_id}') to read it",
         }
     return {
         "can_resume": True,

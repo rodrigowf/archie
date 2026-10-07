@@ -26,6 +26,7 @@ import com.assistant.archie.system.SystemApprovalSink
 import com.assistant.archie.system.SystemIntents
 import com.assistant.archie.system.SystemOverlays
 import com.assistant.archie.system.applyAppNightMode
+import com.assistant.core.data.ConversationEvent
 import com.assistant.core.data.SharePayload
 import com.assistant.core.design.theme.ArchieTheme
 import com.assistant.archie.feature.settings.ui.AuthGate
@@ -101,6 +102,13 @@ fun ArchieApp(graph: MainAppGraph) {
         val localId = graph.approvals.takeOpenRequest() ?: return@LaunchedEffect
         while (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
         graph.openSessions.openAgentByLocalId(localId)
+    }
+    // §6.11a: Archie switched to a past conversation at the user's request; the Archie view is
+    // focused by OpenSessionsRepository, and a screen on top of the workspace (Settings, …) goes.
+    LaunchedEffect(graph) {
+        graph.conversations.events.collect { e ->
+            if (e is ConversationEvent.ArchieSwitched) while (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
+        }
     }
     ArchieTheme(mode = state.themeMode.toDesign(), reduceMotion = appearance.reduceMotion) {
         ProvideTextSize(appearance.textSize) {

@@ -158,4 +158,112 @@ class TestResumeConversation:
         err = {"error": "Session 'o1' is an orchestrator session and cannot be resumed as an agent session."}
         with patch.object(agent_sessions, "open_agent_session", AsyncMock(return_value=json.dumps(err))):
             out = json.loads(await agent_sessions.resume_conversation({}, "o1"))
-        assert out["hint"] == "Read it instead: read_conversation(session_id='o1')."
+        assert "switch_conversation(session_id='o1')" in out["hint"] and "read_conversation" in out["hint"]
+
+
+class _FakeSession:
+    def __init__(self, voice=False, busy=False):
+        self.jsonl_id, self.local_id = "current", "local-1"
+        self.is_voice, self.is_busy = voice, busy
+        self.voice_owner_ws = self.last_input_ws = None
+        self.ended = []
+
+    async def end_voice(self, reason):
+        self.ended.append(reason)
+        self.is_voice = False
+
+
+class _FakePool:
+    def __init__(self, session):
+        self.session, self.events = session, []
+
+    def get_orchestrator(self):
+        return self.session
+
+    async def stop_orchestrator(self):
+        self.events.append("stopped")
+        self.session = None
+
+
+class _FakeWs:
+    def __init__(self, pool):
+        self.pool, self.frames = pool, []
+
+    async def send_bytes(self, data):
+        self.frames.append((json.loads(data), list(self.pool.events)))
+
+
+def _store(info):
+    return SimpleNamespace(get_session_info=lambda sid: info)
+
+
+class TestSwitchConversation:
+    @pytest.fixture(autouse=True)
+    def _fast(self, monkeypatch):
+        from orchestrator.tools import agent_sessions
+
+        monkeypatch.setattr(agent_sessions, "SWITCH_SETTLE_S", 0)
+
+    async def _switch(self, session, info, sid="past-1"):
+        import asyncio
+
+        from orchestrator.tools import agent_sessions
+
+        pool = _FakePool(session)
+        ws = _FakeWs(pool)
+        session.voice_owner_ws = ws if session.is_voice else None
+        session.last_input_ws = None if session.is_voice else ws
+        out = json.loads(await agent_sessions.switch_conversation({"pool": pool, "store": _store(info)}, sid))
+        await asyncio.gather(*agent_sessions._switch_tasks)
+        return out, pool, ws
+
+    async def test_voice_switch_ends_voice_stops_then_tells_the_owner(self):
+        info = SimpleNamespace(is_orchestrator=True, title="Lamps")
+        session = _FakeSession(voice=True)
+        out, pool, ws = await self._switch(session, info)
+        assert out["status"] == "switching" and out["title"] == "Lamps"
+        assert session.ended == ["switch"]
+        frame, events_before_send = ws.frames[0]
+        assert events_before_send == ["stopped"]  # the old one is gone before the app resumes
+        assert frame == {"type": "orchestrator_switch", "sdk_session_id": "past-1", "title": "Lamps",
+                         "voice": True, "from_session_id": "local-1"}
+
+    async def test_text_switch_goes_to_the_last_sender(self):
+        session = _FakeSession()
+        out, pool, ws = await self._switch(session, SimpleNamespace(is_orchestrator=True, title="T"))
+        assert ws.frames[0][0]["voice"] is False and session.ended == []
+
+    async def test_agent_conversations_point_to_resume(self):
+        out, pool, ws = await self._switch(_FakeSession(), SimpleNamespace(is_orchestrator=False, title="x"))
+        assert "resume_conversation" in out["hint"] and pool.events == [] and ws.frames == []
+
+    async def test_refuses_the_current_and_unknown_conversations(self):
+        out, _, _ = await self._switch(_FakeSession(), SimpleNamespace(is_orchestrator=True, title="x"), sid="current")
+        assert "already" in out["error"]
+        out, _, _ = await self._switch(_FakeSession(), None)
+        assert "not found" in out["error"]
+
+    async def test_no_switch_if_the_orchestrator_changed_meanwhile(self):
+        import asyncio
+
+        from orchestrator.tools import agent_sessions
+
+        session = _FakeSession()
+        pool = _FakePool(session)
+        ws = _FakeWs(pool)
+        session.last_input_ws = ws
+        await agent_sessions.switch_conversation({"pool": pool, "store": _store(SimpleNamespace(is_orchestrator=True, title="x"))}, "p")
+        pool.session = object()  # user replaced it before the switch ran
+        await asyncio.gather(*agent_sessions._switch_tasks)
+        assert pool.events == [] and ws.frames == []
+
+
+class TestServerStartFailure:
+    async def test_server_that_exits_at_start_does_not_raise(self):
+        """Another server holds the lock: the child exits at once and kill() finds no process."""
+        proc = SimpleNamespace(stdout=SimpleNamespace(readline=AsyncMock(return_value=b"")), pid=1,
+                               kill=lambda: (_ for _ in ()).throw(ProcessLookupError()))
+        with patch.object(tools.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)), \
+                patch.object(tools, "_forward_stderr", AsyncMock()), \
+                patch.object(tools, "_server_proc", None), patch.object(tools, "_server_ready", False):
+            assert await tools._ensure_server() is None

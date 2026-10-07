@@ -124,12 +124,14 @@ class HostRig(
     val ts: TestScope,
     val config: HostConfig = HostConfig.lite(Activity::class.java),
     pool: List<PoolSession>? = listOf(ORCH),
+    /** Main app: false (the conversation repository sends `start`). */
+    autoStart: Boolean = true,
 ) {
     val clock = FakeClock.boundTo(ts.testScheduler)
     val log = RecordingLog()
     val socket = FakeFrameSocket()
     val pool = FixedPool(pool)
-    val channel = OrchestratorChannel(socket, this.pool, MemoryIds(), ts.backgroundScope, OrchestratorChannel.Config(autoStart = true))
+    val channel = OrchestratorChannel(socket, this.pool, MemoryIds(), ts.backgroundScope, OrchestratorChannel.Config(autoStart = autoStart))
     val settings = MutableStateFlow<VoiceHostSettings?>(null)
     val store = FakeWakeConfigStore()
     val engines: MutableList<FakeWakeEngine> = Collections.synchronizedList(mutableListOf())

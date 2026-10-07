@@ -47,6 +47,15 @@ describe('decodeFrame', () => {
     });
   });
 
+  it('decodes orchestrator_switch (§6.11a) and coerces its fields', () => {
+    const f = { type: 'orchestrator_switch', sdk_session_id: 'PAST', title: 'Trip planning', voice: true, from_session_id: 'O1' };
+    expect(decodeFrame(binaryFrame(f))).toEqual({ ok: true, frame: f });
+    expect(coerceFrame({ type: 'orchestrator_switch', sdk_session_id: 5, title: 7, voice: 'yes', from_session_id: null })).toEqual({
+      ok: true,
+      frame: { type: 'orchestrator_switch', sdk_session_id: '', from_session_id: null },
+    });
+  });
+
   it('validates session_started.resume_state', () => {
     const ok = { type: 'session_started', session_id: 'L', resume_state: { stream_id: 's', next_seq: 3 } };
     expect(coerceFrame(ok)).toEqual({ ok: true, frame: ok });
