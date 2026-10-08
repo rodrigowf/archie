@@ -37,7 +37,7 @@ ChatGPT login (`codex login`); no API credits are used.
 | `backend/manager/codex/catalog.py` | `load_codex_catalog()` — models (live `model/list` → `models_cache.json` → built-in) and options |
 | `backend/manager/codex/home.py` | `codex_home()` (dedicated vs shared), `sessions_roots()`, `home_for_thread()`, `codex_env()`, `codex_executable()` |
 | `AGENTS.md` (repo root) | Symlink → `context/AGENTS.md` — the file Codex reads natively; committed like `CLAUDE.md` / `QWEN.md` / `GEMINI.md` |
-| `install/{linux,apple}/install.sh`, `install/windows/install.ps1` | `--with-codex` (`-WithCodex`): seeds `~/.codex-archie/config.toml` (from `install/cli-runtime/codex-home/`), links its `sessions/`, links `.agents/skills` → `context/skills`, installs the CLI pinned to `CODEX_CLI_VERSION` (0.161.0, `install/harness-versions.env`; warns on a different version), login hint; root `AGENTS.md` link. Without Node/npm (`--no-node`, e.g. the Jetson) it installs the static `codex-<arch>-unknown-linux-musl` binary from GitHub release `rust-v<version>` into `/usr/local/bin` (or `~/.local/bin` + `CODEX_CLI_PATH`). `install-with-agent.*` can install Codex as the driver CLI; `install/doctor.sh` checks binary, auth, config and links |
+| `install/{linux,apple}/install.sh`, `install/windows/install.ps1` | `--with-codex` (`-WithCodex`): seeds `~/.codex-archie/config.toml` (from `install/cli-runtime/codex-home/`; an existing file only gets `[features] memories = false` added or replaced, via `install/codex-home-config.py`), links its `sessions/`, links `.agents/skills` → `context/skills`, installs the CLI pinned to `CODEX_CLI_VERSION` (0.161.0, `install/harness-versions.env`; warns on a different version), login hint; root `AGENTS.md` link. Without Node/npm (`--no-node`, e.g. the Jetson) it installs the static `codex-<arch>-unknown-linux-musl` binary from GitHub release `rust-v<version>` into `/usr/local/bin` (or `~/.local/bin` + `CODEX_CLI_PATH`). `install-with-agent.*` can install Codex as the driver CLI; `install/doctor.sh` checks binary, auth, config (incl. `memories = false`) and links |
 | `backend/tests/test_codex_session.py`, `test_codex_adapter.py`, `fixtures/codex/` | Tests: a scripted fake app-server (`fake_app_server.py`) and a trimmed real rollout |
 
 ## Binary and process
@@ -154,7 +154,8 @@ scans.
 
 **Memory.** Codex has no counterpart to Claude's auto-memory that could point at the wiki: its
 `memories` feature (off by default; `CODEX_HOME/memories` + `memories_1.sqlite`) keeps its own
-store. Archie leaves it off and, for sessions in the repo, passes the shared memory block
+store. Archie keeps it off — the installers pin `[features] memories = false` in
+`~/.codex-archie/config.toml` (the backend passes no flag for it) — and, for sessions in the repo, passes the shared memory block
 (`backend/manager/memory_context.py`: the live `context/memory/MEMORY.md` plus the rule to write
 memory with file tools per `AGENTS.md`) as `developerInstructions` on `thread/start` only. Codex
 records it once as a developer message at the head of the rollout (hidden by the adapter and the

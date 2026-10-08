@@ -212,7 +212,12 @@ step 3c) replaces the label directory with a symlink:
 so Gemini's `chats/session-*.jsonl` lands in `context/chats/` next to Qwen's `<uuid>.jsonl`; the
 name patterns never overlap. A pre-existing real directory is backed up to
 `context/gemini-backup-<timestamp>/` and its chats lifted first. The session manager passes
-`project_dir` as cwd so the label stays stable.
+`project_dir` as cwd so the label stays stable. The installer also pins the label
+(`install/gemini-project.py`): it registers `<repo> → <label>` in `projects.json` and makes the
+ownership marker `.project_root` in the label dir (= `context/.project_root`) name the repo — the CLI
+claims a new label for an unregistered repo or when a marker in `tmp/<label>/` or
+`history/<label>/` names another path, and chats and the memory index below would then leave
+`context/`. `install/doctor.sh` checks the registration, both markers and the memory index.
 
 Because the file name carries only an 8-character id prefix:
 
@@ -237,7 +242,8 @@ Two parts of its built-in guidance differ from the wiki rules: "brief facts dire
 `MEMORY.md`" and a "global personal memory" tier at `~/.gemini/GEMINI.md` (outside `context/`, not
 synced, not indexed) for cross-project preferences. Verified live 2026-10-08 (gemini-2.5-flash): it
 quoted `MEMORY.md` without tools and saved a test fact as a wiki note with frontmatter plus an
-`INDEX.md` line. If `~/.gemini/GEMINI.md` ever appears, move its facts into the wiki.
+`INDEX.md` line. If `~/.gemini/GEMINI.md` ever appears, move its facts into the wiki (the
+installers and `install/doctor.sh` warn when it exists).
 
 ## JSONL format (on disk)
 

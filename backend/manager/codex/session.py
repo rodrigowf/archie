@@ -24,7 +24,7 @@ Per-run configuration
 
 Nothing is written to ``config.toml``.  Fixed overrides go on argv
 (``-c project_doc_max_bytes=…`` so the 51 KB ``AGENTS.md`` is not
-truncated, ``--disable plugins --disable apps`` so the user's ChatGPT
+truncated, ``--disable plugins --disable apps --disable memories`` so the user's ChatGPT
 plugins don't add ~10 KB of instructions to every turn); the harness
 options become thread ``config`` overrides (``model_verbosity``,
 ``web_search``) or ``turn/start`` params (``effort``, ``summary``).  The
@@ -102,7 +102,7 @@ _REPLAY_BUFFER_SIZE = 500
 
 # Fixed per-process overrides (see module docstring).
 _PROJECT_DOC_MAX_BYTES = 131_072
-_DISABLED_FEATURES = ("plugins", "apps")
+_DISABLED_FEATURES = ("plugins", "apps", "memories")
 
 SANDBOX = "danger-full-access"
 APPROVAL_POLICY = "never"

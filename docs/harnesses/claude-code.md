@@ -73,7 +73,8 @@ The installers create the `projects/`, `skills` and `agents` symlinks (`install/
 step 3, for `--with-claude` and `--with-modelstudio`; the project key replaces every
 non-alphanumeric character of the path with `-`, like the CLI); `shared/scripts/setup-context.sh`
 also creates the SDK compatibility symlink. `install/doctor.sh` checks all three, the SDK version
-against `requirements-claude.txt`, the bundled CLI and the auth source
+against `requirements-claude.txt`, the bundled CLI and the auth source, and reports auto-memory for
+information only (the backend switches it off in the repo; `autoMemoryEnabled` is not read)
 ([installation](../infrastructure/installation.md#the-doctor-installdoctorsh)). Project instructions
 come from `CLAUDE.md` at the repo root, a symlink to `context/AGENTS.md` (shared with
 `QWEN.md` and `GEMINI.md`).

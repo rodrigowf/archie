@@ -76,7 +76,7 @@ async def test_start_handshake_and_thread_params(fake_codex, tmp_path):
         head = lines[0]
         assert head["argv"][:3] == ["app-server", "--listen", "stdio://"]
         assert "project_doc_max_bytes=131072" in head["argv"]
-        assert head["argv"].count("--disable") == 2 and "plugins" in head["argv"] and "apps" in head["argv"]
+        assert head["argv"].count("--disable") == 3 and {"plugins", "apps", "memories"} <= set(head["argv"])
         assert head["env_home"] == str(tmp_path / "codex-home")
         assert head["has_openai_key"] is False  # never bill API credits by accident
         init = _req(fake_codex, "initialize")[0]
