@@ -3,7 +3,6 @@ package com.assistant.archie.feature.settings
 import com.assistant.core.model.WorkingDirectory
 import com.assistant.core.protocol.ModelInfoDto
 import com.assistant.core.protocol.OrchestratorModelsDto
-import com.assistant.core.protocol.QwenModelDto
 import com.assistant.core.protocol.VoiceModelEntryDto
 import com.assistant.core.protocol.VoiceModelsDto
 import com.assistant.core.protocol.VoiceOptionDto
@@ -311,20 +310,6 @@ object VoiceLogic {
         val keepVoice = target.voices.any { it.id == voice }
         val fallback = target.voice ?: target.voices.firstOrNull()?.id ?: voice.orEmpty()
         return AutoCorrect(from = model.orEmpty(), to = target.id, voice = if (keepVoice) voice.orEmpty() else fallback)
-    }
-}
-
-// ───────────────────────── harness models (Agent sessions) ─────────────────────────
-
-object HarnessLogic {
-    fun models(raw: List<QwenModelDto>?): List<Option> = raw.orEmpty().filter { it.id.isNotEmpty() }.map { m ->
-        val t = buildList {
-            m.contextWindow?.takeIf { it > 0 }?.let { add("${(it / 1000.0).roundToInt()}K ctx") }
-            if (m.supportsThinking) add("thinking")
-            if (m.supportsVision) add("vision")
-            if (m.supportsVideo) add("video")
-        }.joinToString(" · ")
-        Option(m.id, m.displayName.ifEmpty { m.id }, t.takeIf { it.isNotEmpty() })
     }
 }
 

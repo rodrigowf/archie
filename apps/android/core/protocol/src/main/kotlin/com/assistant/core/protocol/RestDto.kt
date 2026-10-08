@@ -97,6 +97,8 @@ data class SessionConfigDto(
     @SerialName("chrome_extension") val chromeExtension: Boolean? = null,
     val provider: String? = null,
     @SerialName("harness_model") val harnessModel: String? = null,
+    /** `{key: value | null}` overlay; read leniently (see `harnessOptionsOverlay`). */
+    @SerialName("harness_options") val harnessOptions: JsonElement? = null,
 )
 
 @Serializable
@@ -211,6 +213,8 @@ data class ConfigDto(
     @SerialName("voice_vad_min_silence_ms") val voiceVadMinSilenceMs: Int? = null,
     @SerialName("voice_mic_gain") val voiceMicGain: Double? = null,
     @SerialName("default_audio_model") val defaultAudioModel: String? = null,
+    /** `{provider: {key: value}}`; read leniently (a wrong-typed value is dropped, never fails the config). */
+    @SerialName("harness_options") val harnessOptions: JsonElement? = null,
 )
 
 /** Partial `PUT /api/config` (`ConfigUpdate`). Null fields are not sent. */
@@ -234,6 +238,8 @@ data class ConfigUpdateDto(
     @SerialName("voice_vad_min_silence_ms") val voiceVadMinSilenceMs: Int? = null,
     @SerialName("voice_mic_gain") val voiceMicGain: Double? = null,
     @SerialName("default_audio_model") val defaultAudioModel: String? = null,
+    /** `{provider: {key: value | null}}`: merged per key, JSON `null` deletes the key (= CLI default). */
+    @SerialName("harness_options") val harnessOptions: JsonObject? = null,
 )
 
 @Serializable
@@ -259,6 +265,66 @@ data class QwenModelDto(
 
 @Serializable
 data class QwenModelsDto(val models: List<QwenModelDto> = emptyList())
+
+// ───────────── harness catalogs (spec 12 §6.14, §8.1; backend/manager/harness_catalog.py) ─────────────
+
+@Serializable
+data class HarnessChoiceDto(
+    val value: String,
+    val label: String = "",
+    val description: String? = null,
+    val models: List<String>? = null,
+)
+
+/** `kind`: `select` | `toggle` | `number`; `default` is a string, boolean or number. */
+@Serializable
+data class HarnessOptionDto(
+    val key: String,
+    val label: String = "",
+    val kind: String = "select",
+    val choices: List<HarnessChoiceDto> = emptyList(),
+    val default: JsonElement? = null,
+    val help: String? = null,
+    val models: List<String>? = null,
+    val min: Double? = null,
+    val max: Double? = null,
+    val step: Double? = null,
+)
+
+@Serializable
+data class HarnessCatalogModelDto(
+    val id: String,
+    val label: String = "",
+    val source: String = "builtin",
+    val description: String? = null,
+    @SerialName("context_window") val contextWindow: Long? = null,
+    @SerialName("supports_thinking") val supportsThinking: Boolean? = null,
+    @SerialName("supports_vision") val supportsVision: Boolean? = null,
+    val efforts: List<String>? = null,
+    @SerialName("default_effort") val defaultEffort: String? = null,
+)
+
+@Serializable
+data class HarnessCatalogDto(
+    val provider: String = "",
+    val models: List<HarnessCatalogModelDto> = emptyList(),
+    val options: List<HarnessOptionDto> = emptyList(),
+    @SerialName("default_model") val defaultModel: String? = null,
+    @SerialName("allow_custom_model") val allowCustomModel: Boolean = true,
+    val warnings: List<String> = emptyList(),
+)
+
+@Serializable
+data class HarnessInfoDto(
+    val id: String,
+    val label: String = "",
+    val description: String? = null,
+    val catalog: HarnessCatalogDto? = null,
+)
+
+/** `GET /api/config/harnesses[?refresh=true]`. */
+@Serializable
+data class HarnessesDto(val harnesses: List<HarnessInfoDto> = emptyList())
 
 @Serializable
 data class VoiceOptionDto(val id: String, val label: String = "", val description: String = "")

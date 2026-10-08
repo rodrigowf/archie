@@ -3,7 +3,7 @@ name: android
 category: archie/clients
 tags: [android, kotlin, compose, navigation3, views, app-main, app-lite, a300m, poco, gradle, adb, signing, vosk]
 created: 2026-04-14
-modified: 2026-10-06
+modified: 2026-10-07
 summary: apps/android — Gradle multi-module project with the main app (com.assistant.archie) and the A300M lite app (com.assistant.peripheral).
 source: curated (consolidated from memory notes assistant/android/android_peripheral_project.md, assistant/infrastructure/repo_layout_cutover_2026_10.md, assistant/devices/peripheral_devices.md, auto-memory feedback_android_ws_keepalive_silent_drop.md, feedback_use_adb_input_for_device_tests.md, feedback_hands_on_checks_over_suites.md, feedback_run_test_before_speculating.md, project_frontend_refactor_2026_10_03.md; verified against code 2026-10-06)
 references:
@@ -241,6 +241,34 @@ no `"type":"start"` in between. The rule (spec 12) is that every (re)connect re-
 with the resume checkpoint; the backend replays from its 500-event ring or answers
 `replay_overflow`, after which the client refetches over REST. Test with a short airplane-mode
 blip.
+
+## Harness settings (model + options per harness)
+
+Same behaviour as the web app (see [web.md](web.md) "Harness settings"; spec 12 §6.14, §8.1):
+Settings → Agent sessions and the session sheet (⋮ → Session settings) in `:app-main` render each
+harness's model picker and options from `GET /api/config/harnesses`, by kind (`select`, `toggle`,
+`number` → a select with "CLI default" and the values; a number adds a value field validated
+against min/max/step, the model a "Custom model id…" field). Nothing is hard-coded per harness.
+
+- **Global page** (`feature/settings/.../ui/ServerPages.kt` `AgentSessionsPage`): the default
+  harness's "<Harness> defaults" block, then collapsible rows for the other harnesses. Each control
+  saves at once with a partial PUT (`{harness_model: {p: id}}`, `{harness_options: {p: {key: value |
+  null}}}`, null = CLI default). Catalog `warnings` show as a notice; "Refresh models" refetches
+  with `?refresh=true`.
+- **Session sheet** (`ui/SessionSettingsSheet.kt`, `SessionSettingsController`): Harness, Model and
+  options, each with a "Default (…)" inherit row. `harness_options` is sent as a whole map (absent
+  key = inherit, null = CLI default, empty = null) and compared structurally for the dirty check;
+  changing the harness resets model + options to inherit, switching back restores the saved values.
+- **Logic**: `feature/settings/.../HarnessSettingsLogic.kt` (`HarnessLogic`), a port of the web
+  `harness.ts` (gating by the effective model, labels, select rows, diffs), unit-tested in
+  `HarnessSettingsLogicTest`. Composables: `ui/HarnessFields.kt`.
+- **Wire**: types in `core/model/Harness.kt` (`HarnessValue` = text / flag / number), DTOs in
+  `core/protocol/RestDto.kt`, mappers and the older-server fallback (`HarnessFallback`:
+  `/api/config/providers` + `/api/config/harness/qwen/models`) in `core/protocol/HarnessMappers.kt`;
+  `ServerSettingsModel` loads the catalogs with that fallback.
+- **Test data**: the JVM tests of `:core:protocol` and `:feature:settings` read the web mock
+  catalogs (`apps/web/mock-server/data/harnesses.json`) through the `archie.harnessCatalogs`
+  system property, so both clients test against the same data.
 
 ## Rules for changing the apps
 

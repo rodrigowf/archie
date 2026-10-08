@@ -15,6 +15,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.assistant.core.model.HarnessValue
 
 /**
  * Server saves (CFG-1/2/5/6) against a MockWebServer backend serving the live Jetson's GET bodies:
@@ -41,7 +42,9 @@ class ServerSettingsModelTest {
         assertEquals(listOf("chrome-devtools"), cfg.enabledMcps)
         assertEquals(2, cfg.workingDirectoryHistory.size)
         assertEquals(74, s.catalogs.orchestratorModels?.models?.size)
-        assertEquals(listOf("claude", "qwen", "gemini"), s.catalogs.providers?.map { it.id })
+        assertEquals(listOf("claude", "qwen", "gemini", "codex"), s.catalogs.harnesses?.map { it.id })
+        assertEquals(listOf("claude", "qwen", "gemini", "codex"), s.catalogs.providers?.map { it.id })
+        assertEquals(5, s.catalogs.harnesses!![0].catalog?.options?.size)
         assertEquals(listOf("chrome-devtools"), s.catalogs.mcpNames)
         assertTrue(s.catalogs.voiceModels!!.providers.containsKey("openai"))
         assertTrue("Google list discovered for the saved endpoint", s.catalogs.googleVoiceModels["aistudio"]!!.isNotEmpty())
@@ -135,5 +138,83 @@ class ServerSettingsModelTest {
         eventually { h.settings.settings.value?.themeMode == com.assistant.core.model.ThemeMode.LIGHT }
         h.feature.device.setAutoConnect(false)
         assertEquals(listOf("Saved", "Saved"), got.await().map { it.text })
+    }
+
+    // ───────── harness catalogs + defaults (spec 12 §6.14, §8.1) ─────────
+
+    /** An older server (no `/api/config/harnesses`): providers + the Qwen model list. */
+    @Test fun harnesses_fallBackToProvidersAndQwenModels() = runBlocking {
+        h.backend.harnesses = null
+        h.feature.server.refreshNow()
+        val list = h.feature.server.current.catalogs.harnesses!!
+        assertEquals(listOf("claude", "qwen", "gemini"), list.map { it.id })
+        assertNull(list[0].catalog)
+        assertEquals(listOf("qwen3.6-plus", "glm-5.1", "deepseek-v4-pro", "deepseek-v4-flash"), list[1].catalog?.models?.map { it.id })
+        assertEquals("[ModelStudio Standard] qwen3.6-plus", list[1].catalog?.models?.first()?.label)
+        assertTrue(h.backend.requests.contains("GET /api/config/providers"))
+    }
+
+    @Test fun harnesses_refreshAsksTheServerToRebuild() {
+        runBlocking { h.feature.server.refreshNow() }
+        h.feature.server.refreshHarnesses()
+        eventually { h.backend.requests.contains("GET /api/config/harnesses?refresh=true") && !h.feature.server.current.refreshingHarnesses }
+        assertEquals(4, h.feature.server.current.catalogs.harnesses?.size)
+    }
+
+    /** Partial PUTs per key; `null` = CLI default (the server deletes the key). */
+    @Test fun globalHarnessDefaults_putOneKeyAtATime() = runBlocking {
+        h.feature.server.refreshNow()
+        h.feature.server.save(HarnessLogic.globalOptionPatch("claude", "effort", OptionState.Value(HarnessValue.Text("max"))), "harness_options")
+        h.feature.server.save(HarnessLogic.globalOptionPatch("claude", "thinking_budget", OptionState.Value(HarnessValue.Num(32000.0))), "harness_options")
+        assertEquals(
+            mapOf("effort" to HarnessValue.Text("max"), "thinking_budget" to HarnessValue.Num(32000.0)),
+            h.feature.server.current.config.value?.harnessOptions?.get("claude"),
+        )
+        h.feature.server.save(HarnessLogic.globalOptionPatch("claude", "effort", OptionState.Cli), "harness_options")
+        h.feature.server.save(HarnessLogic.globalModelPatch("codex", "gpt-6-luna"), "harness_model")
+        assertEquals(
+            listOf(
+                """{"harness_options":{"claude":{"effort":"max"}}}""",
+                """{"harness_options":{"claude":{"thinking_budget":32000}}}""",
+                """{"harness_options":{"claude":{"effort":null}}}""",
+                """{"harness_model":{"codex":"gpt-6-luna"}}""",
+            ),
+            h.backend.puts,
+        )
+        val cfg = h.feature.server.current.config.value!!
+        assertEquals(mapOf("thinking_budget" to HarnessValue.Num(32000.0)), cfg.harnessOptions["claude"])
+        assertEquals("gpt-6-luna", cfg.harnessModel["codex"])
+    }
+
+    /** The session sheet sends the whole `harness_options` map; a harness change resets model + options. */
+    @Test fun sessionController_sendsTheWholeOptionsMap_andResetsOnHarnessChange() = runBlocking {
+        h.backend.sessionConfig = """{"working_directory":null,"enabled_mcps":null,"chrome_extension":null,"provider":"claude","harness_model":"opus","harness_options":{"effort":"max"}}"""
+        val sessions = object : SessionControl {
+            override fun session(localId: String) = kotlinx.coroutines.flow.flowOf(SessionInfo(localId, "SDK1", "t", busy = false))
+            override suspend fun restart(localId: String) = true
+        }
+        val c = SessionSettingsController("L1", h.api, sessions, h.feature.messages, h.scope)
+        eventually { c.state.value.phase == SessionSheetPhase.READY }
+        assertEquals(mapOf("effort" to HarnessValue.Text("max")), c.state.value.harnessOptions)
+
+        c.setOption("thinking", OptionState.Cli)
+        assertTrue(c.state.value.dirty)
+        c.setOption("thinking", OptionState.Inherit)
+        assertFalse("back to the saved map", c.state.value.dirty)
+
+        c.setOption("effort", OptionState.Value(HarnessValue.Text("low")))
+        c.setOption("thinking_budget", OptionState.Value(HarnessValue.Num(2048.0)))
+        c.run(restart = false)
+        assertEquals("""{"harness_options":{"effort":"low","thinking_budget":2048}}""", h.backend.puts.last())
+
+        c.setProvider("codex", "claude")
+        assertNull(c.state.value.harnessModel)
+        assertNull(c.state.value.harnessOptions)
+        c.setProvider(null, "claude")
+        assertEquals("the saved harness restores the saved values", "opus", c.state.value.harnessModel)
+        assertEquals(setOf(SessionKey.PROVIDER), c.state.value.changes.keys)
+        c.setProvider("codex", "claude")
+        c.run(restart = false)
+        assertEquals("""{"provider":"codex","harness_model":null,"harness_options":null}""", h.backend.puts.last())
     }
 }

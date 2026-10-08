@@ -8,6 +8,7 @@ import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -253,5 +254,43 @@ class SettingsUiTest {
         compose.setContent { ArchieTheme { SessionSettingsSheet(h.feature, "L1", onDismiss = {}) } }
         waitText("A reply is running: stop it to restart.")
         compose.onNodeWithTag("session-restart").assertIsNotEnabled()
+    }
+
+    /** Settings → Agent sessions: the default harness's options save per key; other harnesses collapse. */
+    @Test fun agentSessions_harnessOptionSavesOneKey_andOtherHarnessesExpand() {
+        val h = h()
+        show(h, SettingsPageKey.AGENT_SESSIONS)
+        waitText("CLAUDE CODE DEFAULTS")
+        // Expand first: the "Saved" snackbar would cover rows at the bottom of the viewport.
+        compose.onNodeWithTag("harness-group:codex").performScrollTo().performClick()
+        waitText("Codex: check the setup")
+        compose.onNodeWithTag("harness:codex:verbosity", useUnmergedTree = true).assertExists()
+
+        compose.onAllNodesWithTag("select:Reasoning effort")[0].performScrollTo().performClick() // Claude Code, not Codex
+        compose.onNodeWithTag("option:max").performClick()
+        eventually { h.backend.puts.lastOrNull() == """{"harness_options":{"claude":{"effort":"max"}}}""" }
+        waitText("Saved")
+        compose.onNodeWithTag("harness-refresh").performScrollTo().performClick()
+        eventually { h.backend.requests.contains("GET /api/config/harnesses?refresh=true") }
+    }
+
+    /** Session sheet: switching the harness resets model + options to inherit, and Save sends them. */
+    @Test fun sessionSheet_harnessChangeResetsModelAndOptions() {
+        val sessions = object : SessionControl {
+            override fun session(localId: String) = flowOf(SessionInfo(localId, "SDK1", "x", busy = false))
+            override suspend fun restart(localId: String) = true
+        }
+        val h = h(sessions = sessions) {
+            it.sessionConfig = """{"working_directory":null,"enabled_mcps":null,"chrome_extension":null,"provider":"claude","harness_model":"opus","harness_options":{"effort":"max"}}"""
+        }
+        compose.setContent { ArchieTheme { SessionSettingsSheet(h.feature, "L1", onDismiss = {}) } }
+        waitText("Restart")
+        compose.onNodeWithText("Opus", substring = false).performScrollTo().assertExists()
+        compose.onNodeWithTag("select:Harness").performScrollTo().performClick()
+        compose.onNodeWithTag("option:codex").performClick()
+        waitText("Default (CLI default (GPT-6-Luna))")
+        compose.onNodeWithTag("harness:codex:effort", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("session-save").performClick()
+        eventually { h.backend.puts.lastOrNull() == """{"provider":"codex","harness_model":null,"harness_options":null}""" }
     }
 }

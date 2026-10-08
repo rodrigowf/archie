@@ -1,6 +1,7 @@
 package com.assistant.core.network
 
 import com.assistant.core.model.AuthStatus
+import com.assistant.core.model.HarnessInfo
 import com.assistant.core.model.ConfigPatch
 import com.assistant.core.model.MemoryNode
 import com.assistant.core.model.PoolSession
@@ -19,6 +20,7 @@ import com.assistant.core.protocol.CastResponse
 import com.assistant.core.protocol.DropLastNRequest
 import com.assistant.core.protocol.GoogleVoiceModelsDto
 import com.assistant.core.protocol.HarnessProvidersDto
+import com.assistant.core.protocol.HarnessesDto
 import com.assistant.core.protocol.InjectRequest
 import com.assistant.core.protocol.InjectResponse
 import com.assistant.core.protocol.McpServersDto
@@ -40,7 +42,9 @@ import com.assistant.core.protocol.VoiceModelsDto
 import com.assistant.core.protocol.toDto
 import com.assistant.core.protocol.toModel
 import com.assistant.core.protocol.toPutBody
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.encodeToJsonElement
@@ -160,6 +164,19 @@ class ArchieApi(private val rest: RestCaller) {
 
     suspend fun providers(): ApiResult<HarnessProvidersDto> = rest.getJson(rest.url("/api/config/providers"))
     suspend fun qwenModels(): ApiResult<QwenModelsDto> = rest.getJson(rest.url("/api/config/harness/qwen/models"))
+
+    /** The Qwen model rows as raw JSON (ids or objects), for the harness fallback catalog. */
+    suspend fun qwenModelRows(): ApiResult<List<JsonElement>> =
+        rest.getJson<JsonObject>(rest.url("/api/config/harness/qwen/models")).map { (it["models"] as? JsonArray).orEmpty() }
+
+    /**
+     * `GET /api/config/harnesses` (spec 12 §8.1): every harness with its catalog (models + options).
+     * [refresh] asks the server to rebuild its ~5 min catalog cache. Older servers answer 404
+     * (callers fall back to [providers] + [qwenModelRows]).
+     */
+    suspend fun harnesses(refresh: Boolean = false): ApiResult<List<HarnessInfo>> =
+        rest.getJson<HarnessesDto>(rest.url("/api/config/harnesses") { if (refresh) addQueryParameter("refresh", "true") })
+            .map { it.toModel() }
     suspend fun googleVoiceModels(endpoint: String? = null): ApiResult<GoogleVoiceModelsDto> =
         rest.getJson(rest.url("/api/config/voice/google/models") { endpoint?.let { addQueryParameter("endpoint", it) } })
 

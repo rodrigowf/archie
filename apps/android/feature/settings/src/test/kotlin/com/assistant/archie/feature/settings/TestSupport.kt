@@ -40,6 +40,10 @@ class MemoryDataStore(initial: Preferences = emptyPreferences()) : DataStore<Pre
     }
 }
 
+/** The web mock server's `GET /api/config/harnesses` body (`apps/web/mock-server/data/harnesses.json`). */
+fun harnessCatalogsFixture(): String =
+    java.io.File(requireNotNull(System.getProperty("archie.harnessCatalogs")) { "archie.harnessCatalogs not set" }).readText()
+
 fun fixture(name: String): String =
     requireNotNull(SettingsBackend::class.java.classLoader!!.getResource("jetson/$name")) { "missing fixture $name" }.readText()
 
@@ -55,7 +59,9 @@ class SettingsBackend {
     @Volatile var config: JsonObject = json.parseToJsonElement(fixture("config.json")) as JsonObject
     @Volatile var auth: String = fixture("auth_status.json")
     @Volatile var mcp: String = fixture("mcp_servers.json")
-    @Volatile var sessionConfig: String = """{"working_directory":null,"enabled_mcps":null,"chrome_extension":null,"provider":null,"harness_model":null}"""
+    @Volatile var sessionConfig: String = """{"working_directory":null,"enabled_mcps":null,"chrome_extension":null,"provider":null,"harness_model":null,"harness_options":null}"""
+    /** `GET /api/config/harnesses`; null = an older server (404 → providers + Qwen models fallback). */
+    @Volatile var harnesses: String? = harnessCatalogsFixture()
     @Volatile var failNextPut: Pair<Int, String>? = null
     val puts = CopyOnWriteArrayList<String>()
     val requests = CopyOnWriteArrayList<String>()
@@ -74,6 +80,7 @@ class SettingsBackend {
                     path == "/api/orchestrator/models" -> ok(fixture("orchestrator_models.json"))
                     path == "/api/orchestrator/voice/models" -> ok(fixture("voice_models.json"))
                     path.startsWith("/api/config/voice/google/models") -> ok(fixture("google_models_vertex.json"))
+                    path.startsWith("/api/config/harnesses") -> harnesses?.let { ok(it) } ?: MockResponse().setResponseCode(404)
                     path == "/api/config/providers" -> ok(fixture("providers.json"))
                     path == "/api/config/harness/qwen/models" -> ok(fixture("qwen_models.json"))
                     path == "/api/mcp/servers" -> ok(mcp)
@@ -100,7 +107,19 @@ class SettingsBackend {
             return MockResponse().setResponseCode(code).setHeader("Content-Type", "application/json").setBody("""{"detail":${kotlinx.serialization.json.JsonPrimitive(detail)}}""")
         }
         val patch = json.parseToJsonElement(body) as JsonObject
-        config = JsonObject(config + patch)
+        val merged = LinkedHashMap<String, kotlinx.serialization.json.JsonElement>(config + patch)
+        // Like the server: harness_model merges per provider; harness_options per key, null deletes it.
+        (patch["harness_model"] as? JsonObject)?.let { p -> merged["harness_model"] = JsonObject(((config["harness_model"] as? JsonObject) ?: JsonObject(emptyMap())) + p) }
+        (patch["harness_options"] as? JsonObject)?.let { p ->
+            val all = LinkedHashMap((config["harness_options"] as? JsonObject) ?: JsonObject(emptyMap()))
+            for ((prov, opts) in p) {
+                val cur = LinkedHashMap((all[prov] as? JsonObject) ?: JsonObject(emptyMap()))
+                for ((k, v) in opts as JsonObject) if (v is kotlinx.serialization.json.JsonNull) cur.remove(k) else cur[k] = v
+                all[prov] = JsonObject(cur)
+            }
+            merged["harness_options"] = JsonObject(all)
+        }
+        config = JsonObject(merged)
         return ok(config.toString())
     }
 

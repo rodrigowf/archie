@@ -1,5 +1,6 @@
 package com.assistant.archie.feature.settings
 
+import com.assistant.core.model.HarnessValue
 import com.assistant.core.model.SessionConfig
 import com.assistant.core.network.ApiResult
 import com.assistant.core.network.ArchieApi
@@ -16,6 +17,7 @@ enum class SessionKey(val wire: String) {
     ENABLED_MCPS("enabled_mcps"),
     PROVIDER("provider"),
     HARNESS_MODEL("harness_model"),
+    HARNESS_OPTIONS("harness_options"),
     CHROME_EXTENSION("chrome_extension"),
 }
 
@@ -45,11 +47,12 @@ data class SessionSettingsState(
     val enabledMcps: List<String>? get() = draft.valueOr(SessionKey.ENABLED_MCPS, saved.enabledMcps)
     val provider: String? get() = draft.valueOr(SessionKey.PROVIDER, saved.provider)
     val harnessModel: String? get() = draft.valueOr(SessionKey.HARNESS_MODEL, saved.harnessModel)
+    val harnessOptions: Map<String, HarnessValue?>? get() = draft.valueOr(SessionKey.HARNESS_OPTIONS, saved.harnessOptions)
     val chromeExtension: Boolean? get() = draft.valueOr(SessionKey.CHROME_EXTENSION, saved.chromeExtension)
 
     /** Only the keys whose draft value differs from the saved one (spec 12 §6.14). */
     val changes: Map<SessionKey, Any?>
-        get() = draft.values.filter { (k, v) -> v != savedValue(k) }
+        get() = draft.values.filter { (k, v) -> !same(k, v, savedValue(k)) }
 
     val dirty: Boolean get() = changes.isNotEmpty()
 
@@ -58,8 +61,14 @@ data class SessionSettingsState(
         SessionKey.ENABLED_MCPS -> saved.enabledMcps
         SessionKey.PROVIDER -> saved.provider
         SessionKey.HARNESS_MODEL -> saved.harnessModel
+        SessionKey.HARNESS_OPTIONS -> saved.harnessOptions
         SessionKey.CHROME_EXTENSION -> saved.chromeExtension
     }
+
+    /** `harness_options` compares structurally, `null` and `{}` being the same (inherit every key). */
+    @Suppress("UNCHECKED_CAST")
+    private fun same(k: SessionKey, a: Any?, b: Any?): Boolean =
+        if (k == SessionKey.HARNESS_OPTIONS) HarnessLogic.sameOptionsMap(a as Map<String, HarnessValue?>?, b as Map<String, HarnessValue?>?) else a == b
 
     /** The footer status line (web copy). */
     val footer: String
@@ -116,6 +125,17 @@ class SessionSettingsController(
     fun set(key: SessionKey, value: Any?) =
         _state.update { it.copy(draft = SessionDraft(it.draft.values + (key to value)), saveError = null) }
 
+    /**
+     * Change the harness. Its model and options belong to one harness, so they reset to inherit;
+     * going back to the saved harness restores the saved values ([HarnessLogic.draftForProvider]).
+     */
+    fun setProvider(next: String?, globalProvider: String?) =
+        _state.update { it.copy(draft = HarnessLogic.draftForProvider(it.saved, it.draft, next, globalProvider), saveError = null) }
+
+    /** Set one harness option of the draft overlay. */
+    fun setOption(key: String, state: OptionState) =
+        set(SessionKey.HARNESS_OPTIONS, HarnessLogic.withSessionOption(_state.value.harnessOptions, key, state))
+
     /** Save (and optionally restart). Returns true when the sheet may close. */
     suspend fun run(restart: Boolean): Boolean {
         val s = _state.value
@@ -130,8 +150,11 @@ class SessionSettingsController(
                 chromeExtension = changes[SessionKey.CHROME_EXTENSION] as? Boolean,
                 provider = changes[SessionKey.PROVIDER] as? String,
                 harnessModel = changes[SessionKey.HARNESS_MODEL] as? String,
+                harnessOptions = (changes[SessionKey.HARNESS_OPTIONS] as? Map<*, *>)
+                    ?.entries?.associate { (k, v) -> k as String to v as HarnessValue? }
+                    ?.let(HarnessLogic::normalizeOptionsMap),
             )
-            val inherit = changes.filterValues { it == null }.keys.map { it.wire }.toSet()
+            val inherit = changes.filter { (k, v) -> v == null || (k == SessionKey.HARNESS_OPTIONS && (v as Map<*, *>).isEmpty()) }.keys.map { it.wire }.toSet()
             when (val r = api.putSessionConfig(sdkId, body, inherit)) {
                 is ApiResult.Ok -> _state.update { it.copy(saved = r.value, draft = SessionDraft()) }
                 else -> {
