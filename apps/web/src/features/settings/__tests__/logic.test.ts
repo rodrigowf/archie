@@ -11,7 +11,6 @@ import {
   enabledMcpNames,
   entryFromDraft,
   googleAutoCorrect,
-  harnessModels,
   isMcpEnabled,
   languageOptions,
   mcpOffBlockedReason,
@@ -195,13 +194,6 @@ describe('catalog normalisation', () => {
     expect(live[0]).toEqual({ id: '', label: 'Auto-detect', description: 'ASR picks' });
     expect(live).toHaveLength(2);
     expect(languageOptions(G('m', { transcription_languages: [] }))).toEqual([]);
-  });
-
-  it('qwen harness models: ids or objects with traits', () => {
-    expect(harnessModels(['a', '', { id: 'b', display_name: 'B', context_window: 1_000_000, supports_thinking: true, supports_vision: true }, { x: 1 }, null])).toEqual([
-      { id: 'a', label: 'a', traits: '' },
-      { id: 'b', label: 'B', traits: '1000K ctx · thinking · vision' },
-    ]);
   });
 
   it('retired / unknown Archie models (P-9, O-7)', () => {

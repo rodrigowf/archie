@@ -9,14 +9,16 @@
  * the **text model** (`default_model`) for typed messages and the **audio model**
  * (`default_audio_model`, "" = server default) for voice messages. Live voice is the Voice page.
  */
-import type { ServerConfig } from '@/services';
+import { useState } from 'react';
+import { loadHarnessCatalogs, type HarnessInfo, type ServerConfig } from '@/services';
 import { useServerConfig } from '@/stores';
-import { Select, Switch, type SelectOption } from '@/ui/controls';
+import { Button, Disclosure, Select, Switch, type SelectOption } from '@/ui/controls';
 import { saveSetting } from '../controller';
+import { globalModelPatch, globalOptionPatch, harnessDefaultsSummary, harnessInfo } from '../harness';
+import { HarnessFields, HarnessWarnings } from '../HarnessFields';
 import {
   audioModels,
   findModel,
-  harnessModels,
   modelAvailability,
   modelProviderLabel,
   modelProviders,
@@ -26,6 +28,7 @@ import {
 import { Field, FieldStack, Notice, useFieldId } from '../parts';
 import { useSaving, WithConfig } from './shared';
 import type { ModelInfo } from '@/protocol';
+import styles from '../settings.module.css';
 
 function modelOptions(models: readonly ModelInfo[], provider: string, current: string): SelectOption[] {
   const opts: SelectOption[] = models
@@ -182,20 +185,14 @@ export function AgentSessionsPage() {
 }
 
 function AgentSessionsForm({ cfg }: { cfg: ServerConfig }) {
-  const providers = useServerConfig((s) => s.providers);
-  const qwenRaw = useServerConfig((s) => s.qwenModels);
+  const harnesses = useServerConfig((s) => s.harnesses);
   const saving = useSaving();
   const chromeId = useFieldId('chrome');
-  const list = providers ?? [];
+  const list = harnesses ?? [];
   const options: SelectOption[] = list.map((p) => ({ value: p.id, label: p.label || p.id }));
   if (cfg.provider && !options.some((o) => o.value === cfg.provider)) options.unshift({ value: cfg.provider, label: cfg.provider });
-  const selected = list.find((p) => p.id === cfg.provider);
-  const qwenModels = harnessModels(qwenRaw);
-  const qwenCurrent = cfg.harness_model?.qwen ?? '';
-  const qwenOptions: SelectOption[] = [{ value: '', label: 'CLI default' }].concat(
-    qwenModels.map((m) => ({ value: m.id, label: m.label, ...(m.traits ? { description: m.traits } : {}) })),
-  );
-  if (qwenCurrent && !qwenOptions.some((o) => o.value === qwenCurrent)) qwenOptions.push({ value: qwenCurrent, label: qwenCurrent });
+  const selected = harnessInfo(list, cfg.provider);
+  const others = list.filter((h) => h.id !== cfg.provider);
 
   return (
     <>
@@ -206,23 +203,11 @@ function AgentSessionsForm({ cfg }: { cfg: ServerConfig }) {
             options={options}
             value={cfg.provider}
             disabled={saving || !options.length}
-            supportingText={selected?.description}
+            supportingText={harnesses ? selected?.description : 'Loading the harness list…'}
             onChange={(id) => {
               if (id !== cfg.provider) void saveSetting({ provider: id }, 'provider');
             }}
           />
-          {cfg.provider === 'qwen' ? (
-            <Select
-              label="Qwen model"
-              options={qwenOptions}
-              value={qwenCurrent}
-              disabled={saving}
-              supportingText={qwenModels.length ? undefined : 'No models listed. Run qwen once on the server to create ~/.qwen/settings.json.'}
-              onChange={(id) => {
-                if (id !== qwenCurrent) void saveSetting({ harness_model: { qwen: id } }, 'harness_model');
-              }}
-            />
-          ) : null}
         </Field>
         <Field
           label="Claude in Chrome"
@@ -241,6 +226,82 @@ function AgentSessionsForm({ cfg }: { cfg: ServerConfig }) {
           }
         />
       </FieldStack>
+      {selected ? (
+        <>
+          <HarnessWarnings harness={selected} />
+          <FieldStack label={`${selected.label} defaults`}>
+            <HarnessDefaults cfg={cfg} harness={selected} disabled={saving} />
+            <RefreshCatalogs />
+          </FieldStack>
+        </>
+      ) : null}
+      {others.length ? (
+        <div className={styles.stackBlock}>
+          <h3 className={styles.stackLabel}>Other harnesses</h3>
+          <p className={styles.help}>Defaults for sessions you switch to another harness (⋮ → Session settings).</p>
+          <div className={styles.harnessList}>
+            {others.map((h) => (
+              <Disclosure
+                key={h.id}
+                summary={h.label || h.id}
+                meta={harnessDefaultsSummary(h.catalog, cfg.harness_model?.[h.id] ?? '', cfg.harness_options?.[h.id])}
+                className={styles.harnessGroup}
+                bodyClassName={styles.harnessGroupBody}
+              >
+                <HarnessWarnings harness={h} />
+                <div className={styles.fieldStack}>
+                  <HarnessDefaults cfg={cfg} harness={h} disabled={saving} />
+                </div>
+              </Disclosure>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </>
+  );
+}
+
+/** Model + options of one harness, each saved on its own (`harness_model` / `harness_options` partial PUTs). */
+function HarnessDefaults({ cfg, harness, disabled }: { cfg: ServerConfig; harness: HarnessInfo; disabled: boolean }) {
+  const p = harness.id;
+  return (
+    <HarnessFields
+      harness={harness}
+      scope="global"
+      model={cfg.harness_model?.[p] ?? ''}
+      options={cfg.harness_options?.[p] ?? null}
+      disabled={disabled}
+      onModel={(m) => {
+        void saveSetting(globalModelPatch(p, m ?? ''), 'harness_model');
+      }}
+      onOption={(key, st) => {
+        void saveSetting(globalOptionPatch(p, key, st), 'harness_options');
+      }}
+    />
+  );
+}
+
+/** "Refresh models": rebuild the server's catalogs (a model added to a CLI's settings, a new live model). */
+function RefreshCatalogs() {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Field help="Model lists are cached on the server for a few minutes.">
+      <div className={styles.actionsRow}>
+        <Button
+          variant="text"
+          size="small"
+          icon="refresh"
+          loading={busy}
+          onClick={() => {
+            setBusy(true);
+            void loadHarnessCatalogs(true).finally(() => {
+              setBusy(false);
+            });
+          }}
+        >
+          Refresh models
+        </Button>
+      </div>
+    </Field>
   );
 }

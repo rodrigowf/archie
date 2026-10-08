@@ -1,5 +1,6 @@
 /** Fake backend for the settings tests: `/api/config` (PUT merges like the backend) + catalogs. */
-import type { ServerConfig } from '@/services';
+import type { HarnessOptionsMap, ServerConfig } from '@/services';
+import { HARNESS_SAMPLES } from '../harnessSamples';
 import { jsonResponse, type FakeFetch, type RecordedRequest } from '../../../services/__tests__/fakes';
 
 export const CONFIG: ServerConfig = {
@@ -23,6 +24,7 @@ export const CONFIG: ServerConfig = {
   default_audio_model: '',
   summarizer_model: '',
   harness_model: { claude: '', qwen: '' },
+  harness_options: { claude: { effort: 'high' } },
   default_voice_provider: 'openai',
   default_voice_model: 'gpt-realtime-2',
   default_voice_name: 'cedar',
@@ -49,6 +51,7 @@ const voice = (id: string, extra: Record<string, unknown> = {}) => ({
 });
 
 export const CATALOGS = {
+  harnesses: { harnesses: HARNESS_SAMPLES },
   providers: {
     providers: [
       { id: 'claude', label: 'Claude Code', description: "Anthropic's Claude Code CLI." },
@@ -105,7 +108,12 @@ export interface ConfigServer {
  */
 export function serveConfig(
   f: FakeFetch,
-  opts: { config?: Partial<ServerConfig>; reject?: (body: Record<string, unknown>) => { status: number; detail: string } | null } = {},
+  opts: {
+    config?: Partial<ServerConfig>;
+    reject?: (body: Record<string, unknown>) => { status: number; detail: string } | null;
+    /** An older server: no `/api/config/harnesses` (404). */
+    noHarnesses?: boolean;
+  } = {},
 ): ConfigServer {
   const state: ConfigServer = {
     config: { ...CONFIG, ...opts.config },
@@ -118,9 +126,18 @@ export function serveConfig(
       if (no) return jsonResponse({ detail: no.detail }, no.status);
       const next = { ...state.config, ...body } as ServerConfig;
       if (body.harness_model) next.harness_model = { ...state.config.harness_model, ...(body.harness_model as Record<string, string>) };
+      if (body.harness_options) {
+        const all: Record<string, HarnessOptionsMap> = { ...(state.config.harness_options ?? {}) };
+        for (const [p, opts] of Object.entries(body.harness_options as Record<string, HarnessOptionsMap>)) {
+          const merged: HarnessOptionsMap = { ...(all[p] ?? {}), ...opts };
+          all[p] = Object.fromEntries(Object.entries(merged).filter(([, v]) => v !== null));
+        }
+        next.harness_options = all;
+      }
       state.config = next;
       return jsonResponse(next);
     })
+    .on('GET', /^\/api\/config\/harnesses/, () => (opts.noHarnesses ? jsonResponse({ detail: 'Not Found' }, 404) : jsonResponse(CATALOGS.harnesses)))
     .on('GET', '/api/config/providers', CATALOGS.providers)
     .on('GET', '/api/config/harness/qwen/models', CATALOGS.qwen)
     .on('GET', '/api/orchestrator/models', CATALOGS.orchestrator)

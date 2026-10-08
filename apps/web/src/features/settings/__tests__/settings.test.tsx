@@ -336,18 +336,91 @@ describe('Conversation model (P-9, O-7)', () => {
 });
 
 describe('Agent sessions', () => {
-  it('harness, qwen model (shallow harness_model PUT) and the Chrome flag', async () => {
+  const combo = (name: string | RegExp) => screen.findByRole('combobox', { name });
+  const pick = async (user: ReturnType<typeof userEvent.setup>, box: string | RegExp, option: string | RegExp) => {
+    await user.click(await combo(box));
+    await user.click(await screen.findByRole('option', { name: option }));
+  };
+
+  it('default harness, its model + options from the catalog (partial PUTs), effort gating, and the Chrome flag', async () => {
     srv = serveConfig(h.fetch);
     const { user } = view('agent-sessions');
-    await user.click(await screen.findByRole('combobox', { name: 'Default harness' }));
-    await user.click(await screen.findByRole('option', { name: 'Qwen Code' }));
-    await waitFor(() => expect(srv.puts()[0]).toEqual({ provider: 'qwen' }));
-    await user.click(await screen.findByRole('combobox', { name: 'Qwen model' }));
-    await user.click(await screen.findByRole('option', { name: /qwen3\.6-plus/ }));
-    await waitFor(() => expect(srv.puts()[1]).toEqual({ harness_model: { qwen: 'qwen3.6-plus' } }));
-    expect(srv.config.harness_model).toEqual({ claude: '', qwen: 'qwen3.6-plus' });
+    expect(await screen.findByRole('heading', { name: 'Claude Code defaults' })).toBeTruthy();
+    expect((await combo('Model')).textContent).toContain('CLI default (Claude Sonnet 5.5)');
+    expect((await combo('Reasoning effort')).textContent).toContain('High');
+    // unknown model (CLI default): every option shows
+    expect(screen.getByRole('combobox', { name: 'Thinking' })).toBeTruthy();
+
+    await pick(user, 'Model', /^Claude Opus 4\.6/);
+    await waitFor(() => expect(srv.puts()[0]).toEqual({ harness_model: { claude: 'claude-opus-4-6' } }));
+    await pick(user, 'Reasoning effort', /^Max/);
+    await waitFor(() => expect(srv.puts()[1]).toEqual({ harness_options: { claude: { effort: 'max' } } }));
+    // 4.6 has no xhigh
+    await user.click(await combo('Reasoning effort'));
+    expect(screen.queryByRole('option', { name: /^Extra high/ })).toBeNull();
+    await user.click(await screen.findByRole('option', { name: /^CLI default/ }));
+    await waitFor(() => expect(srv.puts()[2]).toEqual({ harness_options: { claude: { effort: null } } }));
+    expect(srv.config.harness_options?.claude).toEqual({});
     await user.click(screen.getByRole('switch', { name: 'Claude in Chrome' }));
-    await waitFor(() => expect(srv.puts()[2]).toEqual({ chrome_extension: false }));
+    await waitFor(() => expect(srv.puts()[3]).toEqual({ chrome_extension: false }));
+  });
+
+  it('a number option takes a validated custom value; an adaptive-only model hides thinking + budget', async () => {
+    srv = serveConfig(h.fetch);
+    const { user } = view('agent-sessions');
+    expect(await screen.findByRole('heading', { name: 'Claude Code defaults' })).toBeTruthy();
+    // number option: "Custom value…" then the field commits on blur, validated against min/max
+    await pick(user, 'Thinking budget', /^Custom value/);
+    const budget = await screen.findByRole('spinbutton', { name: 'Thinking budget' });
+    await user.type(budget, '100');
+    await user.tab();
+    expect(await screen.findByText('At least 1024')).toBeTruthy();
+    expect(srv.puts()).toHaveLength(0);
+    await user.clear(budget);
+    await user.type(budget, '32768{Enter}');
+    await waitFor(() => expect(srv.puts()[0]).toEqual({ harness_options: { claude: { thinking_budget: 32768 } } }));
+
+    // an adaptive-only model hides Thinking and the budget
+    await pick(user, 'Model', /^Claude Opus 5\.5/);
+    await waitFor(() => expect(screen.queryByRole('combobox', { name: 'Thinking' })).toBeNull());
+    expect(screen.queryByRole('combobox', { name: 'Thinking budget' })).toBeNull();
+    expect(screen.getByText(/2 more options do not apply to Claude Opus 5\.5/)).toBeTruthy();
+  });
+
+  it('other harnesses are collapsible blocks with their warnings; a custom model id; Refresh models', async () => {
+    srv = serveConfig(h.fetch);
+    const { user } = view('agent-sessions');
+    const codex = await screen.findByRole('button', { name: /^Codex/ });
+    expect(codex.getAttribute('aria-expanded')).toBe('false');
+    await user.click(codex);
+    const block = codex.parentElement as HTMLElement;
+    expect(within(block).getByText(/shared login/)).toBeTruthy();
+    await user.click(within(block).getByRole('combobox', { name: 'Reasoning summary' }));
+    await user.click(await screen.findByRole('option', { name: /^None/ }));
+    await waitFor(() => expect(srv.puts()[0]).toEqual({ harness_options: { codex: { reasoning_summary: 'none' } } }));
+    await user.click(within(block).getByRole('combobox', { name: 'Model' }));
+    await user.click(await screen.findByRole('option', { name: /^Custom model id/ }));
+    await user.type(within(block).getByRole('textbox', { name: 'Model id' }), 'gpt-7-preview{Enter}');
+    await waitFor(() => expect(srv.puts()[1]).toEqual({ harness_model: { codex: 'gpt-7-preview' } }));
+    expect(codex.textContent).toContain('gpt-7-preview · 1 option');
+
+    await user.click(screen.getByRole('button', { name: 'Refresh models' }));
+    await waitFor(() => expect(h.fetch.calls('GET', '/api/config/harnesses?refresh=true')).toHaveLength(1));
+
+    await pick(user, 'Default harness', 'Qwen Code');
+    await waitFor(() => expect(srv.puts()[2]).toEqual({ provider: 'qwen' }));
+    expect(await screen.findByRole('heading', { name: 'Qwen Code defaults' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Claude Code/ })).toBeTruthy();
+  });
+
+  it('an older server (no /api/config/harnesses) falls back to the providers + the Qwen model list', async () => {
+    srv = serveConfig(h.fetch, { noHarnesses: true, config: { provider: 'qwen' } });
+    const { user } = view('agent-sessions');
+    expect(await screen.findByRole('heading', { name: 'Qwen Code defaults' })).toBeTruthy();
+    await pick(user, 'Model', /^qwen3\.6-plus/);
+    await waitFor(() => expect(srv.puts()[0]).toEqual({ harness_model: { qwen: 'qwen3.6-plus' } }));
+    expect(srv.config.harness_model).toEqual({ claude: '', qwen: 'qwen3.6-plus' });
+    expect(screen.queryByRole('combobox', { name: 'Reasoning effort' })).toBeNull();
   });
 });
 

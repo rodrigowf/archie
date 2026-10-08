@@ -613,3 +613,40 @@
 .fieldControl + .help {
   margin-top: var(--app-space-2);
 }
+
+/* ---------- Agent sessions: the other harnesses (collapsible) ---------- */
+
+.harnessGroup {
+  border-radius: 4px;
+  background: var(--md-sys-color-surface-container);
+}
+
+.harnessList > .harnessGroup + .harnessGroup {
+  margin-top: 2px;
+}
+
+.harnessList > .harnessGroup:first-child {
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+}
+
+.harnessList > .harnessGroup:last-child {
+  border-bottom-left-radius: 20px;
+  border-bottom-right-radius: 20px;
+}
+
+.harnessGroupBody {
+  padding: 0 0 var(--app-space-2);
+}
+
+.stackLabel + .help + .harnessList {
+  margin-top: var(--app-space-2);
+}
+
+.stackLabel + .help {
+  margin: 0 0 0 var(--app-space-1);
+}
+
+.harnessGroupBody > .notice {
+  margin: 0 var(--app-space-3) var(--app-space-2);
+}

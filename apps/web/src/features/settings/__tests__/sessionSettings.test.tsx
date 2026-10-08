@@ -37,7 +37,7 @@ beforeEach(() => {
   sessionSettingsStore.setState({ localId: null });
   startServices({ skipInitialSync: true });
   serveConfig(h.fetch);
-  sessionCfg = { working_directory: null, enabled_mcps: null, chrome_extension: null, provider: null, harness_model: null };
+  sessionCfg = { working_directory: null, enabled_mcps: null, chrome_extension: null, provider: null, harness_model: null, harness_options: null };
   h.fetch
     .on('GET', '/api/sessions/sdk-1/config', () => jsonResponse(sessionCfg))
     .on('PUT', '/api/sessions/sdk-1/config', (req: RecordedRequest) => {
@@ -63,8 +63,15 @@ async function liveAgent(): Promise<{ rt: SessionRuntime; ws: FakeWebSocket }> {
 const order = (re: RegExp) => h.fetch.requests.findIndex((r) => re.test(`${r.method} ${r.path}`));
 
 describe('changedKeys', () => {
+  it('harness_options compare structurally (key order, null vs {})', () => {
+    const saved = { working_directory: null, enabled_mcps: null, chrome_extension: null, provider: null, harness_model: null, harness_options: { a: 1, b: null } };
+    expect(changedKeys(saved, { harness_options: { b: null, a: 1 } })).toEqual({});
+    expect(changedKeys(saved, { harness_options: { a: 1 } })).toEqual({ harness_options: { a: 1 } });
+    expect(changedKeys({ ...saved, harness_options: null }, { harness_options: {} })).toEqual({});
+  });
+
   it('keeps only keys that differ from the saved config', () => {
-    const saved = { working_directory: null, enabled_mcps: ['a'], chrome_extension: null, provider: null, harness_model: null };
+    const saved = { working_directory: null, enabled_mcps: ['a'], chrome_extension: null, provider: null, harness_model: null, harness_options: null };
     expect(changedKeys(saved, { enabled_mcps: ['a'], chrome_extension: false, working_directory: null })).toEqual({ chrome_extension: false });
   });
 });
@@ -117,6 +124,88 @@ describe('SessionSettingsSheet', () => {
     expect(h.fetch.calls('PUT', '/api/sessions/sdk-1/config')[0]?.body).toEqual({ enabled_mcps: null });
     expect(h.fetch.calls('POST', '/api/sessions/L1/close')).toHaveLength(0);
     await waitFor(() => expect(within(sheet).getAllByRole('button', { name: 'Use default' })).toHaveLength(1));
+  });
+
+  it('harness section: model + catalog options with inherit rows; Save PUTs model + the whole options map', async () => {
+    const user = userEvent.setup();
+    await liveAgent();
+    render(<SessionSettingsSheet localId="L1" open onClose={() => undefined} kind="side" />);
+    const sheet = await screen.findByRole('dialog', { name: 'Session settings' });
+    const combo = (name: string) => within(sheet).findByRole('combobox', { name });
+    const pick = async (box: string, option: RegExp) => {
+      await user.click(await combo(box));
+      await user.click(await screen.findByRole('option', { name: option }));
+    };
+    expect((await combo('Harness')).textContent).toContain('Default (Claude Code)');
+    expect((await combo('Model')).textContent).toContain('Default (CLI default (Claude Sonnet 5.5))');
+    // global effort is "high" (fixtures): the inherit row says so
+    expect((await combo('Reasoning effort')).textContent).toContain('Default (High)');
+    expect((await combo('Checklist tools')).textContent).toContain('Default (CLI default · On)');
+
+    await pick('Model', /^Claude Opus 4\.6/);
+    await pick('Reasoning effort', /^Max/);
+    await pick('Thinking', /^CLI default/);
+    await pick('Checklist tools', /^Off/);
+    expect(within(sheet).getByText('Changes apply after a restart.')).toBeTruthy();
+    await user.click(within(sheet).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(h.fetch.calls('PUT', '/api/sessions/sdk-1/config')).toHaveLength(1));
+    expect(h.fetch.calls('PUT', '/api/sessions/sdk-1/config')[0]?.body).toEqual({
+      harness_model: 'claude-opus-4-6',
+      harness_options: { effort: 'max', thinking: null, todo_tools: false },
+    });
+
+    // back to inherit for one key: the map shrinks; everything inherited again → null
+    await pick('Reasoning effort', /^Default/);
+    await pick('Thinking', /^Default/);
+    await pick('Checklist tools', /^Default/);
+    await user.click(within(sheet).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(h.fetch.calls('PUT', '/api/sessions/sdk-1/config')).toHaveLength(2));
+    expect(h.fetch.calls('PUT', '/api/sessions/sdk-1/config')[1]?.body).toEqual({ harness_options: null });
+  });
+
+  it('switching the harness resets model + options to inherit and shows that harness (warnings, its options)', async () => {
+    const user = userEvent.setup();
+    sessionCfg.harness_model = 'opus';
+    sessionCfg.harness_options = { effort: 'max' };
+    await liveAgent();
+    render(<SessionSettingsSheet localId="L1" open onClose={() => undefined} kind="bottom" />);
+    const sheet = await screen.findByRole('dialog', { name: 'Session settings' });
+    const combo = (name: string) => within(sheet).findByRole('combobox', { name });
+    expect((await combo('Reasoning effort')).textContent).toContain('Max');
+    await user.click(await combo('Harness'));
+    await user.click(await screen.findByRole('option', { name: 'Codex' }));
+    expect(await within(sheet).findByText(/shared login/)).toBeTruthy();
+    expect((await combo('Model')).textContent).toContain('Default (CLI default (GPT-6-Luna))');
+    expect((await combo('Reasoning effort')).textContent).toContain('Default (CLI default · Medium)');
+    expect(within(sheet).getByRole('combobox', { name: 'Web search' })).toBeTruthy();
+    await user.click(await combo('Model'));
+    await user.click(await screen.findByRole('option', { name: /^GPT-5\.6-Terra/ }));
+    await user.click(await combo('Reasoning effort'));
+    await user.click(await screen.findByRole('option', { name: /^Ultra/ }));
+    await user.click(within(sheet).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(h.fetch.calls('PUT', '/api/sessions/sdk-1/config')).toHaveLength(1));
+    expect(h.fetch.calls('PUT', '/api/sessions/sdk-1/config')[0]?.body).toEqual({
+      provider: 'codex',
+      harness_model: 'gpt-5.6-terra',
+      harness_options: { effort: 'ultra' },
+    });
+    await expectNoAxeViolations(sheet);
+  });
+
+  it('switching back to the saved harness restores its saved model + options (nothing to save)', async () => {
+    const user = userEvent.setup();
+    sessionCfg.harness_model = 'opus';
+    sessionCfg.harness_options = { effort: 'max' };
+    await liveAgent();
+    render(<SessionSettingsSheet localId="L1" open onClose={() => undefined} kind="side" />);
+    const sheet = await screen.findByRole('dialog', { name: 'Session settings' });
+    const harness = await within(sheet).findByRole('combobox', { name: 'Harness' });
+    await user.click(harness);
+    await user.click(await screen.findByRole('option', { name: 'Gemini CLI' }));
+    await user.click(harness);
+    await user.click(await screen.findByRole('option', { name: /^Default \(Claude Code\)/ }));
+    expect((await within(sheet).findByRole('combobox', { name: 'Model' })).textContent).toContain('Opus');
+    expect(within(sheet).getByRole('button', { name: 'Save' }).getAttribute('aria-disabled')).toBe('true');
   });
 
   it('restart is refused while a reply runs', async () => {

@@ -371,35 +371,7 @@ export function googleAutoCorrect(cfg: Pick<ServerConfig, 'default_voice_provide
   };
 }
 
-// ───────────────────────── harness models (Agent sessions) ─────────────────────────
-
-export interface HarnessModel {
-  id: string;
-  label: string;
-  traits: string;
-}
-
-/** `/api/config/harness/qwen/models` rows: plain ids or `{id, display_name, context_window, supports_*}`. */
-export function harnessModels(raw: readonly unknown[] | null | undefined): HarnessModel[] {
-  const out: HarnessModel[] = [];
-  for (const r of raw ?? []) {
-    if (typeof r === 'string') {
-      if (r) out.push({ id: r, label: r, traits: '' });
-      continue;
-    }
-    if (!r || typeof r !== 'object') continue;
-    const o = r as Record<string, unknown>;
-    const id = str(o.id);
-    if (!id) continue;
-    const t: string[] = [];
-    if (typeof o.context_window === 'number' && o.context_window > 0) t.push(`${Math.round(o.context_window / 1000)}K ctx`);
-    if (o.supports_thinking === true) t.push('thinking');
-    if (o.supports_vision === true) t.push('vision');
-    if (o.supports_video === true) t.push('video');
-    out.push({ id, label: str(o.display_name) || id, traits: t.join(' · ') });
-  }
-  return out;
-}
+// Harness models and options (Agent sessions): see `./harness.ts`.
 
 // ───────────────────────── formatting ─────────────────────────
 

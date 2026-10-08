@@ -16,6 +16,7 @@ import {
   errorMessage,
   loadConfigCatalogs,
   loadGoogleVoiceModels,
+  loadHarnessCatalogs,
   loadServerConfig,
   NetworkError,
   PAYLOAD_TOO_LARGE_MESSAGE,
@@ -138,6 +139,9 @@ describe('errors', () => {
     await api.sessions.truncate('s', 1);
     await api.sessions.remove('s');
     await api.sessions.close('L');
+    await api.config.harnesses();
+    await api.config.harnesses(true);
+    await api.config.harnessCatalog('codex', true);
     await api.config.providers();
     await api.config.qwenModels();
     await api.config.googleVoiceModels('vertex');
@@ -166,6 +170,9 @@ describe('errors', () => {
       'POST /api/sessions/s/truncate',
       'DELETE /api/sessions/s',
       'POST /api/sessions/L/close',
+      'GET /api/config/harnesses',
+      'GET /api/config/harnesses?refresh=true',
+      'GET /api/config/harness/codex/catalog?refresh=true',
       'GET /api/config/providers',
       'GET /api/config/harness/qwen/models',
       'GET /api/config/voice/google/models?endpoint=vertex',
@@ -304,5 +311,35 @@ describe('catalog and config services', () => {
     h.fetch.on('GET', '/api/config/voice/google/models', () => jsonResponse({}, 500));
     await loadGoogleVoiceModels('vertex');
     expect(serverConfigStore.getState().googleVoiceModels.vertex).toBeUndefined();
+  });
+
+  it('harness catalogs: the new endpoint (providers derived; a Qwen row without catalog gets the Qwen list), else the old endpoints', async () => {
+    // older server: no /api/config/harnesses
+    h.fetch.on('GET', '/api/config/providers', { providers: [{ id: 'claude', label: 'Claude Code' }, { id: 'qwen', label: 'Qwen Code' }] });
+    h.fetch.on('GET', '/api/config/harness/qwen/models', { models: ['qwen3.6-plus'] });
+    await loadHarnessCatalogs();
+    let s = serverConfigStore.getState();
+    expect(s.harnesses?.map((x) => [x.id, x.catalog?.models.map((m) => m.id) ?? null])).toEqual([
+      ['claude', null],
+      ['qwen', ['qwen3.6-plus']],
+    ]);
+    // newer server
+    const effort = { key: 'effort', label: 'Reasoning effort', kind: 'select', choices: [{ value: 'low', label: 'Low' }] };
+    const catalog = { provider: 'claude', models: [], options: [effort], default_model: null, allow_custom_model: true, warnings: [] };
+    h.fetch.on('GET', /^\/api\/config\/harnesses/, {
+      harnesses: [
+        { id: 'claude', label: 'Claude Code', description: 'd', catalog },
+        { id: 'qwen', label: 'Qwen Code', catalog: null },
+      ],
+    });
+    await loadHarnessCatalogs(true);
+    s = serverConfigStore.getState();
+    expect(s.harnesses?.[0]?.catalog?.options[0]?.key).toBe('effort');
+    expect(s.harnesses?.[1]?.catalog?.models.map((m) => m.id)).toEqual(['qwen3.6-plus']);
+    expect(s.providers).toEqual([
+      { id: 'claude', label: 'Claude Code', description: 'd' },
+      { id: 'qwen', label: 'Qwen Code' },
+    ]);
+    expect(h.fetch.requests.some((r) => r.path === '/api/config/harnesses?refresh=true')).toBe(true);
   });
 });

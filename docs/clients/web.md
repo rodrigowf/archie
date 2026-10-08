@@ -3,7 +3,7 @@ name: web
 category: archie/clients
 tags: [web, react, vite, zustand, safari-12, ipad, compat-build, remote-console, low-end, deploy]
 created: 2026-04-14
-modified: 2026-10-06
+modified: 2026-10-07
 summary: apps/web — React 18 + Vite web client; one source tree, main build at / and Safari 12 build at /compat/.
 source: curated (consolidated from memory notes assistant/devices/frontend-compat.md, assistant/infrastructure/repo_layout_cutover_2026_10.md, assistant/infrastructure/features_and_integrations_summary.md §3–4, auto-memory feedback_always_build_both_frontends.md, feedback_stale_web_build_voice_symptom.md, project_frontend_refactor_2026_10_03.md; verified against code 2026-10-06)
 references:
@@ -131,6 +131,31 @@ The Safari 12 rules are enforced by tools, not memory:
 | Momentum scrolling and programmatic scroll fight each other | Every scroll container is the `ScrollArea` primitive (`-webkit-overflow-scrolling: touch`, deferred programmatic scrolls) |
 | No `AudioWorklet` / `MediaRecorder` on iOS 12 | Features chosen by runtime capability detection: ScriptProcessor capture fallback, WAV fallback for audio messages, unsupported voice controls hidden with a reason |
 | iPad Safari pins an old bundle | The backend serves `index.html` with no-cache headers; after a deploy a reload is enough |
+
+## Harness settings (model + options per harness)
+
+Settings → Agent sessions and the session settings sheet (⋮ → Session settings) render every
+harness's configuration from its catalog, `GET /api/config/harnesses` (spec 12 §8.1): the model
+picker and each option (reasoning effort, thinking, thinking budget, …) by kind — `select`,
+`toggle` and `number` all become a Select with "CLI default" plus the values (a number adds a
+value field, the model a "Custom model id…" field). Nothing is hard-coded per harness: a new
+harness or option only changes the backend catalog.
+
+- **Global page**: the default harness's block ("<Harness> defaults") plus collapsible blocks for
+  the other harnesses. Each control saves at once: `{harness_model: {p: id}}` /
+  `{harness_options: {p: {key: value | null}}}` (null = CLI default). Catalog `warnings` show as a
+  notice; "Refresh models" refetches with `?refresh=true`.
+- **Session sheet**: the "Harness" stack — harness, model, options — each with a
+  "Default (…)" row that inherits the global value; changing the harness resets the model and
+  options to inherit (they belong to one harness). `harness_options` is sent as a whole map
+  (absent key = inherit, `null` = CLI default, empty = `null`).
+- **Gating** (`src/features/settings/harness.ts`, unit-tested): options and choices restricted by
+  `models`, effort narrowed to the model's `efforts` (`[]` hides it), `supports_thinking: false`
+  hides `thinking`/`thinking_*`; an unknown model (CLI default, custom id) shows everything.
+- Older servers without the endpoint: the store builds the same rows from
+  `/api/config/providers` + `/api/config/harness/qwen/models` (`src/services/harnessFallback.ts`).
+- Components: `HarnessFields.tsx`; sample catalogs for the gallery/tests in `harnessSamples.ts`
+  (same data as `mock-server/data/harnesses.json`).
 
 ## Low-end mode
 

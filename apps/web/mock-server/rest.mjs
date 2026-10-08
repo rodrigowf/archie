@@ -60,9 +60,45 @@ const CONFIG_RANGES = {
   voice_mic_gain: [0.5, 2.0],
 };
 
+const SESSION_CONFIG_DEFAULTS = {
+  working_directory: null,
+  enabled_mcps: null,
+  chrome_extension: null,
+  provider: null,
+  harness_model: null,
+  harness_options: null,
+};
+
+/** `manager/harness_catalog.py` validate_options: unknown keys and bad values → a message; null always passes. */
+export function validateHarnessOptions(catalog, opts) {
+  if (opts === null || opts === undefined) return null;
+  if (typeof opts !== 'object' || Array.isArray(opts)) return 'harness options must be an object';
+  for (const [key, value] of Object.entries(opts)) {
+    const opt = catalog?.options.find((o) => o.key === key);
+    if (!opt) return `Unknown option '${key}'; expected one of [${(catalog?.options ?? []).map((o) => `'${o.key}'`).join(', ')}]`;
+    if (value === null) continue;
+    if (opt.kind === 'toggle' && typeof value !== 'boolean') return `${key} must be true/false (got ${JSON.stringify(value)})`;
+    if (opt.kind === 'number') {
+      if (typeof value !== 'number') return `${key} must be a number (got ${JSON.stringify(value)})`;
+      if (opt.min !== undefined && value < opt.min) return `${key} must be ≥ ${opt.min} (got ${value})`;
+      if (opt.max !== undefined && value > opt.max) return `${key} must be ≤ ${opt.max} (got ${value})`;
+    }
+    if (opt.kind === 'select') {
+      if (typeof value !== 'string') return `${key} must be a string (got ${JSON.stringify(value)})`;
+      if (opt.choices?.length && !opt.choices.some((c) => c.value === value)) return `${key} must be one of [${opt.choices.map((c) => `'${c.value}'`).join(', ')}] (got '${value}')`;
+    }
+  }
+  return null;
+}
+
 export function createRest(engine, opts = {}) {
   const dataDir = opts.dataDir ?? DATA_DIR;
   const catalogs = readJson(path.join(dataDir, 'catalogs.json'));
+  const harnessFile = path.join(dataDir, 'harnesses.json');
+  // GET /api/config/harnesses (models + options per harness); absent = an older server (404).
+  const harnesses = fs.existsSync(harnessFile) ? readJson(harnessFile).harnesses : null;
+  const catalogOf = (provider) => harnesses?.find((h) => h.id === provider)?.catalog ?? null;
+  const providerIds = () => (harnesses ? harnesses.map((h) => h.id) : catalogs.providers.providers.map((x) => x.id));
   const sessions = readJson(path.join(dataDir, 'sessions.json'));
   const messages = new Map();
   const msgDir = path.join(dataDir, 'messages');
@@ -221,14 +257,20 @@ export function createRest(engine, opts = {}) {
         return pg ? json(res, 200, pg.messages) : notFound(res);
       }
       if (sub === 'config' && m === 'GET') {
-        return json(res, 200, { working_directory: null, enabled_mcps: null, chrome_extension: null, provider: null, harness_model: null, ...sessionConfigs.get(id) });
+        return json(res, 200, { ...SESSION_CONFIG_DEFAULTS, ...sessionConfigs.get(id) });
       }
       if (sub === 'config' && m === 'PUT') {
         const body = (await readJsonBody(req)) ?? {};
         const keep = {};
-        for (const k of ['working_directory', 'enabled_mcps', 'chrome_extension', 'provider', 'harness_model']) if (k in body) keep[k] = body[k];
+        for (const k of Object.keys(SESSION_CONFIG_DEFAULTS)) if (k in body) keep[k] = body[k];
+        if (keep.harness_options) {
+          // validated against the catalog of the harness the session will run (body, saved, global)
+          const provider = keep.provider || sessionConfigs.get(id)?.provider || config.provider;
+          const err = validateHarnessOptions(catalogOf(provider), keep.harness_options);
+          if (err) return json(res, 400, { detail: err });
+        }
         sessionConfigs.set(id, { ...sessionConfigs.get(id), ...keep });
-        return json(res, 200, { working_directory: null, enabled_mcps: null, chrome_extension: null, provider: null, harness_model: null, ...sessionConfigs.get(id) });
+        return json(res, 200, { ...SESSION_CONFIG_DEFAULTS, ...sessionConfigs.get(id) });
       }
       if (sub === 'rename' && m === 'PATCH') {
         const body = await readJsonBody(req);
@@ -289,12 +331,35 @@ export function createRest(engine, opts = {}) {
       if (!body || typeof body !== 'object') return json(res, 422, { detail: [{ msg: 'invalid body' }] });
       for (const [k, [lo, hi]] of Object.entries(CONFIG_RANGES))
         if (k in body && !(typeof body[k] === 'number' && body[k] >= lo && body[k] <= hi)) return json(res, 400, { detail: `${k} must be between ${lo} and ${hi}` });
-      if ('provider' in body && !catalogs.providers.providers.some((x) => x.id === body.provider)) return json(res, 400, { detail: `Unknown provider '${body.provider}'` });
+      if ('provider' in body && !providerIds().includes(body.provider)) return json(res, 400, { detail: `Unknown provider '${body.provider}'` });
       if ('harness_model' in body) body.harness_model = { ...config.harness_model, ...body.harness_model };
+      if ('harness_options' in body) {
+        // per-key merge per provider; null deletes the key (= CLI default)
+        const all = { ...(config.harness_options ?? {}) };
+        for (const [prov, opts] of Object.entries(body.harness_options ?? {})) {
+          if (!providerIds().includes(prov)) return json(res, 400, { detail: `Unknown harness provider '${prov}'` });
+          const err = validateHarnessOptions(catalogOf(prov), opts);
+          if (err) return json(res, 400, { detail: `harness_options['${prov}']: ${err}` });
+          const cur = { ...(all[prov] ?? {}) };
+          for (const [k, v] of Object.entries(opts ?? {})) {
+            if (v === null) delete cur[k];
+            else cur[k] = v;
+          }
+          all[prov] = cur;
+        }
+        body.harness_options = all;
+      }
       config = { ...config, ...body };
       return json(res, 200, config);
     }
-    if (p === '/api/config/providers') return json(res, 200, catalogs.providers);
+    if (p === '/api/config/harnesses' && harnesses) return json(res, 200, { harnesses });
+    mm = /^\/api\/config\/harness\/([^/]+)\/catalog$/.exec(p);
+    if (mm && harnesses) {
+      const h = harnesses.find((x) => x.id === mm[1]);
+      if (!h) return notFound(res, `Unknown harness '${mm[1]}'`);
+      return json(res, 200, h.catalog ?? { provider: h.id, models: [], options: [], default_model: null, allow_custom_model: true, warnings: [] });
+    }
+    if (p === '/api/config/providers') return json(res, 200, harnesses ? { providers: harnesses.map(({ id, label, description }) => ({ id, label, description })) } : catalogs.providers);
     if (p === '/api/config/harness/qwen/models') return json(res, 200, catalogs.qwen_models);
     if (p === '/api/config/voice/google/models') return json(res, 200, catalogs.google_voice_models);
     if (p === '/api/config/openai-key') return notFound(res, 'OpenAI key not configured');

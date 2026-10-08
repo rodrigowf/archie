@@ -1,12 +1,14 @@
 /**
  * W-13 gallery board: the Settings home + a detail page in both layouts, a page pushed over the
  * list (compact), and the sign-in screen. Stores are seeded with realistic values (no backend);
- * the session sheet needs a live session, so it is shown in the running app (mock backend).
+ * the session sheet needs a live session, so it is shown in the running app (mock backend). The
+ * Agent sessions page renders the harness catalogs of `harnessSamples.ts`.
  */
 import { useState, type ReactNode } from 'react';
 import { authStore, SignInScreen } from '@/features/auth';
 import { patchServerConfig, type ServerConfigState } from '@/stores';
 import type { ServerConfig } from '@/services';
+import { HARNESS_SAMPLES } from './harnessSamples';
 import SettingsView from './SettingsView';
 import type { SettingsPageId } from './pages';
 
@@ -29,7 +31,8 @@ const CONFIG: ServerConfig = {
   provider: 'claude',
   default_model: 'gpt-audio-mini',
   summarizer_model: '',
-  harness_model: { claude: '', qwen: '' },
+  harness_model: { claude: 'opus', qwen: '', gemini: '', codex: 'gpt-5.6-terra' },
+  harness_options: { claude: { effort: 'xhigh', todo_tools: true }, codex: { effort: 'ultra', reasoning_summary: 'detailed' } },
   default_voice_provider: 'openai',
   default_voice_model: 'gpt-realtime-2',
   default_voice_name: 'cedar',
@@ -54,8 +57,9 @@ export const GALLERY_STATE: Partial<ServerConfigState> = {
     { id: 'claude', label: 'Claude Code', description: "Anthropic's official Claude Code CLI (the canonical harness)." },
     { id: 'qwen', label: 'Qwen Code', description: "Alibaba's Qwen Code CLI." },
     { id: 'gemini', label: 'Gemini CLI', description: "Google's Gemini CLI." },
+    { id: 'codex', label: 'Codex', description: 'OpenAI Codex CLI (app-server).' },
   ],
-  qwenModels: [{ id: 'qwen3.6-plus', display_name: 'qwen3.6-plus', context_window: 1000000, supports_thinking: true }],
+  harnesses: HARNESS_SAMPLES,
   orchestratorModels: {
     models: [
       { provider: 'anthropic', model_id: 'claude-sonnet-4-5-20250929', display_name: 'Claude Sonnet 4.5', supports_audio: false, supports_vision: true, context_window: 200000 },
@@ -115,6 +119,7 @@ export function SettingsGallery() {
   useState(seed); // seed the stores once, before the first render of the pages
   const [page, setPage] = useState<SettingsPageId | null>('voice-tuning');
   const [phonePage, setPhonePage] = useState<SettingsPageId | null>(null);
+  const [agentPage, setAgentPage] = useState<SettingsPageId | null>('agent-sessions');
   return (
     <div>
       <h3>Expanded: two panes</h3>
@@ -124,6 +129,10 @@ export function SettingsGallery() {
       <h3>Compact: list, then a pushed page (click a row)</h3>
       <Frame width={412} height={760}>
         <SettingsView page={phonePage} layout="pushed" load={false} onNavigate={setPhonePage} />
+      </Frame>
+      <h3>Compact: Agent sessions (harness catalogs: model + options per harness)</h3>
+      <Frame width={412} height={900}>
+        <SettingsView page={agentPage} layout="pushed" load={false} onNavigate={setAgentPage} />
       </Frame>
       <h3>Sign-in screen (headless server)</h3>
       <Frame width={520} height={620}>
