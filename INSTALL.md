@@ -101,7 +101,8 @@ You'll also need at least one of these API keys *somewhere* — either obtained 
 
 - **Claude Code** — uses Anthropic OAuth (`claude auth login`).  No `ANTHROPIC_API_KEY` needed unless you're also using the Anthropic SDK in the orchestrator.
 - **Qwen Code** — either OAuth (interactive on first `qwen` run) or `DASHSCOPE_API_KEY` in `context/.env`.
-- **Gemini CLI** — either Google OAuth (interactive on first `gemini` run) or `GEMINI_API_KEY` in `context/.env`.
+- **Gemini CLI** — `GEMINI_API_KEY` in `context/.env` (create one at https://aistudio.google.com/apikey).  Google stopped serving Gemini CLI to personal Google-account logins (OAuth) on 2026-06-18, so an OAuth login no longer works.
+- **Codex CLI** — a ChatGPT login (`CODEX_HOME=~/.codex-archie codex login --device-auth`; an existing `~/.codex` login also works).  No API key; Archie deliberately keeps `OPENAI_API_KEY` away from Codex.
 - **Orchestrator backends** — `OPENAI_API_KEY` for OpenAI/GPT/Qwen-via-compatible/Gemini-via-compatible; `ANTHROPIC_API_KEY` for Anthropic Claude models in the orchestrator.
 - **Gemini Live voice** (optional) — see [Voice provider selection](#voice-provider-selection-gemini-live) below.  Two interchangeable backends, neither required, but at least one needs config if you want Google voice.
 
@@ -132,9 +133,10 @@ Which agent CLI runs your chats?  You can pick more than one.
 
 - **Claude Code** (Anthropic) — recommended default.  Mature CLI, plan-mode permission gating, OAuth login, Sonnet/Opus models.
 - **Qwen Code** (Alibaba) — open-weights models served via the OpenAI-compatible endpoint, OAuth or DashScope key.
-- **Gemini CLI** (Google) — OAuth or `GEMINI_API_KEY`.
+- **Gemini CLI** (Google) — `GEMINI_API_KEY` only (personal-account OAuth is no longer served).
+- **Codex CLI** (OpenAI) — GPT models with a ChatGPT login.
 
-If you pick multiple, the UI's Session Provider selector lets you switch per chat.  Default for new chats is set in `assistant_config.json` (`provider` field): the first installed harness in the order Claude, Qwen, Gemini.
+If you pick multiple, the UI's Session Provider selector lets you switch per chat.  Default for new chats is set in `assistant_config.json` (`provider` field): the first installed harness in the order Claude, Qwen, Gemini, Codex.
 
 ### Axis 2: Orchestrator backends
 
@@ -214,13 +216,14 @@ Then create the symlink trees:
 
 These let `context/` reach the public framework while keeping personal additions in the same directory.  Existing entries are never replaced.  After adding something to `shared/`, re-run `shared/scripts/setup-context.sh` to link it.
 
-### Step 3 (a, b, c): Per-harness SDK config dirs
+### Step 3 (a, b, c, c2): Per-harness SDK config dirs
 
 For each enabled harness, create the project-local config dir the CLI expects:
 
 - **Claude** — `.claude_config/` symlinked into `context/`.  Specifically: `.claude_config/projects/<mangled-cwd>` → `context/`, plus `.claude_config/skills` → `context/skills` and `.claude_config/agents` → `context/agents` (the bundled CLI finds skills and agents under `$CLAUDE_CONFIG_DIR`, which `run.sh` points at `.claude_config/`).
 - **Qwen** — `~/.qwen/projects/<mangled-cwd>` → `context/`.  Qwen mangles the cwd by replacing `/` with `-`, e.g. `-home-rodrigo-assistant`.
 - **Gemini** — `~/.gemini/tmp/<label>/` → `context/`, so the CLI writes `context/chats/session-*.jsonl`.  `<label>` is the one `~/.gemini/projects.json` assigns to the repo path, or the repo folder name when the CLI has not registered it yet (that is what the CLI uses on first run).
+- **Codex** (Step 3c2) — Archie's own Codex home `~/.codex-archie` (`%USERPROFILE%\.codex-archie` on Windows): seed `config.toml` if missing (`project_doc_max_bytes = 131072` so the ~51 KB `context/AGENTS.md` isn't truncated; `[features] plugins = false`, `apps = false`), and link `~/.codex-archie/sessions` → `context/codex/sessions` (if it is a real directory, copy its rollouts in and move it aside).  Never copy `auth.json` between homes or machines — ChatGPT refresh tokens rotate.
 
 The exact mangling logic is in the per-OS installer — read it there.  Idempotent: re-runs leave existing symlinks alone.
 
@@ -234,7 +237,8 @@ The exact mangling logic is in the per-OS installer — read it there.  Idempote
 
 - `CLAUDE.md` → `context/AGENTS.md`
 - `QWEN.md` → `context/AGENTS.md`
-- (Gemini reads `GEMINI.md` by default; add it if you want — currently `install.sh` does only Claude and Qwen.)
+- `AGENTS.md` → `context/AGENTS.md` (Codex reads `AGENTS.md`)
+- (Gemini reads `GEMINI.md`; the repo commits that link along with the others, so the installers don't re-create it.)
 
 ### Step 3e: Seed local CLI runtime dirs
 
@@ -244,7 +248,7 @@ For each enabled harness, seed the project-local runtime dir from `install/cli-r
 - `install/cli-runtime/qwen/settings.json` → `.qwen/settings.json`
 - `install/cli-runtime/gemini/settings.json` → `.gemini/settings.json`
 
-These hold default permission allowlists and the Gemini `respectGitIgnore=false` carve-out.  Never overwrite existing files — re-runs on a working setup must be no-ops.
+These hold default permission allowlists and the Gemini `respectGitIgnore=false` carve-out.  Never overwrite existing files — re-runs on a working setup must be no-ops.  For Gemini, then run `python3 backend/manager/gemini/workspace_settings.py <repo>` (stdlib-only; on Windows the installer runs it with the venv's Python after Step 4): it merges Archie's keys (session retention off, `context.fileFiltering`, API-key auth, thinking overrides) into an existing `.gemini/settings.json`.
 
 ### Step 4: Python venv
 
@@ -276,6 +280,7 @@ Then conditionally (use the venv pip path matching your OS):
 - `--with-claude` / `-WithClaude` → `pip install -r backend/requirements-claude.txt`
 - `--with-qwen` / `-WithQwen` → no extra Python deps (Qwen runs as a subprocess via the CLI)
 - `--with-gemini` / `-WithGemini` → no extra Python deps
+- `--with-codex` / `-WithCodex` → no extra Python deps
 - `--dev` / `-Dev` → `pip install -r backend/requirements-dev.txt`
 
 ### Step 7: Frontend deps
@@ -292,14 +297,19 @@ Then conditionally (use the venv pip path matching your OS):
 For each enabled harness:
 
 1. **Check if the CLI is on PATH.**  If yes, note the path and skip the install.
-2. **If missing:** ask the user `Install <cli> globally via npm? [Y/n]`.  If yes: `npm install -g <pkg>`.  Packages:
+2. **If missing:** ask the user `Install <cli> globally via npm? [Y/n]`.  If yes: `npm install -g <pkg>`.  Packages (Qwen, Gemini and Codex are pinned to the versions Archie is verified against):
    - `claude` → `@anthropic-ai/claude-code`
-   - `qwen` → `@qwen-code/qwen-code`
-   - `gemini` → `@google/gemini-cli`
+   - `qwen` → `@qwen-code/qwen-code@0.25.0` (needs Node.js 22+)
+   - `gemini` → `@google/gemini-cli@0.63.0`
+   - `codex` → `@openai/codex@0.161.0`
+
+   If the CLI is already installed at a different version, warn and show the `npm install -g <pkg>@<pin>` command; don't reinstall without asking.
 3. **Check auth state.**  Skip the login prompt entirely if:
-   - The relevant env key is already set in `context/.env` (`ANTHROPIC_API_KEY` for Claude, `DASHSCOPE_API_KEY` for Qwen, `GEMINI_API_KEY` for Gemini), **or**
-   - The CLI's OAuth file already exists (`~/.claude/.credentials.json`, `~/.qwen/oauth_creds.json`, `~/.gemini/oauth_creds.json`).
-4. **Otherwise**: tell the user to open a separate terminal and run the login command (`claude auth login`, `qwen`, or `gemini`), then come back and confirm.  Re-check auth state after.
+   - The relevant env key is already set in `context/.env` (`ANTHROPIC_API_KEY` for Claude, `DASHSCOPE_API_KEY` for Qwen), **or**
+   - The CLI's credential file already exists (`~/.claude/.credentials.json`, `~/.qwen/oauth_creds.json`, `~/.codex-archie/auth.json` or `~/.codex/auth.json`).
+
+   Gemini has no login step: it needs `GEMINI_API_KEY` in `context/.env` — warn if it's missing (an old `~/.gemini/oauth_creds.json` doesn't count).
+4. **Otherwise**: tell the user to open a separate terminal and run the login command (`claude auth login`, `qwen`, or `CODEX_HOME=~/.codex-archie codex login --device-auth`), then come back and confirm.  Re-check auth state after.
 
 Don't try to drive the OAuth browser flow from inside the install — the CLIs handle it themselves on first interactive run.
 
@@ -318,7 +328,7 @@ If `--with-claude` and `~/.claude/.credentials.json` exists, symlink `.claude_co
 Copy `install/assistant_config.json` to the repo root, substituting:
 
 - `@@SCRIPT_DIR@@` → the absolute path to the project root
-- `@@DEFAULT_PROVIDER@@` → the first installed harness in the order `claude`, `qwen`, `gemini`
+- `@@DEFAULT_PROVIDER@@` → the first installed harness in the order `claude`, `qwen`, `gemini`, `codex`
 - `@@DEFAULT_MODEL@@` → the orchestrator's default model: `qwen3.6-plus` when the default provider is `qwen`, otherwise Claude Sonnet
 
 ### Step 11: .manager.json
@@ -332,7 +342,8 @@ For each axis the user opted into, check that the required env key is set in `co
 - `--with-anthropic` needs `ANTHROPIC_API_KEY`
 - `--with-openai` needs `OPENAI_API_KEY`
 - `--with-qwen` needs either `DASHSCOPE_API_KEY` or for OAuth login to have happened
-- `--with-gemini` needs either `GEMINI_API_KEY` or for OAuth login to have happened
+- `--with-gemini` needs `GEMINI_API_KEY` (OAuth no longer works)
+- `--with-codex` needs a Codex login (`~/.codex-archie/auth.json` or `~/.codex/auth.json`) — no env key
 
 ### Step 12b: Voice backend probe
 

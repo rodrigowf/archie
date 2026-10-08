@@ -14,7 +14,7 @@ substitutions for you.
 
 | Template | Copied to | Purpose |
 |----------|-----------|---------|
-| `AGENTS.md` | `context/AGENTS.md` | Project instructions read by Claude Code (via the `CLAUDE.md` symlink at the project root) and Qwen Code (via the `QWEN.md` symlink). |
+| `AGENTS.md` | `context/AGENTS.md` | Project instructions read by Claude Code (via the `CLAUDE.md` symlink at the project root), Qwen Code (via the `QWEN.md` symlink) and Codex (via the `AGENTS.md` symlink). |
 | `MEMORY.md` | `context/memory/MEMORY.md` | The shared memory index. Topic files referenced from here live alongside it. |
 | `context.env` | `context/.env` | API keys and runtime configuration. Comments explain which axis each key belongs to; uncomment and fill in what you need. |
 | `assistant_config.json` | `assistant_config.json` (repo root) | Default working directory, provider, and model picked up by the API on first run. Placeholders `@@SCRIPT_DIR@@`, `@@DEFAULT_PROVIDER@@`, `@@DEFAULT_MODEL@@` are substituted at install time. |

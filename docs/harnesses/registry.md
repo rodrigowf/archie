@@ -10,6 +10,7 @@ references:
   - claude-code.md
   - qwen-code.md
   - gemini-cli.md
+  - codex-cli.md
   - ../architecture/agent-sessions.md
   - ../architecture/backend.md
   - ../architecture/orchestrator.md
@@ -20,10 +21,10 @@ references:
 
 # Harness registry
 
-A **harness** is the agent CLI that runs a chat session: Claude Code, Qwen Code or Gemini CLI.
-Each one plugs into the backend through one module that registers a `HarnessSpec` in
+A **harness** is the agent CLI that runs a chat session: Claude Code, Qwen Code, Gemini CLI or
+Codex. Each one plugs into the backend through one module that registers a `HarnessSpec` in
 `backend/manager/registry.py` (`HarnessRegistry`). Nothing else in the backend branches on harness
-names, so adding a fourth harness is a new subpackage plus one line in `_ADAPTER_MODULES`.
+names, so adding another harness is a new subpackage plus one line in `_ADAPTER_MODULES`.
 
 The harness axis is separate from two other "provider" axes:
 
@@ -47,7 +48,8 @@ Do not merge them: a harness ↔ voice provider mapping is many-to-many.
 | `backend/manager/_proc.py` | SDK-free process helpers: `process_alive`, `process_comm`, `looks_like`, `kill_subprocess` |
 | `backend/manager/_ssh.py` | Shared SSH helpers (control paths, remote CLI resolution) — [ssh-remote-execution](../infrastructure/ssh-remote-execution.md) |
 | `backend/manager/__init__.py` | PEP 562 lazy exports (`ClaudeSessionManager`, `SessionManager` alias, `QwenSessionManager`, …) so `import manager` never pulls `claude-agent-sdk` |
-| `backend/manager/{claude,qwen,gemini}/` | One subpackage per harness: `adapter.py` (spec + adapter registration), `session.py` (session manager), optional `models.py` |
+| `backend/manager/{claude,qwen,gemini,codex}/` | One subpackage per harness: `adapter.py` (spec + adapter registration), `session.py` (session manager), `catalog.py` (`catalog_loader`), optional `models.py` (Qwen), `home.py` / `rpc.py` / `items.py` (Codex) |
+| `backend/manager/harness_catalog.py` | `HarnessCatalog` / `HarnessModel` / `HarnessOption`, `get_catalog()` (5-minute cache), `validate_options()`, `merge_options()` |
 | `backend/tests/test_harness_registry.py` | Registry contract tests (spec completeness, unique SSH prefixes, reaper dispatch, registration order) |
 
 ## `HarnessSpec`
@@ -55,25 +57,26 @@ Do not merge them: a harness ↔ voice provider mapping is many-to-many.
 Each `manager/<x>/adapter.py` calls `register_harness(HarnessSpec(...))` and
 `register_provider(<x>Adapter())` at import time. `ensure_all_registered()` imports every module
 in `_ADAPTER_MODULES` (currently `manager.claude.adapter`, `manager.qwen.adapter`,
-`manager.gemini.adapter`); it is idempotent and every dispatch site calls it first.
+`manager.gemini.adapter`, `manager.codex.adapter`, `manager.modelstudio.adapter`); it is idempotent and every dispatch site calls it first.
 `manager.protocol.ensure_all_registered()` delegates to the same function.
 
-| Field | Purpose | claude | qwen | gemini |
-|---|---|---|---|---|
-| `name` | Canonical id in `assistant_config.json` and session config | `claude` | `qwen` | `gemini` |
-| `label` | UI picker label | Claude Code | Qwen Code | Gemini CLI |
-| `description` | One-liner under the picker | | | |
-| `session_class_loader` | Lazy → `BaseSessionManager` subclass | `ClaudeSessionManager` | `QwenSessionManager` | `GeminiSessionManager` |
-| `adapter_loader` | → the module's `ProviderAdapter` instance | | | |
-| `comm_prefix` | `/proc/<pid>/comm` check before the orphan reaper kills a PID | `claude` | `node` | `node` |
-| `kill_helper_loader` | Lazy → `kill_<x>_subprocess(pid) -> bool` | | | |
-| `ssh_control_path_prefix` | First part of `/tmp/<prefix>-ssh-<host>-%r`; must be unique per harness | `claude` | `qwen` | `gemini` |
-| `jsonl_path_resolver` | `session_id → [candidate paths]`; may return `[]` | `context/<id>.jsonl` | `context/chats/<id>.jsonl` | glob `session-*-<id[:8]>.jsonl` |
-| `session_discoverer` | Optional; yields `(session_id, path)` for files whose name is not the id | — | — | `_gemini_discover_sessions` |
-| `requirements_file` | Extra pip deps | `requirements-claude.txt` | — | — |
-| `npm_package` | Global npm package (install hint only) | `@anthropic-ai/claude-code` | `@qwen-code/qwen-code` | `@google/gemini-cli` |
-| `cli_binary` | Executable name on `PATH` | `claude` | `qwen` | `gemini` |
-| `env_keys` | Env vars the harness needs in `context/.env` | — | `DASHSCOPE_API_KEY` | — (`GEMINI_API_KEY` optional) |
+| Field | Purpose | claude | qwen | gemini | codex | modelstudio |
+|---|---|---|---|---|---|---|
+| `name` | Canonical id in `assistant_config.json` and session config | `claude` | `qwen` | `gemini` | `codex` | `modelstudio` |
+| `label` | UI picker label | Claude Code | Qwen Code | Gemini CLI | Codex | Claude Code · Model Studio |
+| `description` | One-liner under the picker | | | | | |
+| `session_class_loader` | Lazy → `BaseSessionManager` subclass | `ClaudeSessionManager` | `QwenSessionManager` | `GeminiSessionManager` | `CodexSessionManager` | `ModelStudioSessionManager` |
+| `adapter_loader` | → the module's `ProviderAdapter` instance | | | | | `ModelStudioAdapter` (Claude's adapter; not passed to `register_provider()`, never claims a file by format) |
+| `comm_prefix` | `/proc/<pid>/comm` check before the orphan reaper kills a PID | `claude` | `node` | `node` | `codex` (native binary) | `claude` (same bundled binary) |
+| `kill_helper_loader` | Lazy → `kill_<x>_subprocess(pid) -> bool` | | | | | |
+| `ssh_control_path_prefix` | First part of `/tmp/<prefix>-ssh-<host>-%r`; must be unique per harness | `claude` | `qwen` | `gemini` | `codex` | `modelstudio` |
+| `jsonl_path_resolver` | `session_id → [candidate paths]`; may return `[]` | `context/<id>.jsonl` | `context/chats/<id>.jsonl` | glob `session-*-<id[:8]>.jsonl` | glob `*/*/*/rollout-*-<id>.jsonl` under each sessions root | Claude's (`context/<id>.jsonl`) |
+| `session_discoverer` | Optional; yields `(session_id, path)` for files whose name is not the id | — | — | `_gemini_discover_sessions` | `_codex_discover_sessions` | — |
+| `requirements_file` | Extra pip deps | `requirements-claude.txt` | — | — | — | `requirements-claude.txt` |
+| `npm_package` | Global npm package (install hint only) | `@anthropic-ai/claude-code` | `@qwen-code/qwen-code@<QWEN_CLI_VERSION>` (0.25.0) | `@google/gemini-cli` | `@openai/codex` | `@anthropic-ai/claude-code` |
+| `cli_binary` | Executable name on `PATH` | `claude` | `qwen` | `gemini` | `codex` | `claude` |
+| `env_keys` | Env vars the harness needs in `context/.env` | — | `DASHSCOPE_API_KEY` | `GEMINI_API_KEY` | — (ChatGPT login via `codex login`; `CODEX_API_KEY` optional) | `DASHSCOPE_API_KEY` |
+| `catalog_loader` | Lazy → `HarnessCatalog` (models + options) for the settings UIs; see [Harness catalog](#harness-catalog-models--options) | `load_claude_catalog` | `load_qwen_catalog` | `load_gemini_catalog` | `load_codex_catalog` | `load_modelstudio_catalog` |
 
 The spec is frozen. `register()` is last-wins so tests can swap a spec without clearing the
 registry. `names()` keeps registration order, which matters: with no provider pinned the pool uses
@@ -81,7 +84,7 @@ the first registered harness (Claude), and the reaper's first-match-wins dispatc
 
 ## Normalized events and messages
 
-All three session managers yield the same `Event` types from `send()` (`backend/manager/types.py`):
+Every session manager yields the same `Event` types from `send()` (`backend/manager/types.py`):
 `TextDelta`, `TextComplete`, `ThinkingDelta`, `ThinkingComplete`, `ToolUse`, `ToolResult`,
 `TurnComplete`, `CompactComplete`, `PermissionRequest`, `PermissionResolved`, `SessionStalled`,
 `SessionTerminated` (with a `TerminationReason`). The pool, the chat WebSocket and the orchestrator
@@ -191,11 +194,11 @@ These still name harnesses literally. None of them blocks a new harness.
 
 | Site | Why |
 |---|---|
-| `install/{linux,apple}/install.sh`, `install/windows/install.ps1` — `WITH_CLAUDE` / `WITH_QWEN` / `WITH_GEMINI`, `--with-<x>` / `--without-<x>`, `--qwen-only`, per-harness symlink steps | Runs before the venv exists, so it cannot import the registry. A new harness adds its own block ([installation](../infrastructure/installation.md)). |
+| `install/{linux,apple}/install.sh`, `install/windows/install.ps1` — `WITH_CLAUDE` / `WITH_QWEN` / `WITH_GEMINI` / `WITH_CODEX`, `--with-<x>` / `--without-<x>`, `--qwen-only`, per-harness symlink steps, pinned CLI versions; the `install-with-agent.*` harness → npm package maps | Runs before the venv exists, so it cannot import the registry. A new harness adds its own block ([installation](../infrastructure/installation.md)). |
 | `install/cli-runtime/<cli>/` | Per-CLI starter files seeded into `.claude/`, `.qwen/`, `.gemini/` at the repo root |
 | `ManagerConfig.provider = "claude"`, `types.py` defaults, `backend/api/routes/sessions.py` `s.get("provider", "claude")` | Fallbacks for records older than per-session provider tracking |
 | `backend/manager/auth.py` + `/api/auth/*` | Claude-only OAuth helper; other harnesses authenticate through their own CLI or env keys |
-| `backend/api/session_factory.py` chrome flag / MCP servers | Only `ClaudeSessionManager` consumes `extra_args` and `mcp_servers`; Qwen and Gemini ignore them |
+| `backend/api/session_factory.py` chrome flag / MCP servers | Only `ClaudeSessionManager` consumes `extra_args` and `mcp_servers`; the other harnesses ignore them |
 | `apps/web/src/features/history/HistoryPane.tsx` `PROVIDER` label map | Short tag text; unknown ids fall back to the raw id |
 | `backend/orchestrator/config.py` `mid.startswith("qwen")` etc. | Orchestrator text-model routing — a different axis |
 | `backend/manager/context_windows.py` | Context-window lookup per (provider, model); Qwen reads its settings file, the others a static table |

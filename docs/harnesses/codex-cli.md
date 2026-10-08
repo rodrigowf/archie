@@ -36,7 +36,7 @@ ChatGPT login (`codex login`); no API credits are used.
 | `backend/manager/codex/catalog.py` | `load_codex_catalog()` — models (live `model/list` → `models_cache.json` → built-in) and options |
 | `backend/manager/codex/home.py` | `codex_home()` (dedicated vs shared), `sessions_roots()`, `home_for_thread()`, `codex_env()`, `codex_executable()` |
 | `AGENTS.md` (repo root) | Symlink → `context/AGENTS.md` — the file Codex reads natively; committed like `CLAUDE.md` / `QWEN.md` / `GEMINI.md` |
-| `install/linux/install.sh` | `--with-codex`: seeds `~/.codex-archie/config.toml`, links its `sessions/`, installs the CLI, login hint |
+| `install/{linux,apple}/install.sh`, `install/windows/install.ps1` | `--with-codex` (`-WithCodex`): seeds `~/.codex-archie/config.toml`, links its `sessions/`, installs the CLI pinned to 0.161.0 (warns on a different version), login hint; root `AGENTS.md` link. `install-with-agent.*` can install Codex as the driver CLI |
 | `backend/tests/test_codex_session.py`, `test_codex_adapter.py`, `fixtures/codex/` | Tests: a scripted fake app-server (`fake_app_server.py`) and a trimmed real rollout |
 
 ## Binary and process

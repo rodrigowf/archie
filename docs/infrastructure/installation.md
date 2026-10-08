@@ -14,6 +14,8 @@ references:
   - ../overview/repo-layout.md
   - ../harnesses/registry.md
   - ../harnesses/gemini-cli.md
+  - ../harnesses/qwen-code.md
+  - ../harnesses/codex-cli.md
   - ../integrations/skills.md
   - ../clients/web.md
 ---
@@ -31,7 +33,7 @@ symlinks that let each agent CLI read and write inside `context/`. The step-by-s
 |---|---|
 | `install.sh` | OS dispatcher: execs `install/linux/install.sh` or `install/apple/install.sh`; on Git Bash/MSYS it tells you to use PowerShell |
 | `install.ps1` | Windows entry → `install/windows/install.ps1` |
-| `install-with-agent.sh` / `.ps1` | Conversational install: launches an agent CLI with `INSTALL.md` as instructions; the agent re-does each step and logs to `context/install.log` |
+| `install-with-agent.sh` / `.ps1` | Conversational install: launches an agent CLI (claude / qwen / gemini / codex; it offers to `npm install -g` one at the pinned versions below if none is present) with `INSTALL.md` as instructions; the agent re-does each step and logs to `context/install.log` |
 | `install/<os>/install-prerequisites.*` | Checks Python ≥ 3.11, Node, npm, git (Linux prints package hints; macOS offers Homebrew; Windows offers winget) |
 | `install/` (templates) | `AGENTS.md`, `MEMORY.md`, `context.env`, `assistant_config.json`, `manager.json`, `sync.env`, `cli-runtime/<cli>/` — user-agnostic seeds, see `install/README.md` |
 | `shared/scripts/setup-context.sh` | Standalone, idempotent (re)creation of the `context/` structure and symlinks; `--force` relinks |
@@ -48,7 +50,7 @@ a conda env and builds nothing with Node — see [jetson-server.md](jetson-serve
 |---|---|
 | `--new-context` | Create a fresh `context/` non-interactively |
 | `--import-context URL` | `git clone URL context` (your private context repo) |
-| `--with-claude` / `--with-qwen` / `--with-gemini` (and `--without-*`) | Session harnesses to set up ([registry.md](../harnesses/registry.md)) |
+| `--with-claude` / `--with-qwen` / `--with-gemini` / `--with-codex` (and `--without-*`) | Session harnesses to set up ([registry.md](../harnesses/registry.md)); Windows: `-WithClaude`, `-WithCodex`, … |
 | `--with-anthropic` / `--with-openai` (and `--without-*`) | Orchestrator SDKs to install |
 | `--qwen-only` | Qwen harness + OpenAI SDK only |
 | `--dev` | `backend/requirements-dev.txt` |
@@ -59,22 +61,28 @@ or import the context.
 
 ## What the Linux installer does (Step numbers match the script)
 
+`install/apple/install.sh` runs the same steps (BSD `sed -i ''` and a portable `resolve_path` instead
+of `readlink -f`); `install/windows/install.ps1` mirrors them in PowerShell — symlinks need Developer
+Mode or Administrator, else directory junctions and file copies; the Gemini settings merge (3e) runs
+after the venv exists; see [Pitfalls](#pitfalls).
+
 | Step | Action |
 |---|---|
 | 1 | Prerequisite check |
-| 2 | Context: keep an existing configured `context/` (or back it up to `context.bak/`); **new**: `mkdir context/{memory,skills,scripts,agents,secrets,certs}`, seed `context/memory/MEMORY.md`, `context/AGENTS.md`, `context/.env` from `install/` (uncommenting keys for the chosen axes); **import**: `git clone`, add missing folders. Both create the `shared/` symlinks (below) |
+| 2 | Context: keep an existing configured `context/` (or back it up to `context.bak/`); **new**: `mkdir context/{memory,skills,scripts,agents,secrets,certs}`, seed `context/memory/MEMORY.md`, `context/AGENTS.md`, `context/.env` from `install/` (uncommenting keys for the chosen axes: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DASHSCOPE_API_KEY` for Qwen, `GEMINI_API_KEY` for Gemini); **import**: `git clone`, add missing folders. Both create the `shared/` symlinks (below) |
 | 3 | Claude: `.claude_config/projects/<mangled-cwd>` → `../../context` (migrating any JSONL from a real directory there), `.claude_config/skills` → `../context/skills`, `.claude_config/agents` → `../context/agents` (the CLI loads user agents from `$CLAUDE_CONFIG_DIR/agents`; the installers create this link since 2026-10-07) |
-| 3b | Qwen: `~/.qwen/projects/<mangled-cwd>` → `<repo>/context`, chats into `context/chats/`; `~/.qwen/skills` → `context/skills` if free |
+| 3b | Qwen: `~/.qwen/projects/<mangled-cwd>` → `<repo>/context`, chats into `context/chats/` (JSONL only — since 0.25 `*.runtime.json` is a liveness marker, not session data); `~/.qwen/skills` → `context/skills` if free |
 | 3c | Gemini: `~/.gemini/tmp/<label>` → `<repo>/context` (label from `~/.gemini/projects.json`, else the cwd basename) |
-| 3d | `CLAUDE.md` and `QWEN.md` at the repo root → `context/AGENTS.md` (migrates a legacy root `AGENTS.md`/`CLAUDE.md`) |
+| 3c2 | Codex: seed `~/.codex-archie/config.toml` (never overwritten: `project_doc_max_bytes = 131072`, plugins/apps off), `~/.codex-archie/sessions` → `<repo>/context/codex/sessions` (a real directory there is copied in and moved aside). `auth.json` is never copied ([codex-cli](../harnesses/codex-cli.md)) |
+| 3d | `CLAUDE.md`, `QWEN.md` and `AGENTS.md` (read by Codex) at the repo root → `context/AGENTS.md` (migrates a legacy root `AGENTS.md`/`CLAUDE.md`) |
 | 3e | Seed `.claude/`, `.qwen/`, `.gemini/` from `install/cli-runtime/` without overwriting; then merge Archie's keys into an existing `.gemini/settings.json` (`backend/manager/gemini/workspace_settings.py`: session retention off, `context.fileFiltering`, API-key auth, thinking overrides — [gemini-cli](../harnesses/gemini-cli.md)) |
 | 4–6 | `python3 -m venv .venv`, upgrade pip, `pip install -r backend/requirements.txt` (or `-dev`) plus `requirements-claude.txt` / `-anthropic.txt` / `-openai.txt` per axis |
 | 7 | `npm install` in `apps/web` and `apps/design-tokens` (the web build's token gate needs the latter) |
-| 7b | `npm install -g` the chosen CLIs (`@anthropic-ai/claude-code`, `@qwen-code/qwen-code`, `@google/gemini-cli`) and prompt for login unless an API key is in `context/.env` |
+| 7b | `npm install -g` each chosen CLI that is not on `PATH` yet, and check auth. Pins: `@anthropic-ai/claude-code` (unpinned; the backend runs the CLI bundled with `claude-agent-sdk==0.2.164` from `requirements-claude.txt`), `@qwen-code/qwen-code@0.25.0` (= `QWEN_CLI_VERSION`; needs Node 22+), `@google/gemini-cli@0.63.0`, `@openai/codex@0.161.0` — an already-installed CLI at another version only gets a warning with the `npm install -g …@<pin>` command. Login: Claude `claude auth login` (or `ANTHROPIC_API_KEY`); Qwen OAuth (`qwen`) or `DASHSCOPE_API_KEY`; Gemini **only** `GEMINI_API_KEY` (Google stopped serving Gemini CLI to personal-account OAuth on 2026-06-18 — [gemini-cli](../harnesses/gemini-cli.md)); Codex `CODEX_HOME=~/.codex-archie codex login --device-auth` (the shared `~/.codex` login also works; no API-key fallback) |
 | 8 | `mkdir -p index logs` |
 | 9 | Symlink `.claude_config/.credentials.json` → `~/.claude/.credentials.json` (so token refreshes by the interactive CLI are shared; a stale *copy* here causes 401s) |
-| 10–11 | `assistant_config.json` from the template (`@@SCRIPT_DIR@@`; provider = the first installed harness in the order claude, qwen, gemini; orchestrator model = `qwen3.6-plus` for a Qwen default, else Claude Sonnet) and `.manager.json` |
-| 12 / 12b | Verify imports and env keys; probe Gemini Live backends and pick `default_voice_endpoint` |
+| 10–11 | `assistant_config.json` from the template (`@@SCRIPT_DIR@@`; provider = the first installed harness in the order claude, qwen, gemini, codex; orchestrator model = `qwen3.6-plus` for a Qwen default, else Claude Sonnet) and `.manager.json` |
+| 12 / 12b | Verify imports and the env keys of the chosen axes (incl. `GEMINI_API_KEY` for the Gemini harness); probe Gemini Live backends and pick `default_voice_endpoint` |
 
 The legacy web apps (`legacy/frontend*`) are optional; install their deps only to build them.
 
@@ -88,7 +96,9 @@ context/skills/<own>/                                    (personal, real folder)
 .claude_config/projects/-home-rodrigo-assistant → ../../context   (JSONL lands in context/)
 .claude_config/skills   → ../context/skills
 .claude_config/agents   → ../context/agents
-CLAUDE.md, QWEN.md, GEMINI.md → context/AGENTS.md
+~/.qwen/projects/<mangled-cwd>, ~/.gemini/tmp/<label> → <repo>/context
+~/.codex-archie/sessions → <repo>/context/codex/sessions
+CLAUDE.md, QWEN.md, GEMINI.md, AGENTS.md → context/AGENTS.md   (committed; the installers re-create CLAUDE/QWEN/AGENTS)
 ```
 
 Public, general-purpose tools live in `shared/`; personal ones live directly in `context/`; both are
@@ -162,7 +172,11 @@ Two installs can coexist on one machine in different directories (e.g. `~/assist
 - "Symlinks point at the wrong place after copying `context/`": re-run `./install.sh` or
   `shared/scripts/setup-context.sh` — both are idempotent.
 - A CLI installed under nvm may be invisible to non-interactive shells; locally set `QWEN_CLI_PATH` /
-  `GEMINI_CLI_PATH` in `context/.env` (read by `backend/manager/{qwen,gemini}/session.py`), and for SSH remotes see
+  `GEMINI_CLI_PATH` in `context/.env` (read by `backend/manager/{qwen,gemini}/session.py`) or
+  `CODEX_CLI_PATH` (`backend/manager/codex/home.py`), and for SSH remotes see
   [ssh-remote-execution.md](ssh-remote-execution.md#the-nvm-exit-127-trap).
 - Windows: symlinks need Developer Mode or Administrator, otherwise junctions + copies; path mangling
-  replaces both `\` and `:` with `-`.
+  replaces both `\` and `:` with `-`. A checkout without git symlink support turns the committed
+  root `*.md` links into text stubs (`context/AGENTS.md`); `install.ps1` replaces them. Codex's home is
+  `%USERPROFILE%\.codex-archie` (no `chmod 700` equivalent), and the backend's Codex binary
+  resolution has no Windows entry, so the Codex harness on Windows is untested.

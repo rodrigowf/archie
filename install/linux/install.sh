@@ -476,6 +476,9 @@ if [ "$CONTEXT_SETUP_NEEDED" = true ]; then
             if [ "$WITH_QWEN" = true ]; then
                 uncomment_env_key "DASHSCOPE_API_KEY"
             fi
+            if [ "$WITH_GEMINI" = true ]; then
+                uncomment_env_key "GEMINI_API_KEY"
+            fi
 
             info "Created fresh context with default structure"
             echo ""
@@ -1156,8 +1159,16 @@ if [ "$SKIP_AUTH" = false ]; then
         fi
     fi
     if [ "$WITH_CODEX" = true ]; then
-        install_harness_cli codex '@openai/codex' || true
+        # Pinned: Archie's app-server client and rollout reader are verified
+        # against this version (docs/harnesses/codex-cli.md).
+        CODEX_CLI_VERSION="0.161.0"
+        install_harness_cli codex "@openai/codex@$CODEX_CLI_VERSION" || true
         if command -v codex &>/dev/null; then
+            # `codex --version` prints "codex-cli <version>".
+            CODEX_HAVE="$(codex --version 2>/dev/null | head -n1 | awk '{print $NF}')"
+            if [ "$CODEX_HAVE" != "$CODEX_CLI_VERSION" ]; then
+                warn "codex CLI is $CODEX_HAVE; Archie is tested with $CODEX_CLI_VERSION — run: npm install -g @openai/codex@$CODEX_CLI_VERSION"
+            fi
             # A dedicated login (its own token family) is preferred; the
             # shared ~/.codex login also works.  No API-key fallback on
             # purpose: Archie strips OPENAI_API_KEY from Codex's env.
@@ -1311,6 +1322,9 @@ if [ -f "context/.env" ]; then
     if [ "$WITH_QWEN" = true ]; then
         check_env_key "DASHSCOPE_API_KEY" "Qwen harness + Qwen voice"
     fi
+    if [ "$WITH_GEMINI" = true ]; then
+        check_env_key "GEMINI_API_KEY" "Gemini CLI harness — the only auth Google still serves it"
+    fi
 else
     warn "No context/.env file found"
 fi
@@ -1405,11 +1419,15 @@ if [ -f "context/.env" ]; then
     if [ "$WITH_QWEN" = true ] && ! grep -q "^DASHSCOPE_API_KEY=.\+" context/.env 2>/dev/null; then
         ENV_KEYS_MISSING+=("DASHSCOPE_API_KEY")
     fi
+    if [ "$WITH_GEMINI" = true ] && ! grep -q "^GEMINI_API_KEY=.\+" context/.env 2>/dev/null; then
+        ENV_KEYS_MISSING+=("GEMINI_API_KEY")
+    fi
 else
     # No .env yet — list every key the user's axes need.
     [ "$WITH_OPENAI"    = true ] && ENV_KEYS_MISSING+=("OPENAI_API_KEY")
     [ "$WITH_ANTHROPIC" = true ] && ENV_KEYS_MISSING+=("ANTHROPIC_API_KEY")
     [ "$WITH_QWEN"      = true ] && ENV_KEYS_MISSING+=("DASHSCOPE_API_KEY")
+    [ "$WITH_GEMINI"    = true ] && ENV_KEYS_MISSING+=("GEMINI_API_KEY")
 fi
 if [ "${#ENV_KEYS_MISSING[@]}" -gt 0 ]; then
     KEY_LIST="$(IFS=, ; echo "${ENV_KEYS_MISSING[*]}")"

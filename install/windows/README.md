@@ -60,10 +60,14 @@ creation at the start and falls back gracefully if neither is available:
 | Directory | Symbolic link | **NTFS junction** (no privileges; same drive) |
 | File | Symbolic link | **Plain copy** (one-time; re-run installer if source changes) |
 
-The fallback path is fully functional — the SDK config dirs work just as
-well via junctions, and there are only three "shadow" markdown files
-(`CLAUDE.md`, `QWEN.md`, `GEMINI.md`) that become copies if symlinks
-aren't available. Re-running `install.ps1` re-syncs those copies.
+The fallback path is fully functional — the SDK config dirs (and Codex's
+`%USERPROFILE%\.codex-archie\sessions` → `context\codex\sessions`) work
+just as well via junctions, and the "shadow" markdown files the installer
+links (`CLAUDE.md`, `QWEN.md`, `AGENTS.md` → `context\AGENTS.md`) become
+copies if symlinks aren't available. Re-running `install.ps1` re-syncs those
+copies. A checkout made without git symlink support turns the committed root
+links into small text stubs holding `context/AGENTS.md`; the installer
+recognises those and replaces them.
 
 **To enable Developer Mode (recommended):**
 

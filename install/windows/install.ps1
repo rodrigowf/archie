@@ -21,6 +21,11 @@
       - Python venv layout: Windows uses `.venv\Scripts\python.exe` and
         `.venv\Scripts\pip.exe` (vs. `.venv/bin/...` on POSIX).
 
+      - Codex: ~/.codex-archie is %USERPROFILE%\.codex-archie; its sessions\
+        link falls back to a junction like the other directory links, and the
+        POSIX `chmod 700` on that home has no equivalent here (the profile
+        directory's ACLs already keep it private).
+
       - Path mangling: the Claude / Qwen / Gemini CLIs each use slightly
         different schemes for mangling the project path into their per-project
         config dirs.  See the per-harness blocks below — the exact mangling
@@ -62,6 +67,12 @@
 .PARAMETER WithoutGemini
     Skip Gemini CLI setup.
 
+.PARAMETER WithCodex
+    Set up the Codex CLI (OpenAI - ChatGPT login) session harness.
+
+.PARAMETER WithoutCodex
+    Skip Codex CLI setup.
+
 .PARAMETER WithAnthropic
     Install the `anthropic` Python SDK (Claude models in the orchestrator).
 
@@ -77,7 +88,7 @@
 
 .PARAMETER QwenOnly
     Shortcut equivalent to `-WithQwen -WithoutClaude -WithoutGemini
-    -WithOpenAI -WithoutAnthropic`.
+    -WithoutCodex -WithOpenAI -WithoutAnthropic`.
 
 .EXAMPLE
     .\install\windows\install.ps1
@@ -107,6 +118,8 @@ param(
     [switch]$WithoutQwen,
     [switch]$WithGemini,
     [switch]$WithoutGemini,
+    [switch]$WithCodex,
+    [switch]$WithoutCodex,
     [switch]$WithAnthropic,
     [switch]$WithoutAnthropic,
     [switch]$WithOpenAI,
@@ -159,8 +172,8 @@ function Read-YesNo {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Tri-state axis resolution.  Each axis (claude / qwen / gemini / anthropic /
-# openai) ends up as one of $true / $false.  Until the user has been asked
+# Tri-state axis resolution.  Each axis (claude / qwen / gemini / codex /
+# anthropic / openai) ends up as one of $true / $false.  Until the user has been asked
 # (or a flag has been passed), the state is $null — that's what the
 # interactive prompts later look for to decide whether to ask.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -174,6 +187,7 @@ function Resolve-Switch {
 $ClaudeAxis    = Resolve-Switch -With:$WithClaude    -Without:$WithoutClaude
 $QwenAxis      = Resolve-Switch -With:$WithQwen      -Without:$WithoutQwen
 $GeminiAxis    = Resolve-Switch -With:$WithGemini    -Without:$WithoutGemini
+$CodexAxis     = Resolve-Switch -With:$WithCodex     -Without:$WithoutCodex
 $AnthropicAxis = Resolve-Switch -With:$WithAnthropic -Without:$WithoutAnthropic
 $OpenAIAxis    = Resolve-Switch -With:$WithOpenAI    -Without:$WithoutOpenAI
 
@@ -182,6 +196,7 @@ if ($QwenOnly) {
     if ($null -eq $ClaudeAxis)    { $ClaudeAxis    = $false }
     if ($null -eq $QwenAxis)      { $QwenAxis      = $true  }
     if ($null -eq $GeminiAxis)    { $GeminiAxis    = $false }
+    if ($null -eq $CodexAxis)     { $CodexAxis     = $false }
     if ($null -eq $AnthropicAxis) { $AnthropicAxis = $false }
     if ($null -eq $OpenAIAxis)    { $OpenAIAxis    = $true  }
 }
@@ -201,22 +216,24 @@ Write-Host ""
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 0a: Session harness — which agent CLI(s) to set up
 # ─────────────────────────────────────────────────────────────────────────────
-if ($null -eq $ClaudeAxis -and $null -eq $QwenAxis -and $null -eq $GeminiAxis) {
+if ($null -eq $ClaudeAxis -and $null -eq $QwenAxis -and $null -eq $GeminiAxis -and $null -eq $CodexAxis) {
     Write-Host "── Session harness ──" -ForegroundColor Cyan
     Write-Host "Which agent CLI(s) should run your chats?  (You can pick more than one;"
     Write-Host "the UI's Session Provider selector switches between them at runtime.)"
     Write-Host ""
     $ClaudeAxis = Read-YesNo "Set up Claude Code (Anthropic - recommended default)?" 'Y'
     $QwenAxis   = Read-YesNo "Set up Qwen Code (Alibaba - open weights, OAuth or DashScope key)?" 'N'
-    $GeminiAxis = Read-YesNo "Set up Gemini CLI (Google - OAuth or GEMINI_API_KEY)?" 'N'
+    $GeminiAxis = Read-YesNo "Set up Gemini CLI (Google - needs GEMINI_API_KEY)?" 'N'
+    $CodexAxis  = Read-YesNo "Set up Codex CLI (OpenAI - ChatGPT login)?" 'N'
     Write-Host ""
 }
 if ($null -eq $ClaudeAxis) { $ClaudeAxis = $false }
 if ($null -eq $QwenAxis)   { $QwenAxis   = $false }
 if ($null -eq $GeminiAxis) { $GeminiAxis = $false }
+if ($null -eq $CodexAxis)  { $CodexAxis  = $false }
 
-if (-not $ClaudeAxis -and -not $QwenAxis -and -not $GeminiAxis) {
-    Write-Err "Refusing to install with no harnesses - pick at least one (-WithClaude / -WithQwen / -WithGemini)."
+if (-not $ClaudeAxis -and -not $QwenAxis -and -not $GeminiAxis -and -not $CodexAxis) {
+    Write-Err "Refusing to install with no harnesses - pick at least one (-WithClaude / -WithQwen / -WithGemini / -WithCodex)."
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -249,6 +266,7 @@ if ($null -eq $OpenAIAxis)    { $OpenAIAxis    = $false }
 if ($ClaudeAxis)    { Write-Info "Will set up Claude Code harness" }
 if ($QwenAxis)      { Write-Info "Will set up Qwen Code harness" }
 if ($GeminiAxis)    { Write-Info "Will set up Gemini CLI harness" }
+if ($CodexAxis)     { Write-Info "Will set up Codex CLI harness" }
 if ($AnthropicAxis) { Write-Info "Will install anthropic SDK (orchestrator)" }
 if ($OpenAIAxis)    { Write-Info "Will install openai SDK (orchestrator + voice)" }
 if (-not $AnthropicAxis -and -not $OpenAIAxis) {
@@ -257,9 +275,9 @@ if (-not $AnthropicAxis -and -not $OpenAIAxis) {
 Write-Host ""
 
 # Default provider written into assistant_config.json: the first installed
-# harness in the order Claude, Qwen, Gemini (Claude is the historical
-# default).  At least one is installed - checked above.
-$DefaultProvider = if ($ClaudeAxis) { 'claude' } elseif ($QwenAxis) { 'qwen' } else { 'gemini' }
+# harness in the order Claude, Qwen, Gemini, Codex (Claude is the
+# historical default).  At least one is installed - checked above.
+$DefaultProvider = if ($ClaudeAxis) { 'claude' } elseif ($QwenAxis) { 'qwen' } elseif ($GeminiAxis) { 'gemini' } else { 'codex' }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Symlink strategy.  Windows symbolic links require either:
@@ -497,6 +515,7 @@ if ($ContextSetupNeeded) {
             if ($OpenAIAxis)    { Enable-EnvKey 'OPENAI_API_KEY'    }
             if ($AnthropicAxis) { Enable-EnvKey 'ANTHROPIC_API_KEY' }
             if ($QwenAxis)      { Enable-EnvKey 'DASHSCOPE_API_KEY' }
+            if ($GeminiAxis)    { Enable-EnvKey 'GEMINI_API_KEY'    }
 
             Write-Info "Created fresh context with default structure"
             Write-Host ""
@@ -635,10 +654,8 @@ if ($QwenAxis) {
                 $dest = Join-Path 'context\chats' $_.Name
                 if (-not (Test-Path $dest)) { Copy-Item -LiteralPath $_.FullName -Destination $dest }
             }
-            Get-ChildItem -LiteralPath $chatsDir -Filter '*.runtime.json' -ErrorAction SilentlyContinue | ForEach-Object {
-                $dest = Join-Path 'context\chats' $_.Name
-                if (-not (Test-Path $dest)) { Copy-Item -LiteralPath $_.FullName -Destination $dest }
-            }
+            # (No *.runtime.json: resume only needs the JSONL; since 0.25 the
+            # runtime file is a short-lived liveness marker, not session data.)
             Write-Info "Migrated Qwen chats into context\chats\"
         }
         Remove-Item -LiteralPath $QwenProjectDir -Recurse -Force
@@ -745,16 +762,106 @@ if ($GeminiAxis) {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Step 3c2: Set up Archie's Codex home (only if Codex harness enabled)
+# ─────────────────────────────────────────────────────────────────────────────
+# Archie runs Codex with CODEX_HOME=~/.codex-archie (%USERPROFILE%\.codex-archie)
+# once that home holds its own login; until then it falls back to the shared
+# ~/.codex.  Here we seed that home's config.toml (never overwritten) and link
+# its sessions\ to context\codex\sessions so rollouts travel with the rest of
+# context\.  We never copy auth.json: ChatGPT refresh tokens rotate, and two
+# homes holding one token family break each other.
+if ($CodexAxis) {
+    Write-Step "Setting up Codex CLI configuration..."
+
+    $CodexArchieHome     = Join-Path $env:USERPROFILE '.codex-archie'
+    $CodexSessionsTarget = Join-Path $ScriptDir 'context\codex\sessions'
+    New-Item -ItemType Directory -Path $CodexArchieHome     -Force | Out-Null
+    New-Item -ItemType Directory -Path $CodexSessionsTarget -Force | Out-Null
+
+    $CodexConfig = Join-Path $CodexArchieHome 'config.toml'
+    if (-not (Test-Path $CodexConfig)) {
+        $codexToml = @'
+# Archie's Codex home (CODEX_HOME=~/.codex-archie).  The backend passes the
+# model, reasoning effort, sandbox and approval policy for every session, so
+# keep only settings you want on every Archie Codex session here.
+
+# context/AGENTS.md is ~51 KB; the default (32 KiB) would truncate it.
+project_doc_max_bytes = 131072
+
+[features]
+# ChatGPT plugins/apps add ~10 KB of instructions to every turn.
+plugins = false
+apps = false
+'@
+        # UTF-8 without BOM: Windows PowerShell 5.1's -Encoding UTF8 writes a
+        # BOM, which TOML parsers may reject.
+        [System.IO.File]::WriteAllText($CodexConfig, $codexToml, (New-Object System.Text.UTF8Encoding $false))
+        Write-Info "Seeded $CodexConfig"
+    } else {
+        Write-Info "$CodexConfig already exists - leaving it alone"
+    }
+
+    $CodexSessionsLink = Join-Path $CodexArchieHome 'sessions'
+    $existing = if (Test-Path $CodexSessionsLink) { Get-Item $CodexSessionsLink -Force } else { $null }
+    if ($existing -and $existing.LinkType -in @('SymbolicLink','Junction')) {
+        $currentTarget = $existing.Target | Select-Object -First 1
+        $r1 = if ($currentTarget) { (Resolve-Path -LiteralPath $currentTarget -ErrorAction SilentlyContinue).Path } else { $null }
+        $r2 = (Resolve-Path -LiteralPath $CodexSessionsTarget -ErrorAction SilentlyContinue).Path
+        if ($r1 -and $r2 -and $r1 -eq $r2) {
+            Write-Info "Codex sessions link already points to context\codex\sessions"
+        } else {
+            Write-Warn "$CodexSessionsLink points to $currentTarget - leaving alone"
+        }
+    } elseif ($existing -and $existing.PSIsContainer) {
+        Write-Warn "Found real directory at $CodexSessionsLink - migrating to link"
+        # Copy every rollout that isn't already in context\codex\sessions
+        # (keeps the YYYY\MM\DD layout), then move the original aside.
+        $srcRoot = $existing.FullName
+        Get-ChildItem -LiteralPath $srcRoot -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+            $rel  = $_.FullName.Substring($srcRoot.Length).TrimStart('\','/')
+            $dest = Join-Path $CodexSessionsTarget $rel
+            if (-not (Test-Path $dest)) {
+                New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force | Out-Null
+                Copy-Item -LiteralPath $_.FullName -Destination $dest
+            }
+        }
+        Move-Item -LiteralPath $srcRoot -Destination "$srcRoot.bak-$(Get-Date -Format yyyyMMddTHHmmss)"
+        New-Link -Path $CodexSessionsLink -Target $CodexSessionsTarget
+        Write-Info "Moved rollouts into context\codex\sessions and linked $CodexSessionsLink"
+    } else {
+        New-Link -Path $CodexSessionsLink -Target $CodexSessionsTarget
+        Write-Info "Created Codex sessions link -> context\codex\sessions"
+    }
+    Write-Host ""
+} else {
+    Write-Info "Skipping Codex CLI setup (-WithoutCodex)"
+    Write-Host ""
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Step 3d: Wire AGENTS.md as the shared project-instructions file
 # ─────────────────────────────────────────────────────────────────────────────
+# Claude Code reads CLAUDE.md, Qwen Code reads QWEN.md, Codex reads AGENTS.md
+# — all at the project root, all links -> context\AGENTS.md.
 Write-Step "Wiring context\AGENTS.md as the shared project-instructions file..."
+
+# The repo commits these root files as git symlinks.  A Windows checkout
+# without symlink support (core.symlinks=false) turns each into a tiny text
+# file holding just the target path — a stub, not real instructions.
+function Test-GitSymlinkStub {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+    $item = Get-Item -LiteralPath $Path -Force
+    if ($item.LinkType -in @('SymbolicLink','Junction') -or $item.Length -gt 64) { return $false }
+    return ((Get-Content -LiteralPath $Path -Raw).Trim() -eq 'context/AGENTS.md')
+}
 
 # Migration: normalize legacy layouts to context\AGENTS.md.
 if (-not (Test-Path 'context\AGENTS.md')) {
-    if ((Test-Path 'AGENTS.md') -and ((Get-Item 'AGENTS.md').LinkType -notin @('SymbolicLink','Junction'))) {
+    if ((Test-Path 'AGENTS.md') -and ((Get-Item 'AGENTS.md').LinkType -notin @('SymbolicLink','Junction')) -and -not (Test-GitSymlinkStub 'AGENTS.md')) {
         Move-Item -LiteralPath 'AGENTS.md' -Destination 'context\AGENTS.md'
         Write-Info "Moved AGENTS.md -> context\AGENTS.md"
-    } elseif ((Test-Path 'CLAUDE.md') -and ((Get-Item 'CLAUDE.md').LinkType -notin @('SymbolicLink','Junction'))) {
+    } elseif ((Test-Path 'CLAUDE.md') -and ((Get-Item 'CLAUDE.md').LinkType -notin @('SymbolicLink','Junction')) -and -not (Test-GitSymlinkStub 'CLAUDE.md')) {
         Move-Item -LiteralPath 'CLAUDE.md' -Destination 'context\AGENTS.md'
         Write-Info "Promoted CLAUDE.md -> context\AGENTS.md"
     } elseif (Test-Path (Join-Path $InstallTemplates 'AGENTS.md')) {
@@ -766,13 +873,13 @@ if (-not (Test-Path 'context\AGENTS.md')) {
 # Clean up stale root-level AGENTS.md from intermediate layout.
 if (Test-Path 'AGENTS.md') {
     $item = Get-Item 'AGENTS.md' -Force
-    if ($item.LinkType -in @('SymbolicLink','Junction') -or $item.Length -eq 0) {
+    if ($item.LinkType -in @('SymbolicLink','Junction') -or $item.Length -eq 0 -or (Test-GitSymlinkStub 'AGENTS.md')) {
         Remove-Item -LiteralPath 'AGENTS.md' -Force
     }
 }
 
 if (Test-Path 'context\AGENTS.md') {
-    foreach ($shadow in 'CLAUDE.md','QWEN.md') {
+    foreach ($shadow in 'CLAUDE.md','QWEN.md','AGENTS.md') {
         if (Test-Path $shadow) {
             $item = Get-Item $shadow -Force
             if ($item.LinkType -in @('SymbolicLink','Junction')) {
@@ -781,6 +888,8 @@ if (Test-Path 'context\AGENTS.md') {
                 $r2 = (Resolve-Path -LiteralPath 'context\AGENTS.md' -ErrorAction SilentlyContinue).Path
                 if ($r1 -and $r2 -and $r1 -eq $r2) { continue }
                 Remove-Item -LiteralPath $shadow -Force
+            } elseif (Test-GitSymlinkStub $shadow) {
+                Remove-Item -LiteralPath $shadow -Force   # git symlink checked out as text
             } else {
                 Write-Warn "$shadow exists and is not a link - leaving alone (delete to enable shared instructions)"
                 continue
@@ -790,7 +899,7 @@ if (Test-Path 'context\AGENTS.md') {
         Write-Info "Created $shadow -> context\AGENTS.md link"
     }
 } else {
-    Write-Warn "No context\AGENTS.md found - skipping CLAUDE.md/QWEN.md links"
+    Write-Warn "No context\AGENTS.md found - skipping CLAUDE.md/QWEN.md/AGENTS.md links"
 }
 Write-Host ""
 
@@ -861,6 +970,20 @@ if (-not (Test-Path '.venv')) {
 
 $VenvPy  = Join-Path $ScriptDir '.venv\Scripts\python.exe'
 $VenvPip = Join-Path $ScriptDir '.venv\Scripts\pip.exe'
+
+# Step 3e (continued): an existing .gemini\settings.json is never overwritten
+# by the seed, so merge Archie's keys into it: session retention OFF (the
+# CLI's sweep would delete old sessions in context\chats\),
+# context.fileFiltering, API-key auth and the thinking overrides.  The Linux /
+# macOS installers run this before the venv exists with the system python3;
+# here it waits for the venv so we reuse the interpreter found above
+# (the script is stdlib-only).
+if ($GeminiAxis) {
+    & $VenvPy 'backend\manager\gemini\workspace_settings.py' $ScriptDir
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "Could not merge Archie's keys into .gemini\settings.json - fix the file; the backend refuses Gemini turns until then"
+    }
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 5: Upgrade pip
@@ -983,7 +1106,9 @@ function Read-DriverLogin {
     Write-Warn "$Cli is not authenticated."
     Write-Host "    Open a separate PowerShell in this directory and run:"
     Write-Host "      $LoginCmd" -ForegroundColor Blue
-    Write-Host "    (Or set $EnvKey in context\.env to use an API key instead.)"
+    if ($EnvKey) {
+        Write-Host "    (Or set $EnvKey in context\.env to use an API key instead.)"
+    }
     Write-Ask "Press Enter once login completes (or just press Enter to finish setup later): "
     [void](Read-Host)
     if (& $CheckAuth) {
@@ -1007,19 +1132,72 @@ if (-not $SkipAuth) {
         }
     }
     if ($QwenAxis) {
-        [void](Install-HarnessCli 'qwen' '@qwen-code/qwen-code')
+        # Pinned: Archie's Qwen harness is verified against this exact version
+        # (backend/manager/qwen/adapter.py QWEN_CLI_VERSION; qwen-code ships a
+        # stable release every couple of days).  0.25 needs Node 22+.
+        $QwenCliPin = '0.25.0'
+        [void](Install-HarnessCli 'qwen' "@qwen-code/qwen-code@$QwenCliPin")
         if (Get-Command qwen -ErrorAction SilentlyContinue) {
+            $qwenHave = (& qwen --version 2>$null | Select-Object -First 1)
+            if ("$qwenHave".Trim() -ne $QwenCliPin) {
+                Write-Warn "qwen $qwenHave installed; Archie expects $QwenCliPin - run: npm install -g @qwen-code/qwen-code@$QwenCliPin"
+            }
+            $nodeV = (& node -v 2>$null)
+            if ($nodeV -and [int](("$nodeV".TrimStart('v') -split '\.')[0]) -lt 22) {
+                Write-Warn "qwen-code $QwenCliPin needs Node.js 22+ (found $nodeV); upgrade Node before using the Qwen harness."
+            }
+            # Qwen has no `auth status` subcommand and stores OAuth state in
+            # ~\.qwen\oauth_creds.json when used in OAuth mode.  API-key mode
+            # (DashScope) is detected via context\.env.
             Read-DriverLogin 'qwen' 'qwen' {
                 Test-Path (Join-Path $env:USERPROFILE '.qwen\oauth_creds.json')
             } 'DASHSCOPE_API_KEY'
         }
     }
     if ($GeminiAxis) {
-        [void](Install-HarnessCli 'gemini' '@google/gemini-cli')
+        # Pinned: Archie's JSONL adapter and workspace-settings mechanism are
+        # verified against this version (docs/harnesses/gemini-cli.md).
+        $GeminiCliVersion = '0.63.0'
+        [void](Install-HarnessCli 'gemini' "@google/gemini-cli@$GeminiCliVersion")
         if (Get-Command gemini -ErrorAction SilentlyContinue) {
-            Read-DriverLogin 'gemini' 'gemini' {
-                Test-Path (Join-Path $env:USERPROFILE '.gemini\oauth_creds.json')
-            } 'GEMINI_API_KEY'
+            $geminiHave = (& gemini --version 2>$null | Select-Object -Last 1)
+            if ("$geminiHave".Trim() -ne $GeminiCliVersion) {
+                Write-Warn "gemini CLI is $geminiHave; Archie is tested with $GeminiCliVersion - run: npm install -g @google/gemini-cli@$GeminiCliVersion"
+            }
+            # Google stopped serving Gemini CLI to personal Google logins
+            # (oauth-personal) on 2026-06-18 - an OAuth login no longer
+            # counts; only GEMINI_API_KEY (AI Studio) does.
+            if (Test-EnvKeyPresent 'GEMINI_API_KEY') {
+                Write-Info "gemini: GEMINI_API_KEY set in context\.env"
+            } else {
+                Write-Warn "gemini: set GEMINI_API_KEY in context\.env (create one at https://aistudio.google.com/apikey) - Google no longer serves Gemini CLI to personal Google-account logins"
+            }
+        }
+    }
+    if ($CodexAxis) {
+        # Pinned: Archie's app-server client and rollout reader are verified
+        # against this version (docs/harnesses/codex-cli.md).
+        $CodexCliVersion = '0.161.0'
+        [void](Install-HarnessCli 'codex' "@openai/codex@$CodexCliVersion")
+        if (Get-Command codex -ErrorAction SilentlyContinue) {
+            # `codex --version` prints "codex-cli <version>".
+            $codexHave = ("$(& codex --version 2>$null | Select-Object -First 1)".Trim() -split '\s+')[-1]
+            if ($codexHave -ne $CodexCliVersion) {
+                Write-Warn "codex CLI is $codexHave; Archie is tested with $CodexCliVersion - run: npm install -g @openai/codex@$CodexCliVersion"
+            }
+            # A dedicated login (its own token family) is preferred; the
+            # shared ~\.codex login also works.  No API-key fallback on
+            # purpose: Archie strips OPENAI_API_KEY from Codex's env.
+            $codexLoginCmd = '$env:CODEX_HOME = "$env:USERPROFILE\.codex-archie"; codex login --device-auth; Remove-Item Env:CODEX_HOME'
+            Read-DriverLogin 'codex' $codexLoginCmd {
+                (Test-Path (Join-Path $env:USERPROFILE '.codex-archie\auth.json')) -or
+                (Test-Path (Join-Path $env:USERPROFILE '.codex\auth.json'))
+            } ''
+            if (-not (Test-Path (Join-Path $env:USERPROFILE '.codex-archie\auth.json')) -and
+                (Test-Path (Join-Path $env:USERPROFILE '.codex\auth.json'))) {
+                Write-Info "codex: using the shared ~\.codex login.  For a dedicated Archie login run:"
+                Write-Host "      $codexLoginCmd"
+            }
         }
     }
     Write-Host ""
@@ -1091,7 +1269,7 @@ Write-Step "Verifying installation..."
 $VerificationFailed = $false
 
 # Core packages.
-& $VenvPy -c "import fastapi, uvicorn, chromadb, sentence_transformers" 2>$null
+& $VenvPy -c "import fastapi, uvicorn, numpy, sentence_transformers" 2>$null
 if ($LASTEXITCODE -eq 0) {
     Write-Info "Core Python packages OK"
 } else {
@@ -1136,6 +1314,7 @@ if (Test-Path 'context\.env') {
     if ($OpenAIAxis)    { Test-EnvKey 'OPENAI_API_KEY'    'OpenAI orchestrator text + Realtime voice' }
     if ($AnthropicAxis) { Test-EnvKey 'ANTHROPIC_API_KEY' 'Anthropic Claude models in orchestrator' }
     if ($QwenAxis)      { Test-EnvKey 'DASHSCOPE_API_KEY' 'Qwen harness + Qwen voice' }
+    if ($GeminiAxis)    { Test-EnvKey 'GEMINI_API_KEY'    'Gemini CLI harness - the only auth Google still serves it' }
 } else {
     Write-Warn "No context\.env file found"
 }
@@ -1227,10 +1406,12 @@ if (Test-Path 'context\.env') {
     if ($OpenAIAxis    -and -not (Test-EnvKeyPresent 'OPENAI_API_KEY'))    { $envMissing += 'OPENAI_API_KEY' }
     if ($AnthropicAxis -and -not (Test-EnvKeyPresent 'ANTHROPIC_API_KEY')) { $envMissing += 'ANTHROPIC_API_KEY' }
     if ($QwenAxis      -and -not (Test-EnvKeyPresent 'DASHSCOPE_API_KEY')) { $envMissing += 'DASHSCOPE_API_KEY' }
+    if ($GeminiAxis    -and -not (Test-EnvKeyPresent 'GEMINI_API_KEY'))    { $envMissing += 'GEMINI_API_KEY' }
 } else {
     if ($OpenAIAxis)    { $envMissing += 'OPENAI_API_KEY' }
     if ($AnthropicAxis) { $envMissing += 'ANTHROPIC_API_KEY' }
     if ($QwenAxis)      { $envMissing += 'DASHSCOPE_API_KEY' }
+    if ($GeminiAxis)    { $envMissing += 'GEMINI_API_KEY' }
 }
 if ($envMissing.Count -gt 0) {
     Write-Host "  $step. " -NoNewline; Write-Host "Configure your API keys:" -ForegroundColor Red
@@ -1261,6 +1442,7 @@ $harnessCount = 0
 if ($ClaudeAxis) { $harnessCount++ }
 if ($QwenAxis)   { $harnessCount++ }
 if ($GeminiAxis) { $harnessCount++ }
+if ($CodexAxis)  { $harnessCount++ }
 if ($harnessCount -gt 1) {
     Write-Host "Tip: " -ForegroundColor Cyan -NoNewline
     Write-Host "You can switch providers anytime in Configuration -> Session provider."

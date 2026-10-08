@@ -3,12 +3,12 @@
 #
 # This is the alternate install entry point.  Instead of running the
 # deterministic ./install.sh, it launches one of the agent CLIs (Claude Code,
-# Qwen Code, or Gemini CLI) and hands it INSTALL.md as instructions.  The
+# Qwen Code, Gemini CLI or Codex CLI) and hands it INSTALL.md as instructions.  The
 # agent then walks the user through the install conversationally, executing
 # each step itself with its file and Bash tools.
 #
 # What this script does:
-#   1. Detects which agent CLIs are installed (claude / qwen / gemini).
+#   1. Detects which agent CLIs are installed (claude / qwen / gemini / codex).
 #   2. If none are installed, asks which ones to install and runs `npm i -g`.
 #      If multiple are now available, asks which one should drive the install.
 #   3. Ensures the chosen driver CLI is authenticated (or that the user knows
@@ -61,7 +61,7 @@ echo "       Personal Assistant — Conversational Installer"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo -e "${NC}"
 echo "This is the conversational install path.  It will launch an agent CLI"
-echo "(Claude Code, Qwen Code, or Gemini CLI) and let that agent walk you"
+echo "(Claude Code, Qwen Code, Gemini CLI or Codex CLI) and let that agent walk you"
 echo "through the install — asking you questions, executing each step, and"
 echo "logging progress to context/install.log."
 echo ""
@@ -90,16 +90,20 @@ echo ""
 # and the script branches on its size.
 step "Detecting installed agent CLIs..."
 
-declare -a ALL_CLIS=(claude qwen gemini)
+declare -a ALL_CLIS=(claude qwen gemini codex)
+# Qwen, Gemini and Codex are pinned to the versions Archie's harnesses are
+# verified against — keep in sync with Step 7b of install.sh.
 declare -A CLI_PKG=(
     [claude]="@anthropic-ai/claude-code"
-    [qwen]="@qwen-code/qwen-code"
-    [gemini]="@google/gemini-cli"
+    [qwen]="@qwen-code/qwen-code@0.25.0"
+    [gemini]="@google/gemini-cli@0.63.0"
+    [codex]="@openai/codex@0.161.0"
 )
 declare -A CLI_LABEL=(
     [claude]="Claude Code (Anthropic)"
     [qwen]="Qwen Code (Alibaba)"
-    [gemini]="Gemini CLI (Google)"
+    [gemini]="Gemini CLI (Google — needs GEMINI_API_KEY)"
+    [codex]="Codex CLI (OpenAI — ChatGPT login)"
 )
 
 declare -a INSTALLED=()
@@ -201,9 +205,15 @@ check_driver_auth() {
                 [ -n "${DASHSCOPE_API_KEY:-}" ]
             ;;
         gemini)
-            [ -f "$HOME/.gemini/oauth_creds.json" ] || \
-                grep -q "^GEMINI_API_KEY=.\+" context/.env 2>/dev/null || \
+            # Google stopped serving Gemini CLI to personal Google logins
+            # (oauth-personal) on 2026-06-18 — only an API key counts.
+            grep -q "^GEMINI_API_KEY=.\+" context/.env 2>/dev/null || \
                 [ -n "${GEMINI_API_KEY:-}" ]
+            ;;
+        codex)
+            # The driver runs with the default CODEX_HOME (~/.codex), not
+            # Archie's ~/.codex-archie — that one is set up by install.sh.
+            [ -f "${CODEX_HOME:-$HOME/.codex}/auth.json" ]
             ;;
     esac
 }
@@ -212,7 +222,8 @@ login_cmd_for() {
     case "$1" in
         claude) echo "claude auth login" ;;
         qwen)   echo "qwen" ;;
-        gemini) echo "gemini" ;;
+        gemini) echo "export GEMINI_API_KEY=<key from https://aistudio.google.com/apikey>   (or put it in context/.env)" ;;
+        codex)  echo "codex login --device-auth" ;;
     esac
 }
 
@@ -279,7 +290,7 @@ Begin by:
   4. Creating context/install.log if it doesn't exist and appending a
      timestamped "install agent started" line.
   5. Greeting the user briefly and asking the first axis question
-     (session harness — claude / qwen / gemini, any subset).
+     (session harness — claude / qwen / gemini / codex, any subset).
 
 Important context for this session:
   - The user already has ${DRIVER} installed and authenticated (it's
@@ -303,7 +314,10 @@ echo ""
 #            interactive mode after it processes the prompt).
 #   qwen   — same as claude (Qwen Code is forked from Gemini CLI which is
 #            in turn similar enough to claude's CLI).
-#   gemini — same idiom.
+#   gemini — same idiom.  Launched with GEMINI_CLI_AUTH_OVERRIDE so a stale
+#            oauth-personal choice in ~/.gemini/settings.json (dead since
+#            2026-06-18) doesn't beat the API key.
+#   codex  — takes the prompt as a positional arg, like claude.
 #
 # CLAUDE_CONFIG_DIR / GEMINI_DIR aren't set here intentionally: the agent
 # will discover whether they need to be set as part of executing the
@@ -316,7 +330,14 @@ case "$DRIVER" in
         exec qwen --prompt-interactive "$PROMPT"
         ;;
     gemini)
-        exec gemini --prompt-interactive "$PROMPT"
+        if [ -z "${GEMINI_API_KEY:-}" ] && [ -f context/.env ]; then
+            GEMINI_API_KEY="$(grep -m1 "^GEMINI_API_KEY=" context/.env | cut -d= -f2-)"
+            export GEMINI_API_KEY
+        fi
+        GEMINI_CLI_AUTH_OVERRIDE=gemini-api-key exec gemini --prompt-interactive "$PROMPT"
+        ;;
+    codex)
+        exec codex "$PROMPT"
         ;;
     *)
         error "Internal error: unknown driver $DRIVER"

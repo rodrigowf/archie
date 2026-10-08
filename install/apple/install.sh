@@ -78,6 +78,7 @@ IMPORT_CONTEXT=""
 WITH_CLAUDE=""
 WITH_QWEN=""
 WITH_GEMINI=""
+WITH_CODEX=""
 WITH_ANTHROPIC=""
 WITH_OPENAI=""
 # Shortcut: --qwen-only sets harness=qwen-only and orchestrator=openai-only
@@ -119,6 +120,10 @@ while [[ $# -gt 0 ]]; do
             WITH_GEMINI=true
             shift
             ;;
+        --with-codex)
+            WITH_CODEX=true
+            shift
+            ;;
         --without-claude)
             WITH_CLAUDE=false
             shift
@@ -129,6 +134,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --without-gemini)
             WITH_GEMINI=false
+            shift
+            ;;
+        --without-codex)
+            WITH_CODEX=false
             shift
             ;;
         --with-anthropic)
@@ -167,9 +176,11 @@ Session harness (which agent CLI runs your chats — multiple OK):
   --with-claude          Set up Claude Code (Anthropic)
   --with-qwen            Set up Qwen Code (Alibaba)
   --with-gemini          Set up Gemini CLI (Google)
+  --with-codex           Set up Codex CLI (OpenAI — ChatGPT login)
   --without-claude       Skip Claude Code setup
   --without-qwen         Skip Qwen Code setup
   --without-gemini       Skip Gemini CLI setup
+  --without-codex        Skip Codex CLI setup
 
 Orchestrator backends (which API SDKs to install):
   --with-anthropic       Install the `anthropic` SDK (for Claude models in the orchestrator)
@@ -205,6 +216,7 @@ if [ "$QWEN_ONLY" = true ]; then
     WITH_CLAUDE="${WITH_CLAUDE:-false}"
     WITH_QWEN="${WITH_QWEN:-true}"
     WITH_GEMINI="${WITH_GEMINI:-false}"
+    WITH_CODEX="${WITH_CODEX:-false}"
     WITH_ANTHROPIC="${WITH_ANTHROPIC:-false}"
     WITH_OPENAI="${WITH_OPENAI:-true}"
 fi
@@ -234,7 +246,7 @@ echo ""
 # in the argv parser above.  The per-harness install blocks further down
 # remain guarded by their WITH_<name> flag, so the new harness stays
 # opt-in.
-if [ -z "$WITH_CLAUDE" ] && [ -z "$WITH_QWEN" ] && [ -z "$WITH_GEMINI" ]; then
+if [ -z "$WITH_CLAUDE" ] && [ -z "$WITH_QWEN" ] && [ -z "$WITH_GEMINI" ] && [ -z "$WITH_CODEX" ]; then
     echo -e "${BOLD}── Session harness ──${NC}"
     echo "Which agent CLI(s) should run your chats?  (You can pick more than one;"
     echo "the UI's Session Provider selector switches between them at runtime.)"
@@ -245,17 +257,21 @@ if [ -z "$WITH_CLAUDE" ] && [ -z "$WITH_QWEN" ] && [ -z "$WITH_GEMINI" ]; then
     ask "Set up Qwen Code (Alibaba — open weights, OAuth or DashScope key)? [y/N] "
     read -r ANS
     if [[ "${ANS:-N}" =~ ^[Yy]$ ]]; then WITH_QWEN=true;  else WITH_QWEN=false;  fi
-    ask "Set up Gemini CLI (Google — OAuth or GEMINI_API_KEY)? [y/N] "
+    ask "Set up Gemini CLI (Google — needs GEMINI_API_KEY)? [y/N] "
     read -r ANS
     if [[ "${ANS:-N}" =~ ^[Yy]$ ]]; then WITH_GEMINI=true; else WITH_GEMINI=false; fi
+    ask "Set up Codex CLI (OpenAI — ChatGPT login)? [y/N] "
+    read -r ANS
+    if [[ "${ANS:-N}" =~ ^[Yy]$ ]]; then WITH_CODEX=true; else WITH_CODEX=false; fi
     echo ""
 fi
 WITH_CLAUDE="${WITH_CLAUDE:-false}"
 WITH_QWEN="${WITH_QWEN:-false}"
 WITH_GEMINI="${WITH_GEMINI:-false}"
+WITH_CODEX="${WITH_CODEX:-false}"
 
-if [ "$WITH_CLAUDE" = false ] && [ "$WITH_QWEN" = false ] && [ "$WITH_GEMINI" = false ]; then
-    error "Refusing to install with no harnesses — pick at least one (--with-claude / --with-qwen / --with-gemini)."
+if [ "$WITH_CLAUDE" = false ] && [ "$WITH_QWEN" = false ] && [ "$WITH_GEMINI" = false ] && [ "$WITH_CODEX" = false ]; then
+    error "Refusing to install with no harnesses — pick at least one (--with-claude / --with-qwen / --with-gemini / --with-codex)."
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -291,6 +307,7 @@ WITH_OPENAI="${WITH_OPENAI:-false}"
 if [ "$WITH_CLAUDE" = true ]; then info "Will set up Claude Code harness"; fi
 if [ "$WITH_QWEN"   = true ]; then info "Will set up Qwen Code harness"; fi
 if [ "$WITH_GEMINI" = true ]; then info "Will set up Gemini CLI harness"; fi
+if [ "$WITH_CODEX"  = true ]; then info "Will set up Codex CLI harness"; fi
 if [ "$WITH_ANTHROPIC" = true ]; then info "Will install anthropic SDK (orchestrator)"; fi
 if [ "$WITH_OPENAI"    = true ]; then info "Will install openai SDK (orchestrator + voice)"; fi
 if [ "$WITH_ANTHROPIC" = false ] && [ "$WITH_OPENAI" = false ]; then
@@ -299,14 +316,16 @@ fi
 echo ""
 
 # Default provider written into assistant_config.json: the first installed
-# harness in the order Claude, Qwen, Gemini (Claude is the historical
-# default).  At least one is installed — checked above.
+# harness in the order Claude, Qwen, Gemini, Codex (Claude is the
+# historical default).  At least one is installed — checked above.
 if [ "$WITH_CLAUDE" = true ]; then
     DEFAULT_PROVIDER="claude"
 elif [ "$WITH_QWEN" = true ]; then
     DEFAULT_PROVIDER="qwen"
-else
+elif [ "$WITH_GEMINI" = true ]; then
     DEFAULT_PROVIDER="gemini"
+else
+    DEFAULT_PROVIDER="codex"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -459,10 +478,10 @@ if [ "$CONTEXT_SETUP_NEEDED" = true ]; then
             uncomment_env_key() {
                 # Uncomment a single env var line in context/.env.  Idempotent:
                 # if the key is already uncommented, leave it alone.
+                local key="$1"
                 # macOS ships BSD sed, which requires an explicit backup
                 # suffix after -i ("''" = no backup).  GNU sed accepts that
                 # too, so this form is portable.
-                local key="$1"
                 if grep -q "^# *${key}=" context/.env; then
                     sed -i '' "s|^# *${key}=|${key}=|" context/.env
                 fi
@@ -476,6 +495,9 @@ if [ "$CONTEXT_SETUP_NEEDED" = true ]; then
             fi
             if [ "$WITH_QWEN" = true ]; then
                 uncomment_env_key "DASHSCOPE_API_KEY"
+            fi
+            if [ "$WITH_GEMINI" = true ]; then
+                uncomment_env_key "GEMINI_API_KEY"
             fi
 
             info "Created fresh context with default structure"
@@ -651,8 +673,8 @@ if [ "$WITH_QWEN" = true ]; then
         if [ -d "$QWEN_PROJECT_DIR/chats" ] && \
            compgen -G "$QWEN_PROJECT_DIR/chats/*.jsonl" > /dev/null; then
             cp -n "$QWEN_PROJECT_DIR/chats/"*.jsonl context/chats/ 2>/dev/null || true
-            # Also lift any .runtime.json sibling files so Qwen can resume.
-            cp -n "$QWEN_PROJECT_DIR/chats/"*.runtime.json context/chats/ 2>/dev/null || true
+            # (No *.runtime.json: resume only needs the JSONL; since 0.25 the
+            # runtime file is a short-lived liveness marker, not session data.)
             info "Migrated Qwen chats into context/chats/"
         fi
         rm -rf "$QWEN_PROJECT_DIR"
@@ -764,12 +786,73 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Step 3c2: Set up Archie's Codex home (only if --with-codex)
+# ─────────────────────────────────────────────────────────────────────────────
+# Archie runs Codex with CODEX_HOME=~/.codex-archie once that home holds its
+# own login (`CODEX_HOME=~/.codex-archie codex login --device-auth`); until
+# then it falls back to the shared ~/.codex.  Here we seed that home's
+# config.toml (never overwritten) and symlink its sessions/ to
+# context/codex/sessions so rollouts sync between machines with the rest of
+# context/.  We never copy auth.json: ChatGPT refresh tokens rotate, and two
+# homes holding one token family break each other.
+if [ "$WITH_CODEX" = true ]; then
+    step "Setting up Codex CLI configuration..."
+
+    CODEX_ARCHIE_HOME="$HOME/.codex-archie"
+    CODEX_SESSIONS_TARGET="$SCRIPT_DIR/context/codex/sessions"
+    mkdir -p "$CODEX_ARCHIE_HOME" "$CODEX_SESSIONS_TARGET"
+    chmod 700 "$CODEX_ARCHIE_HOME" 2>/dev/null || true
+
+    if [ ! -e "$CODEX_ARCHIE_HOME/config.toml" ]; then
+        cat > "$CODEX_ARCHIE_HOME/config.toml" <<'TOML'
+# Archie's Codex home (CODEX_HOME=~/.codex-archie).  The backend passes the
+# model, reasoning effort, sandbox and approval policy for every session, so
+# keep only settings you want on every Archie Codex session here.
+
+# context/AGENTS.md is ~51 KB; the default (32 KiB) would truncate it.
+project_doc_max_bytes = 131072
+
+[features]
+# ChatGPT plugins/apps add ~10 KB of instructions to every turn.
+plugins = false
+apps = false
+TOML
+        info "Seeded $CODEX_ARCHIE_HOME/config.toml"
+    else
+        info "$CODEX_ARCHIE_HOME/config.toml already exists — leaving it alone"
+    fi
+
+    CODEX_SESSIONS_LINK="$CODEX_ARCHIE_HOME/sessions"
+    if [ -L "$CODEX_SESSIONS_LINK" ]; then
+        if [ "$(resolve_path "$CODEX_SESSIONS_LINK")" = "$(resolve_path "$CODEX_SESSIONS_TARGET")" ]; then
+            info "Codex sessions symlink already points to context/codex/sessions"
+        else
+            warn "$CODEX_SESSIONS_LINK points to $(resolve_path "$CODEX_SESSIONS_LINK") — leaving alone"
+        fi
+    elif [ -d "$CODEX_SESSIONS_LINK" ]; then
+        warn "Found real directory at $CODEX_SESSIONS_LINK — migrating to symlink"
+        cp -rn "$CODEX_SESSIONS_LINK/." "$CODEX_SESSIONS_TARGET/" 2>/dev/null || true
+        mv "$CODEX_SESSIONS_LINK" "$CODEX_SESSIONS_LINK.bak-$(date +%Y%m%dT%H%M%S)"
+        ln -s "$CODEX_SESSIONS_TARGET" "$CODEX_SESSIONS_LINK"
+        info "Moved rollouts into context/codex/sessions and linked $CODEX_SESSIONS_LINK"
+    else
+        ln -s "$CODEX_SESSIONS_TARGET" "$CODEX_SESSIONS_LINK"
+        info "Created Codex sessions symlink → context/codex/sessions"
+    fi
+
+    echo ""
+else
+    info "Skipping Codex CLI setup (--without-codex)"
+    echo ""
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Step 3d: Wire AGENTS.md as the shared project-instructions file
 # ─────────────────────────────────────────────────────────────────────────────
 # AGENTS.md lives inside context/ (the private data repo).  Claude Code reads
-# CLAUDE.md, Qwen Code reads QWEN.md — both at the project root, both
-# symlinks → context/AGENTS.md, so the agents see identical instructions
-# from the location they each natively look for.
+# CLAUDE.md, Qwen Code reads QWEN.md, Codex reads AGENTS.md — all at the
+# project root, all symlinks → context/AGENTS.md, so the agents see identical
+# instructions from the location they each natively look for.
 step "Wiring context/AGENTS.md as the shared project-instructions file..."
 
 # Migration: legacy layouts may have AGENTS.md at the repo root (intermediate)
@@ -802,7 +885,7 @@ if [ -e "AGENTS.md" ] || [ -L "AGENTS.md" ]; then
 fi
 
 if [ -f "context/AGENTS.md" ]; then
-    for shadow in CLAUDE.md QWEN.md; do
+    for shadow in CLAUDE.md QWEN.md AGENTS.md; do
         target="$(readlink "$shadow" 2>/dev/null || true)"
         if [ "$target" = "context/AGENTS.md" ]; then
             continue  # already points where we want it
@@ -865,6 +948,15 @@ seed_cli_runtime() {
 [ "$WITH_CLAUDE" = true ] && seed_cli_runtime claude
 [ "$WITH_QWEN"   = true ] && seed_cli_runtime qwen
 [ "$WITH_GEMINI" = true ] && seed_cli_runtime gemini
+# An existing .gemini/settings.json is never overwritten above, so merge
+# Archie's keys into it: session retention OFF (the CLI's sweep would delete
+# old sessions in context/chats/), context.fileFiltering (older seeds used a
+# top-level key the CLI never read), API-key auth and the thinking overrides.
+# Stdlib-only script — runs before the venv exists.
+if [ "$WITH_GEMINI" = true ] && command -v python3 &>/dev/null; then
+    python3 backend/manager/gemini/workspace_settings.py "$SCRIPT_DIR" \
+        || warn "Could not merge Archie's keys into .gemini/settings.json — fix the file; the backend refuses Gemini turns until then"
+fi
 
 echo ""
 
@@ -1022,7 +1114,9 @@ prompt_harness_login() {
     warn "$cli is not authenticated."
     echo "    Open a separate terminal in this directory and run:"
     echo "      ${BLUE}${login_cmd}${NC}"
-    echo "    (Or set ${env_key} in context/.env to use an API key instead.)"
+    if [ -n "$env_key" ]; then
+        echo "    (Or set ${env_key} in context/.env to use an API key instead.)"
+    fi
     ask "Press Enter once login completes (or just press Enter to finish setup later): "
     read -r _
     if eval "$check_cmd" &>/dev/null; then
@@ -1042,8 +1136,20 @@ if [ "$SKIP_AUTH" = false ]; then
         fi
     fi
     if [ "$WITH_QWEN" = true ]; then
-        install_harness_cli qwen '@qwen-code/qwen-code' || true
+        # Pinned: Archie's Qwen harness is verified against this exact version
+        # (backend/manager/qwen/adapter.py QWEN_CLI_VERSION; qwen-code ships a
+        # stable release every couple of days).  0.25 needs Node 22+.
+        QWEN_CLI_PIN="0.25.0"
+        install_harness_cli qwen "@qwen-code/qwen-code@${QWEN_CLI_PIN}" || true
         if command -v qwen &>/dev/null; then
+            QWEN_HAVE="$(qwen --version 2>/dev/null | head -n1)"
+            if [ "$QWEN_HAVE" != "$QWEN_CLI_PIN" ]; then
+                warn "qwen $QWEN_HAVE installed; Archie expects $QWEN_CLI_PIN — run: npm install -g @qwen-code/qwen-code@${QWEN_CLI_PIN}"
+            fi
+            NODE_MAJOR_Q="$(node -v 2>/dev/null | sed 's/^v//' | cut -d. -f1)"
+            if [ -n "$NODE_MAJOR_Q" ] && [ "$NODE_MAJOR_Q" -lt 22 ]; then
+                warn "qwen-code $QWEN_CLI_PIN needs Node.js 22+ (found $(node -v)); upgrade Node before using the Qwen harness."
+            fi
             # Qwen has no `auth status` subcommand and stores OAuth state in
             # ~/.qwen/oauth_creds.json when used in OAuth mode.  API-key mode
             # (DashScope) is detected via context/.env.
@@ -1053,11 +1159,46 @@ if [ "$SKIP_AUTH" = false ]; then
         fi
     fi
     if [ "$WITH_GEMINI" = true ]; then
-        install_harness_cli gemini '@google/gemini-cli' || true
+        # Pinned: Archie's JSONL adapter and workspace-settings mechanism are
+        # verified against this version (docs/harnesses/gemini-cli.md).
+        GEMINI_CLI_VERSION="0.63.0"
+        install_harness_cli gemini "@google/gemini-cli@$GEMINI_CLI_VERSION" || true
         if command -v gemini &>/dev/null; then
-            prompt_harness_login gemini 'gemini' \
-                '[ -f "$HOME/.gemini/oauth_creds.json" ]' \
-                'GEMINI_API_KEY'
+            GEMINI_HAVE="$(gemini --version 2>/dev/null | tail -1)"
+            if [ "$GEMINI_HAVE" != "$GEMINI_CLI_VERSION" ]; then
+                warn "gemini CLI is $GEMINI_HAVE; Archie is tested with $GEMINI_CLI_VERSION — run: npm install -g @google/gemini-cli@$GEMINI_CLI_VERSION"
+            fi
+            # Google stopped serving Gemini CLI to personal Google logins
+            # (oauth-personal) on 2026-06-18 — an OAuth login no longer
+            # counts; only GEMINI_API_KEY (AI Studio) does.
+            if [ -f "context/.env" ] && grep -q "^GEMINI_API_KEY=.\+" context/.env 2>/dev/null; then
+                info "gemini: GEMINI_API_KEY set in context/.env"
+            else
+                warn "gemini: set GEMINI_API_KEY in context/.env (create one at https://aistudio.google.com/apikey) — Google no longer serves Gemini CLI to personal Google-account logins"
+            fi
+        fi
+    fi
+    if [ "$WITH_CODEX" = true ]; then
+        # Pinned: Archie's app-server client and rollout reader are verified
+        # against this version (docs/harnesses/codex-cli.md).
+        CODEX_CLI_VERSION="0.161.0"
+        install_harness_cli codex "@openai/codex@$CODEX_CLI_VERSION" || true
+        if command -v codex &>/dev/null; then
+            # `codex --version` prints "codex-cli <version>".
+            CODEX_HAVE="$(codex --version 2>/dev/null | head -n1 | awk '{print $NF}')"
+            if [ "$CODEX_HAVE" != "$CODEX_CLI_VERSION" ]; then
+                warn "codex CLI is $CODEX_HAVE; Archie is tested with $CODEX_CLI_VERSION — run: npm install -g @openai/codex@$CODEX_CLI_VERSION"
+            fi
+            # A dedicated login (its own token family) is preferred; the
+            # shared ~/.codex login also works.  No API-key fallback on
+            # purpose: Archie strips OPENAI_API_KEY from Codex's env.
+            prompt_harness_login codex 'CODEX_HOME=~/.codex-archie codex login --device-auth' \
+                '[ -f "$HOME/.codex-archie/auth.json" ] || [ -f "$HOME/.codex/auth.json" ]' \
+                ''
+            if [ ! -f "$HOME/.codex-archie/auth.json" ] && [ -f "$HOME/.codex/auth.json" ]; then
+                info "codex: using the shared ~/.codex login.  For a dedicated Archie login run:"
+                echo "      CODEX_HOME=~/.codex-archie codex login --device-auth"
+            fi
         fi
     fi
     echo ""
@@ -1201,6 +1342,9 @@ if [ -f "context/.env" ]; then
     if [ "$WITH_QWEN" = true ]; then
         check_env_key "DASHSCOPE_API_KEY" "Qwen harness + Qwen voice"
     fi
+    if [ "$WITH_GEMINI" = true ]; then
+        check_env_key "GEMINI_API_KEY" "Gemini CLI harness — the only auth Google still serves it"
+    fi
 else
     warn "No context/.env file found"
 fi
@@ -1209,13 +1353,21 @@ fi
 # Step 12b: Probe Gemini Live voice backends
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# Same logic as the Linux installer — see the comment block there for
-# the rationale.  We use install/probe-gemini-voice-to-shell.py which
-# wraps install/probe-gemini-voice.py and emits eval-safe single-quoted
-# KEY=VALUE lines.
+# The Google voice provider has two backends with different gates: AI
+# Studio (free, sometimes revoked by Google) and Vertex AI (billed,
+# stable, IAM-auth via ADC).  Both probes are best-effort — neither one
+# being available is fine, the user just doesn't get Gemini voice
+# until they configure one.  We surface actionable hints in either
+# case so the user knows exactly what to do.
+#
+# Probe is skipped if the venv lacks ``websockets`` (would happen if
+# requirements.txt failed earlier — we'd be warning twice).
 if .venv/bin/python -c "import websockets" 2>/dev/null; then
     echo ""
     info "Probing Gemini Live backends (AI Studio + Vertex AI)..."
+    # probe-gemini-voice-to-shell.py emits eval-safe single-quoted
+    # KEY=VALUE lines for us, so this stays a one-line eval and the
+    # f-string escape gymnastics live in the Python side.
     eval "$(.venv/bin/python install/probe-gemini-voice-to-shell.py 2>/dev/null)"
     if [ "$VERTEX_STATUS" = "ok" ]; then
         info "Gemini Live (Vertex AI) — reachable ✓"
@@ -1229,6 +1381,9 @@ if .venv/bin/python -c "import websockets" 2>/dev/null; then
     fi
     if [ -n "$RECOMMENDED" ]; then
         info "Recommended default voice endpoint: $RECOMMENDED"
+        # Patch assistant_config.json if it exists and the field is
+        # empty or still on the install template's default ("vertex").
+        # Don't override a user-set value.
         if [ -f assistant_config.json ]; then
             REC="$RECOMMENDED" .venv/bin/python - <<'PYEOF'
 import json, os, pathlib
@@ -1284,11 +1439,15 @@ if [ -f "context/.env" ]; then
     if [ "$WITH_QWEN" = true ] && ! grep -q "^DASHSCOPE_API_KEY=.\+" context/.env 2>/dev/null; then
         ENV_KEYS_MISSING+=("DASHSCOPE_API_KEY")
     fi
+    if [ "$WITH_GEMINI" = true ] && ! grep -q "^GEMINI_API_KEY=.\+" context/.env 2>/dev/null; then
+        ENV_KEYS_MISSING+=("GEMINI_API_KEY")
+    fi
 else
     # No .env yet — list every key the user's axes need.
     [ "$WITH_OPENAI"    = true ] && ENV_KEYS_MISSING+=("OPENAI_API_KEY")
     [ "$WITH_ANTHROPIC" = true ] && ENV_KEYS_MISSING+=("ANTHROPIC_API_KEY")
     [ "$WITH_QWEN"      = true ] && ENV_KEYS_MISSING+=("DASHSCOPE_API_KEY")
+    [ "$WITH_GEMINI"    = true ] && ENV_KEYS_MISSING+=("GEMINI_API_KEY")
 fi
 if [ "${#ENV_KEYS_MISSING[@]}" -gt 0 ]; then
     KEY_LIST="$(IFS=, ; echo "${ENV_KEYS_MISSING[*]}")"
@@ -1315,6 +1474,7 @@ HARNESS_COUNT=0
 [ "$WITH_CLAUDE" = true ] && HARNESS_COUNT=$((HARNESS_COUNT + 1))
 [ "$WITH_QWEN"   = true ] && HARNESS_COUNT=$((HARNESS_COUNT + 1))
 [ "$WITH_GEMINI" = true ] && HARNESS_COUNT=$((HARNESS_COUNT + 1))
+[ "$WITH_CODEX"  = true ] && HARNESS_COUNT=$((HARNESS_COUNT + 1))
 if [ "$HARNESS_COUNT" -gt 1 ]; then
     echo -e "${CYAN}Tip:${NC} You can switch providers anytime in Configuration → Session provider."
 fi
