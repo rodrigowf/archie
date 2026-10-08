@@ -1,10 +1,22 @@
 #!/usr/bin/env bash
-# Usage: context/scripts/install-prerequisites.sh
+# Usage: install/linux/install-prerequisites.sh [--no-node]
 # Description: Check and install system prerequisites for the assistant.
 #
 # This script checks for required system dependencies and provides
 # installation instructions for missing ones.
+#
+#   --no-node   Backend-only host (install.sh passes it when no usable Node.js
+#               is found): Node.js / npm become optional.
 set -euo pipefail
+
+NO_NODE=false
+[ "${1:-}" = "--no-node" ] && NO_NODE=true
+
+# Minimum Node major (apps/web engines, qwen-code) from the shared pins file.
+NODE_MIN_MAJOR=22
+PINS="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/harness-versions.env"
+# shellcheck disable=SC1090
+[ -f "$PINS" ] && . "$PINS"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -37,24 +49,28 @@ else
     MISSING+=("python")
 fi
 
-# Check Node.js version
-if command -v node &> /dev/null; then
+# Check Node.js version (the web toolchain and the Qwen / Gemini CLIs need it)
+if [ "$NO_NODE" = true ]; then
+    warn "Node.js skipped (--no-node: backend-only host; build the web app elsewhere)"
+elif command -v node &> /dev/null; then
     NODE_VERSION=$(node -v | sed 's/v//')
     NODE_MAJOR=$(echo "$NODE_VERSION" | cut -d. -f1)
 
-    if [ "$NODE_MAJOR" -ge 20 ]; then
+    if [ "$NODE_MAJOR" -ge "$NODE_MIN_MAJOR" ]; then
         info "Node.js $NODE_VERSION"
     else
-        error "Node.js $NODE_VERSION (need 20+)"
+        error "Node.js $NODE_VERSION (need $NODE_MIN_MAJOR+; or re-run install.sh with --no-node for a backend-only host)"
         MISSING+=("node")
     fi
 else
-    error "Node.js not found"
+    error "Node.js not found (or re-run install.sh with --no-node for a backend-only host)"
     MISSING+=("node")
 fi
 
 # Check npm
-if command -v npm &> /dev/null; then
+if [ "$NO_NODE" = true ]; then
+    :
+elif command -v npm &> /dev/null; then
     NPM_VERSION=$(npm -v)
     info "npm $NPM_VERSION"
 else
@@ -62,7 +78,8 @@ else
     MISSING+=("npm")
 fi
 
-# Check Claude Code CLI
+# Claude Code CLI — optional: the claude / modelstudio harnesses run the CLI
+# bundled with claude-agent-sdk; the global one is only used to log in.
 if command -v claude &> /dev/null; then
     # Try to get version, but don't fail if it doesn't work
     if CLAUDE_VERSION=$(claude --version 2>/dev/null | head -1); then
@@ -71,8 +88,7 @@ if command -v claude &> /dev/null; then
         info "Claude Code CLI (installed)"
     fi
 else
-    error "Claude Code CLI not found"
-    MISSING+=("claude")
+    warn "Claude Code CLI not on PATH (optional — install.sh offers it for the claude harness; the backend uses the CLI bundled with claude-agent-sdk)"
 fi
 
 # Check git (optional but recommended)
@@ -117,21 +133,17 @@ if [ ${#MISSING[@]} -gt 0 ]; then
                 echo
                 ;;
             node|npm)
-                echo "  Node.js 20+:"
+                echo "  Node.js $NODE_MIN_MAJOR+:"
                 case $OS in
-                    macos)  echo "    brew install node@20" ;;
-                    debian) echo "    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+                    macos)  echo "    brew install node@$NODE_MIN_MAJOR" ;;
+                    debian) echo "    curl -fsSL https://deb.nodesource.com/setup_$NODE_MIN_MAJOR.x | sudo -E bash -"
                             echo "    sudo apt install nodejs" ;;
-                    fedora) echo "    sudo dnf install nodejs20" ;;
+                    fedora) echo "    sudo dnf install nodejs$NODE_MIN_MAJOR" ;;
                     arch)   echo "    sudo pacman -S nodejs npm" ;;
                     *)      echo "    Download from https://nodejs.org/" ;;
                 esac
-                echo
-                ;;
-            claude)
-                echo "  Claude Code CLI:"
-                echo "    npm install -g @anthropic-ai/claude-code"
-                echo "    claude auth login"
+                echo "    (glibc older than 2.28, e.g. Ubuntu 18.04 / Jetson: Node $NODE_MIN_MAJOR cannot run —"
+                echo "     use install.sh --no-node for a backend-only install)"
                 echo
                 ;;
         esac

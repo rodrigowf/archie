@@ -3,7 +3,7 @@ name: qwen-code
 category: archie/harnesses
 tags: [qwen, qwen-code, harness, jsonl, stream-json, dashscope, spawn-per-turn, models, lazy-loading, catalog, harness-options, auto-memory]
 created: 2026-05-15
-modified: 2026-10-07
+modified: 2026-10-08
 summary: The Qwen Code harness (qwen-code 0.25.0) — spawn-per-turn qwen CLI, per-run system settings file, ~/.qwen symlinks into context/, JSONL normalization, model catalog + options, the auto-memory landmine.
 source: curated (consolidated from memory notes assistant/providers/qwen_code_adaptation.md, assistant/providers/provider_generalization.md; verified against code 2026-10-06)
 references:
@@ -18,8 +18,8 @@ references:
 
 # Qwen Code harness
 
-Alibaba's `qwen` CLI (npm `@qwen-code/qwen-code`, a Node program; **pinned to 0.25.0**, needs
-Node 22+) as a session harness. Unlike
+Alibaba's `qwen` CLI (npm `@qwen-code/qwen-code`, a Node program; **pinned to 0.25.0** in
+`install/harness-versions.env`, needs Node 22+) as a session harness. Unlike
 Claude Code there is no persistent process: every turn spawns a fresh `qwen` that reads one
 stream-json prompt on stdin, runs its agent loop, streams stream-json on stdout and exits. Turns are
 chained with `--resume <session-id>`.
@@ -52,7 +52,10 @@ directory with a symlink:
 ```
 
 so sessions land at `context/chats/<session-id>.jsonl`, next to Claude's flat `context/*.jsonl`,
-and the same skills are visible. (0.15 also left a `<session-id>.runtime.json` sibling; since 0.25
+and the same skills are visible (Qwen also reads the repo's `.agents/skills` → `context/skills`,
+created by the installer for Codex / Gemini / Qwen). The key replaces every non-alphanumeric
+character of the path with `-` (`sanitizeCwd`; on Windows the path is lower-cased first). An empty
+real `~/.qwen/skills` directory is replaced by the link. (0.15 also left a `<session-id>.runtime.json` sibling; since 0.25
 that file is a short-lived liveness marker that is gone after the run. Old ones are harmless.) If
 a real directory already exists the installer copies it to `context/qwen-backup-<timestamp>/`,
 lifts `chats/*.jsonl` into `context/chats/`, then links. An existing symlink that points at
@@ -273,8 +276,9 @@ asks for that provider. Saving an orchestrator model whose SDK is missing return
 
 ## Upgrading the CLI
 
-The version is pinned (`QWEN_CLI_VERSION` in `backend/manager/qwen/adapter.py`, `QWEN_CLI_PIN` in
-`install/linux/install.sh`); qwen-code ships a stable release every couple of days, so track a
+The version is pinned (`QWEN_CLI_VERSION` in `backend/manager/qwen/adapter.py` and in
+`install/harness-versions.env`, which every installer reads; `install/doctor.sh` warns when the two
+differ); qwen-code ships a stable release every couple of days, so track a
 version deliberately. For a bump: install into a scratch prefix and point `QWEN_CLI_PATH` at it,
 re-check the stream-json lines, the chat JSONL shapes, `--resume` of an older session, the
 `memory.*` keys (one model request per turn), and the request bodies of the options above against a

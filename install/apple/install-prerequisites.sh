@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install/apple/install-prerequisites.sh
+# install/apple/install-prerequisites.sh [--no-node]
 #
 # Checks and installs system prerequisites on macOS.  Mirrors the
 # Linux version (install/linux/install-prerequisites.sh) but offers to
@@ -7,7 +7,9 @@
 #
 # Required:
 #   - Python 3.11+ (3.12 recommended)
-#   - Node.js 20+ (Qwen Code and Gemini CLI depend on it)
+#   - Node.js 22+ (NODE_MIN_MAJOR in install/harness-versions.env; the web
+#     toolchain, Qwen Code and Gemini CLI depend on it) — skipped with
+#     --no-node (backend-only host)
 #   - npm (comes with Node)
 #
 # Optional but recommended:
@@ -17,6 +19,16 @@
 # is missing, we offer to install it via the official one-liner and then
 # proceed to install whatever else is missing.
 set -euo pipefail
+
+NO_NODE=false
+[ "${1:-}" = "--no-node" ] && NO_NODE=true
+
+# Minimum Node major from the shared pins file.
+NODE_MIN_MAJOR=22
+PINS="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/harness-versions.env"
+# shellcheck disable=SC1090
+[ -f "$PINS" ] && . "$PINS"
+NODE_FORMULA="node@$NODE_MIN_MAJOR"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -68,7 +80,7 @@ ensure_brew() {
     fi
     warn "Homebrew is not installed."
     echo "    Homebrew is the recommended package manager on macOS — it's what we"
-    echo "    use to install Python 3.12 and Node.js 20+."
+    echo "    use to install Python 3.12 and Node.js $NODE_MIN_MAJOR+."
     echo ""
     if is_interactive; then
         ask "Install Homebrew now? [Y/n] "
@@ -141,13 +153,15 @@ else
 fi
 
 # Node
-if command -v node >/dev/null 2>&1; then
+if [ "$NO_NODE" = true ]; then
+    warn "Node.js skipped (--no-node: backend-only host; build the web app elsewhere)"
+elif command -v node >/dev/null 2>&1; then
     NODE_VERSION=$(node -v | sed 's/v//')
     NODE_MAJOR=$(echo "$NODE_VERSION" | cut -d. -f1)
-    if [ "$NODE_MAJOR" -ge 20 ]; then
+    if [ "$NODE_MAJOR" -ge "$NODE_MIN_MAJOR" ]; then
         info "Node.js $NODE_VERSION"
     else
-        error "Node.js $NODE_VERSION (need 20+)"
+        error "Node.js $NODE_VERSION (need $NODE_MIN_MAJOR+)"
         MISSING+=("node")
     fi
 else
@@ -156,11 +170,13 @@ else
 fi
 
 # npm
-if command -v npm >/dev/null 2>&1; then
+if [ "$NO_NODE" = true ]; then
+    :
+elif command -v npm >/dev/null 2>&1; then
     info "npm $(npm -v)"
 else
     error "npm not found"
-    # npm is bundled with the node@20 brew formula, so "node" missing is
+    # npm is bundled with the node@<major> brew formula, so "node" missing is
     # enough; only add it if node exists but npm doesn't (broken install).
     if command -v node >/dev/null 2>&1; then
         MISSING+=("node")
@@ -198,9 +214,9 @@ Non-interactive shell detected — install the missing tools manually:
   Python 3.11+ (3.12 recommended):
     brew install python@3.12
 
-  Node.js 20+:
-    brew install node@20
-    brew link --overwrite --force node@20   # if you had an older node before
+  Node.js $NODE_MIN_MAJOR+:
+    brew install $NODE_FORMULA
+    brew link --overwrite --force $NODE_FORMULA   # if you had an older node before
 
   Git (optional):
     xcode-select --install                  # or: brew install git
@@ -218,14 +234,14 @@ for item in "${MISSING[@]}"; do
             brew_install python@3.12 || INSTALL_FAILED=true
             ;;
         node)
-            brew_install node@20 || INSTALL_FAILED=true
-            # node@20 is keg-only; ensure its bin is on PATH for the
+            brew_install "$NODE_FORMULA" || INSTALL_FAILED=true
+            # node@<major> is keg-only; ensure its bin is on PATH for the
             # remainder of this install session.  Brew prints the right
             # `eval` line — we mirror it here so callers don't need to
             # restart their shell to get `npm` on PATH.
-            if [ -x "$BREW_PREFIX/opt/node@20/bin/node" ]; then
-                export PATH="$BREW_PREFIX/opt/node@20/bin:$PATH"
-                info "Added node@20 to PATH for this session"
+            if [ -x "$BREW_PREFIX/opt/$NODE_FORMULA/bin/node" ]; then
+                export PATH="$BREW_PREFIX/opt/$NODE_FORMULA/bin:$PATH"
+                info "Added $NODE_FORMULA to PATH for this session (add it to your shell init too)"
             fi
             ;;
     esac
@@ -239,6 +255,6 @@ fi
 echo
 info "All prerequisites installed!"
 echo
-echo "You may need to add Homebrew + node@20 to your shell init to make them"
-echo "persist across sessions.  Brew's `shellenv` output above is the"
+echo "You may need to add Homebrew + $NODE_FORMULA to your shell init to make them"
+echo "persist across sessions.  Brew's 'shellenv' output above is the"
 echo "canonical line for that.  Then run: ./install.sh"

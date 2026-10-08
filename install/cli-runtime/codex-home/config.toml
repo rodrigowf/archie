@@ -1,0 +1,11 @@
+# Archie's Codex home (CODEX_HOME=~/.codex-archie).  The backend passes the
+# model, reasoning effort, sandbox and approval policy for every session, so
+# keep only settings you want on every Archie Codex session here.
+
+# context/AGENTS.md is ~51 KB; the default (32 KiB) would truncate it.
+project_doc_max_bytes = 131072
+
+[features]
+# ChatGPT plugins/apps add ~10 KB of instructions to every turn.
+plugins = false
+apps = false

@@ -79,7 +79,7 @@ The wrappers at the project root (`install.sh`, `install-with-agent.sh`, `instal
 ## Prerequisites
 
 - **Python 3.11+** (3.12 recommended; the always-on server runs 3.11, and the per-OS prerequisite checkers accept 3.11 or newer)
-- **Node.js 22.12+** for the web frontend's toolchain (`apps/web/package.json` `engines`); Qwen Code and Gemini CLI also depend on Node
+- **Node.js 22.12+** for the web frontend's toolchain (`apps/web/package.json` `engines`); Qwen Code and Gemini CLI also depend on Node.  A backend-only host without a usable Node (e.g. glibc < 2.28) can skip it — see [Backend-only hosts](#backend-only-hosts-no-nodejs)
 - **npm** (comes with Node)
 - **git**
 
@@ -94,7 +94,7 @@ The deterministic installer's Step 1 runs the per-OS prereq checker for you.  Yo
 Each one checks tool versions and offers to install whatever's missing:
 
 - **Linux** prints `apt` / `dnf` / `pacman` install hints — install manually before re-running.
-- **macOS** offers to bootstrap **Homebrew** and install Python 3.12 + Node 20 via brew.  Handles both Apple Silicon (`/opt/homebrew`) and Intel (`/usr/local`).
+- **macOS** offers to bootstrap **Homebrew** and install Python 3.12 + Node 22 (`node@22`) via brew.  Handles both Apple Silicon (`/opt/homebrew`) and Intel (`/usr/local`).
 - **Windows** offers to install Python 3.12 + Node LTS + Git via **winget** (Microsoft's built-in package manager on Windows 10 1809+ / Windows 11).
 
 You'll also need at least one of these API keys *somewhere* — either obtained ahead of time, or set up during install:
@@ -103,6 +103,7 @@ You'll also need at least one of these API keys *somewhere* — either obtained 
 - **Qwen Code** — either OAuth (interactive on first `qwen` run) or `DASHSCOPE_API_KEY` in `context/.env`.
 - **Gemini CLI** — `GEMINI_API_KEY` in `context/.env` (create one at https://aistudio.google.com/apikey).  Google stopped serving Gemini CLI to personal Google-account logins (OAuth) on 2026-06-18, so an OAuth login no longer works.
 - **Codex CLI** — a ChatGPT login (`CODEX_HOME=~/.codex-archie codex login --device-auth`; an existing `~/.codex` login also works).  No API key; Archie deliberately keeps `OPENAI_API_KEY` away from Codex.
+- **Claude Code · Model Studio** — `DASHSCOPE_API_KEY` in `context/.env` (Alibaba Model Studio).  No extra CLI: it runs the Claude Code CLI bundled with `claude-agent-sdk`.
 - **Orchestrator backends** — `OPENAI_API_KEY` for OpenAI/GPT/Qwen-via-compatible/Gemini-via-compatible; `ANTHROPIC_API_KEY` for Anthropic Claude models in the orchestrator.
 - **Gemini Live voice** (optional) — see [Voice provider selection](#voice-provider-selection-gemini-live) below.  Two interchangeable backends, neither required, but at least one needs config if you want Google voice.
 
@@ -135,8 +136,15 @@ Which agent CLI runs your chats?  You can pick more than one.
 - **Qwen Code** (Alibaba) — open-weights models served via the OpenAI-compatible endpoint, OAuth or DashScope key.
 - **Gemini CLI** (Google) — `GEMINI_API_KEY` only (personal-account OAuth is no longer served).
 - **Codex CLI** (OpenAI) — GPT models with a ChatGPT login.
+- **Claude Code · Model Studio** (`--with-modelstudio`) — Claude Code's agent loop on GLM / DeepSeek / Kimi / Qwen through Alibaba Model Studio's Anthropic-compatible endpoint.  Nothing to install beyond `backend/requirements-claude.txt` (pulled in automatically) and the `.claude_config/` links; needs `DASHSCOPE_API_KEY`.
 
-If you pick multiple, the UI's Session Provider selector lets you switch per chat.  Default for new chats is set in `assistant_config.json` (`provider` field): the first installed harness in the order Claude, Qwen, Gemini, Codex.
+If you pick multiple, the UI's Session Provider selector lets you switch per chat.  Default for new chats is set in `assistant_config.json` (`provider` field): the first installed harness in the order Claude, Qwen, Gemini, Codex, Model Studio.
+
+CLI version pins for every installer live in **`install/harness-versions.env`** (`QWEN_CLI_VERSION`, `GEMINI_CLI_VERSION`, `CODEX_CLI_VERSION`, `NODE_MIN_MAJOR`); the claude-agent-sdk pin (which bundles the Claude Code CLI) is in `backend/requirements-claude.txt`.
+
+### Backend-only hosts (no Node.js)
+
+The Linux / macOS installer detects a host where `node` is missing or does not start (or take `--no-node`) and does a backend-only install: no `npm install` for the web app (build `apps/web` on another machine and copy `apps/web/dist` + `apps/web/dist-compat` in), Qwen Code and Gemini CLI skipped (reach them through an SSH working directory on a machine that runs them — `assistant_config.json` `ssh_host`), Claude / Model Studio unaffected (bundled CLI), and Codex installed as the static binary from its GitHub release: `https://github.com/openai/codex/releases/download/rust-v<CODEX_CLI_VERSION>/codex-<arch>-unknown-linux-musl.tar.gz` (`apple-darwin` on macOS), extracted to `/usr/local/bin/codex` (writable or via sudo) or `~/.local/bin/codex` (then set `CODEX_CLI_PATH` in `context/.env`, since a systemd service's `PATH` usually lacks `~/.local/bin`).  Windows has no such mode.
 
 ### Axis 2: Orchestrator backends
 
@@ -216,18 +224,21 @@ Then create the symlink trees:
 
 These let `context/` reach the public framework while keeping personal additions in the same directory.  Existing entries are never replaced.  After adding something to `shared/`, re-run `shared/scripts/setup-context.sh` to link it.
 
-### Step 3 (a, b, c, c2): Per-harness SDK config dirs
+### Step 3 (a, b, c, c2, c3): Per-harness SDK config dirs
 
 For each enabled harness, create the project-local config dir the CLI expects:
 
 - **Claude** — `.claude_config/` symlinked into `context/`.  Specifically: `.claude_config/projects/<mangled-cwd>` → `context/`, plus `.claude_config/skills` → `context/skills` and `.claude_config/agents` → `context/agents` (the bundled CLI finds skills and agents under `$CLAUDE_CONFIG_DIR`, which `run.sh` points at `.claude_config/`).
-- **Qwen** — `~/.qwen/projects/<mangled-cwd>` → `context/`.  Qwen mangles the cwd by replacing `/` with `-`, e.g. `-home-rodrigo-assistant`.
-- **Gemini** — `~/.gemini/tmp/<label>/` → `context/`, so the CLI writes `context/chats/session-*.jsonl`.  `<label>` is the one `~/.gemini/projects.json` assigns to the repo path, or the repo folder name when the CLI has not registered it yet (that is what the CLI uses on first run).
+- **Claude / Model Studio** — the same links serve both harnesses (Model Studio runs the same bundled CLI with the same `CLAUDE_CONFIG_DIR`).  A wrong existing link is reported and left alone; an empty real `skills`/`agents` directory is replaced.
+- **Qwen** — `~/.qwen/projects/<mangled-cwd>` → `context/`, and `~/.qwen/skills` → `context/skills`.  Claude Code and Qwen both mangle the cwd by replacing every character that is not a letter or digit with `-`, e.g. `-home-rodrigo-assistant` (`/home/me/my.repo` → `-home-me-my-repo`).
+- **Gemini** — `~/.gemini/tmp/<label>/` → `context/`, so the CLI writes `context/chats/session-*.jsonl`.  `<label>` is the one `~/.gemini/projects.json` assigns to the repo path, or the repo folder name when the CLI has not registered it yet (that is what the CLI uses on first run).  If other machines will run Gemini sessions on this host over SSH, `GEMINI_API_KEY` must also be in `~/.gemini/.env` (mode 600) — the non-interactive SSH shell never sources `context/.env`; the Linux/macOS installer offers to copy it.
 - **Codex** (Step 3c2) — Archie's own Codex home `~/.codex-archie` (`%USERPROFILE%\.codex-archie` on Windows): seed `config.toml` if missing (`project_doc_max_bytes = 131072` so the ~51 KB `context/AGENTS.md` isn't truncated; `[features] plugins = false`, `apps = false`), and link `~/.codex-archie/sessions` → `context/codex/sessions` (if it is a real directory, copy its rollouts in and move it aside).  Never copy `auth.json` between homes or machines — ChatGPT refresh tokens rotate.
+
+- **Repo skills** (Step 3c3, when Codex, Gemini or Qwen is enabled) — `.agents/skills` → `../context/skills`.  Codex 0.161 lists skills from `<repo>/.agents/skills` (verified with `codex debug prompt-input`), Gemini CLI reads it as its workspace-skills alias, and Qwen Code as a project skill dir.
 
 The exact mangling logic is in the per-OS installer — read it there.  Idempotent: re-runs leave existing symlinks alone.
 
-**Windows path mangling**: on Windows, both `\` and `:` are replaced with `-`, so `C:\Users\you\assistant` becomes `C--Users-you-assistant`.  If a CLI version uses a different mangle, run the CLI once (it'll create its own real dir under `%USERPROFILE%\.<cli>\projects\`), then re-run `install.ps1` — it detects the real dir and replaces it with a link to `context\` (after migrating any chat history).
+**Windows path mangling**: on Windows the same rule turns `C:\Users\you\assistant` into `C--Users-you-assistant`; Qwen lower-cases the path first (`c--users-you-assistant`).  If a CLI version uses a different mangle, run the CLI once (it'll create its own real dir under `%USERPROFILE%\.<cli>\projects\`), then re-run `install.ps1` — it detects the real dir and replaces it with a link to `context\` (after migrating any chat history).
 
 **Symlinks on Windows**: real symbolic links require Developer Mode or Administrator.  Without those, the installer falls back to NTFS junctions (directories) and copies (files).  See the [Windows section](#windows-only-prerequisites) above for how to enable Developer Mode.
 
@@ -237,8 +248,10 @@ The exact mangling logic is in the per-OS installer — read it there.  Idempote
 
 - `CLAUDE.md` → `context/AGENTS.md`
 - `QWEN.md` → `context/AGENTS.md`
+- `GEMINI.md` → `context/AGENTS.md`
 - `AGENTS.md` → `context/AGENTS.md` (Codex reads `AGENTS.md`)
-- (Gemini reads `GEMINI.md`; the repo commits that link along with the others, so the installers don't re-create it.)
+
+The repo commits all four links; the installers re-create any that are missing (and on Windows replace git's text stubs).
 
 ### Step 3e: Seed local CLI runtime dirs
 
@@ -248,7 +261,7 @@ For each enabled harness, seed the project-local runtime dir from `install/cli-r
 - `install/cli-runtime/qwen/settings.json` → `.qwen/settings.json`
 - `install/cli-runtime/gemini/settings.json` → `.gemini/settings.json`
 
-These hold default permission allowlists and the Gemini `respectGitIgnore=false` carve-out.  Never overwrite existing files — re-runs on a working setup must be no-ops.  For Gemini, then run `python3 backend/manager/gemini/workspace_settings.py <repo>` (stdlib-only; on Windows the installer runs it with the venv's Python after Step 4): it merges Archie's keys (session retention off, `context.fileFiltering`, API-key auth, thinking overrides) into an existing `.gemini/settings.json`.
+These hold default permission allowlists, Qwen's `memory.enableManagedAutoMemory` / `enableManagedAutoDream` / `enableAutoSkill` = `false` (Qwen's project dir is `context/`, so its auto-memory would write into the memory wiki) and the Gemini `respectGitIgnore=false` carve-out.  Never overwrite existing files — re-runs on a working setup must be no-ops.  For Gemini, then run `python3 backend/manager/gemini/workspace_settings.py <repo>` (stdlib-only; on Windows the installer runs it with the venv's Python after Step 4): it merges Archie's keys (session retention off, `context.fileFiltering`, API-key auth, thinking overrides) into an existing `.gemini/settings.json`.
 
 ### Step 4: Python venv
 
@@ -277,7 +290,7 @@ Then conditionally (use the venv pip path matching your OS):
 
 - `--with-anthropic` / `-WithAnthropic` → `pip install -r backend/requirements-anthropic.txt`
 - `--with-openai` / `-WithOpenAI` → `pip install -r backend/requirements-openai.txt`
-- `--with-claude` / `-WithClaude` → `pip install -r backend/requirements-claude.txt`
+- `--with-claude` / `-WithClaude` or `--with-modelstudio` / `-WithModelStudio` → `pip install -r backend/requirements-claude.txt` (claude-agent-sdk, which bundles the Claude Code CLI both harnesses run)
 - `--with-qwen` / `-WithQwen` → no extra Python deps (Qwen runs as a subprocess via the CLI)
 - `--with-gemini` / `-WithGemini` → no extra Python deps
 - `--with-codex` / `-WithCodex` → no extra Python deps
@@ -290,6 +303,8 @@ Then conditionally (use the venv pip path matching your OS):
 (cd apps/design-tokens && npm install)   # the web build's token gate needs it
 ```
 
+Skipped on a [backend-only host](#backend-only-hosts-no-nodejs).
+
 `apps/web/` is one project with two builds: `npm run build` writes `apps/web/dist` (served at `/`) and `apps/web/dist-compat` (Safari 12 / iOS 12 build, served at `/compat/`). The previous web apps are kept under `legacy/frontend/` and `legacy/frontend-compat/` (served at `/legacy/` and `/legacy_compat/` once built); they are optional — install their deps (`npm install` in each) only if you want those builds.
 
 ### Step 7b: Agent CLI install + first-run login
@@ -297,15 +312,16 @@ Then conditionally (use the venv pip path matching your OS):
 For each enabled harness:
 
 1. **Check if the CLI is on PATH.**  If yes, note the path and skip the install.
-2. **If missing:** ask the user `Install <cli> globally via npm? [Y/n]`.  If yes: `npm install -g <pkg>`.  Packages (Qwen, Gemini and Codex are pinned to the versions Archie is verified against):
-   - `claude` → `@anthropic-ai/claude-code`
-   - `qwen` → `@qwen-code/qwen-code@0.25.0` (needs Node.js 22+)
-   - `gemini` → `@google/gemini-cli@0.63.0`
-   - `codex` → `@openai/codex@0.161.0`
+2. **If missing:** ask the user `Install <cli> globally via npm? [Y/n]`.  If yes: `npm install -g <pkg>`.  Packages (Qwen, Gemini and Codex are pinned to the versions in `install/harness-versions.env`):
+   - `claude` → `@anthropic-ai/claude-code` (optional — only for `claude auth login`; the backend runs the CLI bundled with claude-agent-sdk)
+   - `qwen` → `@qwen-code/qwen-code@<QWEN_CLI_VERSION>` (0.25.0; needs Node.js 22+)
+   - `gemini` → `@google/gemini-cli@<GEMINI_CLI_VERSION>` (0.63.0)
+   - `codex` → `@openai/codex@<CODEX_CLI_VERSION>` (0.161.0); without npm, the static binary from the GitHub release (see [Backend-only hosts](#backend-only-hosts-no-nodejs))
+   - `modelstudio` → nothing to install; check `DASHSCOPE_API_KEY`
 
    If the CLI is already installed at a different version, warn and show the `npm install -g <pkg>@<pin>` command; don't reinstall without asking.
 3. **Check auth state.**  Skip the login prompt entirely if:
-   - The relevant env key is already set in `context/.env` (`ANTHROPIC_API_KEY` for Claude, `DASHSCOPE_API_KEY` for Qwen), **or**
+   - The relevant env key is already set in `context/.env` (`CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` for Claude, `DASHSCOPE_API_KEY` for Qwen), **or**
    - The CLI's credential file already exists (`~/.claude/.credentials.json`, `~/.qwen/oauth_creds.json`, `~/.codex-archie/auth.json` or `~/.codex/auth.json`).
 
    Gemini has no login step: it needs `GEMINI_API_KEY` in `context/.env` — warn if it's missing (an old `~/.gemini/oauth_creds.json` doesn't count).
@@ -328,8 +344,8 @@ If `--with-claude` and `~/.claude/.credentials.json` exists, symlink `.claude_co
 Copy `install/assistant_config.json` to the repo root, substituting:
 
 - `@@SCRIPT_DIR@@` → the absolute path to the project root
-- `@@DEFAULT_PROVIDER@@` → the first installed harness in the order `claude`, `qwen`, `gemini`, `codex`
-- `@@DEFAULT_MODEL@@` → the orchestrator's default model: `qwen3.6-plus` when the default provider is `qwen`, otherwise Claude Sonnet
+- `@@DEFAULT_PROVIDER@@` → the first installed harness in the order `claude`, `qwen`, `gemini`, `codex`, `modelstudio`
+- `@@DEFAULT_MODEL@@` → the orchestrator's default model: `qwen3.6-plus` when the default provider is `qwen` or `modelstudio`, otherwise Claude Sonnet
 
 ### Step 11: .manager.json
 
@@ -344,6 +360,9 @@ For each axis the user opted into, check that the required env key is set in `co
 - `--with-qwen` needs either `DASHSCOPE_API_KEY` or for OAuth login to have happened
 - `--with-gemini` needs `GEMINI_API_KEY` (OAuth no longer works)
 - `--with-codex` needs a Codex login (`~/.codex-archie/auth.json` or `~/.codex/auth.json`) — no env key
+- `--with-modelstudio` needs `DASHSCOPE_API_KEY`
+
+Then run **`install/doctor.sh --harness <the chosen ones>`** (the Linux / macOS installers do this as their last step).  It prints one OK/WARN/FAIL row per check, per harness: CLI present and at the pinned version, env keys (names only), auth files (existence only), every symlink from Steps 3–3d, the Qwen / Gemini seed settings, and the `context/{skills,scripts,agents}` links.  `install/doctor.sh --dry-run` lists what `--fix` would repair; `--fix` repairs only symlinks and seed files (never packages or auth).  Re-run it any time something looks off.
 
 ### Step 12b: Voice backend probe
 
@@ -387,7 +406,7 @@ If you used the conversational installer, the agent can offer to start both in t
 
 - **`npm install -g` fails with EACCES** — your global npm prefix needs write permission, or use a Node version manager like `nvm` / `volta` / `mise` instead of system Node.
 - **The CLI is installed but not on PATH** — happens with `nvm` if the shell that runs the install isn't logged in as the nvm-using user.  Set `QWEN_CLI_PATH` (or the equivalent for Gemini) in `context/.env`.
-- **Symlinks point at the wrong place after copying `context/`** — re-run `./install.sh`.  It re-creates the symlinks idempotently.
+- **Symlinks point at the wrong place after copying `context/`** — run `install/doctor.sh --dry-run` to see which, then `install/doctor.sh --fix` (or re-run `./install.sh`).  Both re-create missing links idempotently and never clobber a link that points somewhere else — remove that one by hand first.
 - **The install crashed mid-way** — read `context/install.log` (if you used the agent installer) or check what step `install.sh` was on (it prints `Step N` headers as it goes).  Most steps are independently re-runnable; symlink steps are idempotent.
 
 For deeper issues, the canonical reference is `install.sh` itself — every step has a comment block explaining what it does and why.

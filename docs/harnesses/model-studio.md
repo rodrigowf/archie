@@ -3,7 +3,7 @@ name: model-studio
 category: archie/harnesses
 tags: [harness, model-studio, dashscope, claude-code, glm, deepseek, kimi, qwen, anthropic-compatible, provider-pinning, harness-catalog, thinking]
 created: 2026-10-07
-modified: 2026-10-07
+modified: 2026-10-08
 summary: The Model Studio harness — Claude Code's agent loop driving GLM, DeepSeek, Kimi and Qwen through Alibaba Model Studio's Anthropic-compatible endpoint; env contract, provider pinning, catalog/options, landmines.
 source: curated (implementation + live verification 2026-10-07, CLI 2.1.292, claude-agent-sdk 0.2.164)
 references:
@@ -12,6 +12,7 @@ references:
   - qwen-code.md
   - ../architecture/agent-sessions.md
   - ../infrastructure/ssh-remote-execution.md
+  - ../infrastructure/installation.md
 ---
 
 # Model Studio harness (`modelstudio`)
@@ -103,6 +104,14 @@ these models) and no `fallback_model` (the CLI's fallbacks are Anthropic models)
 The CLI prices every token at Anthropic rates (`modelUsage.costBasis: "unknown"`), so the harness
 reports `TurnComplete.cost = None` and keeps the session cost at 0; the UIs hide a zero cost.
 DashScope bills by its own price list.
+
+## Installation
+
+Nothing to install beyond the claude harness's runtime: `--with-modelstudio` (`-WithModelStudio`)
+installs `backend/requirements-claude.txt` (claude-agent-sdk with its bundled CLI), creates the
+`.claude_config/` links ([claude-code](claude-code.md)) even without `--with-claude`, and checks
+`DASHSCOPE_API_KEY`. `install/doctor.sh` reports it as its own row group
+([installation](../infrastructure/installation.md)).
 
 ## SSH working directories
 

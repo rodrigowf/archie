@@ -3,7 +3,7 @@ name: claude-code
 category: archie/harnesses
 tags: [claude-code, claude-agent-sdk, harness, claude-config-dir, jsonl, skills, auth, oauth, chrome, sdk-upgrade, harness-catalog, effort, thinking]
 created: 2026-05-15
-modified: 2026-10-07
+modified: 2026-10-08
 summary: The Claude Code harness — ClaudeSessionManager over claude-agent-sdk, .claude_config layout, JSONL, SDK pin (0.2.164), config catalog + options, auth, Chrome flag.
 source: curated (consolidated from memory notes assistant/providers/provider_generalization.md, assistant/providers/qwen_code_adaptation.md, assistant/utilities/project_skills_not_registered.md, auto-memory project_sdk_upgrade_path_2026_06_18.md, feedback_verify_auth_under_backend_config_dir.md, feedback_jetson_oauth_token_expiry.md, feedback_ssh_remote_cli_nvm_path.md; verified against code 2026-10-06)
 references:
@@ -68,8 +68,12 @@ and a session resumes on either ([ssh-remote-execution](../infrastructure/ssh-re
 A session whose working directory is something else gets a different key, and its JSONL is not in
 `context/` unless that project dir is linked too.
 
-The installers create the `projects/` and `skills` symlinks (`install/linux/install.sh` step 3);
-`shared/scripts/setup-context.sh` also creates the SDK compatibility symlink. Project instructions
+The installers create the `projects/`, `skills` and `agents` symlinks (`install/linux/install.sh`
+step 3, for `--with-claude` and `--with-modelstudio`; the project key replaces every
+non-alphanumeric character of the path with `-`, like the CLI); `shared/scripts/setup-context.sh`
+also creates the SDK compatibility symlink. `install/doctor.sh` checks all three, the SDK version
+against `requirements-claude.txt`, the bundled CLI and the auth source
+([installation](../infrastructure/installation.md#the-doctor-installdoctorsh)). Project instructions
 come from `CLAUDE.md` at the repo root, a symlink to `context/AGENTS.md` (shared with
 `QWEN.md` and `GEMINI.md`).
 

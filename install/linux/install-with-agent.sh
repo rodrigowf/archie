@@ -90,23 +90,30 @@ echo ""
 # and the script branches on its size.
 step "Detecting installed agent CLIs..."
 
-declare -a ALL_CLIS=(claude qwen gemini codex)
+ALL_CLIS=(claude qwen gemini codex)
 # Qwen, Gemini and Codex are pinned to the versions Archie's harnesses are
-# verified against — keep in sync with Step 7b of install.sh.
-declare -A CLI_PKG=(
-    [claude]="@anthropic-ai/claude-code"
-    [qwen]="@qwen-code/qwen-code@0.25.0"
-    [gemini]="@google/gemini-cli@0.63.0"
-    [codex]="@openai/codex@0.161.0"
-)
-declare -A CLI_LABEL=(
-    [claude]="Claude Code (Anthropic)"
-    [qwen]="Qwen Code (Alibaba)"
-    [gemini]="Gemini CLI (Google — needs GEMINI_API_KEY)"
-    [codex]="Codex CLI (OpenAI — ChatGPT login)"
-)
+# verified against — install/harness-versions.env, shared with install.sh.
+# (Plain functions instead of associative arrays: macOS ships bash 3.2.)
+# shellcheck disable=SC1091
+. "$INSTALLER_DIR/../harness-versions.env"
+cli_pkg() {
+    case "$1" in
+        claude) echo "@anthropic-ai/claude-code" ;;
+        qwen)   echo "@qwen-code/qwen-code@$QWEN_CLI_VERSION" ;;
+        gemini) echo "@google/gemini-cli@$GEMINI_CLI_VERSION" ;;
+        codex)  echo "@openai/codex@$CODEX_CLI_VERSION" ;;
+    esac
+}
+cli_label() {
+    case "$1" in
+        claude) echo "Claude Code (Anthropic)" ;;
+        qwen)   echo "Qwen Code (Alibaba)" ;;
+        gemini) echo "Gemini CLI (Google — needs GEMINI_API_KEY)" ;;
+        codex)  echo "Codex CLI (OpenAI — ChatGPT login)" ;;
+    esac
+}
 
-declare -a INSTALLED=()
+INSTALLED=()
 for cli in "${ALL_CLIS[@]}"; do
     if command -v "$cli" &>/dev/null; then
         INSTALLED+=("$cli")
@@ -126,7 +133,7 @@ if [ "${#INSTALLED[@]}" -eq 0 ]; then
     echo ""
     echo "Available agent CLIs:"
     for cli in "${ALL_CLIS[@]}"; do
-        echo "  • $cli  (${CLI_LABEL[$cli]}) — npm install -g ${CLI_PKG[$cli]}"
+        echo "  • $cli  ($(cli_label "$cli")) — npm install -g $(cli_pkg "$cli")"
     done
     echo ""
     echo "You can install one or more now.  The first one you install becomes"
@@ -141,11 +148,11 @@ if [ "${#INSTALLED[@]}" -eq 0 ]; then
     fi
 
     for cli in "${ALL_CLIS[@]}"; do
-        ask "Install $cli (${CLI_LABEL[$cli]})? [y/N] "
+        ask "Install $cli ($(cli_label "$cli"))? [y/N] "
         read -r ANS
         if [[ "${ANS:-N}" =~ ^[Yy]$ ]]; then
-            step "Installing ${CLI_PKG[$cli]} globally..."
-            if npm install -g "${CLI_PKG[$cli]}"; then
+            step "Installing $(cli_pkg "$cli") globally..."
+            if npm install -g "$(cli_pkg "$cli")"; then
                 info "$cli installed"
                 INSTALLED+=("$cli")
             else
@@ -172,7 +179,7 @@ else
     echo ""
     i=1
     for cli in "${INSTALLED[@]}"; do
-        echo -e "  ${BOLD}${i})${NC} $cli  (${CLI_LABEL[$cli]})"
+        echo -e "  ${BOLD}${i})${NC} $cli  ($(cli_label "$cli"))"
         i=$((i + 1))
     done
     echo ""
@@ -288,7 +295,9 @@ Begin by:
   4. Creating context/install.log if it doesn't exist and appending a
      timestamped "install agent started" line.
   5. Greeting the user briefly and asking the first axis question
-     (session harness — claude / qwen / gemini / codex, any subset).
+     (session harness — claude / qwen / gemini / codex / modelstudio,
+     any subset; modelstudio installs no CLI — it needs the claude SDK
+     and DASHSCOPE_API_KEY).
 
 Important context for this session:
   - The user already has ${DRIVER} installed and authenticated (it's
@@ -297,6 +306,10 @@ Important context for this session:
   - Other harnesses (the ones not in the list above) may need to be
     installed if the user picks them.  Step 7b in install/linux/install.sh
     has the detection + npm install + login-prompt logic — follow that.
+  - Finish with install/doctor.sh (check-only): it prints an OK/WARN/FAIL
+    table of every harness's binary, pins, env keys, auth files, symlinks
+    and seed settings.  Fix what it reports; --dry-run shows what --fix
+    would repair (symlinks and seed files only).
   - When the install is complete, ask the user if they'd like the backend
     and/or frontend started in the background, then exit cleanly.
 

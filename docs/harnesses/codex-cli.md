@@ -3,7 +3,7 @@ name: codex-cli
 category: archie/harnesses
 tags: [codex, codex-cli, openai, harness, app-server, json-rpc, rollout, persistent-process]
 created: 2026-10-07
-modified: 2026-10-07
+modified: 2026-10-08
 summary: The OpenAI Codex harness — one persistent `codex app-server` per session (JSON-RPC over stdio), CODEX_HOME choice, rollout storage and adapter, catalog/options, landmines.
 source: curated (implemented and verified against Codex CLI 0.161.0 on 2026-10-07)
 references:
@@ -36,7 +36,7 @@ ChatGPT login (`codex login`); no API credits are used.
 | `backend/manager/codex/catalog.py` | `load_codex_catalog()` — models (live `model/list` → `models_cache.json` → built-in) and options |
 | `backend/manager/codex/home.py` | `codex_home()` (dedicated vs shared), `sessions_roots()`, `home_for_thread()`, `codex_env()`, `codex_executable()` |
 | `AGENTS.md` (repo root) | Symlink → `context/AGENTS.md` — the file Codex reads natively; committed like `CLAUDE.md` / `QWEN.md` / `GEMINI.md` |
-| `install/{linux,apple}/install.sh`, `install/windows/install.ps1` | `--with-codex` (`-WithCodex`): seeds `~/.codex-archie/config.toml`, links its `sessions/`, installs the CLI pinned to 0.161.0 (warns on a different version), login hint; root `AGENTS.md` link. `install-with-agent.*` can install Codex as the driver CLI |
+| `install/{linux,apple}/install.sh`, `install/windows/install.ps1` | `--with-codex` (`-WithCodex`): seeds `~/.codex-archie/config.toml` (from `install/cli-runtime/codex-home/`), links its `sessions/`, links `.agents/skills` → `context/skills`, installs the CLI pinned to `CODEX_CLI_VERSION` (0.161.0, `install/harness-versions.env`; warns on a different version), login hint; root `AGENTS.md` link. Without Node/npm (`--no-node`, e.g. the Jetson) it installs the static `codex-<arch>-unknown-linux-musl` binary from GitHub release `rust-v<version>` into `/usr/local/bin` (or `~/.local/bin` + `CODEX_CLI_PATH`). `install-with-agent.*` can install Codex as the driver CLI; `install/doctor.sh` checks binary, auth, config and links |
 | `backend/tests/test_codex_session.py`, `test_codex_adapter.py`, `fixtures/codex/` | Tests: a scripted fake app-server (`fake_app_server.py`) and a trimmed real rollout |
 
 ## Binary and process
@@ -121,7 +121,13 @@ keeps the same `(stream_id, seq)` replay ring as Claude for WebSocket resume.
 | `ARCHIE_CODEX_HOME` | env override | wherever that home keeps them |
 
 Create the dedicated login with `CODEX_HOME=~/.codex-archie codex login --device-auth` (each
-machine needs its own). The catalog shows a warning with that command while Archie runs on the
+machine needs its own).
+
+**Skills.** Codex 0.161 lists skills from `<cwd>/.agents/skills` up to the repo root,
+`<repo>/.codex/skills`, `$CODEX_HOME/skills` (its own `.system/` skills live there — so do not link
+that one into `context/`) and `~/.agents/skills` (checked with `codex debug prompt-input` in a
+scratch repo; symlinked directories are followed). The installers link `<repo>/.agents/skills` →
+`../context/skills`, which gives Codex the same skills as the other harnesses. The catalog shows a warning with that command while Archie runs on the
 shared fallback, and another when no login exists at all.
 
 Rollout path: `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-<local time>-<thread id>.jsonl`; resume

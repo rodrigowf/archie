@@ -87,12 +87,16 @@ Write-Step "Detecting installed agent CLIs..."
 
 $AllClis = @('claude','qwen','gemini','codex')
 # Qwen, Gemini and Codex are pinned to the versions Archie's harnesses are
-# verified against - keep in sync with Step 7b of install.ps1.
+# verified against - install\harness-versions.env, shared with install.ps1.
+$HarnessVersions = @{}
+foreach ($line in Get-Content -LiteralPath (Join-Path $InstallerDir '..\harness-versions.env')) {
+    if ($line -match '^\s*([A-Z0-9_]+)=(\S+)\s*$') { $HarnessVersions[$Matches[1]] = $Matches[2] }
+}
 $CliPkg = @{
     'claude' = '@anthropic-ai/claude-code'
-    'qwen'   = '@qwen-code/qwen-code@0.25.0'
-    'gemini' = '@google/gemini-cli@0.63.0'
-    'codex'  = '@openai/codex@0.161.0'
+    'qwen'   = "@qwen-code/qwen-code@$($HarnessVersions['QWEN_CLI_VERSION'])"
+    'gemini' = "@google/gemini-cli@$($HarnessVersions['GEMINI_CLI_VERSION'])"
+    'codex'  = "@openai/codex@$($HarnessVersions['CODEX_CLI_VERSION'])"
 }
 $CliLabel = @{
     'claude' = 'Claude Code (Anthropic)'
@@ -275,7 +279,9 @@ Begin by:
   4. Creating context\install.log if it doesn't exist and appending a
      timestamped "install agent started" line.
   5. Greeting the user briefly and asking the first axis question
-     (session harness - claude / qwen / gemini / codex, any subset).
+     (session harness - claude / qwen / gemini / codex / modelstudio, any
+     subset; modelstudio installs no CLI - it needs the claude SDK and
+     DASHSCOPE_API_KEY).
 
 Important context for this session:
   - The user already has $Driver installed and authenticated (it's driving

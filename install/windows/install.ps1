@@ -26,11 +26,17 @@
         POSIX `chmod 700` on that home has no equivalent here (the profile
         directory's ACLs already keep it private).
 
-      - Path mangling: the Claude / Qwen / Gemini CLIs each use slightly
-        different schemes for mangling the project path into their per-project
-        config dirs.  See the per-harness blocks below — the exact mangling
-        is documented inline and may need a tweak the first time you actually
-        run one of those harnesses.
+      - Path mangling: Claude Code and Qwen Code replace every character of
+        the project path that is not a letter or digit with '-'; Qwen
+        lower-cases the path first on Windows.
+
+      - Not mirrored from Linux: the no-Node backend-only mode (--no-node,
+        static Codex binary) and the ~/.gemini/.env offer for SSH remotes.
+        install/doctor.sh is bash-only; on Windows the installer's own
+        verification step is the check.
+
+    CLI version pins come from install/harness-versions.env (shared with the
+    Linux / macOS installers and install/doctor.sh).
 
     Run from PowerShell 7+ (recommended) or Windows PowerShell 5.1.
 
@@ -72,6 +78,14 @@
 
 .PARAMETER WithoutCodex
     Skip Codex CLI setup.
+
+.PARAMETER WithModelStudio
+    Set up Claude Code - Model Studio (GLM / DeepSeek / Kimi / Qwen through
+    Claude Code's agent loop).  No extra CLI: needs the claude-agent-sdk
+    (installed with it) and DASHSCOPE_API_KEY.
+
+.PARAMETER WithoutModelStudio
+    Skip Model Studio setup.
 
 .PARAMETER WithAnthropic
     Install the `anthropic` Python SDK (Claude models in the orchestrator).
@@ -120,6 +134,8 @@ param(
     [switch]$WithoutGemini,
     [switch]$WithCodex,
     [switch]$WithoutCodex,
+    [switch]$WithModelStudio,
+    [switch]$WithoutModelStudio,
     [switch]$WithAnthropic,
     [switch]$WithoutAnthropic,
     [switch]$WithOpenAI,
@@ -137,6 +153,17 @@ $InstallerDir     = Split-Path -Parent $MyInvocation.MyCommand.Path
 $InstallTemplates = Resolve-Path (Join-Path $InstallerDir '..') | ForEach-Object Path
 $ScriptDir        = Resolve-Path (Join-Path $InstallTemplates '..') | ForEach-Object Path
 Set-Location $ScriptDir
+
+# Pinned harness CLI versions — install/harness-versions.env is the single
+# source of truth (plain KEY=VALUE lines, shared with the bash installers).
+$HarnessVersions = @{}
+foreach ($line in Get-Content -LiteralPath (Join-Path $InstallTemplates 'harness-versions.env')) {
+    if ($line -match '^\s*([A-Z0-9_]+)=(\S+)\s*$') { $HarnessVersions[$Matches[1]] = $Matches[2] }
+}
+$QwenCliPin       = $HarnessVersions['QWEN_CLI_VERSION']
+$GeminiCliVersion = $HarnessVersions['GEMINI_CLI_VERSION']
+$CodexCliVersion  = $HarnessVersions['CODEX_CLI_VERSION']
+$NodeMinMajor     = [int]$HarnessVersions['NODE_MIN_MAJOR']
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Output helpers.  Match the visual style of install.sh as closely as the
@@ -188,6 +215,7 @@ $ClaudeAxis    = Resolve-Switch -With:$WithClaude    -Without:$WithoutClaude
 $QwenAxis      = Resolve-Switch -With:$WithQwen      -Without:$WithoutQwen
 $GeminiAxis    = Resolve-Switch -With:$WithGemini    -Without:$WithoutGemini
 $CodexAxis     = Resolve-Switch -With:$WithCodex     -Without:$WithoutCodex
+$ModelStudioAxis = Resolve-Switch -With:$WithModelStudio -Without:$WithoutModelStudio
 $AnthropicAxis = Resolve-Switch -With:$WithAnthropic -Without:$WithoutAnthropic
 $OpenAIAxis    = Resolve-Switch -With:$WithOpenAI    -Without:$WithoutOpenAI
 
@@ -197,6 +225,7 @@ if ($QwenOnly) {
     if ($null -eq $QwenAxis)      { $QwenAxis      = $true  }
     if ($null -eq $GeminiAxis)    { $GeminiAxis    = $false }
     if ($null -eq $CodexAxis)     { $CodexAxis     = $false }
+    if ($null -eq $ModelStudioAxis) { $ModelStudioAxis = $false }
     if ($null -eq $AnthropicAxis) { $AnthropicAxis = $false }
     if ($null -eq $OpenAIAxis)    { $OpenAIAxis    = $true  }
 }
@@ -216,7 +245,7 @@ Write-Host ""
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 0a: Session harness — which agent CLI(s) to set up
 # ─────────────────────────────────────────────────────────────────────────────
-if ($null -eq $ClaudeAxis -and $null -eq $QwenAxis -and $null -eq $GeminiAxis -and $null -eq $CodexAxis) {
+if ($null -eq $ClaudeAxis -and $null -eq $QwenAxis -and $null -eq $GeminiAxis -and $null -eq $CodexAxis -and $null -eq $ModelStudioAxis) {
     Write-Host "── Session harness ──" -ForegroundColor Cyan
     Write-Host "Which agent CLI(s) should run your chats?  (You can pick more than one;"
     Write-Host "the UI's Session Provider selector switches between them at runtime.)"
@@ -225,16 +254,21 @@ if ($null -eq $ClaudeAxis -and $null -eq $QwenAxis -and $null -eq $GeminiAxis -a
     $QwenAxis   = Read-YesNo "Set up Qwen Code (Alibaba - open weights, OAuth or DashScope key)?" 'N'
     $GeminiAxis = Read-YesNo "Set up Gemini CLI (Google - needs GEMINI_API_KEY)?" 'N'
     $CodexAxis  = Read-YesNo "Set up Codex CLI (OpenAI - ChatGPT login)?" 'N'
+    $ModelStudioAxis = Read-YesNo "Set up Claude Code - Model Studio (GLM / DeepSeek / Kimi via DASHSCOPE_API_KEY, no extra CLI)?" 'N'
     Write-Host ""
 }
 if ($null -eq $ClaudeAxis) { $ClaudeAxis = $false }
 if ($null -eq $QwenAxis)   { $QwenAxis   = $false }
 if ($null -eq $GeminiAxis) { $GeminiAxis = $false }
 if ($null -eq $CodexAxis)  { $CodexAxis  = $false }
+if ($null -eq $ModelStudioAxis) { $ModelStudioAxis = $false }
 
-if (-not $ClaudeAxis -and -not $QwenAxis -and -not $GeminiAxis -and -not $CodexAxis) {
-    Write-Err "Refusing to install with no harnesses - pick at least one (-WithClaude / -WithQwen / -WithGemini / -WithCodex)."
+if (-not $ClaudeAxis -and -not $QwenAxis -and -not $GeminiAxis -and -not $CodexAxis -and -not $ModelStudioAxis) {
+    Write-Err "Refusing to install with no harnesses - pick at least one (-WithClaude / -WithQwen / -WithGemini / -WithCodex / -WithModelStudio)."
 }
+# Model Studio runs the Claude Code CLI bundled with claude-agent-sdk, with the
+# same .claude_config\ wiring - set that up for either harness.
+$ClaudeRuntime = ($ClaudeAxis -or $ModelStudioAxis)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 0b: Orchestrator backends — which API SDK(s) to install
@@ -267,6 +301,7 @@ if ($ClaudeAxis)    { Write-Info "Will set up Claude Code harness" }
 if ($QwenAxis)      { Write-Info "Will set up Qwen Code harness" }
 if ($GeminiAxis)    { Write-Info "Will set up Gemini CLI harness" }
 if ($CodexAxis)     { Write-Info "Will set up Codex CLI harness" }
+if ($ModelStudioAxis) { Write-Info "Will set up Claude Code - Model Studio harness" }
 if ($AnthropicAxis) { Write-Info "Will install anthropic SDK (orchestrator)" }
 if ($OpenAIAxis)    { Write-Info "Will install openai SDK (orchestrator + voice)" }
 if (-not $AnthropicAxis -and -not $OpenAIAxis) {
@@ -275,9 +310,9 @@ if (-not $AnthropicAxis -and -not $OpenAIAxis) {
 Write-Host ""
 
 # Default provider written into assistant_config.json: the first installed
-# harness in the order Claude, Qwen, Gemini, Codex (Claude is the
-# historical default).  At least one is installed - checked above.
-$DefaultProvider = if ($ClaudeAxis) { 'claude' } elseif ($QwenAxis) { 'qwen' } elseif ($GeminiAxis) { 'gemini' } else { 'codex' }
+# harness in the order Claude, Qwen, Gemini, Codex, Model Studio (Claude is
+# the historical default).  At least one is installed - checked above.
+$DefaultProvider = if ($ClaudeAxis) { 'claude' } elseif ($QwenAxis) { 'qwen' } elseif ($GeminiAxis) { 'gemini' } elseif ($CodexAxis) { 'codex' } else { 'modelstudio' }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Symlink strategy.  Windows symbolic links require either:
@@ -385,6 +420,46 @@ function Show-SymlinkFallbackBanner {
 
 if (-not (Test-Symlinks)) {
     Show-SymlinkFallbackBanner
+}
+
+function Set-DirLink {
+    <#
+    Idempotent directory link (symlink, or junction without symlink rights):
+      correct link -> left alone; wrong link -> warn, never clobbered;
+      empty real directory -> replaced; non-empty directory or file -> warn.
+    Get-Item -Force sees broken links that Test-Path reports as missing.
+    #>
+    param(
+        [Parameter(Mandatory)] [string]$Path,
+        [Parameter(Mandatory)] [string]$Target,
+        [Parameter(Mandatory)] [string]$Label
+    )
+    $existing = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    if ($existing -and $existing.LinkType -in @('SymbolicLink','Junction')) {
+        $t  = $existing.Target | Select-Object -First 1
+        $r1 = if ($t) { (Resolve-Path -LiteralPath $t -ErrorAction SilentlyContinue).Path } else { $null }
+        $r2 = (Resolve-Path -LiteralPath $Target -ErrorAction SilentlyContinue).Path
+        if ($r1 -and $r2 -and $r1 -eq $r2) {
+            Write-Info "$Label link already points to $Target"
+        } else {
+            Write-Warn "$Path points to $t (expected $Target) - leaving alone"
+        }
+    } elseif ($existing -and $existing.PSIsContainer) {
+        if (-not (Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue)) {
+            Remove-Item -LiteralPath $Path -Force
+            New-Link -Path $Path -Target $Target
+            Write-Info "Replaced empty directory $Path with the $Label link"
+        } else {
+            Write-Warn "$Path is a non-empty directory - leaving alone (merge it into $Target, remove it, re-run)"
+        }
+    } elseif ($existing) {
+        Write-Warn "$Path exists and is not a link - leaving alone"
+    } else {
+        $parent = Split-Path -Parent $Path
+        if ($parent) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+        New-Link -Path $Path -Target $Target
+        Write-Info "Created $Label link -> $Target"
+    }
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -514,7 +589,7 @@ if ($ContextSetupNeeded) {
             }
             if ($OpenAIAxis)    { Enable-EnvKey 'OPENAI_API_KEY'    }
             if ($AnthropicAxis) { Enable-EnvKey 'ANTHROPIC_API_KEY' }
-            if ($QwenAxis)      { Enable-EnvKey 'DASHSCOPE_API_KEY' }
+            if ($QwenAxis -or $ModelStudioAxis) { Enable-EnvKey 'DASHSCOPE_API_KEY' }
             if ($GeminiAxis)    { Enable-EnvKey 'GEMINI_API_KEY'    }
 
             Write-Info "Created fresh context with default structure"
@@ -563,22 +638,18 @@ Write-Host ""
 # ─────────────────────────────────────────────────────────────────────────────
 # Path mangling — shared by Claude / Qwen / Gemini SDK config dirs.
 #
-# The bundled CLIs each compute a "mangled" version of the project path to
-# use as the per-project subdirectory name.  On POSIX the bash installer
-# replaces `/` with `-`.  On Windows the CLIs do the same with both `\` and
-# `/` and replace `:` with `-` as well (so `C:\Users\you\assistant` becomes
-# `C--Users-you-assistant`).
-#
-# This mangling is what we observe the CLIs doing in practice on Windows;
-# if a CLI version uses a different mangle, re-run install.ps1 after the
-# first chat to point the link at the dir the CLI actually created.
+# Claude Code and Qwen Code replace every character of the project path that
+# is not a letter or digit with '-' (so `C:\Users\you\assistant` becomes
+# `C--Users-you-assistant`).  Qwen lower-cases the path first on Windows
+# (its sanitizeCwd), so its key differs only in case.
 # ─────────────────────────────────────────────────────────────────────────────
-$Mangled = $ScriptDir -replace '[\\/]', '-' -replace ':', '-'
+$Mangled     = $ScriptDir -replace '[^A-Za-z0-9]', '-'
+$QwenMangled = $ScriptDir.ToLowerInvariant() -replace '[^a-z0-9]', '-'
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Step 3: Set up Claude SDK config link (only if Claude harness enabled)
+# Step 3: Set up Claude SDK config link (Claude or Model Studio harness)
 # ─────────────────────────────────────────────────────────────────────────────
-if ($ClaudeAxis) {
+if ($ClaudeRuntime) {
     Write-Step "Setting up Claude SDK configuration..."
 
     New-Item -ItemType Directory -Path '.claude_config\projects' -Force | Out-Null
@@ -586,7 +657,11 @@ if ($ClaudeAxis) {
     $LinkPath = ".claude_config\projects\$Mangled"
     $existing = if (Test-Path $LinkPath) { Get-Item $LinkPath -Force } else { $null }
     if ($existing -and $existing.LinkType -in @('SymbolicLink','Junction')) {
-        Write-Info "SDK link already exists"
+        $t  = $existing.Target | Select-Object -First 1
+        $r1 = if ($t) { (Resolve-Path -LiteralPath $t -ErrorAction SilentlyContinue).Path } else { $null }
+        $r2 = (Resolve-Path -LiteralPath (Join-Path $ScriptDir 'context') -ErrorAction SilentlyContinue).Path
+        if ($r1 -and $r2 -and $r1 -eq $r2) { Write-Info "SDK link already points to context\" }
+        else { Write-Warn "$LinkPath points to $t (not context\) - leaving alone" }
     } elseif ($existing -and $existing.PSIsContainer) {
         Write-Warn "Found real directory at $LinkPath - migrating to link"
         # Migrate any .jsonl session files into context\ before replacing.
@@ -602,18 +677,13 @@ if ($ClaudeAxis) {
         Write-Info "Created SDK link"
     }
 
-    if (-not (Test-Path '.claude_config\skills')) {
-        New-Link -Path '.claude_config\skills' -Target (Join-Path $ScriptDir 'context\skills')
-        Write-Info "Created skills discovery link"
-    }
+    Set-DirLink -Path '.claude_config\skills' -Target (Join-Path $ScriptDir 'context\skills') -Label 'Claude skills'
     # And agents: the bundled CLI loads user agents from $CLAUDE_CONFIG_DIR\agents.
-    if (-not (Test-Path '.claude_config\agents')) {
-        New-Link -Path '.claude_config\agents' -Target (Join-Path $ScriptDir 'context\agents')
-        Write-Info "Created agents discovery link"
-    }
+    Set-DirLink -Path '.claude_config\agents' -Target (Join-Path $ScriptDir 'context\agents') -Label 'Claude agents'
+
     Write-Host ""
 } else {
-    Write-Info "Skipping Claude SDK setup (-WithoutClaude)"
+    Write-Info "Skipping Claude SDK setup (neither -WithClaude nor -WithModelStudio)"
     Write-Host ""
 }
 
@@ -624,7 +694,7 @@ if ($QwenAxis) {
     Write-Step "Setting up Qwen Code configuration..."
 
     $QwenHome       = Join-Path $env:USERPROFILE '.qwen'
-    $QwenProjectDir = Join-Path $QwenHome ("projects\$Mangled")
+    $QwenProjectDir = Join-Path $QwenHome ("projects\$QwenMangled")
     $ExpectedTarget = Join-Path $ScriptDir 'context'
 
     New-Item -ItemType Directory -Path (Join-Path $QwenHome 'projects') -Force | Out-Null
@@ -668,13 +738,7 @@ if ($QwenAxis) {
 
     New-Item -ItemType Directory -Path 'context\chats' -Force | Out-Null
 
-    $qwenSkills = Join-Path $QwenHome 'skills'
-    if (-not (Test-Path $qwenSkills)) {
-        New-Link -Path $qwenSkills -Target (Join-Path $ScriptDir 'context\skills')
-        Write-Info "Created Qwen skills discovery link"
-    } elseif ((Get-Item $qwenSkills -Force).LinkType -notin @('SymbolicLink','Junction')) {
-        Write-Warn "$qwenSkills exists and is not a link - leaving alone"
-    }
+    Set-DirLink -Path (Join-Path $QwenHome 'skills') -Target (Join-Path $ScriptDir 'context\skills') -Label 'Qwen skills'
     Write-Host ""
 } else {
     Write-Info "Skipping Qwen Code setup (-WithoutQwen)"
@@ -780,22 +844,10 @@ if ($CodexAxis) {
 
     $CodexConfig = Join-Path $CodexArchieHome 'config.toml'
     if (-not (Test-Path $CodexConfig)) {
-        $codexToml = @'
-# Archie's Codex home (CODEX_HOME=~/.codex-archie).  The backend passes the
-# model, reasoning effort, sandbox and approval policy for every session, so
-# keep only settings you want on every Archie Codex session here.
-
-# context/AGENTS.md is ~51 KB; the default (32 KiB) would truncate it.
-project_doc_max_bytes = 131072
-
-[features]
-# ChatGPT plugins/apps add ~10 KB of instructions to every turn.
-plugins = false
-apps = false
-'@
-        # UTF-8 without BOM: Windows PowerShell 5.1's -Encoding UTF8 writes a
-        # BOM, which TOML parsers may reject.
-        [System.IO.File]::WriteAllText($CodexConfig, $codexToml, (New-Object System.Text.UTF8Encoding $false))
+        # Template (install\cli-runtime\codex-home\config.toml): project_doc_max_bytes
+        # = 131072 (context\AGENTS.md is ~51 KB, the default 32 KiB would truncate
+        # it); plugins/apps features off.  Copied byte for byte (UTF-8, no BOM).
+        Copy-Item -LiteralPath (Join-Path $InstallTemplates 'cli-runtime\codex-home\config.toml') -Destination $CodexConfig
         Write-Info "Seeded $CodexConfig"
     } else {
         Write-Info "$CodexConfig already exists - leaving it alone"
@@ -839,10 +891,22 @@ apps = false
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Step 3c3: Repo-level skills dir (.agents\skills -> context\skills)
+# ─────────────────────────────────────────────────────────────────────────────
+# Codex (verified on 0.161), Gemini CLI (workspace skills alias) and Qwen Code
+# read skills from <repo>\.agents\skills.
+if ($CodexAxis -or $GeminiAxis -or $QwenAxis) {
+    Write-Step "Linking .agents\skills -> context\skills (Codex / Gemini / Qwen skill discovery)..."
+    Set-DirLink -Path '.agents\skills' -Target (Join-Path $ScriptDir 'context\skills') -Label 'repo skills'
+    Write-Host ""
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Step 3d: Wire AGENTS.md as the shared project-instructions file
 # ─────────────────────────────────────────────────────────────────────────────
-# Claude Code reads CLAUDE.md, Qwen Code reads QWEN.md, Codex reads AGENTS.md
-# — all at the project root, all links -> context\AGENTS.md.
+# Claude Code reads CLAUDE.md, Qwen Code reads QWEN.md, Gemini CLI reads
+# GEMINI.md, Codex reads AGENTS.md — all at the project root, all links ->
+# context\AGENTS.md.
 Write-Step "Wiring context\AGENTS.md as the shared project-instructions file..."
 
 # The repo commits these root files as git symlinks.  A Windows checkout
@@ -879,7 +943,7 @@ if (Test-Path 'AGENTS.md') {
 }
 
 if (Test-Path 'context\AGENTS.md') {
-    foreach ($shadow in 'CLAUDE.md','QWEN.md','AGENTS.md') {
+    foreach ($shadow in 'CLAUDE.md','QWEN.md','GEMINI.md','AGENTS.md') {
         if (Test-Path $shadow) {
             $item = Get-Item $shadow -Force
             if ($item.LinkType -in @('SymbolicLink','Junction')) {
@@ -899,7 +963,7 @@ if (Test-Path 'context\AGENTS.md') {
         Write-Info "Created $shadow -> context\AGENTS.md link"
     }
 } else {
-    Write-Warn "No context\AGENTS.md found - skipping CLAUDE.md/QWEN.md/AGENTS.md links"
+    Write-Warn "No context\AGENTS.md found - skipping CLAUDE.md/QWEN.md/GEMINI.md/AGENTS.md links"
 }
 Write-Host ""
 
@@ -1007,7 +1071,8 @@ if ($Dev) {
     Write-Info "Installed requirements.txt (core)"
 }
 
-if ($ClaudeAxis) {
+if ($ClaudeRuntime) {
+    # claude-agent-sdk bundles the Claude Code CLI the claude and modelstudio harnesses run.
     & $VenvPip install -r backend\requirements-claude.txt --quiet
     if ($LASTEXITCODE -ne 0) { Write-Err "pip install requirements-claude.txt failed" }
     Write-Info "Installed requirements-claude.txt (claude-agent-sdk)"
@@ -1131,11 +1196,18 @@ if (-not $SkipAuth) {
             } 'ANTHROPIC_API_KEY'
         }
     }
+    if ($ModelStudioAxis) {
+        # No CLI to install: Model Studio runs the bundled Claude Code CLI
+        # against DashScope's Anthropic-compatible endpoint.
+        if (Test-EnvKeyPresent 'DASHSCOPE_API_KEY') {
+            Write-Info "modelstudio: DASHSCOPE_API_KEY set in context\.env"
+        } else {
+            Write-Warn "modelstudio: set DASHSCOPE_API_KEY in context\.env (Alibaba Model Studio console) - sessions fail to start without it"
+        }
+    }
     if ($QwenAxis) {
-        # Pinned: Archie's Qwen harness is verified against this exact version
-        # (backend/manager/qwen/adapter.py QWEN_CLI_VERSION; qwen-code ships a
-        # stable release every couple of days).  0.25 needs Node 22+.
-        $QwenCliPin = '0.25.0'
+        # Pinned ($QwenCliPin from install\harness-versions.env, =
+        # backend/manager/qwen/adapter.py QWEN_CLI_VERSION).  Needs Node 22+.
         [void](Install-HarnessCli 'qwen' "@qwen-code/qwen-code@$QwenCliPin")
         if (Get-Command qwen -ErrorAction SilentlyContinue) {
             $qwenHave = (& qwen --version 2>$null | Select-Object -First 1)
@@ -1143,8 +1215,8 @@ if (-not $SkipAuth) {
                 Write-Warn "qwen $qwenHave installed; Archie expects $QwenCliPin - run: npm install -g @qwen-code/qwen-code@$QwenCliPin"
             }
             $nodeV = (& node -v 2>$null)
-            if ($nodeV -and [int](("$nodeV".TrimStart('v') -split '\.')[0]) -lt 22) {
-                Write-Warn "qwen-code $QwenCliPin needs Node.js 22+ (found $nodeV); upgrade Node before using the Qwen harness."
+            if ($nodeV -and [int](("$nodeV".TrimStart('v') -split '\.')[0]) -lt $NodeMinMajor) {
+                Write-Warn "qwen-code $QwenCliPin needs Node.js $NodeMinMajor+ (found $nodeV); upgrade Node before using the Qwen harness."
             }
             # Qwen has no `auth status` subcommand and stores OAuth state in
             # ~\.qwen\oauth_creds.json when used in OAuth mode.  API-key mode
@@ -1155,9 +1227,7 @@ if (-not $SkipAuth) {
         }
     }
     if ($GeminiAxis) {
-        # Pinned: Archie's JSONL adapter and workspace-settings mechanism are
-        # verified against this version (docs/harnesses/gemini-cli.md).
-        $GeminiCliVersion = '0.63.0'
+        # Pinned ($GeminiCliVersion from install\harness-versions.env).
         [void](Install-HarnessCli 'gemini' "@google/gemini-cli@$GeminiCliVersion")
         if (Get-Command gemini -ErrorAction SilentlyContinue) {
             $geminiHave = (& gemini --version 2>$null | Select-Object -Last 1)
@@ -1175,9 +1245,7 @@ if (-not $SkipAuth) {
         }
     }
     if ($CodexAxis) {
-        # Pinned: Archie's app-server client and rollout reader are verified
-        # against this version (docs/harnesses/codex-cli.md).
-        $CodexCliVersion = '0.161.0'
+        # Pinned ($CodexCliVersion from install\harness-versions.env).
         [void](Install-HarnessCli 'codex' "@openai/codex@$CodexCliVersion")
         if (Get-Command codex -ErrorAction SilentlyContinue) {
             # `codex --version` prints "codex-cli <version>".
@@ -1238,7 +1306,7 @@ if ($ClaudeAxis -and (Test-Path $ClaudeCreds)) {
 # ─────────────────────────────────────────────────────────────────────────────
 if (-not (Test-Path 'assistant_config.json')) {
     Write-Step "Creating default assistant_config.json..."
-    $DefaultModel = if ($DefaultProvider -eq 'qwen') { 'qwen3.6-plus' } else { 'claude-sonnet-4-5-20250929' }
+    $DefaultModel = if ($DefaultProvider -in @('qwen','modelstudio')) { 'qwen3.6-plus' } else { 'claude-sonnet-4-5-20250929' }
     # JSON gets the project path embedded; on Windows that's a backslash path.
     # The wrapper code consumes it as a generic path string, but to keep the
     # JSON encoded form simple we escape backslashes via JSON-encoding.
@@ -1286,7 +1354,7 @@ function Test-OptionalSdk {
         Write-Warn "$Sdk SDK not importable despite $Axis being selected (try: pip install -r $ReqFile)"
     }
 }
-if ($ClaudeAxis)    { Test-OptionalSdk 'claude_agent_sdk' '-WithClaude'    'backend\requirements-claude.txt' }
+if ($ClaudeRuntime) { Test-OptionalSdk 'claude_agent_sdk' '-WithClaude / -WithModelStudio' 'backend\requirements-claude.txt' }
 if ($AnthropicAxis) { Test-OptionalSdk 'anthropic'        '-WithAnthropic' 'backend\requirements-anthropic.txt' }
 if ($OpenAIAxis)    { Test-OptionalSdk 'openai'           '-WithOpenAI'    'backend\requirements-openai.txt' }
 
@@ -1313,11 +1381,43 @@ function Test-EnvKey {
 if (Test-Path 'context\.env') {
     if ($OpenAIAxis)    { Test-EnvKey 'OPENAI_API_KEY'    'OpenAI orchestrator text + Realtime voice' }
     if ($AnthropicAxis) { Test-EnvKey 'ANTHROPIC_API_KEY' 'Anthropic Claude models in orchestrator' }
-    if ($QwenAxis)      { Test-EnvKey 'DASHSCOPE_API_KEY' 'Qwen harness + Qwen voice' }
+    if ($QwenAxis -or $ModelStudioAxis) { Test-EnvKey 'DASHSCOPE_API_KEY' 'Qwen / Model Studio harnesses + Qwen voice' }
     if ($GeminiAxis)    { Test-EnvKey 'GEMINI_API_KEY'    'Gemini CLI harness - the only auth Google still serves it' }
 } else {
     Write-Warn "No context\.env file found"
 }
+
+# Harness wiring (the checks install/doctor.sh runs on Linux / macOS): every
+# link this installer manages, reported in one place.
+function Test-LinkTarget {
+    param([string]$Path, [string]$Target, [string]$Label)
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    if (-not $item) { Write-Warn "$Label missing: $Path"; return }
+    if ($item.LinkType -notin @('SymbolicLink','Junction')) {
+        if ($item.PSIsContainer) { Write-Warn "$Label is a real directory: $Path" }
+        else { Write-Info "$Label is a copy (no symlink rights): $Path" }
+        return
+    }
+    $t  = $item.Target | Select-Object -First 1
+    $r1 = if ($t) { (Resolve-Path -LiteralPath $t -ErrorAction SilentlyContinue).Path } else { $null }
+    $r2 = (Resolve-Path -LiteralPath $Target -ErrorAction SilentlyContinue).Path
+    if ($r1 -and $r2 -and $r1 -eq $r2) { Write-Info "$Label -> $Target" }
+    else { Write-Warn "$Label points to $t (expected $Target)" }
+}
+$ctxDir = Join-Path $ScriptDir 'context'
+foreach ($md in 'CLAUDE.md','QWEN.md','GEMINI.md','AGENTS.md') { Test-LinkTarget $md (Join-Path $ctxDir 'AGENTS.md') $md }
+if ($ClaudeRuntime) {
+    Test-LinkTarget ".claude_config\projects\$Mangled" $ctxDir 'Claude projects link'
+    Test-LinkTarget '.claude_config\skills' (Join-Path $ctxDir 'skills') 'Claude skills link'
+    Test-LinkTarget '.claude_config\agents' (Join-Path $ctxDir 'agents') 'Claude agents link'
+}
+if ($QwenAxis) {
+    Test-LinkTarget (Join-Path $env:USERPROFILE ".qwen\projects\$QwenMangled") $ctxDir 'Qwen projects link'
+    Test-LinkTarget (Join-Path $env:USERPROFILE '.qwen\skills') (Join-Path $ctxDir 'skills') 'Qwen skills link'
+}
+if ($GeminiAxis) { Test-LinkTarget $GeminiProjectDir $ctxDir 'Gemini project link' }
+if ($CodexAxis)  { Test-LinkTarget (Join-Path $env:USERPROFILE '.codex-archie\sessions') (Join-Path $ctxDir 'codex\sessions') 'Codex sessions link' }
+if ($CodexAxis -or $GeminiAxis -or $QwenAxis) { Test-LinkTarget '.agents\skills' (Join-Path $ctxDir 'skills') 'Repo skills link (.agents\skills)' }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 12b: Probe Gemini Live voice backends
@@ -1405,12 +1505,12 @@ $envMissing = @()
 if (Test-Path 'context\.env') {
     if ($OpenAIAxis    -and -not (Test-EnvKeyPresent 'OPENAI_API_KEY'))    { $envMissing += 'OPENAI_API_KEY' }
     if ($AnthropicAxis -and -not (Test-EnvKeyPresent 'ANTHROPIC_API_KEY')) { $envMissing += 'ANTHROPIC_API_KEY' }
-    if ($QwenAxis      -and -not (Test-EnvKeyPresent 'DASHSCOPE_API_KEY')) { $envMissing += 'DASHSCOPE_API_KEY' }
+    if (($QwenAxis -or $ModelStudioAxis) -and -not (Test-EnvKeyPresent 'DASHSCOPE_API_KEY')) { $envMissing += 'DASHSCOPE_API_KEY' }
     if ($GeminiAxis    -and -not (Test-EnvKeyPresent 'GEMINI_API_KEY'))    { $envMissing += 'GEMINI_API_KEY' }
 } else {
     if ($OpenAIAxis)    { $envMissing += 'OPENAI_API_KEY' }
     if ($AnthropicAxis) { $envMissing += 'ANTHROPIC_API_KEY' }
-    if ($QwenAxis)      { $envMissing += 'DASHSCOPE_API_KEY' }
+    if ($QwenAxis -or $ModelStudioAxis) { $envMissing += 'DASHSCOPE_API_KEY' }
     if ($GeminiAxis)    { $envMissing += 'GEMINI_API_KEY' }
 }
 if ($envMissing.Count -gt 0) {
@@ -1443,6 +1543,7 @@ if ($ClaudeAxis) { $harnessCount++ }
 if ($QwenAxis)   { $harnessCount++ }
 if ($GeminiAxis) { $harnessCount++ }
 if ($CodexAxis)  { $harnessCount++ }
+if ($ModelStudioAxis) { $harnessCount++ }
 if ($harnessCount -gt 1) {
     Write-Host "Tip: " -ForegroundColor Cyan -NoNewline
     Write-Host "You can switch providers anytime in Configuration -> Session provider."

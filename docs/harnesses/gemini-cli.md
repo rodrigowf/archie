@@ -3,7 +3,7 @@ name: gemini-cli
 category: archie/harnesses
 tags: [gemini, gemini-cli, harness, jsonl, stream-json, skip-trust, glob-resolver, spawn-per-turn, api-key, workspace-settings, catalog, thinking]
 created: 2026-05-15
-modified: 2026-10-07
+modified: 2026-10-08
 summary: The Gemini CLI harness (pinned 0.63.0) — spawn-per-turn gemini --prompt, API-key-only auth since the oauth-personal shutdown, env-templated workspace settings, catalog + options, JSONL log semantics, landmines.
 source: curated (consolidated from memory notes assistant/providers/gemini_cli_adaptation.md, assistant/providers/provider_generalization.md; upgraded to CLI 0.63.0 and verified live 2026-10-07)
 references:
@@ -18,8 +18,8 @@ references:
 
 # Gemini CLI harness
 
-Google's `gemini` CLI (npm `@google/gemini-cli`, Node ≥ 20), **pinned to 0.63.0** (installer step
-7b), as a session harness. Like Qwen it is spawn-per-turn: each `send()` runs `gemini --prompt
+Google's `gemini` CLI (npm `@google/gemini-cli`, Node ≥ 20), **pinned to 0.63.0**
+(`GEMINI_CLI_VERSION` in `install/harness-versions.env`, installed at step 7b), as a session harness. Like Qwen it is spawn-per-turn: each `send()` runs `gemini --prompt
 <text>` with stream-json output and exits; turns are chained with `--resume`.
 
 The Gemini CLI harness is unrelated to the Gemini Live **voice** provider
@@ -300,7 +300,8 @@ Verified live: interrupting `sleep 45; echo finished` mid-tool leaves no `gemini
 The argv is wrapped by `build_remote_argv()` like Qwen's. Only non-secret variables travel in the
 remote command (`GEMINI_CLI_TRUST_WORKSPACE`, `GEMINI_CLI_NO_RELAUNCH` and the per-turn
 `ARCHIE_GEMINI_*`); the remote host needs its own `GEMINI_API_KEY` — the non-interactive SSH shell
-does not source `context/.env`, so put it in `~/.gemini/.env` (mode 600; the CLI reads it; without it
+does not source `context/.env`, so put it in `~/.gemini/.env` (mode 600 — the Linux/macOS installer
+offers to copy it, `install/doctor.sh` checks it; the CLI reads it; without it
 turns fail with exit 41, the CLI's auth error) — and its repo's
 `.gemini/settings.json` with Archie's keys (run the installer, or `python3
 backend/manager/gemini/workspace_settings.py <repo>` there). Thinking tailing and stub cleanup are
@@ -356,7 +357,7 @@ local-only. See [ssh-remote-execution](../infrastructure/ssh-remote-execution.md
 3. Check the model tables in `catalog.py` against the bundle's `DEFAULT_MODEL_CONFIGS` /
    `VALID_GEMINI_MODELS`.
 4. Run the gemini tests, one live turn with a shell tool, one resume, one interrupt (no leftover
-   processes), then bump the pin in `install/linux/install.sh`.
+   processes), then bump `GEMINI_CLI_VERSION` in `install/harness-versions.env`.
 
 ## History
 
