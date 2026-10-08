@@ -108,6 +108,8 @@ from pathlib import Path
 from utils.paths import PROJECT_ROOT
 
 from .._ssh import (
+    kill_remote_tree,
+    parse_remote_pid,
     RemoteCommand,
     RemoteHostUnreachableError,
     SshTarget,
@@ -160,6 +162,7 @@ AUTH_HELP = (
     "context/.env as GEMINI_API_KEY and restart the backend. Vertex AI or Code Assist "
     "Standard/Enterprise users can set ARCHIE_GEMINI_AUTH_TYPE (e.g. vertex-ai) instead."
 )
+
 
 
 class GeminiAbandoned(TurnAbandoned):
@@ -328,6 +331,10 @@ class GeminiSessionManager(BaseSessionManager):
         # The currently-running ``gemini`` subprocess for an in-flight turn.
         # None when idle.
         self._proc: asyncio.subprocess.Process | None = None
+        # SSH sessions: the remote CLI's PID (announced on stdout before the
+        # CLI starts) and target, so interrupt/kill can stop it over SSH.
+        self._remote_pid: int | None = None
+        self._remote_target: SshTarget | None = None
         # Last stderr lines of the current turn (error reporting).
         self._stderr_tail: collections.deque[str] = collections.deque(
             maxlen=_STDERR_TAIL_LINES,
@@ -402,6 +409,20 @@ class GeminiSessionManager(BaseSessionManager):
         """Signal the subprocess's process group (see ``manager._proc.signal_group``)."""
         _signal_group(proc, sig)
 
+    def _take_remote(self) -> tuple[SshTarget, int] | None:
+        """``(target, pid)`` of a running SSH turn's remote CLI, once.
+
+        Signalling the local ``ssh`` client does not reach the remote
+        command (no tty, so no SIGHUP), so interrupt/kill stop the remote
+        process tree with :func:`kill_remote_tree` instead.  None for local
+        turns or before the remote shell announced its PID.
+        """
+        pid, target = self._remote_pid, self._remote_target
+        if not (self._config.ssh_host and pid and target):
+            return None
+        self._remote_pid = None
+        return target, pid
+
     async def _kill_proc(self) -> None:
         """Terminate any in-flight gemini subprocess (and its group).  Idempotent."""
         proc = self._proc
@@ -410,6 +431,9 @@ class GeminiSessionManager(BaseSessionManager):
         if proc.returncode is not None:
             self._proc = None
             return
+        remote = self._take_remote()
+        if remote is not None:
+            await kill_remote_tree(*remote)
         tree = self._tree(proc)
         try:
             self._signal_group(proc, signal.SIGTERM)
@@ -460,6 +484,11 @@ class GeminiSessionManager(BaseSessionManager):
                 )
                 self._reaper_tasks.add(task)
                 task.add_done_callback(self._reaper_tasks.discard)
+        remote = self._take_remote()
+        if remote is not None:
+            task = asyncio.create_task(kill_remote_tree(*remote), name="gemini-remote-kill")
+            self._reaper_tasks.add(task)
+            task.add_done_callback(self._reaper_tasks.discard)
         self._status = SessionStatus.INTERRUPTED
 
     # ------------------------------------------------------------------
@@ -575,6 +604,7 @@ class GeminiSessionManager(BaseSessionManager):
             ) from e
 
         self._proc = proc
+        self._remote_pid = None
 
         # Notify the pool that a new PID is alive.
         if self._on_pid_spawn is not None:
@@ -780,6 +810,10 @@ class GeminiSessionManager(BaseSessionManager):
             # stdout (the CLI prints a "Shell cwd was reset" trailer on
             # stdout in some builds).
             if not line_text.startswith("{"):
+                remote_pid = parse_remote_pid(line_text)
+                if remote_pid is not None:
+                    self._remote_pid = remote_pid
+                    continue
                 logger.debug("gemini stdout (non-JSON): %s", line_text[:200])
                 continue
 
@@ -1144,7 +1178,9 @@ class GeminiSessionManager(BaseSessionManager):
             "gemini",
             target,
         )
+        self._remote_target = target
         remote_cmd = RemoteCommand(
+            announce_pid=True,
             project_dir=self._config.project_dir,
             remote_cli=remote_gemini,
             # Only non-secret vars: the remote host has its own .env (e.g.

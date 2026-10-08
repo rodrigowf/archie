@@ -102,7 +102,7 @@ def test_ssh_session_wraps_argv_with_ssh_prefix():
     # Only the yolo-warning and no-relaunch switches go along (no
     # settings path here: none was written).
     assert remote_cmd.startswith(
-        "cd '/remote/project' && QWEN_CODE_SUPPRESS_YOLO_WARNING='1' QWEN_CODE_NO_RELAUNCH='true' "
+        "cd '/remote/project' && echo __ARCHIE_REMOTE_PID__=$$ && QWEN_CODE_SUPPRESS_YOLO_WARNING='1' QWEN_CODE_NO_RELAUNCH='true' "
         "PATH=/remote/.local/bin:$PATH exec '/remote/.local/bin/qwen'",
     )
     assert "QWEN_CODE_SYSTEM_SETTINGS_PATH" not in remote_cmd

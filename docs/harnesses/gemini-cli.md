@@ -299,7 +299,9 @@ Verified live: interrupting `sleep 45; echo finished` mid-tool leaves no `gemini
 
 The argv is wrapped by `build_remote_argv()` like Qwen's. Only non-secret variables travel in the
 remote command (`GEMINI_CLI_TRUST_WORKSPACE`, `GEMINI_CLI_NO_RELAUNCH` and the per-turn
-`ARCHIE_GEMINI_*`); the remote host needs its own `GEMINI_API_KEY` and its repo's
+`ARCHIE_GEMINI_*`); the remote host needs its own `GEMINI_API_KEY` — the non-interactive SSH shell
+does not source `context/.env`, so put it in `~/.gemini/.env` (mode 600; the CLI reads it; without it
+turns fail with exit 41, the CLI's auth error) — and its repo's
 `.gemini/settings.json` with Archie's keys (run the installer, or `python3
 backend/manager/gemini/workspace_settings.py <repo>` there). Thinking tailing and stub cleanup are
 local-only. See [ssh-remote-execution](../infrastructure/ssh-remote-execution.md).

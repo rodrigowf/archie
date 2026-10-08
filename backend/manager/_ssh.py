@@ -336,6 +336,67 @@ def _shell_single_quote(s: str) -> str:
     return "'" + s.replace("'", "'\\''") + "'"
 
 
+# Stop a spawn-per-turn CLI on the remote host.
+#
+# Signalling the local ``ssh`` client does not reach the remote command: with
+# no tty, sshd sends no SIGHUP when the client dies, so an interrupted turn
+# kept running there (and so did any shell command the CLI had started,
+# which Node CLIs spawn detached).  The remote shell therefore announces the
+# CLI's PID (``RemoteCommand.announce_pid``) and an interrupt runs this
+# script over the same ControlMaster connection: snapshot the process tree
+# first (detached children are reparented once the CLI exits), SIGINT the
+# CLI so it can exit cleanly, then TERM/KILL whatever is left.
+REMOTE_PID_MARKER = "__ARCHIE_REMOTE_PID__="
+
+_REMOTE_KILL_SCRIPT = (
+    "p={pid}; "
+    "kids() {{ ps -eo pid=,ppid= | awk -v p=\"$1\" '$2==p {{print $1}}'; }}; "
+    "all=''; q=$p; "
+    "while [ -n \"$q\" ]; do n=''; for x in $q; do n=\"$n $(kids $x)\"; done; "
+    "all=\"$all $n\"; q=$(echo $n); done; "
+    "kill -INT $p 2>/dev/null; sleep {grace}; "
+    "kill -TERM $all $p 2>/dev/null; sleep 1; "
+    "kill -KILL $all $p 2>/dev/null; true"
+)
+
+
+def parse_remote_pid(line: str) -> int | None:
+    """The PID from a ``REMOTE_PID_MARKER`` stdout line, else None."""
+    if not line.startswith(REMOTE_PID_MARKER):
+        return None
+    try:
+        return int(line[len(REMOTE_PID_MARKER):].strip())
+    except ValueError:
+        return None
+
+
+def remote_kill_script(pid: int, grace_s: int = 2) -> str:
+    """Shell snippet that stops *pid* and its whole process tree on the remote."""
+    return _REMOTE_KILL_SCRIPT.format(pid=int(pid), grace=int(grace_s))
+
+
+async def kill_remote_tree(target: SshTarget, pid: int, *, timeout_s: float = 10.0) -> bool:
+    """Run :func:`remote_kill_script` on *target* (reusing the ControlMaster).
+
+    Best effort: returns False (and logs) when ssh fails or times out.
+    """
+    import asyncio
+
+    argv = build_ssh_argv(target) + [remote_kill_script(pid)]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await asyncio.wait_for(proc.wait(), timeout=timeout_s)
+        return proc.returncode == 0
+    except Exception:  # noqa: BLE001
+        logger.warning("Remote kill of pid %s on %s failed", pid, target.host, exc_info=True)
+        return False
+
+
 @dataclass
 class RemoteCommand:
     """Specification of "what to run on the remote, in what directory,
@@ -362,6 +423,10 @@ class RemoteCommand:
     project_dir: str
     remote_cli: str
     env: dict[str, str] = field(default_factory=dict)
+    # Print ``REMOTE_PID_MARKER<pid>`` on stdout before exec'ing the CLI
+    # (``exec`` keeps the PID), so the caller can signal the remote process
+    # tree later — see :func:`kill_remote_tree`.
+    announce_pid: bool = False
 
     def render_shell(self) -> str:
         env = dict(self.env)
@@ -388,9 +453,10 @@ class RemoteCommand:
             f"{k}={v} " if k == "PATH" else f"{k}={_shell_single_quote(v)} "
             for k, v in env.items()
         )
+        announce = f"echo {REMOTE_PID_MARKER}$$ && " if self.announce_pid else ""
         return (
             "cd " + _shell_single_quote(self.project_dir)
-            + " && " + env_prefix
+            + " && " + announce + env_prefix
             + "exec " + _shell_single_quote(self.remote_cli)
         )
 
@@ -519,6 +585,10 @@ def build_remote_argv(
 
 
 __all__ = [
+    "REMOTE_PID_MARKER",
+    "parse_remote_pid",
+    "remote_kill_script",
+    "kill_remote_tree",
     "RemoteHostUnreachableError",
     "probe_host_reachable",
     "get_cached_remote_cli_path",

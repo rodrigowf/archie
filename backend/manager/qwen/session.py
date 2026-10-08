@@ -28,6 +28,8 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 from .._ssh import (
+    kill_remote_tree,
+    parse_remote_pid,
     RemoteCommand,
     RemoteHostUnreachableError,
     SshTarget,
@@ -62,6 +64,7 @@ _STALL_FIRST_NOTICE_S = 120.0
 _STALL_REPEAT_INTERVAL_S = 60.0
 # Abandoned-turn detection — produced zero events for this long → give up.
 _TURN_ABANDON_S = 240.0
+
 
 
 class QwenAbandoned(TurnAbandoned):
@@ -134,6 +137,10 @@ class QwenSessionManager(BaseSessionManager):
         # The currently-running ``qwen`` subprocess for an in-flight turn.
         # None when idle.
         self._proc: asyncio.subprocess.Process | None = None
+        # SSH sessions: the remote CLI's PID (announced on stdout before the
+        # CLI starts) and target, so interrupt/kill can stop it over SSH.
+        self._remote_pid: int | None = None
+        self._remote_target: SshTarget | None = None
         # Reaps shell commands an interrupted turn left behind (see interrupt()).
         self._reaper_tasks: set[asyncio.Task] = set()
         # Optional handle to the reader task; used by the watchdog only.
@@ -294,6 +301,20 @@ class QwenSessionManager(BaseSessionManager):
                 self._local_id,
             )
 
+    def _take_remote(self) -> tuple[SshTarget, int] | None:
+        """``(target, pid)`` of a running SSH turn's remote CLI, once.
+
+        Signalling the local ``ssh`` client does not reach the remote
+        command (no tty, so no SIGHUP), so interrupt/kill stop the remote
+        process tree with :func:`kill_remote_tree` instead.  None for local
+        turns or before the remote shell announced its PID.
+        """
+        pid, target = self._remote_pid, self._remote_target
+        if not (self._config.ssh_host and pid and target):
+            return None
+        self._remote_pid = None
+        return target, pid
+
     async def _kill_proc(self) -> None:
         """Terminate any in-flight qwen subprocess (and its group).  Idempotent.
 
@@ -306,6 +327,9 @@ class QwenSessionManager(BaseSessionManager):
         if proc.returncode is not None:
             self._proc = None
             return
+        remote = self._take_remote()
+        if remote is not None:
+            await kill_remote_tree(*remote)
         tree = process_tree(proc)
         try:
             signal_group(proc, signal.SIGTERM)
@@ -350,6 +374,11 @@ class QwenSessionManager(BaseSessionManager):
                 task = asyncio.create_task(reap_descendants(proc, tree), name="qwen-reap")
                 self._reaper_tasks.add(task)
                 task.add_done_callback(self._reaper_tasks.discard)
+        remote = self._take_remote()
+        if remote is not None:
+            task = asyncio.create_task(kill_remote_tree(*remote), name="qwen-remote-kill")
+            self._reaper_tasks.add(task)
+            task.add_done_callback(self._reaper_tasks.discard)
         self._status = SessionStatus.INTERRUPTED
 
     # ------------------------------------------------------------------
@@ -439,6 +468,7 @@ class QwenSessionManager(BaseSessionManager):
             ) from e
 
         self._proc = proc
+        self._remote_pid = None
 
         # Notify the pool (if it installed a callback) that a new PID is
         # alive.  The pool tracks it for the orphan reaper so we can
@@ -586,6 +616,10 @@ class QwenSessionManager(BaseSessionManager):
             stall_notified_at = None
             events_received += 1
 
+            remote_pid = parse_remote_pid(line.decode("utf-8", errors="replace").strip())
+            if remote_pid is not None:
+                self._remote_pid = remote_pid
+                continue
             try:
                 obj = json.loads(line.decode("utf-8").strip())
             except json.JSONDecodeError:
@@ -944,7 +978,9 @@ class QwenSessionManager(BaseSessionManager):
         remote_env = {"QWEN_CODE_SUPPRESS_YOLO_WARNING": "1", "QWEN_CODE_NO_RELAUNCH": "true"}
         if settings_path:
             remote_env[_run_settings.SYSTEM_SETTINGS_ENV] = settings_path
+        self._remote_target = target
         remote_cmd = RemoteCommand(
+            announce_pid=True,
             project_dir=self._config.project_dir,
             remote_cli=remote_qwen,
             env=remote_env,

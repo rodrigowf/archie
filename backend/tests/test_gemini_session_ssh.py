@@ -101,7 +101,7 @@ def test_ssh_session_wraps_argv_with_ssh_prefix():
     # Only non-secret vars are forwarded: single-process mode (interrupt
     # must reach the real CLI) and trust (loads the workspace settings).
     assert remote_cmd.startswith(
-        "cd '/remote/project' && GEMINI_CLI_TRUST_WORKSPACE='true' "
+        "cd '/remote/project' && echo __ARCHIE_REMOTE_PID__=$$ && GEMINI_CLI_TRUST_WORKSPACE='true' "
         "GEMINI_CLI_NO_RELAUNCH='true' PATH=/remote/.local/bin:$PATH "
         "exec '/remote/.local/bin/gemini'"
     )
