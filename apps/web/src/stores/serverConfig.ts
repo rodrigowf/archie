@@ -6,6 +6,7 @@
 import { createStore } from 'zustand/vanilla';
 import type {
   AgentInfo,
+  HarnessInfo,
   McpServers,
   OrchestratorModels,
   ProviderInfo,
@@ -25,7 +26,11 @@ export interface ServerConfigState {
   /** Verbatim backend `detail` of the last failed save (CFG-2). */
   readonly saveError: string | null;
   readonly providers: readonly ProviderInfo[] | null;
-  readonly qwenModels: readonly unknown[] | null;
+  /**
+   * `GET /api/config/harnesses`: every harness with its catalog (models + options). On an older
+   * server (no endpoint) it is built from `/api/config/providers` + the Qwen model list.
+   */
+  readonly harnesses: readonly HarnessInfo[] | null;
   readonly orchestratorModels: OrchestratorModels | null;
   readonly voiceModels: VoiceModels | null;
   /** `GET /api/config/voice/google/models?endpoint=…` per endpoint. */
@@ -42,7 +47,7 @@ const initial: ServerConfigState = {
   saving: null,
   saveError: null,
   providers: null,
-  qwenModels: null,
+  harnesses: null,
   orchestratorModels: null,
   voiceModels: null,
   googleVoiceModels: {},

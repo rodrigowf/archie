@@ -9,7 +9,9 @@ Lookup order for a given (provider, model):
 
 1. **Qwen**: parse ``~/.qwen/settings.json`` and read ``contextWindowSize``
    for the exact model id.  This is the only provider that ships a
-   user-configurable catalog, so we trust whatever the user wrote.
+   user-configurable catalog, so we trust whatever the user wrote.  Ids
+   not in it (DashScope live-list models) fall back to the approximate
+   family table in ``manager.qwen.catalog``.
 2. **Claude / Gemini / Anthropic / OpenAI**: regex-match the model id
    against a small static table.  Aliases (``"sonnet"``, ``"opus"``)
    resolve to the same window as the dated id.
@@ -29,12 +31,20 @@ import re
 # ``claude-sonnet`` etc.  Numbers are the public documented limits as of
 # the date noted next to each entry.
 _STATIC_WINDOWS: list[tuple[re.Pattern[str], int]] = [
-    # --- Anthropic Claude (claude.com/docs/about-claude/models, 2026-05) ---
-    # Claude 4.x family — 200K standard, 1M with the long-context beta header
-    # (orchestrator does NOT currently set that header, so 200K is right).
+    # --- Anthropic Claude (GET /v1/models max_input_tokens, 2026-10-07) ---
+    # Claude Code's ``[1m]`` suffix selects the 1M variant explicitly.
+    (re.compile(r"^claude-.*\[1m\]$", re.I),                1_000_000),
+    # Every 5.x model and Opus/Sonnet 4.6+ take 1M natively (no beta header).
+    (re.compile(r"claude-(opus|sonnet|haiku|fable)-5", re.I), 1_000_000),
+    (re.compile(r"claude-(opus|sonnet)-4-[6-9](?!\d)", re.I), 1_000_000),
+    # Claude 4.0–4.5 — 200K standard, 1M only with the long-context beta
+    # header (orchestrator does NOT set it, so 200K is right).
     (re.compile(r"claude-(opus|sonnet|haiku)-4", re.I), 200_000),
     (re.compile(r"claude-(opus|sonnet|haiku)-3", re.I), 200_000),
-    (re.compile(r"^(opus|sonnet|haiku)$", re.I),       200_000),
+    # Claude Code aliases (CLI 2.1.292): opus → Opus 5.5, sonnet/default →
+    # Sonnet 5.5, fable → Fable 5.1 (all 1M); haiku → Haiku 4.5 (200K).
+    (re.compile(r"^(opus|sonnet|fable|default)(\[1m\])?$", re.I), 1_000_000),
+    (re.compile(r"^haiku$", re.I),                     200_000),
 
     # --- OpenAI (platform.openai.com/docs/models, 2026-05) ---
     # GPT-5 family (incl. gpt-5.5) — 400K context.
@@ -67,7 +77,14 @@ def _qwen_window(model: str) -> int | None:
                 return entry.context_window
     except Exception:
         return None
-    return None
+    # Not in settings.json (e.g. a DashScope "live" model run through a
+    # synthetic provider entry): approximate window from the family table.
+    try:
+        from manager.qwen.catalog import qwen_model_traits
+
+        return qwen_model_traits(model).context_window
+    except Exception:
+        return None
 
 
 def context_window_for(provider: str | None, model: str | None) -> int | None:
@@ -82,13 +99,29 @@ def context_window_for(provider: str | None, model: str | None) -> int | None:
         if explicit is not None:
             return explicit
         # Fall through to the static table for an unknown qwen model.
+    if provider == "modelstudio":
+        # DashScope models through Claude Code; no model = the harness default.
+        try:
+            from manager.modelstudio.catalog import model_context_window
+        except Exception:
+            return None
+        return model_context_window(model)
+    if provider == "codex":
+        # Codex models report their window through model/list; the harness
+        # catalog carries it per model.  Without a network call here, use
+        # the Codex default (the CLI's model_context_window for its models).
+        from manager.codex.catalog import DEFAULT_CONTEXT_WINDOW
+        return DEFAULT_CONTEXT_WINDOW
     if not isinstance(model, str) or not model:
         # No model id → fall back to provider-level defaults.
         if provider == "qwen":
             return 1_000_000   # Qwen3.x baseline
         if provider == "gemini":
             return 1_000_000
-        if provider in ("claude", None):
+        if provider == "claude":
+            # The CLI default (no --model) is Sonnet 5.5 since CLI 2.1.29x.
+            return 1_000_000
+        if provider is None:
             return 200_000
         return None
 

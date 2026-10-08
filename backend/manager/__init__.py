@@ -68,6 +68,7 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "SessionAbandoned": (".claude.session", "SessionAbandoned"),
     "QwenSessionManager": (".qwen.session", "QwenSessionManager"),
     "QwenAbandoned": (".qwen.session", "QwenAbandoned"),
+    "CodexSessionManager": (".codex.session", "CodexSessionManager"),
 }
 
 
@@ -97,6 +98,7 @@ __all__ = [
     "BaseSessionManager",
     "ClaudeSessionManager",  # lazy
     "QwenSessionManager",  # lazy
+    "CodexSessionManager",  # lazy
     "SessionManager",  # lazy (alias for ClaudeSessionManager)
     "SessionStore",
     "AuthManager",

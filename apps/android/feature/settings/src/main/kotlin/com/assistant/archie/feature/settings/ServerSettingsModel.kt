@@ -3,14 +3,16 @@ package com.assistant.archie.feature.settings
 import com.assistant.core.data.LoadState
 import com.assistant.core.data.ServerConfigRepository
 import com.assistant.core.model.ConfigPatch
+import com.assistant.core.model.HarnessInfo
+import com.assistant.core.model.HarnessLabels
 import com.assistant.core.model.ServerConfig
 import com.assistant.core.network.ApiResult
 import com.assistant.core.network.ArchieApi
 import com.assistant.core.protocol.AgentDto
+import com.assistant.core.protocol.HarnessFallback
 import com.assistant.core.protocol.HarnessProviderDto
 import com.assistant.core.protocol.McpServersDto
 import com.assistant.core.protocol.OrchestratorModelsDto
-import com.assistant.core.protocol.QwenModelDto
 import com.assistant.core.protocol.SkillDto
 import com.assistant.core.protocol.VoiceModelEntryDto
 import com.assistant.core.protocol.VoiceModelsDto
@@ -33,8 +35,10 @@ data class Catalogs(
     val voiceModels: VoiceModelsDto? = null,
     /** Discovered Gemini Live models per endpoint (`vertex` / `aistudio`). */
     val googleVoiceModels: Map<String, List<VoiceModelEntryDto>> = emptyMap(),
+    /** Every harness with its catalog (`/api/config/harnesses`, or the fallback for older servers). */
+    val harnesses: List<HarnessInfo>? = null,
+    /** The harness list as `{id, label, description}` rows (derived from [harnesses]). */
     val providers: List<HarnessProviderDto>? = null,
-    val qwenModels: List<QwenModelDto>? = null,
     val mcpServers: McpServersDto? = null,
     val skills: List<SkillDto>? = null,
     val agents: List<AgentDto>? = null,
@@ -51,6 +55,8 @@ data class ServerSettingsState(
     val saveError: String? = null,
     /** The dismissible notice after a Google auto-correct (CFG-6). */
     val autoCorrected: AutoCorrect? = null,
+    /** "Refresh models" in flight (`/api/config/harnesses?refresh=true`). */
+    val refreshingHarnesses: Boolean = false,
 ) {
     val google: List<VoiceModelEntryDto>?
         get() = config.value?.voice?.endpoint?.let { catalogs.googleVoiceModels[it] }
@@ -88,8 +94,7 @@ class ServerSettingsModel(
         coroutineScope {
             val om = async { api.orchestratorModels() }
             val vm = async { api.voiceModels() }
-            val pr = async { api.providers() }
-            val qm = async { api.qwenModels() }
+            val hs = async { loadHarnesses(refresh = false) }
             val mcp = async { api.mcpServers() }
             val sk = async { api.skills() }
             val ag = async { api.agents() }
@@ -99,8 +104,8 @@ class ServerSettingsModel(
                     catalogs = c.copy(
                         orchestratorModels = om.await().getOrNull() ?: c.orchestratorModels,
                         voiceModels = vm.await().getOrNull() ?: c.voiceModels,
-                        providers = pr.await().getOrNull()?.providers ?: c.providers,
-                        qwenModels = qm.await().getOrNull()?.models ?: c.qwenModels,
+                        harnesses = hs.await() ?: c.harnesses,
+                        providers = hs.await()?.let(HarnessFallback::providersFromHarnesses) ?: c.providers,
                         mcpServers = mcp.await().getOrNull() ?: c.mcpServers,
                         skills = sk.await().getOrNull()?.skills ?: c.skills,
                         agents = ag.await().getOrNull()?.agents ?: c.agents,
@@ -111,6 +116,45 @@ class ServerSettingsModel(
         val cfg = awaitConfig() ?: return
         loadGoogleFor(cfg)
         maybeAutoCorrect()
+    }
+
+    /**
+     * `GET /api/config/harnesses` (models + options of every harness). Older servers (no endpoint, or
+     * any failure) fall back to `/api/config/providers` + the Qwen model list; a Qwen row without a
+     * catalog gets one from the Qwen model list too (web `loadHarnessCatalogs`). null = nothing loaded.
+     */
+    private suspend fun loadHarnesses(refresh: Boolean): List<HarnessInfo>? =
+        fetchHarnesses(refresh)?.also(HarnessLabels::register) // tab / history labels of harnesses the app does not know
+
+    private suspend fun fetchHarnesses(refresh: Boolean): List<HarnessInfo>? {
+        val list = api.harnesses(refresh).getOrNull()
+        if (list != null) {
+            if (list.none { it.id == "qwen" && it.catalog == null }) return list
+            val catalog = api.qwenModelRows().getOrNull()?.let(HarnessFallback::qwenCatalogFromModels)
+                ?.takeIf { it.models.isNotEmpty() } ?: return list
+            return list.map { if (it.id == "qwen" && it.catalog == null) it.copy(catalog = catalog) else it }
+        }
+        return coroutineScope {
+            val providers = async { api.providers().getOrNull()?.providers }
+            val qwen = async { api.qwenModelRows().getOrNull() }
+            providers.await()?.let { HarnessFallback.harnessesFromProviders(it, qwen.await()) }
+        }
+    }
+
+    /** "Refresh models": rebuild the server's catalog cache (a model added to a CLI's settings, a new live model). */
+    fun refreshHarnesses() {
+        if (local.value.refreshingHarnesses) return
+        local.update { it.copy(refreshingHarnesses = true) }
+        scope.launch {
+            val list = loadHarnesses(refresh = true)
+            local.update { s ->
+                s.copy(
+                    refreshingHarnesses = false,
+                    catalogs = if (list == null) s.catalogs else s.catalogs.copy(harnesses = list, providers = HarnessFallback.providersFromHarnesses(list)),
+                )
+            }
+            if (list == null) messages.post(SettingsMessage("Couldn't refresh the model lists", error = true))
+        }
     }
 
     /** `repository.load()` is fire-and-forget; wait for it to settle (ok or error). */

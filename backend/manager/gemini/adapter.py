@@ -41,7 +41,22 @@ few categories::
 
     {"$set": {"lastUpdated": "..."}}
         — bookkeeping line emitted after every meaningful change.
-        Adapter must filter these out.
+
+The file is a log, not a list of messages (CLI ``loadConversationRecord``):
+
+* a message is re-appended with the same ``id`` every time it changes
+  (thoughts, then toolCalls, then results) — **upsert by id**, last
+  write wins, first position kept;
+* ``{"$set": {"messages": [...]}}`` (CLI ≥ 0.45, on every resume, on
+  compression and rollback) **replaces** the whole list; in these
+  snapshots gemini ``content`` is a part list (``{text}``,
+  ``{text, thought: true}``, ``{functionCall}``) and the first user
+  message is the CLI's injected ``<session_context>`` dump (hidden);
+* CLI 0.63 also records the tool answers as user messages whose content
+  is only ``{functionResponse}`` parts — folded into ``tool_result``
+  blocks, never shown as empty user turns;
+* ``{"$rewindTo": id}`` truncates; ``info`` / ``error`` / ``warning``
+  records are not turns.
 
 Tool calls
 ----------
@@ -70,10 +85,12 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 from utils.paths import PROJECT_ROOT
 
-from ..protocol import ProviderAdapter, _parse_timestamp, extract_text, register_provider
+from ..protocol import ProviderAdapter, _parse_timestamp, register_provider
 from ..registry import HarnessSpec, register_harness
 from ..types import SessionInfo
 
@@ -83,6 +100,10 @@ def _is_metadata_line(obj: dict) -> bool:
     return "$set" in obj and "type" not in obj
 
 
+def _is_header_line(obj: dict) -> bool:
+    return "sessionId" in obj and "type" not in obj and "$set" not in obj
+
+
 # Map Gemini's ``type: "gemini"`` to the normalized ``assistant`` role.
 def _normalize_type(t: str) -> str | None:
     if t == "user":
@@ -90,6 +111,71 @@ def _normalize_type(t: str) -> str | None:
     if t == "gemini":
         return "assistant"
     return None
+
+
+# User text the CLI injects itself and never shows as a user turn
+# (``isIgnoredUserContent`` in the CLI; we keep ``/`` and ``?`` prompts,
+# which Archie users type on purpose).
+_IGNORED_USER_PREFIXES = ("<session_context>", "<hook_context>")
+
+
+def _parts(content: Any) -> list[Any]:
+    if isinstance(content, list):
+        return content
+    if isinstance(content, (str, dict)):
+        return [content]
+    return []
+
+
+def _text_of(content: Any, *, thoughts: bool = False) -> str:
+    """Join the text parts of a PartListUnion (str | part | [part]).
+
+    ``thoughts=False`` skips ``{text, thought: true}`` parts; ``True``
+    returns only those.
+    """
+    if isinstance(content, str):
+        return "" if thoughts else content
+    out: list[str] = []
+    for p in _parts(content):
+        if isinstance(p, str):
+            if not thoughts:
+                out.append(p)
+        elif isinstance(p, dict) and isinstance(p.get("text"), str) and p.get("text"):
+            if bool(p.get("thought")) == thoughts:
+                out.append(p["text"])
+    return "\n".join(out)
+
+
+def _user_text(obj: dict) -> str:
+    """The user-visible text of a user record (``displayContent`` first)."""
+    display = obj.get("displayContent")
+    text = _text_of(display) if display else ""
+    if not text:
+        text = _text_of(obj.get("content"))
+    return text
+
+
+def _is_ignored_user_text(text: str) -> bool:
+    return text.lstrip().startswith(_IGNORED_USER_PREFIXES)
+
+
+def _function_responses(content: Any) -> list[dict]:
+    out = []
+    for p in _parts(content):
+        if isinstance(p, dict) and isinstance(p.get("functionResponse"), dict):
+            out.append(p["functionResponse"])
+    return out
+
+
+def _function_response_text(resp: dict) -> tuple[str, bool]:
+    inner = resp.get("response")
+    if isinstance(inner, dict):
+        if inner.get("output") is not None:
+            return str(inner.get("output")), False
+        if inner.get("error") is not None:
+            return str(inner.get("error")), True
+        return json.dumps(inner, ensure_ascii=False), False
+    return ("" if inner is None else str(inner)), False
 
 
 def _extract_tool_result_text(call: dict) -> str:
@@ -123,107 +209,139 @@ def _extract_tool_result_text(call: dict) -> str:
     return ""
 
 
-def _normalize_message(obj: dict) -> list[dict]:
-    """Translate a raw Gemini JSONL message line to one or more normalized
-    messages.
+def _assistant_blocks(obj: dict) -> tuple[list[dict], list[dict]]:
+    """``(assistant blocks, tool_result blocks)`` for one gemini record.
 
-    Returns an empty list if the line isn't a user/assistant message.
-    Most lines produce a single message; a ``type: "gemini"`` line that
-    also carries ``toolCalls`` produces TWO messages — the assistant
-    turn (with ``tool_use`` blocks) followed by a synthetic user message
-    carrying the matched ``tool_result`` blocks, so the frontend can
-    pair them via ``tool_use_id``.
+    ``content`` is a plain string in records the CLI appends while
+    streaming, and a part list (``{text}``, ``{text, thought: true}``,
+    ``{functionCall}``) in the history snapshots of 0.45+.  ``thoughts`` /
+    ``toolCalls`` are authoritative when present; the thought and
+    functionCall parts are only used when they are missing, so nothing is
+    shown twice.
+    """
+    blocks: list[dict] = []
+    thoughts = obj.get("thoughts")
+    content = obj.get("content")
+    if isinstance(thoughts, list) and thoughts:
+        for thought in thoughts:
+            if not isinstance(thought, dict):
+                continue
+            subj = thought.get("subject", "") or ""
+            desc = thought.get("description", "") or ""
+            text = f"{subj}\n{desc}".strip() if subj or desc else ""
+            if text:
+                blocks.append({"type": "thinking", "text": text})
+    else:
+        thought_text = _text_of(content, thoughts=True)
+        if thought_text:
+            blocks.append({"type": "thinking", "text": thought_text})
 
-    Output shape matches the contract on
-    :class:`~manager.protocol.ProviderAdapter`: each entry has ``type``
-    ∈ {user, assistant}, ``timestamp``, and ``message.content`` as
-    either a string (plain user text) or a list of content blocks.
+    text = _text_of(content)
+    if text:
+        blocks.append({"type": "text", "text": text})
+
+    tool_result_blocks: list[dict] = []
+    raw_calls = obj.get("toolCalls")
+    if isinstance(raw_calls, list) and raw_calls:
+        for call in raw_calls:
+            if not isinstance(call, dict):
+                continue
+            tool_id = call.get("id")
+            args = call.get("args", {})
+            blocks.append({
+                "type": "tool_use",
+                "id": tool_id,
+                "name": call.get("name", ""),
+                "input": args if isinstance(args, dict) else {},
+            })
+            # Only a completed call (status or result present) has a
+            # result; an in-flight one is the live stream's business.
+            status = call.get("status")
+            if status is None and "result" not in call:
+                continue
+            tool_result_blocks.append({
+                "type": "tool_result",
+                "tool_use_id": tool_id,
+                "content": _extract_tool_result_text(call),
+                "is_error": status == "error",
+            })
+    else:
+        for p in _parts(content):
+            fc = p.get("functionCall") if isinstance(p, dict) else None
+            if isinstance(fc, dict):
+                args = fc.get("args", {})
+                blocks.append({
+                    "type": "tool_use",
+                    "id": fc.get("id"),
+                    "name": fc.get("name", ""),
+                    "input": args if isinstance(args, dict) else {},
+                })
+    return blocks, tool_result_blocks
+
+
+def _normalize_message(obj: dict, answered: set[str] | None = None) -> list[dict]:
+    """Translate one Gemini message record to zero or more normalized messages.
+
+    * user text → one user message (CLI-injected ``<session_context>`` /
+      ``<hook_context>`` turns and empty ones → nothing);
+    * a user record carrying only ``functionResponse`` parts (0.63 records
+      those) → a user message of ``tool_result`` blocks for the calls not
+      already answered from ``toolCalls`` (*answered*), never an empty
+      user message;
+    * a gemini record → the assistant message (thinking, text, tool_use)
+      plus, when it carries finished ``toolCalls``, a synthetic user message
+      with the matching ``tool_result`` blocks so clients pair them by id.
     """
     raw_type = obj.get("type")
     role = _normalize_type(raw_type) if isinstance(raw_type, str) else None
     if role is None:
         return []
-
     timestamp = obj.get("timestamp")
 
     if role == "user":
-        # User content is a list of {text} dicts — join.
-        raw_content = obj.get("content")
-        if isinstance(raw_content, list):
-            parts = [
-                p.get("text", "")
-                for p in raw_content
-                if isinstance(p, dict) and p.get("text")
-            ]
-            content = "\n".join(parts)
-        elif isinstance(raw_content, str):
-            content = raw_content
-        else:
-            content = ""
-        return [{
-            "type": "user",
-            "timestamp": timestamp,
-            "message": {"role": "user", "content": content},
-        }]
-
-    # Assistant message: build content blocks.  Start with thoughts
-    # (each becomes a thinking block), then the main text body, then any
-    # tool_use blocks from ``toolCalls``.
-    blocks: list[dict] = []
-    thoughts = obj.get("thoughts")
-    if isinstance(thoughts, list):
-        for thought in thoughts:
-            if not isinstance(thought, dict):
-                continue
-            # Gemini thoughts carry both subject + description; concatenate
-            # so the normalized view doesn't lose the structure.
-            subj = thought.get("subject", "")
-            desc = thought.get("description", "")
-            text = f"{subj}\n{desc}".strip() if subj or desc else ""
-            if text:
-                blocks.append({"type": "thinking", "text": text})
-
-    raw_content = obj.get("content")
-    if isinstance(raw_content, str) and raw_content:
-        blocks.append({"type": "text", "text": raw_content})
-
-    tool_result_blocks: list[dict] = []
-    raw_calls = obj.get("toolCalls")
-    if isinstance(raw_calls, list):
-        for call in raw_calls:
-            if not isinstance(call, dict):
-                continue
-            tool_id = call.get("id")
-            tool_name = call.get("name", "")
-            args = call.get("args", {})
-            if not isinstance(args, dict):
-                args = {}
-            blocks.append({
-                "type": "tool_use",
-                "id": tool_id,
-                "name": tool_name,
-                "input": args,
+        out: list[dict] = []
+        text = _user_text(obj)
+        if text and not _is_ignored_user_text(text):
+            out.append({
+                "type": "user",
+                "timestamp": timestamp,
+                "message": {"role": "user", "content": text},
             })
-            # Synthesize a tool_result block — but only if the call
-            # actually completed (status field present).  An in-flight
-            # call would have no result yet; the live event stream
-            # handles that path.
-            status = call.get("status")
-            if status is None and "result" not in call:
+        results = []
+        for resp in _function_responses(obj.get("content")):
+            rid = resp.get("id")
+            if answered is not None and rid in answered:
                 continue
-            output = _extract_tool_result_text(call)
-            tool_result_blocks.append({
+            output, is_error = _function_response_text(resp)
+            results.append({
                 "type": "tool_result",
-                "tool_use_id": tool_id,
+                "tool_use_id": rid,
                 "content": output,
-                "is_error": status == "error",
+                "is_error": is_error,
             })
+            if answered is not None and rid:
+                answered.add(rid)
+        if results:
+            out.append({
+                "type": "user",
+                "timestamp": timestamp,
+                "message": {"role": "user", "content": results},
+            })
+        return out
 
-    out: list[dict] = [{
+    blocks, tool_result_blocks = _assistant_blocks(obj)
+    if not blocks:
+        return []
+    out = [{
         "type": "assistant",
         "timestamp": timestamp,
         "message": {"role": "assistant", "content": blocks},
     }]
+    if answered is not None:
+        tool_result_blocks = [
+            b for b in tool_result_blocks if b["tool_use_id"] not in answered
+        ]
+        answered.update(b["tool_use_id"] for b in tool_result_blocks if b["tool_use_id"])
     if tool_result_blocks:
         out.append({
             "type": "user",
@@ -231,6 +349,150 @@ def _normalize_message(obj: dict) -> list[dict]:
             "message": {"role": "user", "content": tool_result_blocks},
         })
     return out
+
+
+def _is_visible_record(obj: dict) -> bool:
+    """A record that becomes a visible turn (user text or an assistant message)."""
+    t = obj.get("type")
+    if t == "user":
+        text = _user_text(obj)
+        return bool(text) and not _is_ignored_user_text(text)
+    if t == "gemini":
+        return bool(_assistant_blocks(obj)[0])
+    return False
+
+
+@dataclass
+class _Conversation:
+    """A Gemini session as the CLI's own loader sees it."""
+
+    records: list[dict] = field(default_factory=list)
+    start_time: str | None = None
+    last_updated: str | None = None
+    session_id: str | None = None
+
+
+def _iter_objs(jsonl_path: Path):
+    with open(jsonl_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                yield None
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                yield None
+                continue
+            yield obj if isinstance(obj, dict) else None
+
+
+def _load_conversation(objs) -> _Conversation:
+    """Replay the append-only log like ``loadConversationRecord`` in the CLI.
+
+    * message records are **upserted by id** (the CLI re-appends a message
+      every time it changes: thoughts → toolCalls → results), keeping the
+      position of the first write and the content of the last;
+    * ``{"$set": {"messages": [...]}}`` replaces the whole list (history
+      snapshots on resume / compression / rollback);
+    * ``{"$rewindTo": id}`` drops that message and everything after it
+      (all of it when the id is unknown);
+    * ``info`` / ``error`` / ``warning`` records are not turns.
+    """
+    conv = _Conversation()
+    by_id: dict[str, dict] = {}
+    anon = 0
+
+    def put(rec: dict) -> None:
+        nonlocal anon
+        rid = rec.get("id")
+        if not isinstance(rid, str) or not rid:
+            anon += 1
+            rid = f"\x00anon-{anon}"
+        by_id[rid] = rec
+
+    for obj in objs:
+        if not isinstance(obj, dict):
+            continue
+        if "$rewindTo" in obj and "type" not in obj:
+            target = obj.get("$rewindTo")
+            keys = list(by_id)
+            if target in by_id:
+                for k in keys[keys.index(target):]:
+                    del by_id[k]
+            else:
+                by_id.clear()
+            continue
+        if _is_metadata_line(obj):
+            s = obj.get("$set")
+            if isinstance(s, dict):
+                if isinstance(s.get("lastUpdated"), str):
+                    conv.last_updated = s["lastUpdated"]
+                if isinstance(s.get("messages"), list):
+                    by_id.clear()
+                    for m in s["messages"]:
+                        if isinstance(m, dict) and m.get("type") in ("user", "gemini"):
+                            put(m)
+            continue
+        if _is_header_line(obj):
+            if conv.start_time is None and isinstance(obj.get("startTime"), str):
+                conv.start_time = obj["startTime"]
+            if conv.session_id is None and isinstance(obj.get("sessionId"), str):
+                conv.session_id = obj["sessionId"]
+            last = obj.get("lastUpdated") or obj.get("startTime")
+            if isinstance(last, str):
+                conv.last_updated = last
+            continue
+        if obj.get("type") in ("user", "gemini"):
+            put(obj)
+            ts = obj.get("timestamp")
+            if isinstance(ts, str) and conv.start_time is None:
+                conv.start_time = ts
+            if isinstance(ts, str):
+                conv.last_updated = ts
+    conv.records = list(by_id.values())
+    return conv
+
+
+def _load_conversation_file(jsonl_path: Path) -> _Conversation | None:
+    try:
+        return _load_conversation(_iter_objs(jsonl_path))
+    except (OSError, PermissionError):
+        return None
+
+
+def _normalize_records(records: list[dict]) -> list[dict]:
+    answered: set[str] = set()
+    out: list[dict] = []
+    for rec in records:
+        out.extend(_normalize_message(rec, answered))
+    return out
+
+
+def _is_resumable_record(obj: dict) -> bool:
+    """The CLI's ``isResumableMessageRecord``: what makes ``--resume`` accept a file."""
+    t = obj.get("type")
+    if t == "user":
+        text = _text_of(obj.get("content")).strip()
+        return bool(text) and not text.startswith(("/", "?") + _IGNORED_USER_PREFIXES)
+    if t == "gemini":
+        return bool(
+            _text_of(obj.get("content")).strip()
+            or obj.get("toolCalls")
+            or obj.get("thoughts")
+        )
+    return False
+
+
+def gemini_session_is_resumable(jsonl_path: Path) -> bool:
+    """True when the CLI's ``--resume`` would find content in *jsonl_path*.
+
+    Both CLI versions write the header line (0.63 also a ``$set`` snapshot)
+    *before* authenticating, so a turn that failed early leaves a stub that
+    ``--resume`` rejects while ``--session-id`` refuses its id.
+    """
+    conv = _load_conversation_file(jsonl_path)
+    return bool(conv and any(_is_resumable_record(r) for r in conv.records))
 
 
 class GeminiAdapter(ProviderAdapter):
@@ -277,64 +539,61 @@ class GeminiAdapter(ProviderAdapter):
         return False
 
     def is_visible_message(self, obj: dict) -> bool:
-        """Gemini's native shape is flat: ``{type, content, ...}`` with no
-        ``message`` wrapper, and the assistant role is ``"gemini"`` rather
-        than ``"assistant"``. The default protocol implementation (built for
-        Claude / Qwen) misses both, so override here.
+        """Visibility of one raw Gemini record.
 
-        For ``type: "gemini"`` lines the CLI almost always writes
-        ``content: ""`` and stores the real payload in ``thoughts`` and/or
-        ``toolCalls``, so empty ``content`` is *not* a signal of an invisible
-        line — we check the other carriers before concluding the turn is
-        empty.
+        Gemini's native shape is flat (``{type, content, ...}``, assistant
+        role ``"gemini"``), so the protocol default misses it.  An assistant
+        record with empty ``content`` but thoughts and/or tool calls is a
+        real turn; a user record is visible only with real text (not the
+        CLI's ``<session_context>`` or a bare ``functionResponse``).
         """
         if not isinstance(obj, dict):
             return False
-        raw_type = obj.get("type")
-        if raw_type not in ("user", "gemini"):
-            return False
-        content = obj.get("content")
-        if isinstance(content, str) and content:
-            return True
-        if isinstance(content, list):
-            # User content is [{text: ...}] segments; visible if any non-empty
-            # text segment is present.
-            if any(
-                isinstance(p, dict) and p.get("text")
-                for p in content
-            ):
-                return True
-        # An assistant turn often carries thoughts and/or tool calls only
-        # (empty ``content`` string).  Those are real turns — surface them.
-        if raw_type == "gemini":
-            return bool(obj.get("toolCalls") or obj.get("thoughts"))
-        return False
+        return _is_visible_record(obj)
+
+    def visible_line_indices(self, objs: list[dict | None]) -> list[int]:
+        """Line positions to cut at when dropping the last N visible turns.
+
+        Records are rewritten many times (upserts, snapshots), so a visible
+        turn maps to the last line *before* the next record's first write —
+        a prefix ending there replays to exactly the turns before it.
+        """
+        conv = _load_conversation(objs)
+        first_line: dict[str, int] = {}
+        for i, obj in enumerate(objs):
+            if isinstance(obj, dict) and obj.get("type") in ("user", "gemini"):
+                rid = obj.get("id")
+                if isinstance(rid, str):
+                    first_line.setdefault(rid, i)
+        last = len(objs) - 1
+        out: list[int] = []
+        records = conv.records
+        for pos, rec in enumerate(records):
+            if not _is_visible_record(rec):
+                continue
+            mine = first_line.get(rec.get("id"), -1)
+            cut = last
+            for nxt in records[pos + 1:]:
+                nl = first_line.get(nxt.get("id"))
+                if nl is not None and nl > mine:
+                    cut = nl - 1
+                    break
+            if out and cut < out[-1]:
+                cut = out[-1]
+            out.append(cut)
+        return out
 
     def read_messages(self, jsonl_path: Path) -> list[dict]:
-        """Read user/assistant messages from a Gemini JSONL file, normalized.
+        """Read the conversation as the CLI would reload it, normalized.
 
-        Skips the header line and ``$set`` bookkeeping markers; converts
-        each remaining user/gemini line to one or more normalized
-        messages (an assistant turn that used tools fans out into the
-        assistant message plus a synthetic tool-result user message).
+        Each message appears once (upsert by id, snapshots, rewinds); an
+        assistant turn that used tools fans out into the assistant message
+        plus a synthetic tool-result user message.
         """
-        messages: list[dict] = []
-        try:
-            with open(jsonl_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        obj = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if _is_metadata_line(obj):
-                        continue
-                    messages.extend(_normalize_message(obj))
-        except (OSError, PermissionError):
-            pass
-        return messages
+        conv = _load_conversation_file(jsonl_path)
+        if conv is None:
+            return []
+        return _normalize_records(conv.records)
 
     def parse_session_info(
         self,
@@ -342,74 +601,34 @@ class GeminiAdapter(ProviderAdapter):
         session_id: str,
         titles: dict[str, str] | None = None,
     ) -> SessionInfo | None:
-        """Extract summary metadata from a Gemini JSONL file.
-
-        Reads the header line for start time and the first user message
-        for the title; counts user+gemini lines for the message count.
-        """
-        first_user_text: str = ""
-        first_timestamp: str | None = None
-        last_timestamp: str | None = None
+        """Summary metadata: header times, first real user text as title,
+        visible turn count (each message counted once)."""
+        conv = _load_conversation_file(jsonl_path)
+        if conv is None or conv.start_time is None:
+            return None
+        first_user_text = ""
         message_count = 0
-
-        try:
-            with open(jsonl_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        obj = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-
-                    # Header line: take startTime as the canonical first
-                    # timestamp and lastUpdated as the running tail.
-                    if (
-                        isinstance(obj, dict)
-                        and "sessionId" in obj
-                        and "startTime" in obj
-                    ):
-                        if first_timestamp is None:
-                            first_timestamp = obj.get("startTime")
-                        last = obj.get("lastUpdated") or obj.get("startTime")
-                        if last:
-                            last_timestamp = last
-                        continue
-
-                    # $set lines: just bump the last_timestamp.
-                    if _is_metadata_line(obj):
-                        new_last = obj.get("$set", {}).get("lastUpdated")
-                        if new_last:
-                            last_timestamp = new_last
-                        continue
-
-                    ts = obj.get("timestamp")
-                    if ts:
-                        if first_timestamp is None:
-                            first_timestamp = ts
-                        last_timestamp = ts
-
-                    role = _normalize_type(obj.get("type", ""))
-                    if role in ("user", "assistant"):
-                        message_count += 1
-                        if role == "user" and not first_user_text:
-                            normalized_list = _normalize_message(obj)
-                            if normalized_list:
-                                first_user_text = extract_text(normalized_list[0])
-        except (OSError, PermissionError):
-            return None
-
-        if first_timestamp is None:
-            return None
-
+        for rec in conv.records:
+            if not _is_visible_record(rec):
+                continue
+            message_count += 1
+            if not first_user_text and rec.get("type") == "user":
+                first_user_text = _user_text(rec)
         title = (titles or {}).get(session_id) or (
             first_user_text[:100] if first_user_text else "(empty session)"
         )
+        try:
+            started = _parse_timestamp(conv.start_time)
+        except (TypeError, ValueError):
+            return None
+        try:
+            last = _parse_timestamp(conv.last_updated) if conv.last_updated else started
+        except (TypeError, ValueError):
+            last = started
         return SessionInfo(
             session_id=session_id,
-            started_at=_parse_timestamp(first_timestamp),
-            last_activity=_parse_timestamp(last_timestamp or first_timestamp),
+            started_at=started,
+            last_activity=last,
             title=title,
             message_count=message_count,
         )
@@ -605,10 +824,15 @@ def _read_gemini_session_id(jsonl_path: Path) -> str | None:
     return None
 
 
+def _load_gemini_catalog():
+    from .catalog import load_gemini_catalog
+    return load_gemini_catalog()
+
+
 register_harness(HarnessSpec(
     name="gemini",
     label="Gemini CLI",
-    description="Google's Gemini CLI — Node-based, OAuth via Google account or GEMINI_API_KEY.",
+    description="Google's Gemini CLI — Node-based; needs GEMINI_API_KEY (Google retired personal-account logins on 2026-06-18).",
     session_class_loader=_load_gemini_session_class,
     adapter_loader=lambda: _adapter,
     # Same as Qwen — Node-based; the spec name is what the reaper uses
@@ -621,5 +845,8 @@ register_harness(HarnessSpec(
     requirements_file=None,  # external Node CLI; no Python deps
     npm_package="@google/gemini-cli",
     cli_binary="gemini",
-    env_keys=(),  # OAuth-first; GEMINI_API_KEY is optional
+    # AI Studio key — the only auth Google still serves to individuals
+    # (Vertex / Code Assist Standard users set ARCHIE_GEMINI_AUTH_TYPE).
+    env_keys=("GEMINI_API_KEY",),
+    catalog_loader=_load_gemini_catalog,
 ))

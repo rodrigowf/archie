@@ -22,6 +22,7 @@ _ALLOWED_KEYS = {
     "chrome_extension",
     "provider",         # registered harness id — pinned per session
     "harness_model",    # provider-appropriate model id, "" = CLI default
+    "harness_options",  # {key: value} overlay on global harness_options[provider]
 }
 
 _DEFAULTS: dict[str, Any] = {
@@ -29,9 +30,11 @@ _DEFAULTS: dict[str, Any] = {
     "enabled_mcps": None,          # None = inherit from global config
     "chrome_extension": None,      # None = inherit from global config
     "provider": None,              # None = inherit from global config (new sessions)
-                                   # — but see chat.py: persisted on first start
-                                   #   so resume is deterministic afterwards.
+                                   # — pinned by the pool on the first turn
+                                   #   (pin_session_provider) and on a detected
+                                   #   resume (chat.py), so resume is deterministic.
     "harness_model": None,         # None = inherit from global harness_model[provider]
+    "harness_options": None,       # None = inherit all; a key with value None = CLI default
 }
 
 
@@ -55,6 +58,44 @@ def load_session_config(session_id: str) -> dict[str, Any]:
     except (json.JSONDecodeError, IOError) as e:
         logger.error("Failed to load session config for %s: %s", session_id, e)
         return dict(_DEFAULTS)
+
+
+def validate_session_config(session_id: str, data: dict[str, Any]) -> dict[str, Any]:
+    """Check a PUT body before saving; returns it with normalized values.
+
+    Only ``harness_options`` needs checking: its keys and values must fit
+    the catalog of the harness the session will run (the provider in the
+    body, else the session's pinned one, else the global default).
+    Raises ``ValueError`` with a user-facing message.
+    """
+    opts = data.get("harness_options")
+    if opts is None:
+        return data
+    from manager.harness_catalog import get_catalog, validate_options
+
+    provider = data.get("provider") or load_session_config(session_id).get("provider")
+    if not provider:
+        from api.routes.config import _load_config
+        provider = _load_config().get("provider") or "claude"
+    out = dict(data)
+    out["harness_options"] = validate_options(get_catalog(provider), opts)
+    return out
+
+
+def pin_session_provider(session_id: str, provider: str) -> bool:
+    """Record *provider* as the session's harness unless one is pinned already.
+
+    Called by the pool once a session has its provider-side id (first
+    turn), for every harness.  Two harnesses can write the same JSONL
+    format (``claude`` and ``modelstudio`` both run Claude Code), so format
+    detection cannot tell them apart on resume — the pinned value can.
+    Returns True when it wrote the config.
+    """
+    path = _config_path(session_id)
+    if path.is_file() and load_session_config(session_id).get("provider"):
+        return False
+    save_session_config(session_id, {"provider": provider})
+    return True
 
 
 def save_session_config(session_id: str, data: dict[str, Any]) -> dict[str, Any]:

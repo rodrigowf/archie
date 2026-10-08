@@ -9,6 +9,10 @@ import { initialConversation, reduceConversation, type Conversation } from '@/pr
 import {
   activateTab,
   capabilitiesStore,
+  currentProviderLabel,
+  providerLabel,
+  serverConfigStore,
+  useProviderLabel,
   catalogStore,
   clearSessionRegistry,
   clearSnackbars,
@@ -382,5 +386,34 @@ describe('hooks', () => {
     });
     expect(renders.length).toBe(m);
     expect(catalogStore.getState().sessions.items).toEqual([]);
+  });
+});
+
+describe('provider labels', () => {
+  it('short tags for the shipped harnesses, registry labels for new ones, the id as last resort', () => {
+    expect(providerLabel('claude')).toBe('Claude');
+    expect(providerLabel('codex')).toBe('Codex');
+    expect(providerLabel('modelstudio')).toBe('Model Studio');
+    expect(providerLabel('aider', [{ id: 'aider', label: 'Aider CLI' }])).toBe('Aider CLI');
+    expect(providerLabel('aider', null, [{ id: 'aider', label: 'Aider (providers)' }])).toBe('Aider (providers)');
+    expect(providerLabel('aider', [{ id: 'aider', label: '' }])).toBe('aider');
+    expect(providerLabel('toString')).toBe('toString');
+    expect(providerLabel('')).toBeNull();
+    expect(providerLabel(null)).toBeNull();
+    serverConfigStore.setState({ harnesses: [{ id: 'aider', label: 'Aider CLI', catalog: null }] });
+    expect(currentProviderLabel('aider')).toBe('Aider CLI');
+  });
+
+  it('useProviderLabel follows the registry in the store', () => {
+    const seen: (string | null)[] = [];
+    function View() {
+      seen.push(useProviderLabel()('aider'));
+      return null;
+    }
+    serverConfigStore.setState({ harnesses: null, providers: null });
+    render(<View />);
+    expect(seen.at(-1)).toBe('aider');
+    act(() => serverConfigStore.setState({ harnesses: [{ id: 'aider', label: 'Aider CLI', catalog: null }] }));
+    expect(seen.at(-1)).toBe('Aider CLI');
   });
 });

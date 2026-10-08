@@ -5,7 +5,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionInfo } from '@/services';
-import { setCatalogError, setCatalogItems, snackbarStore } from '@/stores';
+import { patchServerConfig, setCatalogError, setCatalogItems, snackbarStore } from '@/stores';
 import { expectNoAxeViolations } from '@/test/axe';
 import { jsonResponse, setupServices, teardownServices, type Harness } from '../../../services/__tests__/fakes';
 import { groupSessions, historyGroupOf, historyStamp, HistoryPane, matchesQuery, parseServerTime, shortAge, type OpenNowItem } from '..';
@@ -113,6 +113,21 @@ describe('<HistoryPane>', () => {
     fireEvent.click(screen.getByRole('button', { name: /Already open/ }));
     expect(onFocus).toHaveBeenCalledWith('L1');
     await expectNoAxeViolations(container);
+  });
+
+  it('labels rows from the harness registry: short tags, registry labels for new harnesses, raw id last', () => {
+    patchServerConfig({ harnesses: [{ id: 'aider', label: 'Aider CLI', catalog: null }] });
+    setCatalogItems('sessions', [
+      session('s-codex', 'Codex job', '2026-10-04T12:00:00+00:00', { provider: 'codex' }),
+      session('s-ms', 'Model Studio job', '2026-10-04T11:00:00+00:00', { provider: 'modelstudio' }),
+      session('s-aider', 'Aider job', '2026-10-04T10:00:00+00:00', { provider: 'aider' }),
+      session('s-x', 'Unknown job', '2026-10-04T09:00:00+00:00', { provider: 'mystery' }),
+    ]);
+    render(<HistoryPane now={NOW} />);
+    expect(screen.getByRole('button', { name: /Codex job/ }).getAttribute('title')).toContain('· Codex ·');
+    expect(screen.getByRole('button', { name: /Model Studio job/ }).getAttribute('title')).toContain('· Model Studio ·');
+    expect(screen.getByRole('button', { name: /Aider job/ }).getAttribute('title')).toContain('· Aider CLI ·');
+    expect(screen.getByRole('button', { name: /Unknown job/ }).getAttribute('title')).toContain('· mystery ·');
   });
 
   it('search filters titles (open and past) and says when nothing matches', () => {

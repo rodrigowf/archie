@@ -3,7 +3,8 @@
   "providers": { "providers": [
     { "id": "claude", "label": "Claude Code", "description": "Anthropic Claude Code CLI" },
     { "id": "qwen", "label": "Qwen Code", "description": "Qwen Code CLI" },
-    { "id": "gemini", "label": "Gemini CLI", "description": "Google Gemini CLI" }
+    { "id": "gemini", "label": "Gemini CLI", "description": "Google Gemini CLI" },
+    { "id": "codex", "label": "Codex", "description": "OpenAI Codex CLI (app-server)" }
   ] },
   "qwen_models": { "models": ["qwen3-coder-plus", "qwen3-coder-flash"] },
   "google_voice_models": { "models": [

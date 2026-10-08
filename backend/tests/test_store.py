@@ -348,6 +348,86 @@ class TestSessionStoreDeleteSession:
             assert not (context_dir / "del.jsonl").exists()
             assert (context_dir / "trash" / "del.jsonl").is_file()
 
+    def test_delete_uses_the_store_context_not_the_real_one(self, tmp_path):
+        """Regression: delete_session used the global get_trash_dir(), so a store
+        built on a test project moved its fixture JSONLs into the REAL
+        context/trash/ (dozens of ``indexed-session.*`` / ``qwen-sess-1.*``)."""
+        from utils.paths import get_trash_dir
+
+        context_dir = tmp_path / "context"
+        context_dir.mkdir(parents=True)
+        sid = "leak-guard-session"
+        (context_dir / f"{sid}.jsonl").write_text("{}")
+        real_trash = get_trash_dir()
+        before = {p.name for p in real_trash.iterdir()} if real_trash.is_dir() else set()
+
+        store = SessionStore(tmp_path)  # no PROJECT_ROOT patch on purpose
+        assert store.delete_session(sid, skip_index_cleanup=True) is True
+
+        assert (context_dir / "trash" / f"{sid}.jsonl").is_file()
+        after = {p.name for p in real_trash.iterdir()} if real_trash.is_dir() else set()
+        assert not {n for n in after - before if n.startswith(sid)}
+
+    def test_delete_moves_config_and_summary_sidecars(self, tmp_path):
+        """The per-session ``.config.json`` and ``.summary.json`` go to the trash
+        with the JSONL instead of staying behind as orphans."""
+        context_dir = tmp_path / "context"
+        context_dir.mkdir(parents=True)
+        sid = "11111111-2222-3333-4444-555555555555"
+        (context_dir / f"{sid}.jsonl").write_text("{}")
+        (context_dir / f"{sid}.config.json").write_text('{"provider": "claude"}')
+        (context_dir / f"{sid}.summary.json").write_text("{}")
+
+        store = SessionStore(tmp_path)
+        assert store.delete_session(sid, skip_index_cleanup=True) is True
+
+        trash = context_dir / "trash"
+        assert sorted(p.name for p in context_dir.iterdir() if p.is_file()) == []
+        assert sorted(p.name for p in trash.iterdir()) == [
+            f"{sid}.config.json", f"{sid}.jsonl", f"{sid}.summary.json",
+        ]
+
+    def test_delete_sidecars_follow_the_collision_suffix(self, tmp_path):
+        context_dir = tmp_path / "context"
+        trash = context_dir / "trash"
+        trash.mkdir(parents=True)
+        sid = "11111111-2222-3333-4444-555555555555"
+        (trash / f"{sid}.jsonl").write_text("old")
+        (trash / f"{sid}.config.json").write_text("old")
+        (context_dir / f"{sid}.jsonl").write_text("new")
+        (context_dir / f"{sid}.config.json").write_text("new")
+
+        store = SessionStore(tmp_path)
+        assert store.delete_session(sid, skip_index_cleanup=True) is True
+
+        assert (trash / f"{sid}.config.json").read_text() == "old"
+        new_configs = [p for p in trash.glob(f"{sid}.*.config.json")]
+        assert len(new_configs) == 1 and new_configs[0].read_text() == "new"
+        assert not (context_dir / f"{sid}.config.json").exists()
+
+    def test_delete_gemini_session_moves_config_keyed_by_session_id(self, tmp_path):
+        """Gemini's file is named ``session-<ts>-<id8>`` but its config is keyed by
+        the full session id — both end up in the trash."""
+        chats = tmp_path / "context" / "chats"
+        chats.mkdir(parents=True)
+        sid = "abcdef12-0000-4000-8000-000000000000"
+        (chats / "session-2026-10-08T03-03-abcdef12.jsonl").write_text(
+            json.dumps({"sessionId": sid, "projectHash": "x", "startTime": "2026-10-08T03:03:00Z",
+                        "lastUpdated": "2026-10-08T03:03:00Z", "kind": "main"}) + "\n"
+            + json.dumps({"id": "m1", "timestamp": "2026-10-08T03:03:01Z", "type": "user",
+                          "content": [{"text": "hi"}]}) + "\n"
+        )
+        (tmp_path / "context" / f"{sid}.config.json").write_text('{"provider": "gemini"}')
+
+        store = SessionStore(tmp_path)
+        assert any(s.session_id == sid for s in store.list_sessions())
+        assert store.delete_session(sid, skip_index_cleanup=True) is True
+
+        trash = tmp_path / "context" / "trash"
+        assert (trash / "session-2026-10-08T03-03-abcdef12.jsonl").is_file()
+        assert (trash / f"{sid}.config.json").is_file()
+        assert not (tmp_path / "context" / f"{sid}.config.json").exists()
+
     def test_delete_collision_keeps_both(self, tmp_path):
         context_dir = tmp_path / "context"
         context_dir.mkdir(parents=True)

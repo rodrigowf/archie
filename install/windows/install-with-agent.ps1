@@ -59,7 +59,7 @@ Write-Host "  Personal Assistant - Conversational Installer (Windows)"  -Foregro
 Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "This is the conversational install path.  It will launch an agent CLI"
-Write-Host "(Claude Code, Qwen Code, or Gemini CLI) and let that agent walk you"
+Write-Host "(Claude Code, Qwen Code, Gemini CLI or Codex CLI) and let that agent walk you"
 Write-Host "through the install - asking you questions, executing each step, and"
 Write-Host "logging progress to context\install.log."
 Write-Host ""
@@ -85,16 +85,24 @@ Write-Host ""
 # ─────────────────────────────────────────────────────────────────────────────
 Write-Step "Detecting installed agent CLIs..."
 
-$AllClis = @('claude','qwen','gemini')
+$AllClis = @('claude','qwen','gemini','codex')
+# Qwen, Gemini and Codex are pinned to the versions Archie's harnesses are
+# verified against - install\harness-versions.env, shared with install.ps1.
+$HarnessVersions = @{}
+foreach ($line in Get-Content -LiteralPath (Join-Path $InstallerDir '..\harness-versions.env')) {
+    if ($line -match '^\s*([A-Z0-9_]+)=(\S+)\s*$') { $HarnessVersions[$Matches[1]] = $Matches[2] }
+}
 $CliPkg = @{
     'claude' = '@anthropic-ai/claude-code'
-    'qwen'   = '@qwen-code/qwen-code'
-    'gemini' = '@google/gemini-cli'
+    'qwen'   = "@qwen-code/qwen-code@$($HarnessVersions['QWEN_CLI_VERSION'])"
+    'gemini' = "@google/gemini-cli@$($HarnessVersions['GEMINI_CLI_VERSION'])"
+    'codex'  = "@openai/codex@$($HarnessVersions['CODEX_CLI_VERSION'])"
 }
 $CliLabel = @{
     'claude' = 'Claude Code (Anthropic)'
     'qwen'   = 'Qwen Code (Alibaba)'
-    'gemini' = 'Gemini CLI (Google)'
+    'gemini' = 'Gemini CLI (Google - needs GEMINI_API_KEY)'
+    'codex'  = 'Codex CLI (OpenAI - ChatGPT login)'
 }
 
 $Installed = @()
@@ -187,10 +195,17 @@ function Test-DriverAuth {
             return $false
         }
         'gemini' {
-            if (Test-Path (Join-Path $env:USERPROFILE '.gemini\oauth_creds.json')) { return $true }
+            # Google stopped serving Gemini CLI to personal Google logins
+            # (oauth-personal) on 2026-06-18 - only an API key counts.
             if ((Test-Path 'context\.env') -and ((Get-Content -LiteralPath 'context\.env' -Raw) -match '(?m)^GEMINI_API_KEY=.+')) { return $true }
             if ($env:GEMINI_API_KEY) { return $true }
             return $false
+        }
+        'codex' {
+            # The driver runs with the default CODEX_HOME (~\.codex), not
+            # Archie's ~\.codex-archie - that one is set up by install.ps1.
+            $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' }
+            return (Test-Path (Join-Path $codexHome 'auth.json'))
         }
     }
     return $false
@@ -201,7 +216,8 @@ function Get-LoginCmd {
     switch ($Cli) {
         'claude' { return 'claude auth login' }
         'qwen'   { return 'qwen' }
-        'gemini' { return 'gemini' }
+        'gemini' { return '$env:GEMINI_API_KEY = "<key from https://aistudio.google.com/apikey>"   (or put it in context\.env)' }
+        'codex'  { return 'codex login --device-auth' }
     }
 }
 
@@ -263,7 +279,9 @@ Begin by:
   4. Creating context\install.log if it doesn't exist and appending a
      timestamped "install agent started" line.
   5. Greeting the user briefly and asking the first axis question
-     (session harness - claude / qwen / gemini, any subset).
+     (session harness - claude / qwen / gemini / codex / modelstudio, any
+     subset; modelstudio installs no CLI - it needs the claude SDK and
+     DASHSCOPE_API_KEY).
 
 Important context for this session:
   - The user already has $Driver installed and authenticated (it's driving
@@ -290,6 +308,17 @@ Write-Host ""
 switch ($Driver) {
     'claude' { & claude $prompt }
     'qwen'   { & qwen --prompt-interactive $prompt }
-    'gemini' { & gemini --prompt-interactive $prompt }
+    'gemini' {
+        # The key may live only in context\.env; GEMINI_CLI_AUTH_OVERRIDE
+        # stops a stale oauth-personal choice in ~\.gemini\settings.json
+        # (dead since 2026-06-18) from beating it.
+        if (-not $env:GEMINI_API_KEY -and (Test-Path 'context\.env')) {
+            $m = [regex]::Match((Get-Content -LiteralPath 'context\.env' -Raw), '(?m)^GEMINI_API_KEY=(.+?)\s*$')
+            if ($m.Success) { $env:GEMINI_API_KEY = $m.Groups[1].Value }
+        }
+        $env:GEMINI_CLI_AUTH_OVERRIDE = 'gemini-api-key'
+        & gemini --prompt-interactive $prompt
+    }
+    'codex'  { & codex $prompt }
     default  { Write-Err "Internal error: unknown driver $Driver" }
 }

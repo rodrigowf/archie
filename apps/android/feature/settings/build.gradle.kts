@@ -12,6 +12,10 @@ android {
     testOptions.unitTests.all { test ->
         // Goldens: compare against src/test/screenshots in `check`; record with recordRoborazziDebug.
         test.maxHeapSize = "2g"
+        // The harness catalogs the web mock server serves (`GET /api/config/harnesses`), shared with the web tests.
+        val harnessCatalogs = rootProject.layout.projectDirectory.file("../web/mock-server/data/harnesses.json")
+        test.inputs.file(harnessCatalogs).withPathSensitivity(PathSensitivity.RELATIVE)
+        test.systemProperty("archie.harnessCatalogs", harnessCatalogs.asFile.absolutePath)
     }
     testOptions.unitTests.isIncludeAndroidResources = true
 }

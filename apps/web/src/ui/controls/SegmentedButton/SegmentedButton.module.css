@@ -78,3 +78,54 @@
 .selected[aria-disabled="true"] {
   background: var(--md-sys-color-on-surface-disabled-container);
 }
+
+/* A small dot after the label (marks e.g. the default level). */
+.dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: currentcolor;
+  opacity: 0.6;
+}
+
+/*
+ * `wrap`: separate 32 dp pills (chip-like, 48 dp touch rows) wrapping onto more rows; spacing is
+ * margins (no flex gap, Safari 12). The group's negative bottom margin eats the last row's margin.
+ */
+.wrap {
+  display: flex;
+  flex-wrap: wrap;
+  height: auto;
+  margin-bottom: -8px;
+  overflow: visible;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.wrap .segment,
+.wrap .segment + .segment {
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 0;
+  height: 36px;
+  margin: 0 8px 8px 0;
+  padding: 0 14px;
+  border-radius: 18px;
+  box-shadow: inset 0 0 0 1px var(--md-sys-color-outline);
+}
+
+.wrap .segment::before {
+  top: 0;
+  bottom: 0;
+}
+
+.wrap .segment.selected {
+  box-shadow: none;
+}
+
+.wrap .segment:focus-visible,
+.wrap .segment[data-state="focus"] {
+  outline-offset: 2px;
+}

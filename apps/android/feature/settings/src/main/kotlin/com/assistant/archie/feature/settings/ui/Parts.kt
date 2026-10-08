@@ -159,6 +159,25 @@ internal fun Section(title: String?, modifier: Modifier = Modifier, content: @Co
     }
 }
 
+/** An ⓘ button opening a dialog with [info] (IA §7: one short line, the details behind ⓘ). */
+@Composable
+internal fun InfoButton(title: String, info: String) {
+    var open by rememberSaveable { mutableStateOf(false) }
+    Box(
+        Modifier.size(32.dp).clip(RoundedCornerShape(16.dp)).clickable(role = Role.Button, onClickLabel = "More info") { open = true }.testTag("info:$title"),
+        contentAlignment = Alignment.Center,
+    ) {
+        ArchieIcon(ArchieIcons.Info, "More info", size = 18.dp, tint = ArchieTheme.colors.onSurfaceVariant)
+    }
+    if (open) {
+        Dialog(onDismissRequest = { open = false }) {
+            ArchieDialogSurface(title, body = { Text(info) }) {
+                ArchieButton("OK", { open = false }, style = ButtonStyle.Text)
+            }
+        }
+    }
+}
+
 /** One short help line with the details behind ⓘ (IA §7). */
 @Composable
 internal fun HelpLine(text: String, info: String? = null, modifier: Modifier = Modifier) {
@@ -242,6 +261,8 @@ internal fun SelectRow(
     enabled: Boolean = true,
     supporting: String? = null,
     icon: ImageVector? = null,
+    /** Details behind an ⓘ button next to the dropdown arrow. */
+    info: String? = null,
 ) {
     var open by rememberSaveable { mutableStateOf(false) }
     val current = options.firstOrNull { it.id == selected }
@@ -252,7 +273,12 @@ internal fun SelectRow(
             value = current?.label ?: selected?.takeIf { it.isNotEmpty() } ?: "—",
             onClick = { open = true },
             enabled = enabled && options.isNotEmpty(),
-            trailing = { ArchieIcon(ArchieIcons.ArrowDropDown, null, tint = ArchieTheme.colors.onSurfaceVariant) },
+            trailing = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (info != null) InfoButton(title, info)
+                    ArchieIcon(ArchieIcons.ArrowDropDown, null, tint = ArchieTheme.colors.onSurfaceVariant)
+                }
+            },
             modifier = Modifier.testTag("select:$title"),
         )
         if (supporting != null) {

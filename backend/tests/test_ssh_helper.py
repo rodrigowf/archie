@@ -363,3 +363,133 @@ def test_cleanup_is_idempotent(tmp_path):
     cleanup_ssh_wrapper_script(path)
     cleanup_ssh_wrapper_script(path)   # second call must not raise
     cleanup_ssh_wrapper_script(None)   # nor a None
+
+
+@pytest.mark.parametrize("shell", ["/bin/sh", "/bin/bash"])
+def test_wrapper_round_trips_awkward_args(tmp_path, shell):
+    """Regression: an argument containing an apostrophe used to break the
+    wrapper ("Unterminated quoted string") because sed received ``'\\''``
+    with one backslash too few.  Run the real wrapper with ``ssh`` swapped
+    for ``sh -c`` and the remote CLI for an argv dumper; every argument
+    (apostrophes, double quotes, ``$``, backticks, newlines incl. trailing,
+    empty, dash-leading) must arrive byte-identical."""
+    import json
+    import os
+    import subprocess
+    from pathlib import Path
+
+    if not Path(shell).exists():
+        pytest.skip(f"{shell} not available")
+    dumper = tmp_path / "dump.py"
+    dumper.write_text("#!/usr/bin/env python3\nimport sys, json\nprint(json.dumps(sys.argv[1:]))\n")
+    dumper.chmod(0o755)
+    cmd = RemoteCommand(
+        project_dir=str(tmp_path), remote_cli=str(dumper), env={"K": "it's"},
+    ).render_shell()
+    path = write_ssh_wrapper_script(ssh_argv=["sh", "-c"], remote_cmd=cmd, prefix="test")
+    args = [
+        "x'y", "don't", "a'b'c''", "'", "say \"hi\"", "$HOME", "`id`", "$(id)",
+        "back\\slash", "multi\nline", "trailing\n\n", "", "-dash-leading", "--flag=v'q",
+    ]
+    try:
+        out = subprocess.run(
+            [shell, path, *args], capture_output=True, text=True, timeout=10, env=dict(os.environ),
+        )
+        assert out.returncode == 0, out.stderr
+        assert json.loads(out.stdout) == args
+    finally:
+        cleanup_ssh_wrapper_script(path)
+
+
+# ── Remote process control (spawn-per-turn harnesses over SSH) ─────────
+
+
+def test_remote_command_announces_pid_before_exec():
+    from manager._ssh import REMOTE_PID_MARKER, RemoteCommand
+
+    cmd = RemoteCommand(project_dir="/p", remote_cli="/bin/q", announce_pid=True).render_shell()
+    assert cmd.startswith(f"cd '/p' && echo {REMOTE_PID_MARKER}$$ && ")
+    assert cmd.endswith("exec '/bin/q'")
+    assert REMOTE_PID_MARKER not in RemoteCommand(project_dir="/p", remote_cli="/bin/q").render_shell()
+
+
+def test_parse_remote_pid():
+    from manager._ssh import parse_remote_pid
+
+    assert parse_remote_pid("__ARCHIE_REMOTE_PID__=4242") == 4242
+    assert parse_remote_pid('{"type": "init"}') is None
+    assert parse_remote_pid("__ARCHIE_REMOTE_PID__=x") is None
+
+
+def test_remote_kill_script_stops_cli_and_detached_children(tmp_path):
+    """Run the script locally against a fake CLI that, like the Node CLIs'
+    shell tools, starts a detached child (own session)."""
+    import subprocess
+    import sys
+    import time
+
+    from manager._ssh import remote_kill_script
+
+    marker = tmp_path / "child.pid"
+    cli = subprocess.Popen(
+        [sys.executable, "-c",
+         "import subprocess, sys, time; "
+         f"c = subprocess.Popen(['sleep', '30'], start_new_session=True); open({str(marker)!r}, 'w').write(str(c.pid)); "
+         "time.sleep(30)"],
+        start_new_session=True, stderr=subprocess.DEVNULL,
+    )
+    for _ in range(50):
+        if marker.exists() and marker.read_text():
+            break
+        time.sleep(0.1)
+    child = int(marker.read_text())
+    subprocess.run(["sh", "-c", remote_kill_script(cli.pid, grace_s=1)], check=True, timeout=20)
+    assert cli.wait(timeout=5) is not None
+    time.sleep(0.3)
+    try:
+        with open(f"/proc/{child}/stat") as f:
+            state = f.read().rsplit(")", 1)[1].split()[0]
+    except FileNotFoundError:
+        return
+    if state != "Z":
+        import os
+        os.kill(child, 9)
+        raise AssertionError("detached child survived the remote kill script")
+
+
+async def test_qwen_interrupt_over_ssh_kills_remote_tree(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    import manager.qwen.session as qs
+    from manager._ssh import SshTarget
+    from manager.config import ManagerConfig
+
+    killer = AsyncMock(return_value=True)
+    monkeypatch.setattr(qs, "kill_remote_tree", killer)
+    sm = qs.QwenSessionManager(config=ManagerConfig(ssh_host="h", ssh_user="u"))
+    target = SshTarget(host="h", user="u", key=None, control_path_prefix="qwen")
+    sm._remote_target, sm._remote_pid = target, 999
+    await sm.interrupt()
+    for t in list(sm._reaper_tasks):
+        await t
+    killer.assert_awaited_once_with(target, 999)
+    assert sm._remote_pid is None
+    # a second interrupt has nothing left to kill
+    await sm.interrupt()
+    assert killer.await_count == 1
+
+
+def test_remote_kill_script_detached_returns_immediately(tmp_path):
+    """The detached form returns at once and still stops the tree."""
+    import subprocess
+    import sys
+    import time
+
+    from manager._ssh import remote_kill_script
+
+    cli = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
+    time.sleep(0.3)
+    t0 = time.monotonic()
+    subprocess.run(["sh", "-c", remote_kill_script(cli.pid, grace_s=1, detach=True)], check=True, timeout=10)
+    assert time.monotonic() - t0 < 1.0
+    assert cli.wait(timeout=10) is not None

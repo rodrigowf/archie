@@ -3,7 +3,7 @@ name: architecture
 category: archie/voice
 tags: [voice, realtime, multi-provider, openai, qwen, gemini, webrtc, voice-relay, voice-provider, canonical-events, vad, silero, voice-error, reconnect, voice-persister, echo-ducking, web, android, run-script]
 created: 2026-04-17
-modified: 2026-10-06
+modified: 2026-10-07
 summary: How realtime voice works across OpenAI, Qwen and Gemini; provider contract, the two transports, backend modules, clients, invariants, file map.
 source: curated (consolidated from memory notes assistant/voice/voice-multimodel-plan.md, assistant/architecture/voice_subsystem.md, assistant/architecture/voice_command_device_control.md, assistant/voice/gemini_live_voice_adaptation.md, assistant/voice/qwen_omni_voice_adaptation.md, assistant/android/android_peripheral_project.md, assistant/providers/openai_audio_model_gpt_audio.md; verified against code 2026-10-06)
 references:
@@ -117,14 +117,21 @@ without the `openai` SDK still imports. `VOICE_MODELS` holds per-model entries
 `{id, label, voice, voices, transcription_languages,
 default_transcription_language, default}`. `resolve_voice_target()` falls
 back to defaults at every level: unknown provider → `openai`; an unknown model
-id is *accepted* using the provider's default entry as a template (for
-live-discovered models); unknown voice or language → the model's default.
+id is *accepted* (for live-discovered models) — OpenAI and Gemini use the
+provider's default entry as a template, Qwen goes through `qwen_model_entry()`
+(dated snapshot → its alias's entry, otherwise the Flash or Plus catalogue by
+family name); unknown voice or language → the model's default.
 `instantiate_provider(provider, model, voice, lang, endpoint)`; `endpoint`
 picks Gemini's backend.
 
 Voice catalogue: OpenAI 10 voices; Qwen Plus 55, Qwen Flash 49; Gemini 8 (all
-static). `GET /api/orchestrator/voice/models` serves the static map.
-`GET /api/config/voice/google/models?endpoint=…` lists Gemini's live models.
+static). `GET /api/orchestrator/voice/models` merges live model ids with the
+static map (`discovery.py`, 10-minute cache, static fallback on error or
+missing key): OpenAI's `*realtime*` ids from `/v1/models`, Qwen's
+`qwen*-omni-*realtime` ids from DashScope's
+`/compatible-mode/v1/models` (realtime TTS / ASR / livetranslate ids are
+filtered out). `GET /api/config/voice/google/models?endpoint=…` lists
+Gemini's live models.
 
 Global defaults live in `assistant_config.json`: `default_voice_provider`,
 `default_voice_model`, `default_voice_name`,

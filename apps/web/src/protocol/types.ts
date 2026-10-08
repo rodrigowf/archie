@@ -15,7 +15,12 @@ import type { ClientMessage } from './wire/client';
 import type { ServerFrame } from './wire/server';
 
 export type SessionKind = 'agent' | 'orchestrator';
-export type Provider = 'claude' | 'qwen' | 'gemini';
+/**
+ * A session harness id from the backend's registry (`claude`, `qwen`, `gemini`, `codex`,
+ * `modelstudio`, …). Open-ended on purpose: a new harness needs no web edit; labels come from
+ * `@/stores` `providerLabel`.
+ */
+export type Provider = string;
 
 /** `GET /api/sessions/pool/live` row status (`manager/types.py:15-23`). */
 export type LiveStatus = 'idle' | 'streaming' | 'tool_use' | 'thinking' | 'interrupted' | 'disconnected';

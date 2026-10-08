@@ -3,12 +3,12 @@
 #
 # This is the alternate install entry point.  Instead of running the
 # deterministic ./install.sh, it launches one of the agent CLIs (Claude Code,
-# Qwen Code, or Gemini CLI) and hands it INSTALL.md as instructions.  The
+# Qwen Code, Gemini CLI or Codex CLI) and hands it INSTALL.md as instructions.  The
 # agent then walks the user through the install conversationally, executing
 # each step itself with its file and Bash tools.
 #
 # What this script does:
-#   1. Detects which agent CLIs are installed (claude / qwen / gemini).
+#   1. Detects which agent CLIs are installed (claude / qwen / gemini / codex).
 #   2. If none are installed, asks which ones to install and runs `npm i -g`.
 #      If multiple are now available, asks which one should drive the install.
 #   3. Ensures the chosen driver CLI is authenticated (or that the user knows
@@ -61,7 +61,7 @@ echo "       Personal Assistant — Conversational Installer"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo -e "${NC}"
 echo "This is the conversational install path.  It will launch an agent CLI"
-echo "(Claude Code, Qwen Code, or Gemini CLI) and let that agent walk you"
+echo "(Claude Code, Qwen Code, Gemini CLI or Codex CLI) and let that agent walk you"
 echo "through the install — asking you questions, executing each step, and"
 echo "logging progress to context/install.log."
 echo ""
@@ -90,19 +90,30 @@ echo ""
 # and the script branches on its size.
 step "Detecting installed agent CLIs..."
 
-declare -a ALL_CLIS=(claude qwen gemini)
-declare -A CLI_PKG=(
-    [claude]="@anthropic-ai/claude-code"
-    [qwen]="@qwen-code/qwen-code"
-    [gemini]="@google/gemini-cli"
-)
-declare -A CLI_LABEL=(
-    [claude]="Claude Code (Anthropic)"
-    [qwen]="Qwen Code (Alibaba)"
-    [gemini]="Gemini CLI (Google)"
-)
+ALL_CLIS=(claude qwen gemini codex)
+# Qwen, Gemini and Codex are pinned to the versions Archie's harnesses are
+# verified against — install/harness-versions.env, shared with install.sh.
+# (Plain functions instead of associative arrays: macOS ships bash 3.2.)
+# shellcheck disable=SC1091
+. "$INSTALLER_DIR/../harness-versions.env"
+cli_pkg() {
+    case "$1" in
+        claude) echo "@anthropic-ai/claude-code" ;;
+        qwen)   echo "@qwen-code/qwen-code@$QWEN_CLI_VERSION" ;;
+        gemini) echo "@google/gemini-cli@$GEMINI_CLI_VERSION" ;;
+        codex)  echo "@openai/codex@$CODEX_CLI_VERSION" ;;
+    esac
+}
+cli_label() {
+    case "$1" in
+        claude) echo "Claude Code (Anthropic)" ;;
+        qwen)   echo "Qwen Code (Alibaba)" ;;
+        gemini) echo "Gemini CLI (Google — needs GEMINI_API_KEY)" ;;
+        codex)  echo "Codex CLI (OpenAI — ChatGPT login)" ;;
+    esac
+}
 
-declare -a INSTALLED=()
+INSTALLED=()
 for cli in "${ALL_CLIS[@]}"; do
     if command -v "$cli" &>/dev/null; then
         INSTALLED+=("$cli")
@@ -122,7 +133,7 @@ if [ "${#INSTALLED[@]}" -eq 0 ]; then
     echo ""
     echo "Available agent CLIs:"
     for cli in "${ALL_CLIS[@]}"; do
-        echo "  • $cli  (${CLI_LABEL[$cli]}) — npm install -g ${CLI_PKG[$cli]}"
+        echo "  • $cli  ($(cli_label "$cli")) — npm install -g $(cli_pkg "$cli")"
     done
     echo ""
     echo "You can install one or more now.  The first one you install becomes"
@@ -137,11 +148,11 @@ if [ "${#INSTALLED[@]}" -eq 0 ]; then
     fi
 
     for cli in "${ALL_CLIS[@]}"; do
-        ask "Install $cli (${CLI_LABEL[$cli]})? [y/N] "
+        ask "Install $cli ($(cli_label "$cli"))? [y/N] "
         read -r ANS
         if [[ "${ANS:-N}" =~ ^[Yy]$ ]]; then
-            step "Installing ${CLI_PKG[$cli]} globally..."
-            if npm install -g "${CLI_PKG[$cli]}"; then
+            step "Installing $(cli_pkg "$cli") globally..."
+            if npm install -g "$(cli_pkg "$cli")"; then
                 info "$cli installed"
                 INSTALLED+=("$cli")
             else
@@ -168,7 +179,7 @@ else
     echo ""
     i=1
     for cli in "${INSTALLED[@]}"; do
-        echo -e "  ${BOLD}${i})${NC} $cli  (${CLI_LABEL[$cli]})"
+        echo -e "  ${BOLD}${i})${NC} $cli  ($(cli_label "$cli"))"
         i=$((i + 1))
     done
     echo ""
@@ -201,9 +212,15 @@ check_driver_auth() {
                 [ -n "${DASHSCOPE_API_KEY:-}" ]
             ;;
         gemini)
-            [ -f "$HOME/.gemini/oauth_creds.json" ] || \
-                grep -q "^GEMINI_API_KEY=.\+" context/.env 2>/dev/null || \
+            # Google stopped serving Gemini CLI to personal Google logins
+            # (oauth-personal) on 2026-06-18 — only an API key counts.
+            grep -q "^GEMINI_API_KEY=.\+" context/.env 2>/dev/null || \
                 [ -n "${GEMINI_API_KEY:-}" ]
+            ;;
+        codex)
+            # The driver runs with the default CODEX_HOME (~/.codex), not
+            # Archie's ~/.codex-archie — that one is set up by install.sh.
+            [ -f "${CODEX_HOME:-$HOME/.codex}/auth.json" ]
             ;;
     esac
 }
@@ -212,7 +229,8 @@ login_cmd_for() {
     case "$1" in
         claude) echo "claude auth login" ;;
         qwen)   echo "qwen" ;;
-        gemini) echo "gemini" ;;
+        gemini) echo "export GEMINI_API_KEY=<key from https://aistudio.google.com/apikey>   (or put it in context/.env)" ;;
+        codex)  echo "codex login --device-auth" ;;
     esac
 }
 
@@ -277,7 +295,9 @@ Begin by:
   4. Creating context/install.log if it doesn't exist and appending a
      timestamped "install agent started" line.
   5. Greeting the user briefly and asking the first axis question
-     (session harness — claude / qwen / gemini, any subset).
+     (session harness — claude / qwen / gemini / codex / modelstudio,
+     any subset; modelstudio installs no CLI — it needs the claude SDK
+     and DASHSCOPE_API_KEY).
 
 Important context for this session:
   - The user already has ${DRIVER} installed and authenticated (it's
@@ -286,6 +306,10 @@ Important context for this session:
   - Other harnesses (the ones not in the list above) may need to be
     installed if the user picks them.  Step 7b in install/linux/install.sh
     has the detection + npm install + login-prompt logic — follow that.
+  - Finish with install/doctor.sh (check-only): it prints an OK/WARN/FAIL
+    table of every harness's binary, pins, env keys, auth files, symlinks
+    and seed settings.  Fix what it reports; --dry-run shows what --fix
+    would repair (symlinks and seed files only).
   - When the install is complete, ask the user if they'd like the backend
     and/or frontend started in the background, then exit cleanly.
 
@@ -301,7 +325,10 @@ echo ""
 #            interactive mode after it processes the prompt).
 #   qwen   — same as claude (Qwen Code is forked from Gemini CLI which is
 #            in turn similar enough to claude's CLI).
-#   gemini — same idiom.
+#   gemini — same idiom.  Launched with GEMINI_CLI_AUTH_OVERRIDE so a stale
+#            oauth-personal choice in ~/.gemini/settings.json (dead since
+#            2026-06-18) doesn't beat the API key.
+#   codex  — takes the prompt as a positional arg, like claude.
 #
 # CLAUDE_CONFIG_DIR / GEMINI_DIR aren't set here intentionally: the agent
 # will discover whether they need to be set as part of executing the
@@ -314,7 +341,14 @@ case "$DRIVER" in
         exec qwen --prompt-interactive "$PROMPT"
         ;;
     gemini)
-        exec gemini --prompt-interactive "$PROMPT"
+        if [ -z "${GEMINI_API_KEY:-}" ] && [ -f context/.env ]; then
+            GEMINI_API_KEY="$(grep -m1 "^GEMINI_API_KEY=" context/.env | cut -d= -f2-)"
+            export GEMINI_API_KEY
+        fi
+        GEMINI_CLI_AUTH_OVERRIDE=gemini-api-key exec gemini --prompt-interactive "$PROMPT"
+        ;;
+    codex)
+        exec codex "$PROMPT"
         ;;
     *)
         error "Internal error: unknown driver $DRIVER"

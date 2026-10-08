@@ -3,7 +3,7 @@ name: agent-sessions
 category: archie/architecture
 tags: [agent-sessions, session-pool, session-manager, claude-agent-sdk, local-id, lifecycle, permissions, stall-watchdog, session-config, resume]
 created: 2026-02-23
-modified: 2026-10-06
+modified: 2026-10-07
 summary: How agent (chat) sessions run — SessionPool, session managers, dual IDs, lifecycle hardening, permissions, stall watchdog, per-session config.
 source: curated (consolidated from memory notes assistant/architecture/project-overview.md, assistant/architecture/permissions_branch_architecture.md, assistant/architecture/orchestrator-vision.md, auto-memory project_session_config.md, project_sdk_upgrade_path_2026_06_18.md, feedback_diagnose_via_direct_ws_probe.md; verified against code 2026-10-06)
 references:
@@ -37,7 +37,7 @@ the model APIs) is the second — see [orchestrator.md](orchestrator.md).
 | `backend/api/routes/session_config.py` | Per-session config load/save |
 | `backend/manager/base_session.py` | `BaseSessionManager` (lifecycle task, permission futures, IDs, status), `TurnAbandoned`, `SessionDeadError` |
 | `backend/manager/claude/session.py` | `ClaudeSessionManager` (alias `SessionManager`) — wraps `claude_agent_sdk.ClaudeSDKClient` |
-| `backend/manager/{qwen,gemini}/session.py` | The other harnesses ([registry](../harnesses/registry.md)) |
+| `backend/manager/{qwen,gemini,codex}/session.py` | The other harnesses ([registry](../harnesses/registry.md)) |
 | `backend/manager/types.py` | Typed events: `TextDelta`, `TextComplete`, `ThinkingDelta/Complete`, `ToolUse`, `ToolResult`, `TurnComplete`, `CompactComplete`, `PermissionRequest`, `PermissionResolved`, `SessionStalled`, `SessionTerminated`; `SessionStatus`, `TerminationReason` |
 | `backend/manager/protocol.py` | `ProviderAdapter` — reads a harness's native JSONL into normalized messages; `detect_provider()` |
 | `backend/manager/registry.py` | `HarnessSpec` / `HarnessRegistry` |
@@ -221,8 +221,10 @@ a "Save and Restart" action that re-sends `start` once the session is idle.
 
 ## Claude Agent SDK version
 
-`backend/requirements-claude.txt` pins `claude-agent-sdk>=0.1.81,<0.2` (0.1.81 installed). The
-floor is load-bearing:
+`backend/requirements-claude.txt` pins `claude-agent-sdk==0.2.164` exactly (bundled CLI 2.1.292,
+since 2026-10-07). What changed with 0.2.x and the defaults that keep sessions behaving as before:
+[Claude Code harness — SDK version](../harnesses/claude-code.md#sdk-version). The earlier floors
+still explain why the version matters:
 
 - 0.1.51 (upstream PR #746) replaced `anyio.TaskGroup` in `Query` with `asyncio.create_task`,
   fixing the cross-task `__aexit__` wedge (upstream issue #378) that pinned the event loop in
@@ -232,10 +234,10 @@ floor is load-bearing:
   `rate_limit_event` raised `MessageParseError`, killed the receive loop, and sessions were reaped as
   `subprocess_crashed`. If sessions die with "Unknown message type", check the **installed** version:
   `.venv/bin/python -c "import claude_agent_sdk; print(claude_agent_sdk.__version__)"`.
-- 0.2.x is deferred: MCP servers connect in the background by default (set
-  `MCP_CONNECTION_NONBLOCKING=0` or `alwaysLoad: true` where a turn needs an MCP ready) and TodoWrite
-  becomes TaskCreate/TaskUpdate/TaskGet/TaskList. Clients render tool cards generically by name,
-  but verify before upgrading.
+- 0.2.164 (2026-10-07): the newer CLI blanks thinking text unless a display is requested, hides
+  TodoWrite on 4.8 / 5.x models and stops waiting for deferred MCP servers on turn 1 —
+  `_build_options()` sets `--thinking-display summarized`, `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` and
+  `CLAUDE_CODE_MCP_STARTUP_WAIT_MS=2000` to keep the old behaviour.
 - Do not bump anyio as a "fix" for loop wedges — anyio was not the cause; the SDK was.
 
 ## Pitfalls

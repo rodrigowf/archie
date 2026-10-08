@@ -613,3 +613,76 @@
 .fieldControl + .help {
   margin-top: var(--app-space-2);
 }
+
+/* ---------- Agent sessions: the other harnesses (collapsible) ---------- */
+
+.harnessGroup {
+  border-radius: 4px;
+  background: var(--md-sys-color-surface-container);
+}
+
+.harnessList > .harnessGroup + .harnessGroup {
+  margin-top: 2px;
+}
+
+.harnessList > .harnessGroup:first-child {
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+}
+
+.harnessList > .harnessGroup:last-child {
+  border-bottom-left-radius: 20px;
+  border-bottom-right-radius: 20px;
+}
+
+.harnessGroupBody {
+  padding: 0 0 var(--app-space-2);
+}
+
+.stackLabel + .help + .harnessList {
+  margin-top: var(--app-space-2);
+}
+
+.stackLabel + .help {
+  margin: 0 0 0 var(--app-space-1);
+}
+
+.harnessGroupBody > .notice {
+  margin: 0 var(--app-space-3) var(--app-space-2);
+}
+
+/* ---------- harness option controls (HarnessFields) ---------- */
+
+/* "Use default" / "Use CLI default": text buttons aligned with the field's content. */
+.field > .optionActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 4px 0 -8px -12px;
+}
+
+.field > .optionActions > * {
+  margin-right: var(--app-space-2);
+}
+
+/* Slider + its number field side by side. */
+.numberRow {
+  display: flex;
+  align-items: center;
+}
+
+.numberSlider {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-right: var(--app-space-4);
+}
+
+.numberField {
+  flex: 0 0 120px;
+  width: 120px;
+}
+
+/* Nothing set and no known default: the handle only marks the start, so it is dimmed. */
+.numberUnset {
+  opacity: 0.55;
+}

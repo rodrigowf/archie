@@ -135,8 +135,9 @@ step "Setting up Claude SDK symlink..."
 # Create .claude_config structure
 mkdir -p .claude_config/projects
 
-# Create mangled path name (replace / with -)
-MANGLED=$(echo "$PROJECT_DIR" | sed 's|/|-|g')
+# Mangled path name: the CLI replaces every character that is not a letter or
+# digit with "-" (/home/me/my.repo → -home-me-my-repo), same as the installers.
+MANGLED=$(printf '%s' "$PROJECT_DIR" | sed 's/[^A-Za-z0-9]/-/g')
 SYMLINK_PATH=".claude_config/projects/$MANGLED"
 
 if [ "$FORCE" = true ] && [ -L "$SYMLINK_PATH" ]; then
@@ -207,6 +208,15 @@ if [ ! -f "context/AGENTS.md" ] && [ -f "install/AGENTS.md" ]; then
     info "Created context/AGENTS.md from install/AGENTS.md"
 fi
 
+# The orchestrator's private memory (its identity, and how it gets to know a
+# new user) and its run_script allowlist.
+for seed in ORCHESTRATOR_MEMORY.md ORCHESTRATOR_SCRIPTS.md; do
+    if [ ! -f "context/memory/$seed" ] && [ -f "install/$seed" ]; then
+        cp "install/$seed" "context/memory/$seed"
+        info "Created context/memory/$seed from install/$seed"
+    fi
+done
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Done
 # ─────────────────────────────────────────────────────────────────────────────
@@ -217,7 +227,9 @@ echo "Structure:"
 echo "  context/"
 echo "  ├── *.jsonl           <- Session files"
 echo "  ├── memory/           <- Memory markdown files"
-echo "  │   └── MEMORY.md     <- Memory index"
+echo "  │   ├── MEMORY.md     <- Memory index"
+echo "  │   ├── ORCHESTRATOR_MEMORY.md  <- Orchestrator's private memory"
+echo "  │   └── archie -> ../../docs"
 echo "  ├── skills/           <- Skill folders (symlinks + custom)"
 echo "  ├── scripts/          <- Script files (symlinks + custom)"
 echo "  ├── agents/           <- Agent definitions (symlinks + custom)"
@@ -227,5 +239,6 @@ echo "  └── .env              <- Environment variables"
 echo ""
 echo "  .claude_config/"
 echo "  ├── skills -> ../context/skills"
+echo "  ├── agents -> ../context/agents"
 echo "  └── projects/$MANGLED -> ../../context"
 echo ""

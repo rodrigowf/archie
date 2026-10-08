@@ -1,12 +1,20 @@
 package com.assistant.archie.feature.settings.ui
 
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.assistant.archie.feature.settings.Format
 import com.assistant.archie.feature.settings.HarnessLogic
+import com.assistant.archie.feature.settings.HarnessScope
 import com.assistant.archie.feature.settings.ModelAvailability
 import com.assistant.archie.feature.settings.ModelLogic
 import com.assistant.archie.feature.settings.Option
@@ -17,7 +25,15 @@ import com.assistant.archie.feature.settings.SettingsFeature
 import com.assistant.archie.feature.settings.VoiceLogic
 import com.assistant.core.data.ConnectionRepository
 import com.assistant.core.data.ConnectionStatus
+import com.assistant.core.design.components.ArchieButton
+import com.assistant.core.design.components.ButtonSize
+import com.assistant.core.design.components.ButtonStyle
 import com.assistant.core.design.components.InlineCardAction
+import com.assistant.core.design.components.SettingsRow
+import com.assistant.core.design.icons.ArchieIcon
+import com.assistant.core.design.icons.ArchieIcons
+import com.assistant.core.design.theme.ArchieTheme
+import com.assistant.core.model.HarnessInfo
 import com.assistant.core.model.ConfigPatch
 import com.assistant.core.model.ServerConfig
 import com.assistant.core.protocol.ModelInfoDto
@@ -224,36 +240,83 @@ internal fun VoiceTuningPage(feature: SettingsFeature, onBack: (() -> Unit)?) = 
 
 // ───────────────────────────── Agent sessions ─────────────────────────────
 
+/**
+ * Settings → Agent sessions (web `AgentSessionsPage`): the default harness, then the default
+ * harness's model + options, then a collapsible block per other harness. Every control saves on its
+ * own (`harness_model` / `harness_options` partial PUTs; `null` = CLI default). Claude in Chrome is
+ * the last row of the Claude Code block, wherever that block is.
+ */
 @Composable
 internal fun AgentSessionsPage(feature: SettingsFeature, onBack: (() -> Unit)?) = ServerPageFrame(feature, "Agent sessions", onBack) { cfg, st ->
     val m = feature.server
     val saving = st.saving != null
-    val list = st.catalogs.providers.orEmpty()
+    val list = st.catalogs.harnesses.orEmpty()
     val options = list.map { Option(it.id, it.label.ifEmpty { it.id }) }.toMutableList()
     if (!cfg.provider.isNullOrEmpty() && options.none { it.id == cfg.provider }) options.add(0, Option(cfg.provider!!, cfg.provider!!))
-    val selected = list.firstOrNull { it.id == cfg.provider }
-    val qwen = HarnessLogic.models(st.catalogs.qwenModels)
-    val qwenCurrent = cfg.harnessModel["qwen"].orEmpty()
-    val qwenOptions = (listOf(Option("", "CLI default")) + qwen).toMutableList()
-    if (qwenCurrent.isNotEmpty() && qwenOptions.none { it.id == qwenCurrent }) qwenOptions += Option(qwenCurrent, qwenCurrent)
+    val selected = HarnessLogic.info(list, cfg.provider)
+    val others = list.filter { it.id != cfg.provider }
     Section("New sessions") {
         SelectRow(
             "Default harness", options, cfg.provider, { m.launchSave(ConfigPatch(provider = it), "provider") },
-            enabled = !saving && options.isNotEmpty(), supporting = selected?.description?.takeIf { it.isNotEmpty() },
+            enabled = !saving && options.isNotEmpty(),
+            supporting = if (st.catalogs.harnesses == null) "Loading the harness list…" else selected?.description,
         )
-        if (cfg.provider == "qwen") {
-            SelectRow(
-                "Qwen model", qwenOptions, qwenCurrent, { m.launchSave(ConfigPatch(harnessModel = mapOf("qwen" to it)), "harness_model") },
-                enabled = !saving,
-                supporting = if (qwen.isEmpty()) "No models listed. Run qwen once on the server to create ~/.qwen/settings.json." else null,
-            )
-        }
         FieldBlock { HelpLine("Applies to new agent tabs. Per session: ⋮ → Session settings.") }
-        ToggleField(
-            "Claude in Chrome", cfg.chromeExtension, { m.launchSave(ConfigPatch(chromeExtension = it), "chrome_extension") },
-            help = "Starts Claude sessions with the --chrome flag.",
-            info = "Anthropic's Claude-in-Chrome integration. Archie's own browser extension (browser-control) does not need this.",
-            enabled = !saving, testTag = "chrome",
-        )
+    }
+    if (selected != null) {
+        HarnessWarnings(selected)
+        Section("${selected.label} defaults") {
+            HarnessDefaults(m, cfg, selected, enabled = !saving)
+            FieldBlock {
+                HelpLine("Model lists are cached on the server for a few minutes.")
+                ArchieButton(
+                    if (st.refreshingHarnesses) "Refreshing…" else "Refresh models", m::refreshHarnesses,
+                    style = ButtonStyle.Text, size = ButtonSize.Small, icon = ArchieIcons.Refresh,
+                    enabled = !st.refreshingHarnesses, modifier = Modifier.testTag("harness-refresh"),
+                )
+            }
+        }
+    }
+    if (others.isNotEmpty()) {
+        SettingsGroupLabel("Other harnesses")
+        HelpLine("Defaults for sessions you switch to another harness (⋮ → Session settings).", modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
+        for (h in others) key(h.id) {
+            var open by rememberSaveable { mutableStateOf(false) }
+            if (open) HarnessWarnings(h)
+            Section(null) {
+                SettingsRow(
+                    h.label.ifEmpty { h.id },
+                    value = HarnessLogic.harnessDefaultsSummary(h.catalog, cfg.harnessModel[h.id].orEmpty(), cfg.harnessOptions[h.id]),
+                    onClick = { open = !open },
+                    trailing = { ArchieIcon(if (open) ArchieIcons.KeyboardArrowUp else ArchieIcons.KeyboardArrowDown, null, tint = ArchieTheme.colors.onSurfaceVariant) },
+                    modifier = Modifier.testTag("harness-group:${h.id}"),
+                )
+                if (open) HarnessDefaults(m, cfg, h, enabled = !saving)
+            }
+        }
+    }
+}
+
+/**
+ * Model + options of one harness, each saved on its own (`harness_model` / `harness_options` partial
+ * PUTs); Claude Code adds its "Claude in Chrome" switch (`chrome_extension`).
+ */
+@Composable
+private fun ColumnScope.HarnessDefaults(m: ServerSettingsModel, cfg: ServerConfig, harness: HarnessInfo, enabled: Boolean) {
+    val p = harness.id
+    HarnessFields(
+        harness, HarnessScope.GLOBAL,
+        model = cfg.harnessModel[p].orEmpty(),
+        inheritedModel = null,
+        options = cfg.harnessOptions[p],
+        inheritedOptions = null,
+        enabled = enabled,
+        onModel = { m.launchSave(HarnessLogic.globalModelPatch(p, it.orEmpty()), "harness_model") },
+        onOption = { key, state -> m.launchSave(HarnessLogic.globalOptionPatch(p, key, state), "harness_options") },
+    )
+    if (p == "claude") {
+        ClaudeInChromeField(HarnessScope.GLOBAL, cfg.chromeExtension, inherited = cfg.chromeExtension, enabled = enabled) {
+            m.launchSave(ConfigPatch(chromeExtension = it == true), "chrome_extension")
+        }
     }
 }

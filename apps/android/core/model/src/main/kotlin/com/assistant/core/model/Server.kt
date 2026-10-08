@@ -42,6 +42,8 @@ data class ServerConfig(
     val voiceMicGain: Double?,
     /** Model for Archie turns that carry audio (voice messages); "" = server default; null = older server. */
     val defaultAudioModel: String? = null,
+    /** `harness_options` per provider (`{provider: {key: value}}`); an absent key = CLI default. */
+    val harnessOptions: Map<String, Map<String, HarnessValue>> = emptyMap(),
 )
 
 /**
@@ -68,6 +70,8 @@ data class ConfigPatch(
     val voiceMicGain: Double? = null,
     /** "" = back to the server default. */
     val defaultAudioModel: String? = null,
+    /** Merged per key by the server; a `null` value deletes the key (= CLI default). */
+    val harnessOptions: Map<String, Map<String, HarnessValue?>>? = null,
 )
 
 /**
@@ -80,6 +84,11 @@ data class SessionConfig(
     val chromeExtension: Boolean? = null,
     val provider: String? = null,
     val harnessModel: String? = null,
+    /**
+     * Whole-map overlay on the global `harness_options[provider]` (spec 12 §6.14): `null` = inherit
+     * every key; an absent key = inherit it; a `null` value = CLI default. Never empty (empty → null).
+     */
+    val harnessOptions: Map<String, HarnessValue?>? = null,
 )
 
 /** A node of `GET /api/memory/tree`. `children == null` for files. */

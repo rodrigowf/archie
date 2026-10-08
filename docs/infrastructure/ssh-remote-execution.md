@@ -162,6 +162,17 @@ history list on both machines and can be resumed from either.
   `~/.claude/projects/…` on that machine only.
 - Trust: a backend that can SSH into a machine has that machine's user account.
 
+## Stopping a remote turn
+
+Signalling the local `ssh` client does not stop the remote command: without a tty, sshd sends no
+SIGHUP when the client goes away, so an interrupted Qwen/Gemini turn kept running on the remote (and
+so did a shell command it had started — the Node CLIs spawn those detached). The remote command
+therefore starts with `echo __ARCHIE_REMOTE_PID__=$$` before `exec`-ing the CLI (`RemoteCommand(...,
+announce_pid=True)`; `exec` keeps the PID). The session reads that line from stdout, and
+`interrupt()` / `_kill_proc()` run `kill_remote_tree()` over the same ControlMaster connection: it
+freezes the CLI (SIGSTOP) so it cannot spawn anything, snapshots its process tree, stops the children, lets the CLI exit on SIGINT, then TERM/KILLs what is left. The script runs detached on the remote (`nohup … &`) because the local side often closes the session — cancelling the ssh call — right after an interrupt. Claude does not
+need this: its SDK interrupt travels over the stream-json stdin.
+
 ## The nvm exit-127 trap
 
 A remote session dying with **exit 127** has two causes with identical exit codes — tell them apart

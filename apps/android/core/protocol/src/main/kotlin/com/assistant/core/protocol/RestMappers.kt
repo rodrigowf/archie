@@ -78,6 +78,7 @@ fun ConfigDto.toModel() = ServerConfig(
     voiceVadMinSilenceMs = voiceVadMinSilenceMs,
     voiceMicGain = voiceMicGain,
     defaultAudioModel = defaultAudioModel,
+    harnessOptions = harnessOptionsByProvider(harnessOptions),
 )
 
 fun ConfigPatch.toDto() = ConfigUpdateDto(
@@ -99,9 +100,11 @@ fun ConfigPatch.toDto() = ConfigUpdateDto(
     voiceVadMinSilenceMs = voiceVadMinSilenceMs,
     voiceMicGain = voiceMicGain,
     defaultAudioModel = defaultAudioModel,
+    harnessOptions = harnessOptions?.let { all -> JsonObject(all.mapValues { (_, m) -> harnessOptionsJson(m) }) },
 )
 
-fun SessionConfigDto.toModel() = SessionConfig(workingDirectory, enabledMcps, chromeExtension, provider, harnessModel)
+fun SessionConfigDto.toModel() =
+    SessionConfig(workingDirectory, enabledMcps, chromeExtension, provider, harnessModel, harnessOptionsOverlay(harnessOptions))
 
 /**
  * Body of `PUT /api/sessions/{sdkId}/config`: only changed keys (spec 12 §6.14). Keys named in
@@ -114,6 +117,7 @@ fun SessionConfig.toPutBody(inherit: Set<String> = emptySet()): JsonObject {
     chromeExtension?.let { map["chrome_extension"] = JsonPrimitive(it) }
     provider?.let { map["provider"] = JsonPrimitive(it) }
     harnessModel?.let { map["harness_model"] = JsonPrimitive(it) }
+    harnessOptions?.takeIf { it.isNotEmpty() }?.let { map["harness_options"] = harnessOptionsJson(it) }
     for (key in inherit) map[key] = JsonNull
     return JsonObject(map)
 }

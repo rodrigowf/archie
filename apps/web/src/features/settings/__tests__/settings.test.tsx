@@ -336,18 +336,165 @@ describe('Conversation model (P-9, O-7)', () => {
 });
 
 describe('Agent sessions', () => {
-  it('harness, qwen model (shallow harness_model PUT) and the Chrome flag', async () => {
+  const combo = (name: string | RegExp) => screen.findByRole('combobox', { name });
+  const pick = async (user: ReturnType<typeof userEvent.setup>, box: string | RegExp, option: string | RegExp) => {
+    await user.click(await combo(box));
+    await user.click(await screen.findByRole('option', { name: option }));
+  };
+
+  const radio = (group: HTMLElement, name: string | RegExp) => within(group).getByRole('radio', { name });
+  const checked = (group: HTMLElement): string | undefined =>
+    within(group)
+      .getAllByRole('radio')
+      .find((r) => r.getAttribute('aria-checked') === 'true')?.textContent ?? undefined;
+
+  it('default harness, its model + option controls (partial PUTs), effort gating, and Claude in Chrome in the Claude block', async () => {
     srv = serveConfig(h.fetch);
     const { user } = view('agent-sessions');
-    await user.click(await screen.findByRole('combobox', { name: 'Default harness' }));
-    await user.click(await screen.findByRole('option', { name: 'Qwen Code' }));
-    await waitFor(() => expect(srv.puts()[0]).toEqual({ provider: 'qwen' }));
-    await user.click(await screen.findByRole('combobox', { name: 'Qwen model' }));
-    await user.click(await screen.findByRole('option', { name: /qwen3\.6-plus/ }));
-    await waitFor(() => expect(srv.puts()[1]).toEqual({ harness_model: { qwen: 'qwen3.6-plus' } }));
+    const heading = await screen.findByRole('heading', { name: 'Claude Code defaults' });
+    expect((await combo('Model')).textContent).toContain('CLI default (Claude Sonnet 5.5)');
+    // ordered select → levels (radiogroup); the saved global value is checked
+    const effort = await screen.findByRole('radiogroup', { name: 'Reasoning effort' });
+    expect(checked(effort)).toBe('High');
+    // unknown model (CLI default): every option shows
+    expect(screen.getByRole('radiogroup', { name: 'Thinking' })).toBeTruthy();
+    // only the default harness select is left under "New sessions"
+    const newSessions = screen.getByRole('heading', { name: 'New sessions' }).parentElement as HTMLElement;
+    expect(within(newSessions).queryByRole('switch')).toBeNull();
+
+    await pick(user, 'Model', /^Claude Opus 4\.6/);
+    await waitFor(() => expect(srv.puts()[0]).toEqual({ harness_model: { claude: 'claude-opus-4-6' } }));
+    await user.click(radio(screen.getByRole('radiogroup', { name: 'Reasoning effort' }), 'Max'));
+    await waitFor(() => expect(srv.puts()[1]).toEqual({ harness_options: { claude: { effort: 'max' } } }));
+    // 4.6 has no xhigh
+    expect(within(screen.getByRole('radiogroup', { name: 'Reasoning effort' })).queryByRole('radio', { name: 'Extra high' })).toBeNull();
+    await user.click(radio(screen.getByRole('radiogroup', { name: 'Reasoning effort' }), 'Default'));
+    await waitFor(() => expect(srv.puts()[2]).toEqual({ harness_options: { claude: { effort: null } } }));
+    expect(srv.config.harness_options?.claude).toEqual({});
+
+    // a toggle with a known default → a switch showing the CLI default; "Use default" drops the key
+    const todo = screen.getByRole('switch', { name: 'Checklist tools' });
+    expect(todo.getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByText('CLI default · On')).toBeTruthy();
+    await user.click(todo);
+    await waitFor(() => expect(srv.puts()[3]).toEqual({ harness_options: { claude: { todo_tools: false } } }));
+    expect(await screen.findByText('Overrides the CLI default (On)')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Use default' }));
+    await waitFor(() => expect(srv.puts()[4]).toEqual({ harness_options: { claude: { todo_tools: null } } }));
+
+    // Claude in Chrome: inside the Claude Code block
+    const block = heading.parentElement as HTMLElement;
+    const chrome = within(block).getByRole('switch', { name: 'Claude in Chrome' });
+    await user.click(chrome);
+    await waitFor(() => expect(srv.puts()[5]).toEqual({ chrome_extension: false }));
+  });
+
+  it('the budget: a log slider + number field, disabled until Thinking is Fixed budget; an adaptive-only model hides both', async () => {
+    srv = serveConfig(h.fetch);
+    const { user } = view('agent-sessions');
+    expect(await screen.findByRole('heading', { name: 'Claude Code defaults' })).toBeTruthy();
+    const field = (await screen.findByRole('spinbutton', { name: 'Thinking budget' })) as HTMLInputElement;
+    expect(field.disabled).toBe(true);
+    expect(screen.getByText('Applies when Thinking is Fixed budget')).toBeTruthy();
+    expect(screen.getByText('16,000 tokens')).toBeTruthy();
+
+    await user.click(radio(screen.getByRole('radiogroup', { name: 'Thinking' }), 'Fixed budget'));
+    await waitFor(() => expect(srv.puts()[0]).toEqual({ harness_options: { claude: { thinking: 'enabled' } } }));
+    await waitFor(() => expect(field.disabled).toBe(false));
+    expect(screen.queryByText('Applies when Thinking is Fixed budget')).toBeNull();
+
+    // the field commits on blur / Enter, clamped to the range
+    await user.type(field, '100');
+    await user.tab();
+    await waitFor(() => expect(srv.puts()[1]).toEqual({ harness_options: { claude: { thinking_budget: 1024 } } }));
+    await user.clear(field);
+    await user.type(field, '200000{Enter}');
+    await waitFor(() => expect(srv.puts()[2]).toEqual({ harness_options: { claude: { thinking_budget: 128000 } } }));
+    expect(field.value).toBe('128000');
+
+    // the slider is logarithmic: its middle is ≈ √(1024·128000), snapped to a 1024 step
+    const slider = screen.getByRole('slider', { name: 'Thinking budget' });
+    fireEvent.change(slider, { target: { value: '500' } });
+    await waitFor(() => expect(srv.puts()[3]).toEqual({ harness_options: { claude: { thinking_budget: 11264 } } }));
+    expect(await screen.findByText('11,264 tokens')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Use default' }));
+    await waitFor(() => expect(srv.puts()[4]).toEqual({ harness_options: { claude: { thinking_budget: null } } }));
+
+    // an adaptive-only model hides Thinking and the budget
+    await pick(user, 'Model', /^Claude Opus 5\.5/);
+    await waitFor(() => expect(screen.queryByRole('radiogroup', { name: 'Thinking' })).toBeNull());
+    expect(screen.queryByRole('spinbutton', { name: 'Thinking budget' })).toBeNull();
+    expect(screen.getByText(/2 more options do not apply to Claude Opus 5\.5/)).toBeTruthy();
+  });
+
+  it('other harnesses are collapsible blocks with their warnings; a custom model id; Refresh models', async () => {
+    srv = serveConfig(h.fetch);
+    const { user } = view('agent-sessions');
+    const codex = await screen.findByRole('button', { name: /^Codex/ });
+    expect(codex.getAttribute('aria-expanded')).toBe('false');
+    await user.click(codex);
+    const block = codex.parentElement as HTMLElement;
+    expect(within(block).getByText(/shared login/)).toBeTruthy();
+    const summary = within(block).getByRole('radiogroup', { name: 'Reasoning summary' });
+    expect(checked(summary)).toBe('Default');
+    expect(within(block).getByText('CLI default · Concise')).toBeTruthy();
+    await user.click(radio(summary, 'None'));
+    await waitFor(() => expect(srv.puts()[0]).toEqual({ harness_options: { codex: { reasoning_summary: 'none' } } }));
+    expect(await within(block).findByText('No thinking shown in the UI')).toBeTruthy();
+    // no Claude-only switch outside the Claude Code block
+    expect(within(block).queryByRole('switch', { name: 'Claude in Chrome' })).toBeNull();
+    await user.click(within(block).getByRole('combobox', { name: 'Model' }));
+    await user.click(await screen.findByRole('option', { name: /^Custom model id/ }));
+    await user.type(within(block).getByRole('textbox', { name: 'Model id' }), 'gpt-7-preview{Enter}');
+    await waitFor(() => expect(srv.puts()[1]).toEqual({ harness_model: { codex: 'gpt-7-preview' } }));
+    expect(codex.textContent).toContain('gpt-7-preview · 1 option');
+
+    await user.click(screen.getByRole('button', { name: 'Refresh models' }));
+    await waitFor(() => expect(h.fetch.calls('GET', '/api/config/harnesses?refresh=true')).toHaveLength(1));
+
+    await pick(user, 'Default harness', 'Qwen Code');
+    await waitFor(() => expect(srv.puts()[2]).toEqual({ provider: 'qwen' }));
+    expect(await screen.findByRole('heading', { name: 'Qwen Code defaults' })).toBeTruthy();
+    // Claude Code is now a collapsed block; its Chrome switch comes with it
+    const claude = screen.getByRole('button', { name: /^Claude Code/ });
+    expect(screen.queryByRole('switch', { name: 'Claude in Chrome' })).toBeNull();
+    await user.click(claude);
+    expect(within(claude.parentElement as HTMLElement).getByRole('switch', { name: 'Claude in Chrome' })).toBeTruthy();
+  });
+
+  it('Gemini: presets (Default · Dynamic · Off · Custom) before the slider; levels mark the CLI default', async () => {
+    srv = serveConfig(h.fetch);
+    const { user } = view('agent-sessions');
+    const gemini = await screen.findByRole('button', { name: /^Gemini CLI/ });
+    await user.click(gemini);
+    const block = gemini.parentElement as HTMLElement;
+    const level = within(block).getByRole('radiogroup', { name: 'Thinking level' });
+    expect(radio(level, 'High').getAttribute('title')).toBe('CLI default');
+    const budget = within(block).getByRole('radiogroup', { name: 'Thinking budget (tokens)' });
+    expect(checked(budget)).toBe('Default');
+    expect(within(block).queryByRole('slider')).toBeNull();
+    await user.click(radio(budget, 'Dynamic'));
+    await waitFor(() => expect(srv.puts()[0]).toEqual({ harness_options: { gemini: { thinking_budget: -1 } } }));
+    await user.click(radio(within(block).getByRole('radiogroup', { name: 'Thinking budget (tokens)' }), 'Custom'));
+    // Custom starts at the default (8192) and reveals the slider + field
+    await waitFor(() => expect(srv.puts()[1]).toEqual({ harness_options: { gemini: { thinking_budget: 8192 } } }));
+    expect(await within(block).findByRole('slider', { name: 'Thinking budget (tokens)' })).toBeTruthy();
+    const field = within(block).getByRole('spinbutton', { name: 'Thinking budget (tokens)' });
+    await user.clear(field);
+    await user.type(field, '0{Enter}');
+    // a preset value typed in the field is kept (below the custom range) and selects its preset
+    await waitFor(() => expect(srv.puts()[2]).toEqual({ harness_options: { gemini: { thinking_budget: 0 } } }));
+    expect(checked(within(block).getByRole('radiogroup', { name: 'Thinking budget (tokens)' }))).toBe('Off');
+  });
+
+  it('an older server (no /api/config/harnesses) falls back to the providers + the Qwen model list', async () => {
+    srv = serveConfig(h.fetch, { noHarnesses: true, config: { provider: 'qwen' } });
+    const { user } = view('agent-sessions');
+    expect(await screen.findByRole('heading', { name: 'Qwen Code defaults' })).toBeTruthy();
+    await pick(user, 'Model', /^qwen3\.6-plus/);
+    await waitFor(() => expect(srv.puts()[0]).toEqual({ harness_model: { qwen: 'qwen3.6-plus' } }));
     expect(srv.config.harness_model).toEqual({ claude: '', qwen: 'qwen3.6-plus' });
-    await user.click(screen.getByRole('switch', { name: 'Claude in Chrome' }));
-    await waitFor(() => expect(srv.puts()[2]).toEqual({ chrome_extension: false }));
+    expect(screen.queryByRole('combobox', { name: 'Reasoning effort' })).toBeNull();
   });
 });
 

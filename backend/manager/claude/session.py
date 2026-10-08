@@ -55,6 +55,21 @@ from claude_agent_sdk.types import (
     ToolPermissionContext,
 )
 
+try:  # SDK ≥ 0.2.137; guarded so an older venv still imports this module.
+    from claude_agent_sdk import ConversationResetMessage
+except ImportError:  # pragma: no cover — only on SDK < 0.2.137
+    ConversationResetMessage = None  # type: ignore[assignment,misc]
+
+from .catalog import (
+    DEFAULT_THINKING_BUDGET,
+    EFFORT_LEVELS,
+    FALLBACK_MODEL,
+    THINKING_BUDGET,
+    TODO_TOOLS,
+    claude_model_caps,
+    record_cli_models,
+)
+
 from typing import NamedTuple
 
 from ..base_session import BaseSessionManager, SessionDeadError, TurnAbandoned
@@ -101,6 +116,30 @@ _PERMISSION_GATING_PROMPT = (
     "with their prose as the reason — refine your approach based on their "
     "feedback and re-announce when ready."
 )
+
+# Thinking display.  CLI ≥ 2.1.287 streams thinking as short "updates"
+# (``thinking_delta`` events with EMPTY text) unless the host asks for a
+# display mode — every thinking card in our UIs would be blank.  We always
+# ask for summaries: inside the ``thinking`` config when a mode is chosen,
+# otherwise as a bare ``--thinking-display`` extra arg so the CLI's default
+# thinking *mode* is untouched.  (SDK PR #1367; the flag exists back to CLI
+# 2.1.139, so older SSH-remote CLIs accept it too.)
+_THINKING_DISPLAY = "summarized"
+
+# CLI ≥ 2.1.233 hides TodoWrite / TaskCreate… on Opus 4.8, Sonnet 5, Fable 5
+# and newer models; our web + Android UIs render TodoWrite as checklist
+# cards, so we turn them back on unless the ``todo_tools`` option says no.
+_TODO_TOOLS_ENV = "CLAUDE_CODE_ENABLE_TODO_TOOLS"
+
+# MCP first-turn availability.  Up to CLI 2.1.273 a stream-json session's
+# first turn waited up to ~2 s for still-connecting MCP servers.  2.1.274
+# dropped that wait for servers whose tools tool-search defers (they "arrive
+# on a later turn") and added CLAUDE_CODE_MCP_STARTUP_WAIT_MS to bound it.
+# Restoring the old 2 s bound keeps "use chrome-devtools to …" as the very
+# first prompt of a tab working as before; the wait ends as soon as the
+# servers connect, so a session without slow MCP servers pays nothing.
+_MCP_STARTUP_WAIT_ENV = "CLAUDE_CODE_MCP_STARTUP_WAIT_MS"
+_MCP_STARTUP_WAIT_MS = "2000"
 
 # Stall watchdog: the bundled `claude` subprocess occasionally goes silent
 # mid-tool (e.g. WebFetch waiting on an unresponsive HTTP endpoint with no
@@ -291,10 +330,35 @@ class ClaudeSessionManager(BaseSessionManager):
         # always for the event just yielded.  None when no SequencedEvent
         # has been yielded (initial state, or after a non-sequenced inject).
         self._last_yielded_seq: int | None = None
+        # Set by a ConversationResetMessage (``/clear``): the CLI starts a new
+        # conversation (new session id / JSONL) on the same connection; the
+        # next message that carries a session_id is the new one.
+        self._session_reset_pending: bool = False
 
     @property
     def provider_name(self) -> str:
         return "claude"
+
+    # Hooks for harnesses that run this same CLI against another endpoint
+    # (manager.modelstudio): the SSH control-path / wrapper prefix, the CLI
+    # model picker sink, and the auth env forwarded over SSH.
+    _ssh_prefix: str = "claude"
+
+    def _record_cli_models(self, models: object) -> None:
+        """Feed the CLI's model picker (``server_info["models"]``) to the catalog."""
+        record_cli_models(models)
+
+    def _ssh_auth_env(self) -> dict[str, str]:
+        """Auth env forwarded to the remote ``claude`` in the SSH wrapper.
+
+        Forwards the long-lived OAuth token (minted via `claude setup-token`,
+        stored in context/.env).  It takes precedence over the remote's
+        .credentials.json, so SSH-remote sessions authenticate with the
+        1-year token instead of the refreshable creds that keep
+        expiring/corrupting. See feedback_jetson_oauth_token_expiry memory.
+        """
+        oauth_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+        return {"CLAUDE_CODE_OAUTH_TOKEN": oauth_token} if oauth_token else {}
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -348,18 +412,24 @@ class ClaudeSessionManager(BaseSessionManager):
                     "Session %s SDK subprocess pid=%d", self._local_id, self._subprocess_pid
                 )
 
-            # Capture the SDK session ID if available at connect time.
+            # server_info is the CLI's initialize response (no API call).
+            # Its model picker feeds the harness catalog's alias rows.  It
+            # has never carried a session_id (that comes from the init
+            # SystemMessage / ResultMessage), so the lookup below is only a
+            # harmless fallback.
+            server_info = None
+            try:
+                server_info = await self._client.get_server_info()
+                if server_info:
+                    self._record_cli_models(server_info.get("models"))
+            except Exception:
+                # Failing to read server_info shouldn't kill the session;
+                # the SDK ID will be filled in from the first ResultMessage.
+                logger.exception("get_server_info failed for session %s", self._local_id)
             if self._resume_id:
                 self._provider_session_id = self._resume_id
-            else:
-                try:
-                    server_info = await self._client.get_server_info()
-                    if server_info:
-                        self._provider_session_id = server_info.get("session_id")
-                except Exception:
-                    # Failing to read server_info shouldn't kill the session;
-                    # the SDK ID will be filled in from the first ResultMessage.
-                    logger.exception("get_server_info failed for session %s", self._local_id)
+            elif server_info:
+                self._provider_session_id = server_info.get("session_id")
 
             self._status = SessionStatus.IDLE
 
@@ -954,12 +1024,25 @@ class ClaudeSessionManager(BaseSessionManager):
             # Pass MCP servers directly to the SDK
             # When mcp_servers is provided, it overrides settings from .claude.json
             kwargs["mcp_servers"] = self._config.mcp_servers
-        if self._config.extra_args:
-            kwargs["extra_args"] = self._config.extra_args
+
+        # Harness options (effort / thinking / fallback model) → SDK fields.
+        kwargs.update(self._harness_option_kwargs())
+        # Copy, never mutate the config's dict (it may be shared).
+        extra_args: dict[str, str | None] = dict(self._config.extra_args or {})
+        if "thinking" not in kwargs:
+            # No thinking mode chosen: ask for summaries without touching
+            # the CLI's default mode.  With a mode chosen the display rides
+            # inside the thinking config (or is moot when thinking is off),
+            # so the flag is never sent twice.
+            extra_args.setdefault("thinking-display", _THINKING_DISPLAY)
+        if extra_args:
+            kwargs["extra_args"] = extra_args
 
         # Strip CLAUDECODE to allow launching SDK sessions from within a
         # Claude Code process (e.g. VSCode extension or the wrapper itself).
         env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+        env.pop(_TODO_TOOLS_ENV, None)  # the todo_tools option decides
+        env.update(self._harness_env())
         if self._config.ssh_host and self._config.ssh_claude_config_dir:
             # Override CLAUDE_CONFIG_DIR so the remote claude writes its JSONL
             # to the correct path on the target machine.
@@ -986,6 +1069,82 @@ class ClaudeSessionManager(BaseSessionManager):
 
         return ClaudeAgentOptions(**kwargs)
 
+    def _harness_option_kwargs(self) -> dict:
+        """Map ``ManagerConfig.harness_options`` onto ``ClaudeAgentOptions`` fields.
+
+        Unknown keys are ignored; a missing key passes nothing (the CLI
+        decides).  Values the chosen model cannot take are adapted with
+        :func:`manager.claude.catalog.claude_model_caps` (no network):
+        an effort level is lowered to the nearest supported one (dropped
+        when the model has no effort control), a thinking mode the model
+        lacks maps to the closest one it has, and ``thinking`` is ignored
+        entirely on adaptive-only models (matching the catalog, which hides
+        the option there).  Unknown models get the values unchanged.
+        """
+        opts = self._config.harness_options or {}
+        out: dict = {}
+        if not opts:
+            return out
+        model = self._config.model
+        caps = claude_model_caps(model)
+
+        effort = opts.get("effort")
+        if isinstance(effort, str) and effort:
+            if caps is not None and effort not in caps.efforts:
+                lower = [
+                    lvl for lvl in EFFORT_LEVELS[: EFFORT_LEVELS.index(effort)]
+                    if lvl in caps.efforts
+                ] if effort in EFFORT_LEVELS else []
+                adapted = lower[-1] if lower else None
+                logger.info(
+                    "effort=%s not supported by %s; using %s",
+                    effort, caps.id, adapted or "the CLI default",
+                )
+                effort = adapted
+            if effort:
+                out["effort"] = effort
+
+        thinking = opts.get("thinking")
+        if isinstance(thinking, str) and thinking:
+            if caps is not None:
+                types = caps.thinking_types
+                if len(types) <= 1:
+                    thinking = None  # no choice to make (adaptive-only)
+                elif thinking not in types:
+                    # enabled ↔ adaptive are both "think"; disabled has no
+                    # stand-in, so it falls back to the CLI default.
+                    alt = {"enabled": "adaptive", "adaptive": "enabled"}.get(thinking)
+                    thinking = alt if alt in types else None
+            if thinking == "adaptive":
+                out["thinking"] = {"type": "adaptive", "display": _THINKING_DISPLAY}
+            elif thinking == "enabled":
+                budget = opts.get(THINKING_BUDGET)
+                if not isinstance(budget, int) or isinstance(budget, bool) or budget <= 0:
+                    budget = DEFAULT_THINKING_BUDGET
+                out["thinking"] = {
+                    "type": "enabled",
+                    "budget_tokens": budget,
+                    "display": _THINKING_DISPLAY,
+                }
+            elif thinking == "disabled":
+                out["thinking"] = {"type": "disabled"}
+
+        fallback = opts.get(FALLBACK_MODEL)
+        if isinstance(fallback, str) and fallback and fallback != model:
+            # The CLI refuses a fallback equal to the main model.
+            out["fallback_model"] = fallback
+        return out
+
+    def _harness_env(self) -> dict[str, str]:
+        """Env knobs for the CLI — applied locally AND forwarded through the
+        SSH wrapper (the remote ``claude`` does not inherit our env)."""
+        env: dict[str, str] = {}
+        opts = self._config.harness_options or {}
+        if opts.get(TODO_TOOLS, True) is not False:
+            env[_TODO_TOOLS_ENV] = "1"
+        env[_MCP_STARTUP_WAIT_ENV] = os.environ.get(_MCP_STARTUP_WAIT_ENV) or _MCP_STARTUP_WAIT_MS
+        return env
+
     def _write_ssh_wrapper(self) -> str:
         """Write a temp shell script that SSHes into the remote host and runs claude.
 
@@ -999,7 +1158,7 @@ class ClaudeSessionManager(BaseSessionManager):
             host=self._config.ssh_host or "",
             user=self._config.ssh_user,
             key=self._config.ssh_key,
-            control_path_prefix="claude",
+            control_path_prefix=self._ssh_prefix,
         )
         remote_claude = resolve_remote_cli_path(
             "claude",
@@ -1008,14 +1167,9 @@ class ClaudeSessionManager(BaseSessionManager):
         env: dict[str, str] = {}
         if self._config.ssh_claude_config_dir:
             env["CLAUDE_CONFIG_DIR"] = self._config.ssh_claude_config_dir
-        # Forward the long-lived OAuth token (minted via `claude setup-token`,
-        # stored in context/.env) to the remote claude. It takes precedence over
-        # the remote's .credentials.json, so SSH-remote sessions authenticate
-        # with the 1-year token instead of the refreshable creds that keep
-        # expiring/corrupting. See feedback_jetson_oauth_token_expiry memory.
-        oauth_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
-        if oauth_token:
-            env["CLAUDE_CODE_OAUTH_TOKEN"] = oauth_token
+        # Same CLI env knobs as a local session (todo tools, MCP wait).
+        env.update(self._harness_env())
+        env.update(self._ssh_auth_env())
         remote_cmd = RemoteCommand(
             project_dir=self._config.project_dir,
             remote_cli=remote_claude,
@@ -1024,13 +1178,35 @@ class ClaudeSessionManager(BaseSessionManager):
         path = write_ssh_wrapper_script(
             ssh_argv=build_ssh_argv(target),
             remote_cmd=remote_cmd,
-            prefix="claude",
+            prefix=self._ssh_prefix,
         )
         self._ssh_wrapper_path = path
         return path
 
     async def _process_message(self, msg: object) -> AsyncIterator[Event]:
         """Convert an SDK message into our typed Event stream."""
+
+        if self._session_reset_pending:
+            # First message after a /clear that names a session: adopt it.
+            new_sid = getattr(msg, "session_id", None)
+            if not isinstance(new_sid, str) and isinstance(msg, SystemMessage):
+                data = msg.data if isinstance(msg.data, dict) else {}
+                new_sid = data.get("session_id")
+            if isinstance(new_sid, str) and new_sid and new_sid != self._provider_session_id:
+                logger.info(
+                    "Session %s: conversation reset, sdk session %s -> %s",
+                    self._local_id, self._provider_session_id, new_sid,
+                )
+                self._provider_session_id = new_sid
+                self._session_reset_pending = False
+
+        if ConversationResetMessage is not None and isinstance(msg, ConversationResetMessage):
+            # /clear (or any flow that swaps the transcript mid-connection):
+            # the CLI continues in a NEW conversation with a new session id
+            # and JSONL.  The id is not in this message — it is on the next
+            # message that carries one (handled above).
+            self._session_reset_pending = True
+            return
 
         if isinstance(msg, StreamEvent):
             event = msg.event
@@ -1051,7 +1227,11 @@ class ClaudeSessionManager(BaseSessionManager):
 
                 elif delta_type == "thinking_delta":
                     self._status = SessionStatus.THINKING
-                    yield ThinkingDelta(text=delta.get("thinking", ""))
+                    # Empty deltas = the CLI's "updates" display (see
+                    # _THINKING_DISPLAY); nothing to render.
+                    text = delta.get("thinking", "")
+                    if text:
+                        yield ThinkingDelta(text=text)
 
                 elif delta_type == "input_json_delta":
                     # Tool input is streamed as partial JSON — we skip deltas
@@ -1078,7 +1258,8 @@ class ClaudeSessionManager(BaseSessionManager):
                     yield TextComplete(text=block.text)
 
                 elif isinstance(block, ThinkingBlock):
-                    yield ThinkingComplete(text=block.thinking)
+                    if block.thinking:
+                        yield ThinkingComplete(text=block.thinking)
 
                 elif isinstance(block, ToolUseBlock):
                     self._status = SessionStatus.TOOL_USE

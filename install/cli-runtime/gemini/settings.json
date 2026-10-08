@@ -1,6 +1,58 @@
 {
-  "fileFiltering": {
-    "respectGitIgnore": false,
-    "respectGeminiIgnore": true
+  "context": {
+    "fileFiltering": {
+      "respectGitIgnore": false,
+      "respectGeminiIgnore": true
+    }
+  },
+  "general": {
+    "sessionRetention": {
+      "enabled": false
+    }
+  },
+  "security": {
+    "auth": {
+      "selectedType": "${ARCHIE_GEMINI_AUTH_TYPE:-gemini-api-key}"
+    }
+  },
+  "modelConfigs": {
+    "customOverrides": [
+      {
+        "match": {
+          "model": "chat-base-3"
+        },
+        "modelConfig": {
+          "generateContentConfig": {
+            "thinkingConfig": {
+              "thinkingLevel": "${ARCHIE_GEMINI_THINKING_LEVEL:-HIGH}"
+            }
+          }
+        }
+      },
+      {
+        "match": {
+          "model": "${ARCHIE_GEMINI_LEVEL_MODEL:-archie-off}"
+        },
+        "modelConfig": {
+          "generateContentConfig": {
+            "thinkingConfig": {
+              "thinkingLevel": "${ARCHIE_GEMINI_THINKING_LEVEL:-HIGH}"
+            }
+          }
+        }
+      },
+      {
+        "match": {
+          "model": "${ARCHIE_GEMINI_BUDGET_MODEL:-archie-off}"
+        },
+        "modelConfig": {
+          "generateContentConfig": {
+            "thinkingConfig": {
+              "thinkingBudget": "${ARCHIE_GEMINI_THINKING_BUDGET:-8192}"
+            }
+          }
+        }
+      }
+    ]
   }
 }

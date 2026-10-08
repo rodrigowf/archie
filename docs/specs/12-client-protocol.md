@@ -1418,15 +1418,30 @@ Shown while `stall != null` and the view is busy: "<tool> has been running for <
 ### 6.14 Session config: Save and Restart
 
 ```
-→REST GET /api/sessions/{sdkId}/config, GET /api/config, GET /api/mcp/servers, GET /api/config/providers,
-      GET /api/config/harness/qwen/models
+→REST GET /api/sessions/{sdkId}/config, GET /api/config, GET /api/mcp/servers, GET /api/config/harnesses
+      (older servers: GET /api/config/providers + GET /api/config/harness/qwen/models)
 →REST PUT /api/sessions/{sdkId}/config {only changed keys; null = inherit global}
+      harness_options is replaced as a whole map: {key: value | null} — absent key = inherit the
+      global harness_options[provider][key], null = CLI default; null / {} = inherit every key.
+      Changing provider resets harness_model and harness_options to null (they are per harness).
+      400 + detail on an unknown key or a bad value (validated against that provider's catalog).
 Save and Restart (allowed when not busy; the backend applies config only on a new session):
   local_stop(); →REST POST /api/sessions/{localId}/close
   WS→ start{local_id: <same localId>, resume_sdk_id: sdkId}      (new pool entry with the new config)
   ⇐ status{connecting} session_started (new stream_id; the checkpoint is replaced per §3.6)
 ```
 The entries stay as they are; nothing is lost because the JSONL is resumed. This fixes "idle treated as stopped" (02 F-32, W-6.2): restart always closes first.
+
+**Harness model + options in the UI.** Both clients render the model picker and the options of
+the effective harness from its catalog (§8.1), with the same rules: hide an option whose
+`models` excludes the effective model, and a choice whose `models` excludes it; narrow the
+`effort` choices to the model row's `efforts` (`[]` hides effort); hide `thinking` and
+`thinking_*` when the model row has `supports_thinking: false`. The effective model is the
+session's `harness_model`, else the global `harness_model[provider]`; when it is "" (CLI default)
+or not in `models` (custom id), show everything. Every control offers "Default (<global value or
+CLI default>)" = inherit, "CLI default" (+ the option's `default`, or the model's
+`default_effort` for effort, when known) and the values; the model adds catalog rows and, when
+`allow_custom_model`, a free id. Catalog `warnings` are shown as a notice.
 
 ### 6.15 Upload and share (orchestrator)
 
@@ -1571,10 +1586,11 @@ When `session_started.voice_recording_enabled` and the transport is WebRTC, the 
 
 | Store | Endpoint | Keys |
 |---|---|---|
-| Global config | `GET/PUT /api/config` (partial PUT, full object back) | `working_directory`, `working_directory_history`, `enabled_mcps`, `chrome_extension`, `provider`, `default_model`, `summarizer_model`, `harness_model`, `default_voice_provider`, `default_voice_model`, `default_voice_name`, `default_voice_transcription_language`, `default_voice_endpoint`, `voice_recording_enabled`, `voice_vad_threshold`, `voice_vad_min_silence_ms`, `voice_mic_gain` |
-| Per-session config | `GET/PUT /api/sessions/{sdkId}/config` | `working_directory`, `enabled_mcps`, `chrome_extension`, `provider`, `harness_model` (`null` = inherit) |
+| Global config | `GET/PUT /api/config` (partial PUT, full object back) | `working_directory`, `working_directory_history`, `enabled_mcps`, `chrome_extension`, `provider`, `default_model`, `summarizer_model`, `harness_model` (`{provider: id}`, "" = CLI default), `harness_options` (`{provider: {key: value}}`; PUT merges per key, `null` deletes the key = CLI default), `default_voice_provider`, `default_voice_model`, `default_voice_name`, `default_voice_transcription_language`, `default_voice_endpoint`, `voice_recording_enabled`, `voice_vad_threshold`, `voice_vad_min_silence_ms`, `voice_mic_gain` |
+| Per-session config | `GET/PUT /api/sessions/{sdkId}/config` | `working_directory`, `enabled_mcps`, `chrome_extension`, `provider`, `harness_model`, `harness_options` (`null` = inherit; `harness_options` is a whole-map overlay, see §6.14) |
+| Harness catalogs | `GET /api/config/harnesses[?refresh=true]`, `GET /api/config/harness/{p}/catalog[?refresh=true]` | `{harnesses: [{id, label, description, catalog \| null}]}`; catalog = `{provider, models: [{id, label, source, description?, context_window?, supports_thinking?, supports_vision?, efforts?, default_effort?}], options: [{key, label, kind: select\|toggle\|number, choices?: [{value, label, description?, models?}], default?, help?, models?, min?, max?, step?}], default_model, allow_custom_model, warnings}`. Shared keys: `effort`, `thinking`. Cached ~5 min server-side; `refresh=true` rebuilds. Older servers: 404 → use `/api/config/providers` + `/api/config/harness/qwen/models` |
 | Titles | `PATCH /api/sessions/{sdkId}/rename`, `PATCH /api/visualizations/rename` | — |
-| Catalogs (read-only) | `/api/config/providers`, `/api/config/harness/qwen/models`, `/api/orchestrator/models`, `/api/orchestrator/voice/models`, `/api/config/voice/google/models`, `/api/mcp/servers`, `/api/skills`, `/api/agents` | — |
+| Catalogs (read-only) | `/api/config/harnesses` (supersedes `/api/config/providers` + `/api/config/harness/qwen/models`, kept for older clients), `/api/orchestrator/models`, `/api/orchestrator/voice/models`, `/api/config/voice/google/models`, `/api/mcp/servers`, `/api/skills`, `/api/agents` | — |
 | Claude CLI auth | `/api/auth/status`, `/api/auth/login`, `/api/auth/credentials` | Both clients SHOULD check status after connecting and offer the credential-paste flow on headless backends (Android lacks it, 03 §5). |
 
 - **CFG-1.** Each control saves immediately with a partial `PUT`; the response replaces the local copy. Sliders MUST commit on release, not on every tick (W-6.2). Controls of the section in flight are disabled.

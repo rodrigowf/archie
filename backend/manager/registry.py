@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .base_session import BaseSessionManager
+    from .harness_catalog import HarnessCatalog
     from .protocol import ProviderAdapter
 
 
@@ -56,6 +57,7 @@ JsonlPathResolver = Callable[[str], list[Path]]
 # context/chats/session-<iso>-<uuid-prefix>.jsonl and the discoverer reads
 # the full session id from each file's header line).
 SessionDiscoverer = Callable[[str], "Iterable[tuple[str, Path]]"]
+CatalogLoader = Callable[[], "HarnessCatalog"]
 
 
 @dataclass(frozen=True)
@@ -123,6 +125,11 @@ class HarnessSpec:
     env_keys
         Environment variable keys this harness needs in ``context/.env``.
         ``install.sh`` warns the user if any are missing.
+    catalog_loader
+        Optional.  Returns the :class:`~manager.harness_catalog.HarnessCatalog`
+        (models + configurable options) the settings UIs render.  Called
+        through :func:`manager.harness_catalog.get_catalog`, which caches
+        it; may hit the network, must not raise for an unreachable upstream.
     """
 
     name: str
@@ -139,6 +146,7 @@ class HarnessSpec:
     npm_package: str | None = None
     cli_binary: str | None = None
     env_keys: tuple[str, ...] = field(default_factory=tuple)
+    catalog_loader: CatalogLoader | None = None
 
 
 class HarnessRegistry:
@@ -231,4 +239,8 @@ _ADAPTER_MODULES: tuple[str, ...] = (
     "manager.claude.adapter",
     "manager.qwen.adapter",
     "manager.gemini.adapter",
+    "manager.codex.adapter",
+    # Claude Code against Alibaba Model Studio; shares Claude's JSONL and
+    # must come after manager.claude.adapter (detection order, reaper).
+    "manager.modelstudio.adapter",
 )

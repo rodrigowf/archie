@@ -330,8 +330,8 @@ async def _handle_start(
     # the JSONL gets truncated below detect_provider's threshold.  Only
     # applicable to resumed sessions: fresh sessions don't have an SDK
     # session id yet, so there's no stable key to file the config under.
-    # (The user can pin a provider for a fresh session after its first
-    # turn via the per-session gear panel, which calls PUT /sessions/{id}/config.)
+    # (Fresh sessions get their provider pinned by the pool on their first
+    # TurnComplete — ``SessionPool._pin_provider`` — once the SDK id exists.)
     if resume_sdk_id and info.get("persist_provider"):
         from api.routes.session_config import save_session_config
         try:

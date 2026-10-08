@@ -1046,6 +1046,9 @@ class TestOrchestratorAgent:
 class TestOrchestratorSession:
     @pytest.mark.asyncio
     async def test_start_creates_jsonl(self, tmp_path, monkeypatch):
+        # The default orchestrator model builds an OpenAI client, which needs a key
+        # (never used: no request is made).
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
         import utils.paths as _paths
         monkeypatch.setattr(_paths, "PROJECT_ROOT", tmp_path)
 
@@ -1073,6 +1076,9 @@ class TestOrchestratorSession:
 
     @pytest.mark.asyncio
     async def test_resume_loads_history(self, tmp_path, monkeypatch):
+        # The default orchestrator model builds an OpenAI client, which needs a key
+        # (never used: no request is made).
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
         import utils.paths as _paths
         monkeypatch.setattr(_paths, "PROJECT_ROOT", tmp_path)
 

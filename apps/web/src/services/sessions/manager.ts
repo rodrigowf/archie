@@ -185,7 +185,7 @@ export interface OpenSessionOptions {
 function providerFor(sdkId: string | null | undefined): Provider | null {
   if (!sdkId) return null;
   const p = catalogStore.getState().sessions.items.find((s) => s.session_id === sdkId)?.provider;
-  return p === 'claude' || p === 'qwen' || p === 'gemini' ? p : null;
+  return typeof p === 'string' && p ? p : null;
 }
 
 /** Open a conversation view (or return the open one). Never steals focus unless `focus`. */

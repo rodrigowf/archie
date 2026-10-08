@@ -374,3 +374,33 @@ class TestSearchStage2:
         assert by_id["c1"]["open"]["can_resume"] is True and "resume_conversation(session_id='c1')" in by_id["c1"]["open"]["how"]
         assert by_id["c1"]["cwd"] == "/home/rodrigo/assistant" and by_id["c1"]["file"].endswith("c1.jsonl")
         assert by_id["c1"]["kind"] == "claude"
+
+
+# ── Codex rollouts ────────────────────────────────────────────────────
+
+
+def test_codex_rollout_is_extracted_with_thread_id():
+    from pathlib import Path
+
+    from utils import history_index as hi
+
+    fixture = next((Path(__file__).parent / "fixtures" / "codex").glob("rollout-*.jsonl"))
+    doc = hi.extract_session(fixture)
+    assert doc.harness == "codex"
+    assert doc.session_id == "01a118ca-7254-75a1-8888-c5a12eae0a9c"
+    assert hi.session_id_for(fixture) == doc.session_id
+    assert doc.turns and doc.turns[0].role == "user"
+    # Codex's injected AGENTS.md / environment messages are not turns
+    assert not any("AGENTS.md instructions" in t.text or "<environment_context>" in t.text for t in doc.turns)
+
+
+def test_session_sources_includes_codex_rollouts(tmp_path, monkeypatch):
+    from utils import history_index as hi
+
+    rollout = tmp_path / "codex" / "2026" / "10" / "07" / "rollout-2026-10-07T20-54-43-abc.jsonl"
+    rollout.parent.mkdir(parents=True)
+    rollout.write_text("{}\n")
+    monkeypatch.setattr(hi, "_codex_sources", lambda: [rollout])
+    (tmp_path / "ctx").mkdir()
+    sources = hi.session_sources(tmp_path / "ctx", tmp_path / "ctx" / "chats")
+    assert rollout in sources

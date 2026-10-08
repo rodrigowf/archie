@@ -134,3 +134,52 @@ async def test_update_with_no_fields_returns_error(isolated_project):
     result = json.loads(await _call("update_assistant_config"))
     assert "error" in result
     assert "No fields supplied" in result["error"]
+
+
+# ── harness options + catalog ────────────────────────────────────────
+
+
+@pytest.fixture
+def fake_catalog(monkeypatch):
+    """Give the claude harness a tiny fixed catalog (no network)."""
+    from dataclasses import replace
+
+    from manager import harness_catalog as hc
+    from manager.registry import ensure_all_registered, get_registry
+
+    ensure_all_registered()
+    reg = get_registry()
+    cat = hc.HarnessCatalog(
+        provider="claude",
+        models=(hc.HarnessModel(id="opus", label="Opus"),),
+        options=(hc.effort_option(("low", "high")),),
+    )
+    for name, spec in list(reg._specs.items()):  # no network: other harnesses have no catalog here
+        monkeypatch.setitem(reg._specs, name, replace(spec, catalog_loader=(lambda: cat) if name == "claude" else None))
+    hc.clear_catalog_cache()
+    yield cat
+    hc.clear_catalog_cache()
+
+
+async def test_update_harness_options_validates_and_merges(isolated_project, fake_catalog):
+    entry = _local_entry(str(isolated_project))
+    _write_cfg(isolated_project, {"working_directory": entry["id"], "working_directory_history": [entry]})
+
+    result = json.loads(await _call("update_assistant_config", harness_options={"claude": {"effort": "high"}}))
+    assert result["harness_options"]["claude"] == {"effort": "high"}
+
+    bad = json.loads(await _call("update_assistant_config", harness_options={"claude": {"effort": "ultra"}}))
+    assert "error" in bad
+
+    reset = json.loads(await _call("update_assistant_config", harness_options={"claude": {"effort": None}}))
+    assert reset["harness_options"]["claude"] == {}
+
+
+async def test_list_harness_catalog(isolated_project, fake_catalog):
+    rows = json.loads(await _call("list_harness_catalog"))["harnesses"]
+    claude = next(h for h in rows if h["id"] == "claude")
+    assert claude["catalog"]["options"][0]["key"] == "effort"
+
+    only = json.loads(await _call("list_harness_catalog", provider="claude"))["harnesses"]
+    assert [h["id"] for h in only] == ["claude"]
+    assert "error" in json.loads(await _call("list_harness_catalog", provider="nope"))

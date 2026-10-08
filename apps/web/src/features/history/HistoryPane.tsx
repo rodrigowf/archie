@@ -16,7 +16,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { deleteSession, duplicateSession, errorMessage, refreshSessionList, renameSession, type SessionInfo } from '@/services';
 import { patchSessionActions } from '@/features/session-actions';
-import { showSnackbar, useCatalog } from '@/stores';
+import { showSnackbar, useCatalog, useProviderLabel } from '@/stores';
 import { SearchField, Tag } from '@/ui/controls';
 import { NavigationDrawerHeadline, NavigationDrawerItem } from '@/ui/navigation';
 import { ConfirmDialog } from '@/ui/overlays';
@@ -84,6 +84,7 @@ export function HistoryPane({
   const [query, setQuery] = useState('');
   const [pending, setPending] = useState<Pending>(null);
   const sessions = useCatalog((s) => s.sessions);
+  const providerLabelOf = useProviderLabel();
   const now = useMinuteClock(fixedNow);
 
   const showOpen = variant !== 'switcher';
@@ -214,7 +215,7 @@ export function HistoryPane({
           <NavigationDrawerHeadline>{sec.group}</NavigationDrawerHeadline>
           {sec.items.map((s) => {
             const title = sessionTitleOf(s);
-            const provider = s.is_orchestrator ? 'Archie' : PROVIDER[s.provider] ?? s.provider;
+            const provider = s.is_orchestrator ? 'Archie' : (providerLabelOf(s.provider) ?? 'Agent');
             return (
               <ActionRow
                 key={s.session_id}
@@ -269,4 +270,3 @@ export function HistoryPane({
   );
 }
 
-const PROVIDER: Record<string, string> = { claude: 'Claude', qwen: 'Qwen', gemini: 'Gemini' };

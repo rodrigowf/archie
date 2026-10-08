@@ -145,6 +145,11 @@ def _default_config() -> dict[str, Any]:
         # the harness registry so a new harness lands with an empty entry
         # automatically.
         "harness_model": {p: "" for p in _valid_provider_names()},
+        # Default harness *options* per provider (reasoning effort, thinking,
+        # …) — ``{provider: {key: value}}``.  Keys and values come from each
+        # harness's catalog (``GET /api/config/harnesses``); a missing key
+        # means "let the CLI decide".  Sessions overlay their own map.
+        "harness_options": {p: {} for p in _valid_provider_names()},
         "default_voice_provider": DEFAULT_VOICE_PROVIDER,
         "default_voice_model": DEFAULT_VOICE_MODEL,
         "default_voice_name": default_voice,
@@ -252,6 +257,8 @@ class ConfigUpdate(BaseModel):
     default_audio_model: str | None = None  # model for voice messages ("" = server default)
     summarizer_model: str | None = None  # model used to summarize older history for the voice prompt
     harness_model: dict[str, str] | None = None  # per-provider harness model ("" = CLI default)
+    # per-provider harness options; a None value removes that key (= CLI default)
+    harness_options: dict[str, dict[str, Any]] | None = None
     default_voice_provider: str | None = None  # default provider for voice sessions
     default_voice_model: str | None = None     # default model for voice sessions
     default_voice_name: str | None = None      # default voice/speaker for voice sessions
@@ -341,6 +348,55 @@ async def list_session_providers() -> dict[str, Any]:
         for s in get_registry().all().values()
     ]
     return {"providers": specs}
+
+
+@router.get("/harnesses")
+async def list_harness_catalogs(refresh: bool = False) -> dict[str, Any]:
+    """Every registered harness with its catalog (models + options).
+
+    One call for the settings UIs: ``{harnesses: [{id, label, description,
+    catalog}]}`` where ``catalog`` is :meth:`HarnessCatalog.to_dict` or
+    ``None`` for a harness that has no configurable options.  Catalogs are
+    cached for a few minutes; ``?refresh=true`` rebuilds them (e.g. after
+    the user adds a model to a CLI's own settings file).
+    """
+    import asyncio
+
+    from manager.harness_catalog import get_catalog
+    from manager.registry import ensure_all_registered, get_registry
+
+    ensure_all_registered()
+    specs = list(get_registry().all().values())
+    catalogs = await asyncio.gather(
+        *(asyncio.to_thread(get_catalog, s.name, refresh=refresh) for s in specs),
+    )
+    return {
+        "harnesses": [
+            {
+                "id": s.name,
+                "label": s.label,
+                "description": s.description,
+                "catalog": c.to_dict() if c is not None else None,
+            }
+            for s, c in zip(specs, catalogs)
+        ],
+    }
+
+
+@router.get("/harness/{provider}/catalog")
+async def get_harness_catalog(provider: str, refresh: bool = False) -> dict[str, Any]:
+    """The catalog of one harness (see :func:`list_harness_catalogs`)."""
+    import asyncio
+
+    from manager.harness_catalog import get_catalog
+
+    if provider not in _valid_provider_names():
+        raise HTTPException(status_code=404, detail=f"Unknown harness {provider!r}")
+    catalog = await asyncio.to_thread(get_catalog, provider, refresh=refresh)
+    if catalog is None:
+        return {"provider": provider, "models": [], "options": [], "default_model": None,
+                "allow_custom_model": True, "warnings": []}
+    return catalog.to_dict()
 
 
 @router.get("/harness/qwen/models")
@@ -665,6 +721,33 @@ async def update_config(body: ConfigUpdate) -> dict[str, Any]:
                 )
             current[prov] = model_id.strip()
         config["harness_model"] = current
+
+    if body.harness_options is not None:
+        # Per provider, per key merge: only the keys sent change; a None
+        # value drops the key (back to the CLI default).  Values are
+        # validated against the harness's catalog.
+        from manager.harness_catalog import get_catalog, validate_options
+
+        valid = _valid_provider_names()
+        current_all = dict(config.get("harness_options") or {})
+        for prov, opts in body.harness_options.items():
+            if prov not in valid:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unknown harness provider {prov!r}; expected one of {sorted(valid)}",
+                )
+            try:
+                checked = validate_options(get_catalog(prov), opts)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=f"harness_options[{prov!r}]: {e}") from e
+            merged = dict(current_all.get(prov) or {})
+            for k, v in checked.items():
+                if v is None:
+                    merged.pop(k, None)
+                else:
+                    merged[k] = v
+            current_all[prov] = merged
+        config["harness_options"] = current_all
 
     if body.default_model is not None:
         # Accept any non-empty model ID. The orchestrator infers provider from

@@ -1,12 +1,19 @@
 /**
  * W-13 gallery board: the Settings home + a detail page in both layouts, a page pushed over the
  * list (compact), and the sign-in screen. Stores are seeded with realistic values (no backend);
- * the session sheet needs a live session, so it is shown in the running app (mock backend).
+ * the session sheet needs a live session, so it is shown in the running app (mock backend). The
+ * Agent sessions page renders the harness catalogs of `harnessSamples.ts`; "Harness option
+ * controls" shows every option control (switch, segmented, levels, slider with log scale /
+ * presets / `requires`, dropdown) in both scopes.
  */
 import { useState, type ReactNode } from 'react';
 import { authStore, SignInScreen } from '@/features/auth';
 import { patchServerConfig, type ServerConfigState } from '@/stores';
-import type { ServerConfig } from '@/services';
+import type { HarnessInfo, HarnessOptionsMap, ServerConfig } from '@/services';
+import { withSessionOption } from './harness';
+import { HarnessFields } from './HarnessFields';
+import { HARNESS_SAMPLES } from './harnessSamples';
+import { FieldStack } from './parts';
 import SettingsView from './SettingsView';
 import type { SettingsPageId } from './pages';
 
@@ -29,7 +36,8 @@ const CONFIG: ServerConfig = {
   provider: 'claude',
   default_model: 'gpt-audio-mini',
   summarizer_model: '',
-  harness_model: { claude: '', qwen: '' },
+  harness_model: { claude: 'opus', qwen: '', gemini: '', codex: 'gpt-5.6-terra' },
+  harness_options: { claude: { effort: 'xhigh', todo_tools: true }, codex: { effort: 'ultra', reasoning_summary: 'detailed' } },
   default_voice_provider: 'openai',
   default_voice_model: 'gpt-realtime-2',
   default_voice_name: 'cedar',
@@ -54,8 +62,9 @@ export const GALLERY_STATE: Partial<ServerConfigState> = {
     { id: 'claude', label: 'Claude Code', description: "Anthropic's official Claude Code CLI (the canonical harness)." },
     { id: 'qwen', label: 'Qwen Code', description: "Alibaba's Qwen Code CLI." },
     { id: 'gemini', label: 'Gemini CLI', description: "Google's Gemini CLI." },
+    { id: 'codex', label: 'Codex', description: 'OpenAI Codex CLI (app-server).' },
   ],
-  qwenModels: [{ id: 'qwen3.6-plus', display_name: 'qwen3.6-plus', context_window: 1000000, supports_thinking: true }],
+  harnesses: HARNESS_SAMPLES,
   orchestratorModels: {
     models: [
       { provider: 'anthropic', model_id: 'claude-sonnet-4-5-20250929', display_name: 'Claude Sonnet 4.5', supports_audio: false, supports_vision: true, context_window: 200000 },
@@ -111,10 +120,121 @@ function Frame({ width, height, children }: { width: number; height: number; chi
   );
 }
 
+/** One option per control kind (hints as the backend sends them). */
+const CONTROLS_HARNESS: HarnessInfo = {
+  id: 'gallery',
+  label: 'Every control',
+  catalog: {
+    provider: 'gallery',
+    models: [{ id: 'm1', label: 'Model one', source: 'builtin', default_effort: 'medium' }],
+    default_model: 'm1',
+    allow_custom_model: true,
+    warnings: [],
+    options: [
+      { key: 'todo_tools', label: 'Checklist tools (switch)', kind: 'toggle', default: true, help: 'A toggle with a known default.' },
+      { key: 'thinking', label: 'Thinking (segmented toggle)', kind: 'toggle', help: 'A toggle whose default depends on the model.' },
+      {
+        key: 'effort',
+        label: 'Reasoning effort (levels)',
+        kind: 'select',
+        ordered: true,
+        choices: [
+          { value: 'low', label: 'Low' },
+          { value: 'medium', label: 'Medium' },
+          { value: 'high', label: 'High' },
+          { value: 'xhigh', label: 'Extra high' },
+          { value: 'max', label: 'Max' },
+        ],
+      },
+      {
+        key: 'approval_mode',
+        label: 'Tool approval (segmented, wraps)',
+        kind: 'select',
+        control: 'segmented',
+        default: 'yolo',
+        choices: [
+          { value: 'yolo', label: 'Run every tool', description: "Archie's default" },
+          { value: 'auto_edit', label: 'Edits only', description: 'File edits run; shell and other tools are denied' },
+          { value: 'plan', label: 'Plan (read-only)' },
+          { value: 'default', label: 'Read-only' },
+        ],
+      },
+      {
+        key: 'thinking_budget',
+        label: 'Thinking budget (log slider, requires)',
+        kind: 'number',
+        default: 16000,
+        min: 1024,
+        max: 128000,
+        step: 1024,
+        unit: 'tokens',
+        scale: 'log',
+        requires: { thinking: [true] },
+      },
+      {
+        key: 'gemini_budget',
+        label: 'Budget (presets)',
+        kind: 'number',
+        default: 8192,
+        min: -1,
+        max: 32768,
+        step: 1,
+        unit: 'tokens',
+        scale: 'log',
+        custom_min: 128,
+        presets: [
+          { value: -1, label: 'Dynamic', description: 'The model decides' },
+          { value: 0, label: 'Off', description: 'Flash models only' },
+        ],
+      },
+      { key: 'temperature', label: 'Temperature (linear slider)', kind: 'number', min: 0, max: 2, step: 0.1, control: 'slider' },
+      {
+        key: 'fallback_model',
+        label: 'Fallback model (dropdown)',
+        kind: 'select',
+        control: 'dropdown',
+        choices: [
+          { value: 'sonnet', label: 'Sonnet' },
+          { value: 'opus', label: 'Opus' },
+        ],
+      },
+    ],
+  },
+};
+
+function ControlsBoard({ scope }: { scope: 'global' | 'session' }) {
+  const global: HarnessOptionsMap = { effort: 'high', thinking: true, gemini_budget: -1 };
+  const [opts, setOpts] = useState<HarnessOptionsMap | null>(scope === 'global' ? global : { todo_tools: false });
+  const [model, setModel] = useState<string | null>(scope === 'global' ? '' : null);
+  return (
+    <FieldStack label={scope === 'global' ? 'Global defaults' : 'Session (inherits the global column)'}>
+      <HarnessFields
+        harness={CONTROLS_HARNESS}
+        scope={scope}
+        model={model}
+        options={opts}
+        {...(scope === 'session' ? { inheritedModel: '', inheritedOptions: global } : {})}
+        disabled={false}
+        onModel={setModel}
+        onOption={(key, st) => {
+          setOpts((cur) => {
+            if (scope === 'session') return withSessionOption(cur, key, st);
+            const next: HarnessOptionsMap = {};
+            for (const k of Object.keys(cur ?? {})) if (k !== key) next[k] = cur?.[k] ?? null;
+            if (st.kind === 'value') next[key] = st.value;
+            return next;
+          });
+        }}
+      />
+    </FieldStack>
+  );
+}
+
 export function SettingsGallery() {
   useState(seed); // seed the stores once, before the first render of the pages
   const [page, setPage] = useState<SettingsPageId | null>('voice-tuning');
   const [phonePage, setPhonePage] = useState<SettingsPageId | null>(null);
+  const [agentPage, setAgentPage] = useState<SettingsPageId | null>('agent-sessions');
   return (
     <div>
       <h3>Expanded: two panes</h3>
@@ -125,6 +245,24 @@ export function SettingsGallery() {
       <Frame width={412} height={760}>
         <SettingsView page={phonePage} layout="pushed" load={false} onNavigate={setPhonePage} />
       </Frame>
+      <h3>Compact: Agent sessions (harness catalogs: model + options per harness)</h3>
+      <Frame width={412} height={900}>
+        <SettingsView page={agentPage} layout="pushed" load={false} onNavigate={setAgentPage} />
+      </Frame>
+      <h3>Harness option controls (global · session)</h3>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <Frame width={412} height={1500}>
+          <div style={{ padding: 16 }}>
+            <ControlsBoard scope="global" />
+          </div>
+        </Frame>
+        <div style={{ width: 24 }} />
+        <Frame width={412} height={1500}>
+          <div style={{ padding: 16 }}>
+            <ControlsBoard scope="session" />
+          </div>
+        </Frame>
+      </div>
       <h3>Sign-in screen (headless server)</h3>
       <Frame width={520} height={620}>
         <SignInScreen inline />

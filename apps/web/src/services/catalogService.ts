@@ -16,7 +16,8 @@ import {
 } from '@/stores';
 import { api } from './http/endpoints';
 import { errorMessage, isApiError } from './http/errors';
-import type { ServerConfig, ServerConfigUpdate } from './http/types';
+import type { HarnessInfo, ServerConfig, ServerConfigUpdate } from './http/types';
+import { harnessesFromProviders, providersFromHarnesses, qwenCatalogFromModels } from './harnessFallback';
 
 export const LIST_REFRESH_DEBOUNCE_MS = 2000;
 
@@ -163,14 +164,53 @@ export async function loadConfigCatalogs(): Promise<void> {
     }
   };
   await Promise.all([
-    settle(api.config.providers(), (r) => patchServerConfig({ providers: r.providers })),
-    settle(api.config.qwenModels(), (r) => patchServerConfig({ qwenModels: r.models })),
+    loadHarnessCatalogs(),
     settle(api.voice.orchestratorModels(), (r) => patchServerConfig({ orchestratorModels: r })),
     settle(api.voice.voiceModels(), (r) => patchServerConfig({ voiceModels: r })),
     settle(api.catalogs.mcpServers(), (r) => patchServerConfig({ mcpServers: r })),
     settle(api.catalogs.skills(), (r) => patchServerConfig({ skills: r.skills })),
     settle(api.catalogs.agents(), (r) => patchServerConfig({ agents: r.agents })),
   ]);
+}
+
+/**
+ * `GET /api/config/harnesses` (models + options of every harness) into `harnesses`, and the
+ * `providers` list derived from it. `refresh` asks the server to rebuild its catalog cache.
+ * Older servers (no endpoint, or any failure) fall back to `/api/config/providers` + the Qwen model
+ * list. A Qwen row without a catalog gets one from the Qwen model list too. Never rejects.
+ */
+export async function loadHarnessCatalogs(refresh = false): Promise<void> {
+  let list: HarnessInfo[] | null = null;
+  try {
+    const r = await api.config.harnesses(refresh);
+    list = Array.isArray(r.harnesses) ? r.harnesses.filter((h) => h && typeof h.id === 'string') : null;
+  } catch {
+    list = null;
+  }
+  if (list) {
+    if (list.some((h) => h.id === 'qwen' && !h.catalog)) {
+      try {
+        const q = await api.config.qwenModels();
+        const catalog = qwenCatalogFromModels(q.models);
+        if (catalog.models.length) list = list.map((h) => (h.id === 'qwen' && !h.catalog ? { ...h, catalog } : h));
+      } catch {
+        // no Qwen list: the model stays "CLI default" or a custom id
+      }
+    }
+    patchServerConfig({ harnesses: list, providers: providersFromHarnesses(list) });
+    return;
+  }
+  const [providers, qwen] = await Promise.all([
+    api.config.providers().then(
+      (r) => r.providers,
+      () => null,
+    ),
+    api.config.qwenModels().then(
+      (r) => r.models,
+      () => null,
+    ),
+  ]);
+  if (providers) patchServerConfig({ providers, harnesses: harnessesFromProviders(providers, qwen) });
 }
 
 export async function loadGoogleVoiceModels(endpoint: string): Promise<void> {

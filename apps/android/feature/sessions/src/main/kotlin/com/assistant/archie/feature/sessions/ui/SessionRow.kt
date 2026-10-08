@@ -44,7 +44,6 @@ import com.assistant.core.design.components.ListLeadingIcon
 import com.assistant.core.design.components.LiveStatus
 import com.assistant.core.design.icons.ArchieIcons
 import com.assistant.core.design.theme.ArchieTheme
-import com.assistant.core.model.HarnessProvider
 
 /* Shared pieces of the session lists (drawer, list pane, History screen, switcher). */
 
@@ -160,14 +159,6 @@ internal fun TabStatus.toLive(): LiveStatus? = when (this) {
     TabStatus.STOPPED -> LiveStatus.Off
     TabStatus.NONE -> null
 }
-
-/** IA §1: provider shown as a labeled chip ("Claude", "Qwen", "Gemini"). */
-internal val HarnessProvider.label: String
-    get() = when (this) {
-        HarnessProvider.CLAUDE -> "Claude"
-        HarnessProvider.QWEN -> "Qwen"
-        HarnessProvider.GEMINI -> "Gemini"
-    }
 
 internal fun ItemKind.icon(): ImageVector = when (this) {
     ItemKind.ARCHIE -> ArchieIcons.Forum

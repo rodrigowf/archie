@@ -16,6 +16,7 @@ rest of the wrapper (SessionStore, MessagePreview, UI) understands.
 from __future__ import annotations
 
 import json
+import uuid
 from pathlib import Path
 
 import pytest
@@ -52,9 +53,17 @@ def _header_line(
     }
 
 
-def _user_line(text: str, ts: str = "2026-05-15T20:57:09.556Z") -> dict:
+def _uid() -> str:
+    # Real files never reuse an id for two different messages (a reused id
+    # is an upsert), so every fixture line gets its own.
+    return str(uuid.uuid4())
+
+
+def _user_line(
+    text: str, ts: str = "2026-05-15T20:57:09.556Z", id: str | None = None,
+) -> dict:
     return {
-        "id": "u1",
+        "id": id or _uid(),
         "timestamp": ts,
         "type": "user",
         "content": [{"text": text}],
@@ -66,9 +75,10 @@ def _gemini_line(
     ts: str = "2026-05-15T20:57:11.910Z",
     thoughts: list[dict] | None = None,
     tool_calls: list[dict] | None = None,
+    id: str | None = None,
 ) -> dict:
     out = {
-        "id": "g1",
+        "id": id or _uid(),
         "timestamp": ts,
         "type": "gemini",
         "content": text,
@@ -533,3 +543,226 @@ def test_jsonl_path_resolver_returns_empty_for_short_id(
     chats.mkdir(parents=True)
     (chats / "session-anything.jsonl").write_text("{}\n")
     assert _gemini_jsonl_candidates("") == []
+
+
+# ---------------------------------------------------------------------------
+# The log semantics of CLI 0.42 / 0.63 (upserts, snapshots, rewinds)
+# ---------------------------------------------------------------------------
+
+
+def _shell_call(tool_id: str = "run_shell_command_1", output: str = "a.txt\nb.txt") -> dict:
+    return _tool_call(tool_id=tool_id, name="run_shell_command",
+                      args={"command": "ls"}, output=output)
+
+
+def _fr_user(tool_id: str, output: str, mid: str = "fr1") -> dict:
+    """0.63: the tool answer recorded as a user message of functionResponse parts."""
+    return {
+        "id": mid, "timestamp": "2026-10-07T23:40:03Z", "type": "user",
+        "content": [{"functionResponse": {
+            "id": tool_id, "name": "run_shell_command", "response": {"output": output},
+        }}],
+    }
+
+
+def _ctx_user() -> dict:
+    return {
+        "id": "ctx", "timestamp": "2026-10-07T23:40:00Z", "type": "user",
+        "content": [{"text": "<session_context>\nThis is the Gemini CLI. OS: linux\n"
+                             "--- Context from: GEMINI.md ---\n# Instructions"}],
+    }
+
+
+def test_042_duplicate_ids_are_upserted_last_write_wins(
+    adapter: GeminiAdapter, tmp_path: Path,
+) -> None:
+    """0.42 re-appends a gemini message when it gains toolCalls (real file
+    shape: thoughts first, then the same id with toolCalls)."""
+    thought = [{"subject": "Plan", "description": "list files", "timestamp": "t"}]
+    p = tmp_path / "s.jsonl"
+    _write_jsonl(p, [
+        _header_line(),
+        _user_line("list files", id="u1"),
+        _set_line(),
+        _gemini_line("", thoughts=thought, id="g1"),
+        _set_line(),
+        _gemini_line("", thoughts=thought, tool_calls=[_shell_call()], id="g1"),
+        _gemini_line("Two files.", id="g2"),
+        _set_line(),
+    ])
+    msgs = adapter.read_messages(p)
+    shape = [
+        (m["type"], m["message"]["content"] if isinstance(m["message"]["content"], str)
+         else [b["type"] for b in m["message"]["content"]])
+        for m in msgs
+    ]
+    assert shape == [
+        ("user", "list files"),
+        ("assistant", ["thinking", "tool_use"]),
+        ("user", ["tool_result"]),
+        ("assistant", ["text"]),
+    ]
+    info = adapter.parse_session_info(p, "sid")
+    assert info.message_count == 3
+
+
+def test_063_snapshot_replaces_history_and_hides_session_context(
+    adapter: GeminiAdapter, tmp_path: Path,
+) -> None:
+    """On resume 0.63 writes ``$set.messages``: a <session_context> user turn,
+    gemini content as part lists, and functionResponse user turns."""
+    snapshot = [
+        _ctx_user(),
+        {"id": "u1", "timestamp": "t1", "type": "user", "content": [{"text": "list files"}]},
+        {"id": "g1", "timestamp": "t2", "type": "gemini", "model": "gemini-3-flash-preview",
+         "content": [
+             {"text": "Let me look.", "thought": True},
+             {"functionCall": {"id": "sh1", "name": "run_shell_command", "args": {"command": "ls"}}},
+         ],
+         "thoughts": [{"subject": "Plan", "description": "run ls"}],
+         "toolCalls": [_shell_call("sh1")]},
+        _fr_user("sh1", "a.txt\nb.txt"),
+        {"id": "g2", "timestamp": "t3", "type": "gemini", "content": [{"text": "Two files."}]},
+    ]
+    p = tmp_path / "s.jsonl"
+    _write_jsonl(p, [
+        _header_line(),
+        # stale pre-snapshot lines are replaced wholesale
+        _user_line("stale", id="old"),
+        {"$set": {"messages": snapshot, "lastUpdated": "2026-10-07T23:41:00Z"}},
+        _user_line("and now?", id="u2"),
+        _gemini_line("Still two.", id="g3"),
+    ])
+    msgs = adapter.read_messages(p)
+    texts = [m["message"]["content"] for m in msgs if isinstance(m["message"]["content"], str)]
+    assert texts == ["list files", "and now?"]
+    assistant = [m for m in msgs if m["type"] == "assistant"]
+    # thoughts[] wins over thought parts; toolCalls wins over functionCall parts
+    assert assistant[0]["message"]["content"] == [
+        {"type": "thinking", "text": "Plan\nrun ls"},
+        {"type": "tool_use", "id": "sh1", "name": "run_shell_command", "input": {"command": "ls"}},
+    ]
+    assert assistant[1]["message"]["content"] == [{"type": "text", "text": "Two files."}]
+    # one tool_result for sh1 (from toolCalls), the functionResponse turn adds nothing
+    results = [b for m in msgs if m["type"] == "user" and isinstance(m["message"]["content"], list)
+               for b in m["message"]["content"]]
+    assert [r["tool_use_id"] for r in results] == ["sh1"]
+    # no empty user messages anywhere
+    assert all(m["message"]["content"] for m in msgs)
+    info = adapter.parse_session_info(p, "sid")
+    assert info.title == "list files"
+    assert info.message_count == 5
+
+
+def test_063_function_response_user_folds_into_tool_result(
+    adapter: GeminiAdapter, tmp_path: Path,
+) -> None:
+    """A functionResponse-only user line answers a functionCall part that has
+    no toolCalls entry: it becomes tool_result blocks, not an empty turn."""
+    p = tmp_path / "s.jsonl"
+    _write_jsonl(p, [
+        _header_line(),
+        _user_line("go", id="u1"),
+        {"id": "g1", "timestamp": "t", "type": "gemini", "content": [
+            {"functionCall": {"id": "sh9", "name": "run_shell_command", "args": {"command": "pwd"}}},
+        ]},
+        _fr_user("sh9", "/home"),
+        _gemini_line("You are in /home.", id="g2"),
+    ])
+    msgs = adapter.read_messages(p)
+    assert msgs[1]["message"]["content"][0]["type"] == "tool_use"
+    assert msgs[2]["message"]["content"] == [
+        {"type": "tool_result", "tool_use_id": "sh9", "content": "/home", "is_error": False},
+    ]
+    assert len(msgs) == 4
+
+
+def test_rewind_truncates_history(adapter: GeminiAdapter, tmp_path: Path) -> None:
+    p = tmp_path / "s.jsonl"
+    _write_jsonl(p, [
+        _header_line(),
+        _user_line("one", id="u1"),
+        _gemini_line("1", id="g1"),
+        _user_line("two", id="u2"),
+        _gemini_line("2", id="g2"),
+        {"$rewindTo": "u2"},
+        _user_line("three", id="u3"),
+    ])
+    texts = [extract for m in adapter.read_messages(p)
+             for extract in ([m["message"]["content"]] if isinstance(m["message"]["content"], str)
+                             else [b.get("text") for b in m["message"]["content"]])]
+    assert texts == ["one", "1", "three"]
+
+
+def test_display_content_preferred_and_session_context_title_skipped(
+    adapter: GeminiAdapter, tmp_path: Path,
+) -> None:
+    p = tmp_path / "s.jsonl"
+    _write_jsonl(p, [
+        _header_line(),
+        _ctx_user(),
+        {"id": "u1", "timestamp": "t", "type": "user",
+         "content": [{"text": "explain @a.py"}, {"text": "--- a.py ---\nprint(1)"}],
+         "displayContent": [{"text": "explain @a.py"}]},
+    ])
+    msgs = adapter.read_messages(p)
+    assert [m["message"]["content"] for m in msgs] == ["explain @a.py"]
+    assert adapter.parse_session_info(p, "sid").title == "explain @a.py"
+
+
+def test_info_error_records_are_not_turns(adapter: GeminiAdapter, tmp_path: Path) -> None:
+    p = tmp_path / "s.jsonl"
+    _write_jsonl(p, [
+        _header_line(), _user_line("hi", id="u1"),
+        {"id": "i1", "timestamp": "t", "type": "info", "content": "Switched model"},
+        {"id": "e1", "timestamp": "t", "type": "error", "content": "Quota"},
+        _gemini_line("hello", id="g1"),
+    ])
+    assert len(adapter.read_messages(p)) == 2
+
+
+def test_header_only_stub_is_an_empty_session(adapter: GeminiAdapter, tmp_path: Path) -> None:
+    from manager.gemini.adapter import gemini_session_is_resumable
+
+    p = tmp_path / "s.jsonl"
+    _write_jsonl(p, [_header_line(), {"$set": {"messages": [_ctx_user()]}}])
+    assert adapter.read_messages(p) == []
+    assert adapter.parse_session_info(p, "sid").message_count == 0
+    assert gemini_session_is_resumable(p) is False
+    _write_jsonl(p, [_header_line(), _gemini_line("", thoughts=[{"subject": "s", "description": "d"}])])
+    assert gemini_session_is_resumable(p) is True
+
+
+def test_is_visible_message_rules(adapter: GeminiAdapter) -> None:
+    assert adapter.is_visible_message(_user_line("hi"))
+    assert not adapter.is_visible_message(_ctx_user())
+    assert not adapter.is_visible_message(_fr_user("x", "out"))
+    assert adapter.is_visible_message(_gemini_line("", tool_calls=[_shell_call()]))
+    assert not adapter.is_visible_message({"id": "g", "type": "gemini", "content": ""})
+
+
+def test_visible_line_indices_cut_between_turns(adapter: GeminiAdapter, tmp_path: Path) -> None:
+    """Dropping the last N turns keeps a prefix that replays to the turns before."""
+    from manager.gemini.adapter import _load_conversation
+
+    lines = [
+        _header_line(),                                   # 0
+        _user_line("one", id="u1"),                       # 1
+        _set_line(),                                      # 2
+        _gemini_line("", id="g1", thoughts=[{"subject": "a", "description": "b"}]),  # 3
+        _gemini_line("", id="g1", tool_calls=[_shell_call()],
+                     thoughts=[{"subject": "a", "description": "b"}]),           # 4
+        _set_line(),                                      # 5
+        {"$set": {"messages": [                           # 6 (resume snapshot)
+            _ctx_user(), _user_line("one", id="u1"),
+            _gemini_line("", id="g1", tool_calls=[_shell_call()],
+                         thoughts=[{"subject": "a", "description": "b"}]),
+        ]}},
+        _user_line("two", id="u2"),                       # 7
+        _gemini_line("2", id="g2"),                       # 8
+    ]
+    idx = adapter.visible_line_indices(lines)
+    assert idx == [2, 6, 7, 8]
+    # drop the last 2 visible turns → keep lines[: idx[1] + 1]
+    conv = _load_conversation(lines[: idx[1] + 1])
+    assert [r["id"] for r in conv.records if adapter.is_visible_message(r)] == ["u1", "g1"]

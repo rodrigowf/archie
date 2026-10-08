@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -42,6 +43,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.assistant.archie.feature.settings.HarnessLogic
+import com.assistant.archie.feature.settings.HarnessScope
 import com.assistant.archie.feature.settings.Option
 import com.assistant.archie.feature.settings.SessionKey
 import com.assistant.archie.feature.settings.SessionSettingsController
@@ -59,6 +61,7 @@ import com.assistant.core.design.components.InlineCardAction
 import com.assistant.core.design.icons.ArchieIcon
 import com.assistant.core.design.icons.ArchieIcons
 import com.assistant.core.design.theme.ArchieTheme
+import com.assistant.core.model.HarnessInfo
 import com.assistant.core.model.ServerConfig
 import kotlinx.coroutines.launch
 
@@ -212,30 +215,36 @@ private fun ColumnScope.SessionFields(
         }
     }
 
-    val providers = server.catalogs.providers.orEmpty()
+    val harnesses = server.catalogs.harnesses.orEmpty()
     val provider = st.provider
-    val effective = provider ?: global.provider.orEmpty()
-    fun label(id: String) = providers.firstOrNull { it.id == id }?.label?.takeIf { it.isNotEmpty() } ?: id
-    val providerOptions = listOf(Option("", "Default (${label(global.provider.orEmpty())})")) + providers.map { Option(it.id, it.label.ifEmpty { it.id }) }
-    val harness = st.harnessModel
-    val inherited = global.harnessModel[effective].orEmpty()
-    val harnessOptions = (listOf(Option(INHERIT, "Default (${inherited.ifEmpty { "CLI default" }})"), Option("", "CLI default")) + HarnessLogic.models(server.catalogs.qwenModels)).toMutableList()
-    if (!harness.isNullOrEmpty() && harnessOptions.none { it.id == harness }) harnessOptions += Option(harness, harness)
-    val chrome = st.chromeExtension
-    Section("Advanced") {
-        SelectRow("Harness", providerOptions, provider.orEmpty(), { controller.set(SessionKey.PROVIDER, it.ifEmpty { null }) }, enabled = !disabled)
-        if (effective == "qwen") {
-            SelectRow("Qwen model", harnessOptions, harness ?: INHERIT, { controller.set(SessionKey.HARNESS_MODEL, if (it == INHERIT) null else it) }, enabled = !disabled)
+    val globalProvider = global.provider.orEmpty()
+    val effective = provider ?: globalProvider
+    val providerOptions = (listOf(Option("", "Default (${HarnessLogic.label(harnesses, globalProvider)})")) + harnesses.map { Option(it.id, it.label.ifEmpty { it.id }) }).toMutableList()
+    if (!provider.isNullOrEmpty() && harnesses.none { it.id == provider }) providerOptions += Option(provider, provider)
+    val info = HarnessLogic.info(harnesses, effective) ?: HarnessInfo(effective, effective, catalog = null)
+    HarnessWarnings(HarnessLogic.info(harnesses, effective))
+    Section("Harness") {
+        SelectRow("Harness", providerOptions, provider.orEmpty(), { controller.setProvider(it.ifEmpty { null }, global.provider) }, enabled = !disabled)
+        FieldBlock { HelpLine("Switching the CLI behind an existing conversation can corrupt it. Model and options reset with it.") }
+        key(effective) {
+            HarnessFields(
+                info, HarnessScope.SESSION,
+                model = st.harnessModel,
+                inheritedModel = global.harnessModel[effective].orEmpty(),
+                options = st.harnessOptions,
+                inheritedOptions = global.harnessOptions[effective].orEmpty(),
+                enabled = !disabled,
+                onModel = { controller.set(SessionKey.HARNESS_MODEL, it) },
+                onOption = controller::setOption,
+            )
         }
-        FieldBlock { HelpLine("Switching the CLI behind an existing conversation can corrupt it.") }
-        ToggleField(
-            "Claude in Chrome", chrome ?: global.chromeExtension, { controller.set(SessionKey.CHROME_EXTENSION, it) },
-            help = if (chrome == null) "Default (${if (global.chromeExtension) "on" else "off"})" else "Set for this session.",
-            enabled = !disabled,
-        )
+        // Claude Code only (`--chrome`): shown while the session runs Claude.
+        if (effective == "claude") {
+            ClaudeInChromeField(HarnessScope.SESSION, st.chromeExtension, inherited = global.chromeExtension, enabled = !disabled) {
+                controller.set(SessionKey.CHROME_EXTENSION, it)
+            }
+        }
     }
-    if (chrome != null) ArchieButton("Use default", { controller.set(SessionKey.CHROME_EXTENSION, null) }, style = ButtonStyle.Text, size = ButtonSize.Small, icon = ArchieIcons.Refresh, enabled = !disabled)
     st.saveError?.let { Notice(NoticeTone.ERROR, "Not saved", body = it) }
 }
 
-private const val INHERIT = "__inherit__"

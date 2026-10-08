@@ -14,7 +14,8 @@ Qwen JSONL characteristics:
   same shape Claude writes natively and the Gemini adapter synthesizes.
 - Qwen uses ``role: "model"`` instead of ``"assistant"``
 - System events with subtypes (telemetry, attribution) are skipped for display
-- Runtime metadata lives in ``<session-id>.runtime.json`` alongside the JSONL
+- 0.25 adds ``provenance``, ``promptId``, ``contextWindowSize`` (assistant) and
+  ``toolCallResult.errorType`` / ``executionStatus``; none change the shapes above
 """
 
 from __future__ import annotations
@@ -295,6 +296,18 @@ def _load_qwen_kill_helper():
     return kill_qwen_subprocess
 
 
+def _load_qwen_catalog():
+    # Lazy: catalog.py pulls httpx only when a catalog is actually built.
+    from .catalog import load_qwen_catalog
+    return load_qwen_catalog()
+
+
+# Exact CLI version this harness is verified against (installer pin).
+# qwen-code ships a stable release every ~2 days; re-verify on each bump
+# (docs/harnesses/qwen-code.md, "Upgrading").
+QWEN_CLI_VERSION = "0.25.0"
+
+
 def _qwen_jsonl_candidates(session_id: str):
     # Qwen writes JSONL under context/chats/<id>.jsonl.  Kept in a list
     # so the resolver contract stays uniform with harnesses that have
@@ -319,7 +332,8 @@ register_harness(HarnessSpec(
     ssh_control_path_prefix="qwen",
     jsonl_path_resolver=_qwen_jsonl_candidates,
     requirements_file=None,  # Qwen runs purely as an external Node CLI
-    npm_package="@qwen-code/qwen-code",
+    npm_package=f"@qwen-code/qwen-code@{QWEN_CLI_VERSION}",
     cli_binary="qwen",
     env_keys=("DASHSCOPE_API_KEY",),
+    catalog_loader=_load_qwen_catalog,
 ))

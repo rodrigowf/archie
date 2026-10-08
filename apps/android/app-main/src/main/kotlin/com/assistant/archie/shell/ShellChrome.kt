@@ -32,7 +32,6 @@ import com.assistant.core.design.components.TabLead
 import com.assistant.core.design.icons.ArchieIcon
 import com.assistant.core.design.icons.ArchieIcons
 import com.assistant.core.design.theme.ArchieTheme
-import com.assistant.core.model.HarnessProvider
 import com.assistant.core.model.ThemeMode
 import com.assistant.core.voice.ports.SessionPhase
 import com.assistant.core.design.theme.ThemeMode as DesignThemeMode
@@ -47,14 +46,6 @@ internal fun TabStatus.toLive(): LiveStatus? = when (this) {
     TabStatus.STOPPED -> LiveStatus.Off
     TabStatus.NONE -> null
 }
-
-/** IA §1: provider shown as a labeled chip ("Claude", "Qwen", "Gemini"). */
-internal val HarnessProvider.label: String
-    get() = when (this) {
-        HarnessProvider.CLAUDE -> "Claude"
-        HarnessProvider.QWEN -> "Qwen"
-        HarnessProvider.GEMINI -> "Gemini"
-    }
 
 internal fun ThemeMode.toDesign(): DesignThemeMode = when (this) {
     ThemeMode.SYSTEM -> DesignThemeMode.System

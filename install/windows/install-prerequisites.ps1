@@ -3,7 +3,8 @@
     Windows prerequisite checker / installer for the Personal Assistant.
 
 .DESCRIPTION
-    Checks that Python 3.11+, Node.js 20+, npm, and git are present.
+    Checks that Python 3.11+, Node.js 22+ (NODE_MIN_MAJOR in
+    install\harness-versions.env), npm, and git are present.
     When something is missing, offers to install it via winget (Microsoft's
     package manager built into Windows 10 1809+ / Windows 11).
 
@@ -68,7 +69,7 @@ function Show-WingetMissing {
     Write-Host ""
     Write-Host "    Manual fallback (download installers):"
     Write-Host "      Python 3.11+:  https://www.python.org/downloads/"
-    Write-Host "      Node.js 20+:   https://nodejs.org/  (LTS)"
+    Write-Host "      Node.js 22+:   https://nodejs.org/  (LTS)"
     Write-Host "      Git:           https://git-scm.com/download/win"
     Write-Host ""
 }
@@ -151,7 +152,15 @@ if ($pyVersion) {
     $Missing += @{ Id = 'Python.Python.3.12'; Name = 'Python 3.12' }
 }
 
-# Node.js
+# Node.js — minimum major from install\harness-versions.env (apps/web engines,
+# qwen-code).
+$NodeMinMajor = 22
+$pinsFile = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) '..\harness-versions.env'
+if (Test-Path -LiteralPath $pinsFile) {
+    foreach ($line in Get-Content -LiteralPath $pinsFile) {
+        if ($line -match '^\s*NODE_MIN_MAJOR=(\d+)\s*$') { $NodeMinMajor = [int]$Matches[1] }
+    }
+}
 function Get-NodeVersion {
     if (-not (Get-Command node -ErrorAction SilentlyContinue)) { return $null }
     try {
@@ -164,11 +173,11 @@ function Get-NodeVersion {
 $nodeVersion = Get-NodeVersion
 if ($nodeVersion) {
     $nodeMajor = [int](($nodeVersion -split '\.')[0])
-    if ($nodeMajor -ge 20) {
+    if ($nodeMajor -ge $NodeMinMajor) {
         Write-Info "Node.js $nodeVersion"
     } else {
-        Write-Err "Node.js $nodeVersion (need 20+)"
-        # OpenJS.NodeJS.LTS tracks the current LTS line (20.x in 2026).
+        Write-Err "Node.js $nodeVersion (need $NodeMinMajor+)"
+        # OpenJS.NodeJS.LTS tracks the current LTS line (22.x / 24.x in 2026).
         $Missing += @{ Id = 'OpenJS.NodeJS.LTS'; Name = 'Node.js LTS' }
     }
 } else {

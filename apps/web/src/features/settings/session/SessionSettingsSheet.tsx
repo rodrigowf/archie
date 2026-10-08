@@ -1,8 +1,10 @@
 /**
  * Session settings (IA §7, inv02 F-32, spec 12 §6.14): a side sheet on Expanded / Medium, a
  * bottom sheet on Compact, opened from the session ⋮ menu. Fields: working directory, MCP servers,
- * skills & agents (read-only: the backend has no per-session selection, inv02 F-35), and under
- * "Advanced" the harness, its model and the Chrome flag.
+ * skills & agents (read-only: the backend has no per-session selection, inv02 F-35), the harness
+ * with its model and options (reasoning effort, thinking, … from the harness catalog; `HarnessFields`)
+ * and, when the session runs Claude Code, its Chrome flag. Changing the harness resets the model and
+ * options to inherit.
  *
  * Every field is `null` = inherit the global value (shown as "Default"); "Use default" writes
  * `null`. Changes are a draft until saved: **Save** PUTs only the changed keys; **Save and restart**
@@ -15,29 +17,46 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useSessionActions } from '@/features/session-actions';
 import { api, errorMessage, getSessionRuntime, SessionRuntime, type ServerConfig, type SessionConfig } from '@/services';
 import { showSnackbar, useServerConfig } from '@/stores';
-import { Button, Disclosure, Select, Switch, type SelectOption } from '@/ui/controls';
+import { Button, Disclosure, Select, type SelectOption } from '@/ui/controls';
 import { BottomSheet, SideSheet } from '@/ui/overlays';
 import { refreshSettings } from '../controller';
-import { coerceWorkingDirectories, harnessModels } from '../logic';
-import { Field, FieldStack, Loading, Notice, useFieldId } from '../parts';
+import { draftForProvider, harnessInfo, harnessLabel, normalizeOptionsMap, sameOptionsMap, withSessionOption } from '../harness';
+import { ClaudeInChromeField, HarnessFields, HarnessWarnings } from '../HarnessFields';
+import { coerceWorkingDirectories } from '../logic';
+import { Field, FieldStack, Loading, Notice } from '../parts';
 import { McpServerList } from '../pages/McpServersPage';
 import { WorkingDirectoryList } from '../pages/WorkingDirectoriesPage';
 import { useCompactWindow } from './useCompactWindow';
 import styles from '../settings.module.css';
 
 export type SessionConfigKey = keyof SessionConfig;
-const KEYS: readonly SessionConfigKey[] = ['working_directory', 'enabled_mcps', 'provider', 'harness_model', 'chrome_extension'];
+const KEYS: readonly SessionConfigKey[] = ['working_directory', 'enabled_mcps', 'provider', 'harness_model', 'harness_options', 'chrome_extension'];
 
-const EMPTY: SessionConfig = { working_directory: null, enabled_mcps: null, chrome_extension: null, provider: null, harness_model: null };
+const EMPTY: SessionConfig = {
+  working_directory: null,
+  enabled_mcps: null,
+  chrome_extension: null,
+  provider: null,
+  harness_model: null,
+  harness_options: null,
+};
 
-function same(a: unknown, b: unknown): boolean {
+function same(k: SessionConfigKey, a: unknown, b: unknown): boolean {
+  if (k === 'harness_options') return sameOptionsMap(a as SessionConfig['harness_options'], b as SessionConfig['harness_options']);
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** The server's answer with every key present and `harness_options` normalized (`{}` → null). */
+function fromServer(c: Partial<SessionConfig>): SessionConfig {
+  const out: SessionConfig = { ...EMPTY, ...c };
+  out.harness_options = normalizeOptionsMap(out.harness_options);
+  return out;
 }
 
 /** Only the keys whose draft value differs from the saved one (spec 12 §6.14). */
 export function changedKeys(saved: SessionConfig, draft: Partial<SessionConfig>): Partial<SessionConfig> {
   const out: Partial<SessionConfig> = {};
-  for (const k of KEYS) if (k in draft && !same(draft[k], saved[k])) (out as Record<string, unknown>)[k] = draft[k];
+  for (const k of KEYS) if (k in draft && !same(k, draft[k], saved[k])) (out as Record<string, unknown>)[k] = draft[k];
   return out;
 }
 
@@ -99,7 +118,7 @@ function useSessionSettingsView(localId: string, onDone: () => void, onOpenSetti
       .getConfig(sdkId)
       .then((c) => {
         if (!live) return;
-        setSaved({ ...EMPTY, ...c });
+        setSaved(fromServer(c));
         setDraft({});
         setPhase('ready');
       })
@@ -140,6 +159,10 @@ function useSessionSettingsView(localId: string, onDone: () => void, onOpenSetti
     setDraft((d) => ({ ...d, [k]: v }));
     setSaveError(null);
   };
+  const setProvider = (next: string | null): void => {
+    setDraft((d) => draftForProvider(saved, d, next, global.provider));
+    setSaveError(null);
+  };
   const changes = changedKeys(saved, draft);
   const dirty = Object.keys(changes).length > 0;
 
@@ -149,7 +172,7 @@ function useSessionSettingsView(localId: string, onDone: () => void, onOpenSetti
     try {
       if (dirty) {
         const next = await api.sessions.putConfig(sdkId, changes);
-        setSaved({ ...EMPTY, ...next });
+        setSaved(fromServer(next));
         setDraft({});
       }
       if (restart) {
@@ -172,7 +195,14 @@ function useSessionSettingsView(localId: string, onDone: () => void, onOpenSetti
   return {
     body: (
       <div className={styles.sessionBody}>
-        <SessionFields global={global} value={value} set={set} disabled={busySave} {...(onOpenSettings ? { onOpenSettings } : {})} />
+        <SessionFields
+          global={global}
+          value={value}
+          set={set}
+          setProvider={setProvider}
+          disabled={busySave}
+          {...(onOpenSettings ? { onOpenSettings } : {})}
+        />
         {saveError ? (
           <Notice tone="error" title="Not saved">
             {saveError}
@@ -202,6 +232,8 @@ interface FieldsProps {
   global: ServerConfig;
   value: <K extends SessionConfigKey>(k: K) => SessionConfig[K];
   set: <K extends SessionConfigKey>(k: K, v: SessionConfig[K]) => void;
+  /** Changing the harness also resets its model + options (they are per harness). */
+  setProvider: (v: string | null) => void;
   disabled: boolean;
   onOpenSettings?: SessionSettingsSheetProps['onOpenSettings'];
 }
@@ -214,33 +246,27 @@ function UseDefault({ shown, onClick, disabled }: { shown: boolean; onClick: () 
   ) : null;
 }
 
-function SessionFields({ global, value, set, disabled, onOpenSettings }: FieldsProps) {
+function SessionFields({ global, value, set, setProvider, disabled, onOpenSettings }: FieldsProps) {
   const mcpServers = useServerConfig((s) => s.mcpServers);
-  const providers = useServerConfig((s) => s.providers) ?? [];
-  const qwenRaw = useServerConfig((s) => s.qwenModels);
+  const harnesses = useServerConfig((s) => s.harnesses) ?? [];
   const skills = useServerConfig((s) => s.skills) ?? [];
   const agents = useServerConfig((s) => s.agents) ?? [];
-  const chromeId = useFieldId('schrome');
 
   const wd = value('working_directory');
   const history = coerceWorkingDirectories(global.working_directory_history);
   const mcps = value('enabled_mcps');
   const provider = value('provider');
   const effectiveProvider = provider ?? global.provider;
-  const harness = value('harness_model');
+  const harnessModel = value('harness_model');
+  const harnessOptions = value('harness_options');
   const chrome = value('chrome_extension');
 
-  const providerLabel = (id: string): string => providers.find((p) => p.id === id)?.label ?? id;
-  const providerOptions: SelectOption[] = [{ value: '', label: `Default (${providerLabel(global.provider)})` }].concat(
-    providers.map((p) => ({ value: p.id, label: p.label || p.id })),
+  const providerOptions: SelectOption[] = [{ value: '', label: `Default (${harnessLabel(harnesses, global.provider)})` }].concat(
+    harnesses.map((p) => ({ value: p.id, label: p.label || p.id })),
   );
-  const qwen = harnessModels(qwenRaw);
-  const inheritedModel = global.harness_model?.[effectiveProvider] ?? '';
-  const harnessOptions: SelectOption[] = [
-    { value: '__inherit__', label: `Default (${inheritedModel || 'CLI default'})` },
-    { value: '', label: 'CLI default' },
-  ].concat(qwen.map((m) => ({ value: m.id, label: m.label, ...(m.traits ? { description: m.traits } : {}) })));
-  if (harness && !harnessOptions.some((o) => o.value === harness)) harnessOptions.push({ value: harness, label: harness });
+  if (provider && !harnesses.some((p) => p.id === provider)) providerOptions.push({ value: provider, label: provider });
+  const info = harnessInfo(harnesses, effectiveProvider) ?? { id: effectiveProvider, label: effectiveProvider, catalog: null };
+  const inheritedOptions = global.harness_options?.[effectiveProvider] ?? {};
 
   return (
     <>
@@ -302,39 +328,38 @@ function SessionFields({ global, value, set, disabled, onOpenSettings }: FieldsP
         </div>
       </FieldStack>
 
-      <FieldStack label="Advanced">
-        <Field help="Switching the CLI behind an existing conversation can corrupt it.">
+      <HarnessWarnings harness={harnessInfo(harnesses, effectiveProvider)} />
+      <FieldStack label="Harness">
+        <Field help="Switching the CLI behind an existing conversation can corrupt it. Model and options reset with it.">
           <Select
             label="Harness"
             options={providerOptions}
             value={provider ?? ''}
             disabled={disabled}
-            onChange={(v) => set('provider', v === '' ? null : v)}
+            onChange={(v) => setProvider(v === '' ? null : v)}
           />
-          {effectiveProvider === 'qwen' ? (
-            <Select
-              label="Qwen model"
-              options={harnessOptions}
-              value={harness === null ? '__inherit__' : harness}
-              disabled={disabled}
-              onChange={(v) => set('harness_model', v === '__inherit__' ? null : v)}
-            />
-          ) : null}
         </Field>
-        <Field
-          label="Claude in Chrome"
-          labelId={chromeId}
-          help={chrome === null ? `Default (${global.chrome_extension ? 'on' : 'off'})` : 'Set for this session.'}
-          trailing={
-            <Switch aria-labelledby={chromeId} checked={chrome ?? global.chrome_extension} disabled={disabled} onCheckedChange={(v) => set('chrome_extension', v)} />
-          }
-        >
-          {chrome !== null ? (
-            <div className={styles.actionsRow}>
-              <UseDefault shown disabled={disabled} onClick={() => set('chrome_extension', null)} />
-            </div>
-          ) : null}
-        </Field>
+        <HarnessFields
+          key={effectiveProvider}
+          harness={info}
+          scope="session"
+          model={harnessModel}
+          inheritedModel={global.harness_model?.[effectiveProvider] ?? ''}
+          options={harnessOptions}
+          inheritedOptions={inheritedOptions}
+          disabled={disabled}
+          onModel={(m) => set('harness_model', m)}
+          onOption={(key, st) => set('harness_options', withSessionOption(harnessOptions, key, st))}
+        />
+        {effectiveProvider === 'claude' ? (
+          <ClaudeInChromeField
+            scope="session"
+            value={chrome}
+            inherited={global.chrome_extension}
+            disabled={disabled}
+            onChange={(v) => set('chrome_extension', v)}
+          />
+        ) : null}
       </FieldStack>
     </>
   );

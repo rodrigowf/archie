@@ -34,6 +34,100 @@ export interface SessionConfig {
   chrome_extension: boolean | null;
   provider: string | null;
   harness_model: string | null;
+  /**
+   * Harness options overlay (reasoning effort, thinking, …): `null` = inherit every key from the
+   * global `harness_options[provider]`; in a map, an absent key inherits and a `null` value forces
+   * the CLI default. A PUT replaces the whole map. Absent on older servers.
+   */
+  harness_options: HarnessOptionsMap | null;
+}
+
+/** A harness option value: `select` → string, `toggle` → boolean, `number` → number. */
+export type HarnessOptionValue = string | number | boolean;
+
+/** `{key: value}`; `null` = the CLI default (session overlay / PUT bodies only). */
+export type HarnessOptionsMap = Record<string, HarnessOptionValue | null>;
+
+/** `GET /api/config/harnesses` model row (`backend/manager/harness_catalog.py` `HarnessModel`). */
+export interface HarnessCatalogModel {
+  id: string;
+  label: string;
+  /** "builtin" | "settings" | "live" | "cli". */
+  source: string;
+  description?: string;
+  context_window?: number;
+  supports_thinking?: boolean;
+  supports_vision?: boolean;
+  /** Effort levels this model accepts (absent = the `effort` option applies unchanged; `[]` = none). */
+  efforts?: string[];
+  default_effort?: string;
+}
+
+export interface HarnessChoice {
+  value: string;
+  label: string;
+  description?: string;
+  /** Only for these model ids (absent = every model the option applies to). */
+  models?: string[];
+}
+
+export interface HarnessOption {
+  key: string;
+  label: string;
+  kind: 'select' | 'toggle' | 'number';
+  choices?: HarnessChoice[];
+  /** What the CLI does when unset (informational; never sent). */
+  default?: HarnessOptionValue;
+  help?: string;
+  /** Only for these model ids (absent = every model). */
+  models?: string[];
+  min?: number;
+  max?: number;
+  step?: number;
+  /**
+   * Presentation hints (all optional; older servers send none and the UI infers a control —
+   * `src/features/settings/harness.ts` `optionControl`). `control` forces the control.
+   */
+  control?: HarnessControl;
+  /** The choices of a select are ordinal levels (effort, thinking level, verbosity). */
+  ordered?: boolean;
+  /** Unit of a number ("tokens"). */
+  unit?: string;
+  /** Slider scale of a number (default linear). */
+  scale?: 'linear' | 'log';
+  /** Named special numbers next to the slider (Gemini's budget: -1 = Dynamic, 0 = Off). */
+  presets?: HarnessPreset[];
+  /** Lowest value the slider / field offers (default `min`); presets may lie below it. */
+  custom_min?: number;
+  /** Applies only while each other option's effective value is in its list (`null` = unset). */
+  requires?: Record<string, (HarnessOptionValue | null)[]>;
+}
+
+/** The control an option renders as (`HarnessOption.control`). */
+export type HarnessControl = 'switch' | 'segmented' | 'levels' | 'slider' | 'dropdown';
+
+export interface HarnessPreset {
+  value: number;
+  label: string;
+  description?: string;
+}
+
+export interface HarnessCatalog {
+  provider: string;
+  models: HarnessCatalogModel[];
+  options: HarnessOption[];
+  /** The model the CLI uses when none is passed (informational, may be null). */
+  default_model: string | null;
+  allow_custom_model: boolean;
+  warnings: string[];
+}
+
+/** `GET /api/config/harnesses` row; `catalog: null` = nothing to configure. */
+export interface HarnessInfo {
+  id: string;
+  label: string;
+  description?: string;
+  catalog: HarnessCatalog | null;
 }
 
 export interface WorkingDirectoryEntry {
@@ -58,6 +152,11 @@ export interface ServerConfig {
   default_audio_model?: string;
   summarizer_model: string;
   harness_model: Record<string, string>;
+  /**
+   * Default harness options per provider (`{provider: {key: value}}`). A PUT merges per key and a
+   * `null` value deletes the key (= CLI default). Absent on older servers.
+   */
+  harness_options?: Record<string, HarnessOptionsMap>;
   default_voice_provider: string;
   default_voice_model: string;
   default_voice_name: string;

@@ -26,7 +26,8 @@ Archie remembers through two stores:
 - **Memory** — a curated markdown wiki in `context/memory/` (private repo), written deliberately by
   agents and the orchestrator.
 - **History** — every past conversation as JSONL (`context/*.jsonl` for Claude Code and the
-  orchestrator, `context/chats/` for other harnesses), never edited.
+  orchestrator, `context/chats/` for Qwen and Gemini, Codex rollouts under `context/codex/sessions/`
+  — found through the Codex harness's session discoverer, keyed by thread id), never edited.
 
 Both are searchable by keyword and meaning in English and Portuguese through two SQLite indexes in
 `index/` and one shared search service. These docs are part of the memory wiki too:

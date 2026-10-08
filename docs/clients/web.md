@@ -3,7 +3,7 @@ name: web
 category: archie/clients
 tags: [web, react, vite, zustand, safari-12, ipad, compat-build, remote-console, low-end, deploy]
 created: 2026-04-14
-modified: 2026-10-06
+modified: 2026-10-07
 summary: apps/web — React 18 + Vite web client; one source tree, main build at / and Safari 12 build at /compat/.
 source: curated (consolidated from memory notes assistant/devices/frontend-compat.md, assistant/infrastructure/repo_layout_cutover_2026_10.md, assistant/infrastructure/features_and_integrations_summary.md §3–4, auto-memory feedback_always_build_both_frontends.md, feedback_stale_web_build_voice_symptom.md, project_frontend_refactor_2026_10_03.md; verified against code 2026-10-06)
 references:
@@ -131,6 +131,66 @@ The Safari 12 rules are enforced by tools, not memory:
 | Momentum scrolling and programmatic scroll fight each other | Every scroll container is the `ScrollArea` primitive (`-webkit-overflow-scrolling: touch`, deferred programmatic scrolls) |
 | No `AudioWorklet` / `MediaRecorder` on iOS 12 | Features chosen by runtime capability detection: ScriptProcessor capture fallback, WAV fallback for audio messages, unsupported voice controls hidden with a reason |
 | iPad Safari pins an old bundle | The backend serves `index.html` with no-cache headers; after a deploy a reload is enough |
+
+## Harness settings (model + options per harness)
+
+Settings → Agent sessions and the session settings sheet (⋮ → Session settings) render every
+harness's configuration from its catalog, `GET /api/config/harnesses` (spec 12 §8.1): the model
+picker (a Select with "CLI default" plus the models and a "Custom model id…" field) and each option
+with a control chosen from the catalog's presentation hints (`control`, `ordered`, `unit`, `scale`,
+`presets`, `custom_min`, `requires` — `backend/manager/harness_catalog.py` `HarnessOption`), or
+inferred when a catalog has none (older servers). Nothing is hard-coded per harness: a new harness
+or option only changes the backend catalog.
+
+| Option | Control |
+|---|---|
+| toggle with a known `default` (`todo_tools`) | **switch**; supporting line says where the value comes from ("CLI default · On", "Default from Settings (Off)", "Set for this session"); "Use default" when set |
+| toggle without default (Qwen / Model Studio `thinking`) | **segmented**: Default · On · Off |
+| select with `ordered` (effort, thinking level, verbosity) | **levels**: Default + the levels in order (narrowed to the model's `efforts` / choice `models`); the CLI default level (model `default_effort`, else option `default`) carries a dot, tooltip "CLI default" |
+| select with ≤ 4 visible choices, or `control: "segmented"` (Claude thinking, Gemini approval, Codex summary / web search) | **segmented**: Default + the choices; the help line shows the selected choice's description |
+| other selects, `control: "dropdown"` (fallback model) | **dropdown**: the old Select (Default (…) / CLI default / values) |
+| number (`thinking_budget`, `temperature`) | **slider** + number field; `scale: "log"` maps 0…1000 positions logarithmically between `custom_min ?? min` and `max` (snapped to two significant digits, then to `step`, ends exact); values shown as "16,000 tokens"; the field commits on blur / Enter, clamped to the range. `presets` (Gemini: Dynamic −1, Off 0) add Default · Dynamic · Off · Custom segments, and the slider shows for Custom only (it starts at the option's `default`, else `custom_min`) |
+
+- **Unset states**: the first segment is always "Default" — on the global page it is the CLI
+  default (the key is dropped), in the session sheet it inherits the global value. The session
+  sheet adds "Use CLI default" (writes `null`) when the global page sets the option; while a
+  session forces the CLI default over a global value no segment is checked.
+- **`requires`**: an option whose dependency's *effective* value (session → global → CLI default)
+  is not in the list is disabled with "Applies when Thinking is Fixed budget"; its saved value is
+  kept.
+- Segmented rows (`SegmentedButton` `wrap="auto"`) turn into wrapping pills when one row would cut
+  a label (phone width); measured with ResizeObserver, on Safari 12 per render and on resize.
+- **Claude in Chrome** (`chrome_extension`, `--chrome`) is Claude Code only: on the global page it
+  is the last row of the Claude Code block (default or collapsed), in the session sheet it is in the
+  Harness section only while the session runs `claude`.
+- **Global page**: "New sessions" holds the default harness only; then the default harness's block
+  ("<Harness> defaults") and collapsible blocks for the other harnesses (their fields mount when
+  opened). Each control saves at once: `{harness_model: {p: id}}` /
+  `{harness_options: {p: {key: value | null}}}` (null = CLI default). Catalog `warnings` show as a
+  notice; "Refresh models" refetches with `?refresh=true`.
+- **Session sheet**: the "Harness" stack — harness, model, options; changing the harness resets the
+  model and options to inherit (they belong to one harness). `harness_options` is sent as a whole
+  map (absent key = inherit, `null` = CLI default, empty = `null`).
+- **Gating** (`src/features/settings/harness.ts`): options and choices restricted by `models`,
+  effort narrowed to the model's `efforts` (`[]` hides it), `supports_thinking: false` hides
+  `thinking`/`thinking_*`; an unknown model (CLI default, custom id) shows everything.
+- Older servers without the endpoint: the store builds the same rows from
+  `/api/config/providers` + `/api/config/harness/qwen/models` (`src/services/harnessFallback.ts`).
+- Code: `HarnessFields.tsx` (components), `harness.ts` (states, gating, Select rows) and
+  `harnessControls.ts` (control choice, `requires`, segments, log scale, formatting), both
+  unit-tested; sample catalogs in `harnessSamples.ts` (same data as
+  `mock-server/data/harnesses.json`, which the Android tests also read); the Settings gallery has a
+  "Harness option controls" board with every control in both scopes.
+
+### Harness (provider) ids and labels
+
+Session harness ids (`claude`, `qwen`, `gemini`, `codex`, `modelstudio`, …) are open-ended strings
+(`Provider` in `src/protocol/types.ts`): a past session opens with whatever harness the session list
+reports. Tab tags, the switcher and history rows label them with `providerLabel` / `useProviderLabel`
+(`src/stores/providerLabels.ts`): a short tag for the shipped harnesses (Claude, Qwen, Gemini,
+Codex, Model Studio), else the label from the harness registry already in the store
+(`/api/config/harnesses`, or `/api/config/providers` on older servers), else the raw id — so a new
+harness needs no web edit.
 
 ## Low-end mode
 

@@ -5,6 +5,7 @@
  * `ArchieRuntime` through `VoiceBridge`.
  */
 export * from './http/types';
+export { harnessesFromProviders, providersFromHarnesses, qwenCatalogFromModels } from './harnessFallback';
 export { api, type VoiceTarget } from './http/endpoints';
 export { request, http, encodePath, buildQuery, tolerate404, DEFAULT_TIMEOUT_MS, type RequestOptions, type Query } from './http/client';
 export {
@@ -75,6 +76,7 @@ export {
   ensureMemoryTree,
   loadConfigCatalogs,
   loadGoogleVoiceModels,
+  loadHarnessCatalogs,
   loadServerConfig,
   refreshMemoryTree,
   refreshSessionList,

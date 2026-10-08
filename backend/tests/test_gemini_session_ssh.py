@@ -98,8 +98,11 @@ def test_ssh_session_wraps_argv_with_ssh_prefix():
     remote_cmd = argv[-1]
     # PATH prepends the CLI's own dir so its `#!/usr/bin/env node` shebang
     # resolves on a non-interactive remote shell.
+    # Only non-secret vars are forwarded: single-process mode (interrupt
+    # must reach the real CLI) and trust (loads the workspace settings).
     assert remote_cmd.startswith(
-        "cd '/remote/project' && PATH=/remote/.local/bin:$PATH "
+        "cd '/remote/project' && echo __ARCHIE_REMOTE_PID__=$$ && GEMINI_CLI_TRUST_WORKSPACE='true' "
+        "GEMINI_CLI_NO_RELAUNCH='true' PATH=/remote/.local/bin:$PATH "
         "exec '/remote/.local/bin/gemini'"
     )
     assert "'--prompt'" in remote_cmd
@@ -134,10 +137,11 @@ def test_ssh_wrapping_resolves_remote_path_for_gemini():
     assert captured["cli_name"] == "gemini"
 
 
-def test_ssh_wrapping_does_not_forward_local_env():
-    """Forwarding the local env over SSH would either leak credentials
-    on the remote (visible in `ps`) or miss vars the remote setup expects.
-    The remote should rely entirely on its own .env."""
+def test_ssh_wrapping_does_not_forward_local_env(monkeypatch):
+    """Forwarding the local env over SSH would leak credentials on the
+    remote (visible in `ps`).  The remote brings its own GEMINI_API_KEY;
+    only Archie's non-secret switches travel."""
+    monkeypatch.setenv("GEMINI_API_KEY", "local-secret")
     sm = GeminiSessionManager(config=_ssh_cfg())
     with patch(
         "manager.gemini.session.resolve_remote_cli_path", return_value="/r/gemini",
@@ -145,10 +149,28 @@ def test_ssh_wrapping_does_not_forward_local_env():
         argv, _ = sm._maybe_wrap_with_ssh(["/local/gemini"])
 
     remote_cmd = argv[-1]
-    # No KEY=value prefix.  Shape is exactly: cd '...' && exec '...'
-    assert "GEMINI_API_KEY=" not in remote_cmd
-    assert "GEMINI_CLI_TRUST_WORKSPACE=" not in remote_cmd
+    assert "GEMINI_API_KEY" not in remote_cmd
+    assert "local-secret" not in remote_cmd
+    assert "GEMINI_CLI_AUTH_OVERRIDE" not in remote_cmd
+    assert "GEMINI_CLI_NO_RELAUNCH='true'" in remote_cmd
     assert "exec '/r/gemini'" in remote_cmd
+
+
+def test_ssh_wrapping_forwards_thinking_option_vars():
+    from dataclasses import replace
+
+    cfg = replace(
+        _ssh_cfg(), model="gemini-3.1-pro-preview",
+        harness_options={"thinking_level": "low"},
+    )
+    sm = GeminiSessionManager(config=cfg)
+    with patch(
+        "manager.gemini.session.resolve_remote_cli_path", return_value="/r/gemini",
+    ):
+        argv, _ = sm._maybe_wrap_with_ssh(["/local/gemini"])
+    remote_cmd = argv[-1]
+    assert "ARCHIE_GEMINI_THINKING_LEVEL='LOW'" in remote_cmd
+    assert "ARCHIE_GEMINI_LEVEL_MODEL='gemini-3.1-pro-preview'" in remote_cmd
 
 
 # ---------------------------------------------------------------------------

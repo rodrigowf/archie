@@ -308,7 +308,7 @@ describe('mock server REST', () => {
     const list = (await get('/api/sessions')).body as { session_id: string }[];
     expect(list.map((s) => s.session_id)).toEqual(expect.arrayContaining(['mock-sess-refactor', 'scn-plain_text_turn']));
     expect(((await get('/api/config')).body as { provider: string }).provider).toBe('claude');
-    for (const p of ['/api/config/providers', '/api/config/harness/qwen/models', '/api/config/voice/google/models', '/api/orchestrator/models', '/api/orchestrator/models/audio', '/api/orchestrator/voice/models', '/api/mcp/servers', '/api/mcp/servers/filesystem', '/api/skills', '/api/agents', '/api/visualizations'])
+    for (const p of ['/api/config/harnesses', '/api/config/providers', '/api/config/harness/qwen/models', '/api/config/voice/google/models', '/api/orchestrator/models', '/api/orchestrator/models/audio', '/api/orchestrator/voice/models', '/api/mcp/servers', '/api/mcp/servers/filesystem', '/api/skills', '/api/agents', '/api/visualizations'])
       expect((await get(p)).status, p).toBe(200);
     const tree = (await get('/api/memory/tree')).body as { name: string; is_dir: boolean }[];
     expect(tree.map((n) => n.name)).toEqual(['notes', 'projects', 'MEMORY.md']);
@@ -340,6 +340,19 @@ describe('mock server REST', () => {
     expect(((await put.json()) as { voice_vad_threshold: number }).voice_vad_threshold).toBe(0.3);
     expect((await req('/api/sessions/x/config', 'PUT', { provider: 'qwen', junk: 1 })).status).toBe(200);
     expect((await get('/api/sessions/x/config')).body).toMatchObject({ provider: 'qwen', working_directory: null });
+    // harness catalogs + options (spec 12 §8.1)
+    const hs = (await get('/api/config/harnesses')).body as { harnesses: { id: string; catalog: { options: { key: string }[] } | null }[] };
+    expect(hs.harnesses.map((x) => x.id)).toEqual(['claude', 'qwen', 'gemini', 'codex']);
+    expect(hs.harnesses[0]?.catalog?.options.map((o) => o.key)).toContain('effort');
+    expect(((await get('/api/config/harness/codex/catalog')).body as { warnings: string[] }).warnings.length).toBeGreaterThan(0);
+    expect((await get('/api/config/harness/nope/catalog')).status).toBe(404);
+    const hput = await req('/api/config', 'PUT', { harness_options: { claude: { effort: null, thinking: 'disabled' } } });
+    expect(((await hput.json()) as { harness_options: Record<string, unknown> }).harness_options.claude).toEqual({ thinking: 'disabled' });
+    expect((await req('/api/config', 'PUT', { harness_options: { claude: { effort: 'ludicrous' } } })).status).toBe(400);
+    expect((await req('/api/config', 'PUT', { harness_options: { claude: { nope: 1 } } })).status).toBe(400);
+    expect((await req('/api/sessions/y/config', 'PUT', { provider: 'codex', harness_options: { effort: 'ultra', web_search: null } })).status).toBe(200);
+    expect((await get('/api/sessions/y/config')).body).toMatchObject({ provider: 'codex', harness_options: { effort: 'ultra', web_search: null } });
+    expect((await req('/api/sessions/y/config', 'PUT', { harness_options: { thinking_budget: 99999 } })).status).toBe(400);
     expect((await get('/api/visualizations/cast')).body).toMatchObject({ available: false });
     const up = await fetch(`${server.url}/api/uploads`, { method: 'POST', body: new Blob(['hello']), headers: { 'content-type': 'text/plain' } });
     const upBody = (await up.json()) as { url: string; size: number };
