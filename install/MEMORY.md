@@ -57,6 +57,11 @@ references:
 
 ## Key files
 
+### Orchestrator
+- [ORCHESTRATOR_MEMORY.md](ORCHESTRATOR_MEMORY.md) — the orchestrator's private memory: who Archie is,
+  how the user wants it to behave, what is in progress.
+- [ORCHESTRATOR_SCRIPTS.md](ORCHESTRATOR_SCRIPTS.md) — the scripts the orchestrator may run with `run_script`.
+
 ### archie/ → [index](archie/INDEX.md)
 - [overview/archie.md](archie/overview/archie.md) — what the assistant is and how it is built.
 

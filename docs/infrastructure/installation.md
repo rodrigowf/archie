@@ -20,6 +20,9 @@ references:
   - ../harnesses/model-studio.md
   - ../integrations/skills.md
   - ../clients/web.md
+  - ../architecture/orchestrator.md
+  - ../overview/archie.md
+  - ../architecture/system-overview.md
 ---
 
 # Installation
@@ -37,7 +40,7 @@ symlinks that let each agent CLI read and write inside `context/`. The step-by-s
 | `install.ps1` | Windows entry → `install/windows/install.ps1` |
 | `install-with-agent.sh` / `.ps1` | Conversational install: launches an agent CLI (claude / qwen / gemini / codex; it offers to `npm install -g` one at the pinned versions below if none is present) with `INSTALL.md` as instructions; the agent re-does each step and logs to `context/install.log` |
 | `install/<os>/install-prerequisites.*` | Checks Python ≥ 3.11, Node ≥ `NODE_MIN_MAJOR` (22), npm, git (Linux prints package hints; macOS offers Homebrew; Windows offers winget); the bash ones take `--no-node` |
-| `install/` (templates) | `AGENTS.md`, `MEMORY.md`, `context.env`, `assistant_config.json`, `manager.json`, `sync.env`, `cli-runtime/<cli>/`, `cli-runtime/codex-home/config.toml` — user-agnostic seeds, see `install/README.md` |
+| `install/` (templates) | `AGENTS.md`, `MEMORY.md`, `ORCHESTRATOR_MEMORY.md`, `ORCHESTRATOR_SCRIPTS.md`, `context.env`, `assistant_config.json`, `manager.json`, `sync.env`, `cli-runtime/<cli>/`, `cli-runtime/codex-home/config.toml` — user-agnostic seeds, see `install/README.md` |
 | `install/harness-versions.env` | The CLI pins (`QWEN_CLI_VERSION`, `GEMINI_CLI_VERSION`, `CODEX_CLI_VERSION`) and `NODE_MIN_MAJOR` — sourced by the bash installers, parsed by the PowerShell ones, compared by the doctor. The claude-agent-sdk pin stays in `backend/requirements-claude.txt`; `QWEN_CLI_VERSION` in `backend/manager/qwen/adapter.py` must match (the doctor warns) |
 | `install/doctor.sh` | Per-harness check of an install; `--fix` / `--dry-run` repair symlinks and seed files only — see [The doctor](#the-doctor-installdoctorsh) |
 | `shared/scripts/setup-context.sh` | Standalone, idempotent (re)creation of the `context/` structure and symlinks; `--force` relinks |
@@ -82,7 +85,7 @@ overwriting, the directory backed up / moved aside) and then linked.
 |---|---|
 | 0 | Detect a usable Node (`node -v` runs); without one: [backend-only](#backend-only-hosts-no-nodejs) — Qwen/Gemini skipped with a note |
 | 1 | Prerequisite check |
-| 2 | Context: keep an existing configured `context/` (or back it up to `context.bak/`); **new**: `mkdir context/{memory,skills,scripts,agents,secrets,certs}`, seed `context/memory/MEMORY.md`, `context/AGENTS.md`, `context/.env` from `install/` (uncommenting keys for the chosen axes: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DASHSCOPE_API_KEY` for Qwen, `GEMINI_API_KEY` for Gemini); **import**: `git clone`, add missing folders. Both create the `shared/` symlinks (below) |
+| 2 | Context: keep an existing configured `context/` (or back it up to `context.bak/`); **new**: `mkdir context/{memory,skills,scripts,agents,secrets,certs}`, seed `context/memory/{MEMORY,ORCHESTRATOR_MEMORY,ORCHESTRATOR_SCRIPTS}.md`, `context/AGENTS.md`, `context/.env` from `install/` (uncommenting keys for the chosen axes: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DASHSCOPE_API_KEY` for Qwen, `GEMINI_API_KEY` for Gemini); **import**: `git clone`, add missing folders. Both create the `shared/` symlinks (below). Every path, including a kept context, then links `context/memory/archie` → `../../docs` |
 | 3 | Claude **and Model Studio** (same bundled CLI, same `CLAUDE_CONFIG_DIR`): `.claude_config/projects/<mangled-cwd>` → `../../context` (migrating any JSONL from a real directory there; the key replaces every non-alphanumeric character with `-`, like the CLI), `.claude_config/skills` → `../context/skills`, `.claude_config/agents` → `../context/agents` (the CLI loads user agents from `$CLAUDE_CONFIG_DIR/agents`) |
 | 3b | Qwen: `~/.qwen/projects/<mangled-cwd>` → `<repo>/context`, chats into `context/chats/` (JSONL only — since 0.25 `*.runtime.json` is a liveness marker, not session data); `~/.qwen/skills` → `context/skills` (an empty real dir is replaced) |
 | 3c | Gemini: `~/.gemini/tmp/<label>` → `<repo>/context` (label from `~/.gemini/projects.json`, else the cwd basename); offers to copy `GEMINI_API_KEY` into `~/.gemini/.env` (mode 600) for hosts other machines reach over SSH |
@@ -100,6 +103,20 @@ overwriting, the directory backed up / moved aside) and then linked.
 
 The legacy web apps (`legacy/frontend*`) are optional; install their deps only to build them.
 
+## A new Archie's first conversations
+
+A new context gets `context/memory/ORCHESTRATOR_MEMORY.md` from `install/`. This is the orchestrator's
+private memory, and it is loaded into every orchestrator prompt. The seed tells Archie what it is and
+how it is built, with links to [archie.md](../overview/archie.md) and
+[system-overview.md](../architecture/system-overview.md). It also tells Archie that it doesn't know
+its user yet. Over the first conversations, a question or two at a time, Archie asks who the user
+is, how it should behave (tone, how long its answers should be, how independently it acts), what
+the user wants to do with it, which devices they use, and what it must never do without asking. It
+saves behavior preferences in that file and facts about the user in `people/<name>/`, then deletes
+the onboarding section. `ORCHESTRATOR_SCRIPTS.md` (the `run_script` allowlist) starts empty. An
+imported context keeps its own copies of both files. `install/doctor.sh --fix` seeds a missing
+`ORCHESTRATOR_MEMORY.md`.
+
 ## The symlink model
 
 ```
@@ -115,6 +132,7 @@ context/skills/<own>/                                    (personal, real folder)
 ~/.codex-archie/sessions → <repo>/context/codex/sessions
 .agents/skills           → ../context/skills   (codex, gemini, qwen)
 CLAUDE.md, QWEN.md, GEMINI.md, AGENTS.md → context/AGENTS.md   (committed; the installers re-create missing ones)
+context/memory/archie   → ../../docs   (these docs inside the memory wiki; every install)
 ```
 
 `.agents/skills` is not committed or gitignored yet — a fresh install creates it as an untracked
@@ -136,7 +154,7 @@ prints one OK / WARN / FAIL / SKIP row per check and exits 1 if any row is FAIL:
 
 | Area | Checks |
 |---|---|
-| common | `context/`, `context/AGENTS.md`, `context/.env`; Node vs `NODE_MIN_MAJOR`; the four root `*.md` links; every `shared/{skills,scripts,agents}` entry linked from `context/` (and dangling links there) |
+| common | `context/`, `context/AGENTS.md`, `context/.env`, `context/memory/ORCHESTRATOR_MEMORY.md` (`--fix` seeds it from `install/`), the `context/memory/archie` link; Node vs `NODE_MIN_MAJOR`; the four root `*.md` links; every `shared/{skills,scripts,agents}` entry linked from `context/` (and dangling links there) |
 | claude | venv `claude-agent-sdk` version vs `requirements-claude.txt` (from its `dist-info`, nothing imported), the bundled CLI, auth (`CLAUDE_CODE_OAUTH_TOKEN`, `.claude_config/.credentials.json` link or copy, or `ANTHROPIC_API_KEY`), the three `.claude_config` links |
 | modelstudio | the same SDK + `DASHSCOPE_API_KEY` |
 | qwen | `qwen --version` vs pin (also `QWEN_CLI_PATH`), the backend's `QWEN_CLI_VERSION` vs the pins file, Node 22+, auth (`DASHSCOPE_API_KEY` or `~/.qwen/oauth_creds.json`), both `~/.qwen` links, `.qwen/settings.json` memory keys false |

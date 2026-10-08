@@ -556,6 +556,12 @@ if [ "$CONTEXT_SETUP_NEEDED" = true ]; then
                 cp "$INSTALL_TEMPLATES/AGENTS.md" context/AGENTS.md
                 info "Seeded context/AGENTS.md from install/AGENTS.md"
             fi
+            # The orchestrator's private memory (its identity, and how it gets to
+            # know a new user) and its empty run_script allowlist.
+            for seed in ORCHESTRATOR_MEMORY.md ORCHESTRATOR_SCRIPTS.md; do
+                cp "$INSTALL_TEMPLATES/$seed" "context/memory/$seed"
+                info "Seeded context/memory/$seed from install/$seed"
+            done
 
             # Create symlinks to shared/skills (using relative paths for portability)
             step "Creating skill symlinks..."
@@ -693,6 +699,11 @@ if [ "$CONTEXT_SETUP_NEEDED" = true ]; then
             ;;
     esac
 fi
+
+# Archie's documentation (docs/, versioned with the code) is part of the memory
+# wiki as context/memory/archie — new, imported and kept contexts all need it.
+mkdir -p context/memory
+ensure_dir_link "context/memory/archie" "../../docs" "docs" "Docs (memory/archie)"
 
 echo ""
 

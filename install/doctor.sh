@@ -369,6 +369,20 @@ if [ -f "$CTX/AGENTS.md" ]; then row OK common "context/AGENTS.md" "present"
 else row FAIL common "context/AGENTS.md" "missing — the root instruction links have nothing to point at"; fi
 if [ -f "$CTX/.env" ]; then row OK common "context/.env" "present"
 else row WARN common "context/.env" "missing — env keys only come from the environment"; fi
+# The orchestrator's private memory: its identity (seeded from install/ on a new context).
+if [ -d "$CTX" ]; then
+    if [ -f "$CTX/memory/ORCHESTRATOR_MEMORY.md" ]; then row OK common "ORCHESTRATOR_MEMORY.md" "present"
+    elif [ ! -f "$REPO/install/ORCHESTRATOR_MEMORY.md" ]; then
+        row WARN common "ORCHESTRATOR_MEMORY.md" "missing — the orchestrator starts with no identity (no install/ORCHESTRATOR_MEMORY.md template to seed from)"
+    elif need_fix WARN common "ORCHESTRATOR_MEMORY.md" "missing — the orchestrator starts with no identity" \
+        "seed context/memory/ORCHESTRATOR_MEMORY.md from install/ORCHESTRATOR_MEMORY.md"; then
+        mkdir -p "$CTX/memory" && cp "$REPO/install/ORCHESTRATOR_MEMORY.md" "$CTX/memory/ORCHESTRATOR_MEMORY.md" \
+            && row FIXED common "ORCHESTRATOR_MEMORY.md" "seeded from install/" \
+            || row FAIL common "ORCHESTRATOR_MEMORY.md" "could not seed"
+    fi
+    # Archie's docs are part of the memory wiki (indexed, searchable, linked from MEMORY.md).
+    check_link common "context/memory/archie" "$CTX/memory/archie" "$REPO/docs" "../../docs" none WARN
+fi
 
 if [ -n "$NODE_VERSION" ]; then
     if [ "${NODE_MAJOR:-0}" -ge "$NODE_MIN_MAJOR" ] 2>/dev/null; then row OK common "node" "$NODE_VERSION (≥ $NODE_MIN_MAJOR)"

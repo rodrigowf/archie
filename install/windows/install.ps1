@@ -553,6 +553,12 @@ if ($ContextSetupNeeded) {
                 Copy-Item -LiteralPath (Join-Path $InstallTemplates 'AGENTS.md') -Destination 'context\AGENTS.md' -Force
                 Write-Info "Seeded context/AGENTS.md from install/AGENTS.md"
             }
+            # The orchestrator's private memory (its identity, and how it gets to
+            # know a new user) and its empty run_script allowlist.
+            foreach ($seed in 'ORCHESTRATOR_MEMORY.md','ORCHESTRATOR_SCRIPTS.md') {
+                Copy-Item -LiteralPath (Join-Path $InstallTemplates $seed) -Destination "context\memory\$seed" -Force
+                Write-Info "Seeded context/memory/$seed from install/$seed"
+            }
 
             # Skill / script / agent symlinks (or junctions / copies as fallback).
             # All three loops are identical except for the source dir.
@@ -633,6 +639,11 @@ if ($ContextSetupNeeded) {
         }
     }
 }
+# Archie's documentation (docs\, versioned with the code) is part of the memory
+# wiki as context\memory\archie - new, imported and kept contexts all need it.
+New-Item -ItemType Directory -Path 'context\memory' -Force | Out-Null
+Set-DirLink -Path 'context\memory\archie' -Target (Join-Path $ScriptDir 'docs') -Label 'Docs (memory\archie)'
+
 Write-Host ""
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1406,6 +1417,7 @@ function Test-LinkTarget {
 }
 $ctxDir = Join-Path $ScriptDir 'context'
 foreach ($md in 'CLAUDE.md','QWEN.md','GEMINI.md','AGENTS.md') { Test-LinkTarget $md (Join-Path $ctxDir 'AGENTS.md') $md }
+Test-LinkTarget 'context\memory\archie' (Join-Path $ScriptDir 'docs') 'Docs link (context\memory\archie)'
 if ($ClaudeRuntime) {
     Test-LinkTarget ".claude_config\projects\$Mangled" $ctxDir 'Claude projects link'
     Test-LinkTarget '.claude_config\skills' (Join-Path $ctxDir 'skills') 'Claude skills link'
