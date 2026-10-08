@@ -22,6 +22,7 @@ declare -a PATTERNS=(
     'context/*.jsonl'
     'context/chats/*.jsonl'
     'context/chats/*.runtime.json'
+    'context/codex/sessions/*/*/*/*.jsonl'
     'context/*.jsonl.bak'
     'context/*.config.json'
     'context/*/tool-results/*.txt'

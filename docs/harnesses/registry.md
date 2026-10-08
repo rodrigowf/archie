@@ -108,8 +108,9 @@ the orchestrator-file folding in the Claude adapter override them).
 | Harness | Where its JSONL lands | How it gets there |
 |---|---|---|
 | Claude Code (and the orchestrator) | `context/<sdk-session-id>.jsonl` | `.claude_config/projects/<mangled-path>` → `../../context` |
-| Qwen Code | `context/chats/<session-id>.jsonl` (+ `<id>.runtime.json`) | `~/.qwen/projects/<mangled-path>` → `<repo>/context` |
+| Qwen Code | `context/chats/<session-id>.jsonl` | `~/.qwen/projects/<mangled-path>` → `<repo>/context` |
 | Gemini CLI | `context/chats/session-<iso-minute>-<id[:8]>.jsonl` | `~/.gemini/tmp/<label>` → `<repo>/context` |
+| Codex | `context/codex/sessions/YYYY/MM/DD/rollout-<ts>-<thread-id>.jsonl` (or the shared `~/.codex/sessions/`) | `~/.codex-archie/sessions` → `<repo>/context/codex/sessions` |
 
 `list_sessions()` order of work:
 

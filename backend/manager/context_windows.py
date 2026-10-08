@@ -99,6 +99,12 @@ def context_window_for(provider: str | None, model: str | None) -> int | None:
         if explicit is not None:
             return explicit
         # Fall through to the static table for an unknown qwen model.
+    if provider == "codex":
+        # Codex models report their window through model/list; the harness
+        # catalog carries it per model.  Without a network call here, use
+        # the Codex default (the CLI's model_context_window for its models).
+        from manager.codex.catalog import DEFAULT_CONTEXT_WINDOW
+        return DEFAULT_CONTEXT_WINDOW
     if not isinstance(model, str) or not model:
         # No model id → fall back to provider-level defaults.
         if provider == "qwen":

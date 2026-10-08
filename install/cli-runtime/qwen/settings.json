@@ -18,5 +18,10 @@
       "Bash(.venv/bin/python3 *)"
     ]
   },
+  "memory": {
+    "enableManagedAutoMemory": false,
+    "enableManagedAutoDream": false,
+    "enableAutoSkill": false
+  },
   "$version": 4
 }

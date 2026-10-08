@@ -280,3 +280,11 @@ def test_ssh_argv_uses_remote_bootstrap(tmp_path, monkeypatch):
     assert "'/home/u/.nvm/bin/codex' 'app-server' '--listen' 'stdio://'" in remote
     assert ".codex-archie" in remote
     assert cwd is None and "CLAUDECODE" not in env
+
+
+def test_codex_context_window_is_codex_default():
+    from manager.codex.catalog import DEFAULT_CONTEXT_WINDOW
+    from manager.context_windows import context_window_for
+
+    assert context_window_for("codex", "gpt-6-luna") == DEFAULT_CONTEXT_WINDOW
+    assert context_window_for("codex", None) == DEFAULT_CONTEXT_WINDOW
