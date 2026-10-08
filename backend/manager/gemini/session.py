@@ -202,82 +202,15 @@ def _error_from_stderr(lines: list[str], rc: int | None) -> str:
     return f"{head}: {text}" if text else f"{head} (no output)."
 
 
-def _proc_table() -> dict[int, tuple[int, str]]:
-    """``{pid: (ppid, starttime)}`` from ``/proc`` (empty off Linux)."""
-    table: dict[int, tuple[int, str]] = {}
-    try:
-        names = os.listdir("/proc")
-    except OSError:
-        return table
-    for name in names:
-        if not name.isdigit():
-            continue
-        try:
-            with open(f"/proc/{name}/stat") as f:
-                stat = f.read()
-        except OSError:
-            continue
-        # comm may contain spaces/parens: split after the last ')'.
-        fields = stat[stat.rfind(")") + 2:].split()
-        try:
-            table[int(name)] = (int(fields[1]), fields[19])
-        except (IndexError, ValueError):
-            continue
-    return table
-
-
-def _descendants(pid: int) -> list[tuple[int, str]]:
-    """Every live descendant of *pid* as ``(pid, starttime)``.
-
-    The CLI's shell tool spawns commands ``detached`` (their own process
-    group), so a group signal misses them and they outlive the CLI.  We
-    snapshot the tree *before* signalling (afterwards they are reparented
-    and untraceable) and reap survivors once the CLI is gone.
-    """
-    table = _proc_table()
-    children: dict[int, list[int]] = {}
-    for p, (ppid, _) in table.items():
-        children.setdefault(ppid, []).append(p)
-    out: list[tuple[int, str]] = []
-    stack = list(children.get(pid, []))
-    while stack:
-        p = stack.pop()
-        out.append((p, table[p][1]))
-        stack.extend(children.get(p, []))
-    return out
-
-
-def _signal_survivors(procs: list[tuple[int, str]], sig: int) -> int:
-    """Signal the processes of *procs* that still run (same pid + start time)."""
-    if not procs:
-        return 0
-    table = _proc_table()
-    n = 0
-    for pid, start in procs:
-        cur = table.get(pid)
-        if cur is None or cur[1] != start:
-            continue
-        try:
-            os.kill(pid, sig)
-            n += 1
-        except OSError:
-            pass
-    return n
-
-
-async def _reap_descendants(
-    proc: asyncio.subprocess.Process, procs: list[tuple[int, str]], grace_s: float = 3.0,
-) -> None:
-    """Once *proc* has exited (or after *grace_s*), stop what it left behind."""
-    if not procs:
-        return
-    try:
-        await asyncio.wait_for(proc.wait(), timeout=grace_s)
-    except (asyncio.TimeoutError, Exception):
-        pass
-    if _signal_survivors(procs, signal.SIGTERM):
-        await asyncio.sleep(1.0)
-        _signal_survivors(procs, signal.SIGKILL)
+# Process-tree helpers are shared with the Qwen harness (manager._proc).
+from .._proc import (  # noqa: E402
+    descendants as _descendants,
+    proc_table as _proc_table,
+    process_tree as _process_tree,
+    reap_descendants as _reap_descendants,
+    signal_group as _signal_group,
+    signal_survivors as _signal_survivors,
+)
 
 
 class _ThoughtTail:
@@ -466,24 +399,8 @@ class GeminiSessionManager(BaseSessionManager):
 
     @staticmethod
     def _signal_group(proc: asyncio.subprocess.Process, sig: int) -> None:
-        """Signal the subprocess's process group, falling back to the process.
-
-        Only a real subprocess we spawned with ``start_new_session=True``
-        leads its own group (pgid == pid); anything else (SSH wrapper
-        quirks, test doubles) gets a plain signal.  Raises
-        ProcessLookupError when the process is gone.
-        """
-        if isinstance(proc, asyncio.subprocess.Process):
-            try:
-                pgid = os.getpgid(proc.pid)
-            except ProcessLookupError:
-                raise
-            except OSError:
-                pgid = None
-            if pgid == proc.pid:
-                os.killpg(pgid, sig)
-                return
-        proc.send_signal(sig)
+        """Signal the subprocess's process group (see ``manager._proc.signal_group``)."""
+        _signal_group(proc, sig)
 
     async def _kill_proc(self) -> None:
         """Terminate any in-flight gemini subprocess (and its group).  Idempotent."""
@@ -519,13 +436,7 @@ class GeminiSessionManager(BaseSessionManager):
     @staticmethod
     def _tree(proc: asyncio.subprocess.Process) -> list[tuple[int, str]]:
         """Descendants of a real local subprocess (shell commands the CLI ran)."""
-        if not isinstance(proc, asyncio.subprocess.Process):
-            return []
-        try:
-            return _descendants(proc.pid)
-        except Exception:  # noqa: BLE001 — best effort
-            logger.debug("could not list gemini descendants", exc_info=True)
-            return []
+        return _process_tree(proc)
 
     async def interrupt(self) -> None:
         """Send SIGINT to the in-flight gemini subprocess's process group.

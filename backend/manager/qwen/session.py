@@ -36,6 +36,7 @@ from .._ssh import (
     probe_host_reachable,
     resolve_remote_cli_path,
 )
+from .._proc import process_tree, reap_descendants, signal_group
 from ..base_session import BaseSessionManager, TurnAbandoned
 from ..config import ManagerConfig
 from . import run_settings as _run_settings
@@ -133,6 +134,8 @@ class QwenSessionManager(BaseSessionManager):
         # The currently-running ``qwen`` subprocess for an in-flight turn.
         # None when idle.
         self._proc: asyncio.subprocess.Process | None = None
+        # Reaps shell commands an interrupted turn left behind (see interrupt()).
+        self._reaper_tasks: set[asyncio.Task] = set()
         # Optional handle to the reader task; used by the watchdog only.
         self._reader_task: asyncio.Task[None] | None = None
         # ``--fork-session`` goes on the first turn of a forked session only;
@@ -292,23 +295,29 @@ class QwenSessionManager(BaseSessionManager):
             )
 
     async def _kill_proc(self) -> None:
-        """Terminate any in-flight qwen subprocess.  Idempotent."""
+        """Terminate any in-flight qwen subprocess (and its group).  Idempotent.
+
+        Shell commands the CLI started run detached (their own process
+        group), so they are snapshotted first and reaped afterwards.
+        """
         proc = self._proc
         if proc is None:
             return
         if proc.returncode is not None:
             self._proc = None
             return
+        tree = process_tree(proc)
         try:
-            proc.send_signal(signal.SIGTERM)
+            signal_group(proc, signal.SIGTERM)
         except ProcessLookupError:
             self._proc = None
+            await reap_descendants(proc, tree, grace_s=0)
             return
         try:
             await asyncio.wait_for(proc.wait(), timeout=2.0)
         except asyncio.TimeoutError:
             try:
-                proc.kill()
+                signal_group(proc, signal.SIGKILL)
             except ProcessLookupError:
                 pass
             try:
@@ -318,20 +327,29 @@ class QwenSessionManager(BaseSessionManager):
                     "qwen subprocess pid=%s did not exit after SIGKILL", proc.pid,
                 )
         self._proc = None
+        await reap_descendants(proc, tree, grace_s=0)
 
     async def interrupt(self) -> None:
-        """Send SIGINT to the in-flight qwen subprocess.
+        """Send SIGINT to the in-flight qwen subprocess's process group.
 
-        ``qwen`` (like most Node CLIs) treats SIGINT as a clean cancel,
-        flushing whatever it has and exiting.  If no turn is running,
-        no-op.
+        With ``QWEN_CODE_NO_RELAUNCH=true`` the CLI is a single process that
+        exits on SIGINT.  (By default Qwen Code — a Gemini CLI fork —
+        relaunches itself as a child with a bigger heap and the parent
+        ignores SIGINT, so an interrupt used to let the turn run to the
+        end.)  A shell command it was running is reaped afterwards.  If no
+        turn is running, no-op.
         """
         proc = self._proc
         if proc is not None and proc.returncode is None:
+            tree = process_tree(proc)
             try:
-                proc.send_signal(signal.SIGINT)
+                signal_group(proc, signal.SIGINT)
             except ProcessLookupError:
                 pass
+            if tree:
+                task = asyncio.create_task(reap_descendants(proc, tree), name="qwen-reap")
+                self._reaper_tasks.add(task)
+                task.add_done_callback(self._reaper_tasks.discard)
         self._status = SessionStatus.INTERRUPTED
 
     # ------------------------------------------------------------------
@@ -405,6 +423,8 @@ class QwenSessionManager(BaseSessionManager):
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
                 env=env,
+                # Own process group, so interrupt/kill reach the whole CLI.
+                start_new_session=True,
             )
         except FileNotFoundError as e:
             self._status = SessionStatus.IDLE
@@ -782,6 +802,10 @@ class QwenSessionManager(BaseSessionManager):
         env.pop("CLAUDECODE", None)
         # 0.2x prints a "yolo without sandbox" warning to stderr every turn.
         env["QWEN_CODE_SUPPRESS_YOLO_WARNING"] = "1"
+        # Run the CLI as ONE process: by default it relaunches itself as a
+        # child (with a heap limit of half the machine's RAM) and the parent
+        # ignores SIGINT, so interrupt() could not stop a turn.
+        env["QWEN_CODE_NO_RELAUNCH"] = "true"
         if settings_path:
             env[_run_settings.SYSTEM_SETTINGS_ENV] = str(settings_path)
         else:
@@ -917,7 +941,7 @@ class QwenSessionManager(BaseSessionManager):
         # either leak the local DASHSCOPE key (visible in `ps` on the
         # remote) or quietly miss other vars the remote setup expects.
         # Only two non-secret switches go along.
-        remote_env = {"QWEN_CODE_SUPPRESS_YOLO_WARNING": "1"}
+        remote_env = {"QWEN_CODE_SUPPRESS_YOLO_WARNING": "1", "QWEN_CODE_NO_RELAUNCH": "true"}
         if settings_path:
             remote_env[_run_settings.SYSTEM_SETTINGS_ENV] = settings_path
         remote_cmd = RemoteCommand(

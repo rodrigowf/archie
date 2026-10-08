@@ -554,6 +554,43 @@ class TestInterrupt:
         assert sm.status == SessionStatus.INTERRUPTED
         await sm.stop()
 
+    def test_cli_runs_without_relaunch(self):
+        """Qwen Code relaunches itself as a child whose parent ignores SIGINT;
+        without QWEN_CODE_NO_RELAUNCH an interrupt let the turn run on."""
+        env = QwenSessionManager()._build_env()
+        assert env["QWEN_CODE_NO_RELAUNCH"] == "true"
+
+    @pytest.mark.asyncio
+    async def test_interrupt_signals_group_and_reaps_detached_shell(self):
+        """A real process group: SIGINT reaches the CLI, and a shell command it
+        started detached (own session) is reaped afterwards."""
+        import os as _os
+        import sys as _sys
+
+        proc = await asyncio.create_subprocess_exec(
+            _sys.executable, "-c",
+            "import subprocess, time; "
+            "p = subprocess.Popen(['sleep', '30'], start_new_session=True); "
+            "print(p.pid, flush=True); time.sleep(30)",
+            stdout=asyncio.subprocess.PIPE, start_new_session=True,
+        )
+        child = int((await proc.stdout.readline()).decode().strip())
+        sm = QwenSessionManager()
+        sm._proc = proc
+        await sm.interrupt()
+        await asyncio.wait_for(proc.wait(), timeout=5)  # SIGINT ended the "CLI"
+        for _ in range(60):
+            await asyncio.sleep(0.1)
+            try:
+                with open(f"/proc/{child}/stat") as f:
+                    state = f.read().rsplit(")", 1)[1].split()[0]
+            except FileNotFoundError:
+                return
+            if state == "Z":
+                return
+        _os.kill(child, 9)
+        pytest.fail("detached shell command survived the interrupt")
+
 
 # ---------------------------------------------------------------------------
 # Error paths

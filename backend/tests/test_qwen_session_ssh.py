@@ -99,10 +99,10 @@ def test_ssh_session_wraps_argv_with_ssh_prefix():
     # PATH prepends the CLI's own dir so its `#!/usr/bin/env node` shebang
     # resolves on a non-interactive remote shell -- see
     # test_remote_command_puts_cli_dir_on_path.
-    # The yolo-warning switch is the only env that goes along (no
+    # Only the yolo-warning and no-relaunch switches go along (no
     # settings path here: none was written).
     assert remote_cmd.startswith(
-        "cd '/remote/project' && QWEN_CODE_SUPPRESS_YOLO_WARNING='1' "
+        "cd '/remote/project' && QWEN_CODE_SUPPRESS_YOLO_WARNING='1' QWEN_CODE_NO_RELAUNCH='true' "
         "PATH=/remote/.local/bin:$PATH exec '/remote/.local/bin/qwen'",
     )
     assert "QWEN_CODE_SYSTEM_SETTINGS_PATH" not in remote_cmd

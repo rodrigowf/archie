@@ -14,6 +14,7 @@ import time.
 
 from __future__ import annotations
 
+import asyncio
 import errno
 import logging
 import os
@@ -130,3 +131,120 @@ def kill_subprocess(
         except OSError:
             logger.exception("SIGKILL to pid %d failed", pid)
     return True
+
+
+# ── Process trees (spawn-per-turn Node CLIs) ─────────────────────────────
+
+
+def proc_table() -> dict[int, tuple[int, str]]:
+    """``{pid: (ppid, starttime)}`` from ``/proc`` (empty off Linux)."""
+    table: dict[int, tuple[int, str]] = {}
+    try:
+        names = os.listdir("/proc")
+    except OSError:
+        return table
+    for name in names:
+        if not name.isdigit():
+            continue
+        try:
+            with open(f"/proc/{name}/stat") as f:
+                stat = f.read()
+        except OSError:
+            continue
+        # comm may contain spaces/parens: split after the last ')'.
+        fields = stat[stat.rfind(")") + 2:].split()
+        try:
+            table[int(name)] = (int(fields[1]), fields[19])
+        except (IndexError, ValueError):
+            continue
+    return table
+
+
+def descendants(pid: int) -> list[tuple[int, str]]:
+    """Every live descendant of *pid* as ``(pid, starttime)``.
+
+    Node CLIs' shell tools (Gemini, Qwen) spawn commands ``detached`` (their
+    own process group), so a group signal misses them and they outlive the CLI.  We
+    snapshot the tree *before* signalling (afterwards they are reparented
+    and untraceable) and reap survivors once the CLI is gone.
+    """
+    table = proc_table()
+    children: dict[int, list[int]] = {}
+    for p, (ppid, _) in table.items():
+        children.setdefault(ppid, []).append(p)
+    out: list[tuple[int, str]] = []
+    stack = list(children.get(pid, []))
+    while stack:
+        p = stack.pop()
+        out.append((p, table[p][1]))
+        stack.extend(children.get(p, []))
+    return out
+
+
+def signal_survivors(procs: list[tuple[int, str]], sig: int) -> int:
+    """Signal the processes of *procs* that still run (same pid + start time)."""
+    if not procs:
+        return 0
+    table = proc_table()
+    n = 0
+    for pid, start in procs:
+        cur = table.get(pid)
+        if cur is None or cur[1] != start:
+            continue
+        try:
+            os.kill(pid, sig)
+            n += 1
+        except OSError:
+            pass
+    return n
+
+
+async def reap_descendants(
+    proc: asyncio.subprocess.Process, procs: list[tuple[int, str]], grace_s: float = 3.0,
+) -> None:
+    """Once *proc* has exited (or after *grace_s*), stop what it left behind."""
+    if not procs:
+        return
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=grace_s)
+    except (asyncio.TimeoutError, Exception):
+        pass
+    if signal_survivors(procs, signal.SIGTERM):
+        await asyncio.sleep(1.0)
+        signal_survivors(procs, signal.SIGKILL)
+
+
+def signal_group(proc, sig: int) -> None:
+    """Signal *proc*'s process group, falling back to the process itself.
+
+    Only a real subprocess spawned with ``start_new_session=True`` leads its
+    own group (pgid == pid); anything else (SSH wrapper quirks, test
+    doubles) gets a plain signal.  Raises ProcessLookupError when the
+    process is gone.
+    """
+    import asyncio
+
+    if isinstance(proc, asyncio.subprocess.Process):
+        try:
+            pgid = os.getpgid(proc.pid)
+        except ProcessLookupError:
+            raise
+        except OSError:
+            pgid = None
+        if pgid == proc.pid:
+            os.killpg(pgid, sig)
+            return
+    proc.send_signal(sig)
+
+
+def process_tree(proc) -> list[tuple[int, str]]:
+    """Descendants of a real local subprocess (e.g. shell commands a CLI ran)."""
+    import asyncio
+
+    if not isinstance(proc, asyncio.subprocess.Process):
+        return []
+    try:
+        return descendants(proc.pid)
+    except Exception:  # noqa: BLE001 — best effort
+        logger.debug("could not list descendants of pid %s", getattr(proc, "pid", None), exc_info=True)
+        return []
