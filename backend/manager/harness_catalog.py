@@ -118,6 +118,23 @@ class HarnessOption:
     ``models`` restricts the option to those model ids (``None`` = every
     model); the UI hides it for other models and the session manager
     must ignore it for them too.
+
+    Presentation hints (all optional; the UIs infer a control when unset):
+
+    ``control``  ``"switch"`` | ``"segmented"`` | ``"levels"`` | ``"slider"`` |
+                 ``"dropdown"`` — force a control instead of inferring it.
+    ``ordered``  the choices of a select are ordinal levels (effort, thinking
+                 level, verbosity) → rendered as a level picker.
+    ``unit``     unit of a number (``"tokens"``), shown next to the value.
+    ``scale``    ``"linear"`` (default) or ``"log"`` for a number's slider;
+                 log suits token budgets spanning orders of magnitude.
+    ``presets``  special numbers offered as named choices next to the slider
+                 (Gemini's budget: -1 = dynamic, 0 = off).
+    ``custom_min``  lowest value the slider/field offers (default ``min``);
+                 lets ``min`` stay low enough to validate the presets.
+    ``requires`` ``{other_key: (values…)}`` — the option only applies while
+                 the other option's effective value is one of these (use
+                 ``None`` for "unset"); the UI disables it otherwise.
     """
 
     key: str
@@ -130,6 +147,13 @@ class HarnessOption:
     min: float | None = None
     max: float | None = None
     step: float | None = None
+    control: str | None = None
+    ordered: bool = False
+    unit: str | None = None
+    scale: str | None = None
+    presets: tuple[Choice, ...] = ()
+    custom_min: float | None = None
+    requires: dict[str, tuple[Any, ...]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {"key": self.key, "label": self.label, "kind": self.kind}
@@ -141,10 +165,20 @@ class HarnessOption:
             out["help"] = self.help
         if self.models is not None:
             out["models"] = list(self.models)
-        for k in ("min", "max", "step"):
+        for k in ("min", "max", "step", "control", "unit", "scale", "custom_min"):
             v = getattr(self, k)
             if v is not None:
                 out[k] = v
+        if self.ordered:
+            out["ordered"] = True
+        if self.presets:
+            # Number presets: values are numbers on the wire.
+            out["presets"] = [
+                {**c.to_dict(), "value": float(c.value) if "." in c.value else int(c.value)}
+                for c in self.presets
+            ]
+        if self.requires:
+            out["requires"] = {k: list(v) for k, v in self.requires.items()}
         return out
 
     def validate(self, value: Any) -> Any:
@@ -215,7 +249,7 @@ def effort_option(
     labels: dict[str, str] | None = None,
     models: tuple[str, ...] | None = None,
 ) -> HarnessOption:
-    """Shorthand for the shared ``effort`` select."""
+    """Shorthand for the shared ``effort`` select (ordered levels)."""
     labels = labels or {}
     return HarnessOption(
         key=EFFORT,
@@ -224,6 +258,7 @@ def effort_option(
         default=default,
         help=help,
         models=models,
+        ordered=True,
     )
 
 

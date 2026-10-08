@@ -120,9 +120,13 @@ def build_session_config(
     )
 
     # --- Chrome extension flag ------------------------------------------
+    # Anthropic's Claude-in-Chrome (--chrome) is a Claude Code feature tied to
+    # an Anthropic login: only the ``claude`` harness gets it (Model Studio
+    # runs the same CLI but against DashScope, other harnesses have no flag).
     chrome = session_cfg.get("chrome_extension")
     if chrome is None:
         chrome = assistant_cfg.get("chrome_extension", False)
+    chrome = bool(chrome) and config.provider == "claude"
     if chrome:
         config = replace(config, extra_args={"chrome": None})
 

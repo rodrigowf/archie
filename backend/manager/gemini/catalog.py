@@ -290,6 +290,7 @@ def build_catalog(live: dict[str, dict] | None, warnings: tuple[str, ...] = ()) 
                 "nearest one it does (3 Pro: low/high; 3.1 Pro, 3.7/3.8 Flash: low–high)."
             ),
             models=level_models,
+            ordered=True,
         ),
         HarnessOption(
             key=THINKING_BUDGET,
@@ -304,6 +305,10 @@ def build_catalog(live: dict[str, dict] | None, warnings: tuple[str, ...] = ()) 
             min=THINKING_BUDGET_MIN,
             max=THINKING_BUDGET_MAX,
             step=1,
+            unit="tokens",
+            scale="log",
+            presets=(Choice("-1", "Dynamic", "The model decides"), Choice("0", "Off", "Flash models only")),
+            custom_min=128,
         ),
         HarnessOption(
             key=APPROVAL_MODE,
@@ -316,6 +321,7 @@ def build_catalog(live: dict[str, dict] | None, warnings: tuple[str, ...] = ()) 
             ),
             default=DEFAULT_APPROVAL_MODE,
             help="--approval-mode. Headless runs cannot ask, so 'ask' decisions become 'deny'.",
+            control="segmented",
         ),
     )
     return HarnessCatalog(

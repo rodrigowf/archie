@@ -377,6 +377,7 @@ def build_catalog(
                 "one it has. Thinking text is always requested as summaries."
             ),
             models=thinking_models,
+            control="segmented",
         ),
         HarnessOption(
             key=THINKING_BUDGET,
@@ -388,12 +389,16 @@ def build_catalog(
             step=1024,
             help="Max thinking tokens (--max-thinking-tokens). Only used with Thinking = Fixed budget.",
             models=budget_models,
+            unit="tokens",
+            scale="log",
+            requires={THINKING: ("enabled",)},
         ),
         HarnessOption(
             key=FALLBACK_MODEL,
             label="Fallback model",
             choices=tuple(Choice(r.id, r.label) for r in rows),
             help="--fallback-model: used when the main model is overloaded. Ignored if it equals the main model.",
+            control="dropdown",
         ),
         HarnessOption(
             key=TODO_TOOLS,

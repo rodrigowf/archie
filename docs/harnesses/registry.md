@@ -163,6 +163,13 @@ each catalog for 5 minutes; a loader may hit a models API or the CLI but must no
 unreachable upstream (it returns its builtin list plus a `warnings` entry), and a loader that does
 raise yields an empty catalog with a warning.
 
+Presentation hints on `HarnessOption` tell the settings UIs which control to draw; when absent they
+infer one from `kind`: `control` (`switch` / `segmented` / `levels` / `slider` / `dropdown`), `ordered`
+(the choices are levels — effort, thinking level, verbosity), `unit` and `scale` (`log` for token
+budgets), `presets` (named special numbers such as Gemini's −1 = dynamic, 0 = off) with `custom_min` for
+the slider's lower end, and `requires` (`{other_key: [values]}` — the option only applies while the other
+option's effective value is one of these; `null` stands for unset).
+
 Values: a missing key means "pass nothing, let the CLI decide". `PUT /api/config` merges
 `harness_options[<provider>]` key by key (`null` deletes a key); `PUT /api/sessions/{id}/config`
 replaces the session's map, where an absent key inherits the global value and a `null` value forces

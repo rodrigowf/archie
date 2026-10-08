@@ -274,6 +274,7 @@ def build_options(models: list[HarnessModel]) -> tuple[HarnessOption, ...]:
             default=DEFAULT_SUMMARY,
             help="How much of the model's reasoning Codex summarizes into the thinking stream. "
                  "Codex models default to none; when unset Archie sends concise.",
+            control="segmented",
         ),
         HarnessOption(
             key=VERBOSITY,
@@ -281,6 +282,7 @@ def build_options(models: list[HarnessModel]) -> tuple[HarnessOption, ...]:
             choices=tuple(Choice(v, v.capitalize()) for v in VERBOSITY_CHOICES),
             default="low",
             help="Length of the model's answers (config model_verbosity). Unset uses the model default (low).",
+            ordered=True,
         ),
         HarnessOption(
             key=WEB_SEARCH,
@@ -291,6 +293,7 @@ def build_options(models: list[HarnessModel]) -> tuple[HarnessOption, ...]:
                 Choice("live", "Live", "Fetch live results"),
             ),
             help="Codex's built-in web_search tool (config web_search). Unset leaves Codex's default.",
+            control="segmented",
         ),
     )
 

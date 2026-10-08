@@ -333,6 +333,9 @@ def build_catalog(
                 "GLM and Kimi on DashScope. Ignored when Thinking is off."
             ),
             models=models_for(THINKING_BUDGET),
+            unit="tokens",
+            scale="log",
+            requires={THINKING: (True, None)},
         ),
         effort_option(
             _QWEN38_EFFORTS,
@@ -352,6 +355,7 @@ def build_catalog(
             max=2,
             step=0.1,
             help="Sampling temperature (generationConfig.samplingParams.temperature).",
+            control="slider",
         ),
     )
     return HarnessCatalog(

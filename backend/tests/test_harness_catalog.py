@@ -274,3 +274,40 @@ def test_manager_json_model_does_not_leak_into_other_harnesses(monkeypatch: pyte
     assistant["provider"] = "claude"
     config, _m, _i = session_factory.build_session_config()
     assert config.model == "claude-opus-5[1m]"
+
+
+# ── presentation hints ─────────────────────────────────────────────────
+
+
+def test_option_presentation_hints_serialize() -> None:
+    o = HarnessOption(
+        key="thinking_budget", label="Budget", kind="number", min=-1, max=32768, step=1,
+        unit="tokens", scale="log", custom_min=128,
+        presets=(Choice("-1", "Dynamic"), Choice("0", "Off")),
+        requires={"thinking": ("enabled", None)},
+    )
+    d = o.to_dict()
+    assert d["unit"] == "tokens" and d["scale"] == "log" and d["custom_min"] == 128
+    assert d["presets"] == [{"value": -1, "label": "Dynamic"}, {"value": 0, "label": "Off"}]
+    assert d["requires"] == {"thinking": ["enabled", None]}
+    assert "ordered" not in d and "control" not in d
+    assert effort_option(("low", "high")).to_dict()["ordered"] is True
+    assert HarnessOption(key="m", label="M", control="segmented").to_dict()["control"] == "segmented"
+    # presets are validated like any other value
+    assert o.validate(-1) == -1 and o.validate(0) == 0
+
+
+@pytest.mark.parametrize("provider,expected", [("claude", True), ("modelstudio", False), ("codex", False)])
+def test_chrome_flag_only_for_claude(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, provider: str, expected: bool) -> None:
+    import api.routes.config as cfg_module
+    import api.routes.session_config as sc
+    from api import session_factory
+
+    monkeypatch.setattr(sc, "get_context_dir", lambda: tmp_path)
+    assistant = cfg_module._default_config()
+    assistant["provider"] = provider
+    assistant["chrome_extension"] = True
+    monkeypatch.setattr(cfg_module, "_load_config", lambda: assistant)
+    config, _m, info = session_factory.build_session_config()
+    assert info["chrome_extension"] is expected
+    assert (config.extra_args == {"chrome": None}) is expected

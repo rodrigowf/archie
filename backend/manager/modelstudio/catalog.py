@@ -204,6 +204,9 @@ def build_catalog(ids: list[str], *, source: str, warnings: tuple[str, ...] = ()
             step=1024,
             help="Max thinking tokens (budget_tokens). Only used with Thinking on.",
             models=thinking_models,
+            unit="tokens",
+            scale="log",
+            requires={THINKING: (True,)},
         ),
         HarnessOption(
             key=TODO_TOOLS,
