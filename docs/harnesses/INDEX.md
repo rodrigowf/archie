@@ -10,3 +10,4 @@ cover storage layout, CLI flags, JSONL quirks and landmines.
 - [claude-code.md](claude-code.md) — Claude Code over claude-agent-sdk: `.claude_config/` layout, session options, JSONL, SDK pin and upgrade stages, auth, Chrome flag
 - [qwen-code.md](qwen-code.md) — Qwen Code: spawn-per-turn stream-json CLI, `~/.qwen` symlinks into `context/`, JSONL normalization, model catalog, lazy SDKs, landmines
 - [gemini-cli.md](gemini-cli.md) — Gemini CLI: `--prompt` per turn, `--skip-trust`, storage symlink into `context/chats/`, glob resolver, JSONL quirks, landmines
+- [codex-cli.md](codex-cli.md) — OpenAI Codex: one persistent `codex app-server` per session (JSON-RPC over stdio), dedicated vs shared `CODEX_HOME`, rollout storage + adapter (three generations), catalog/options, landmines (auth rotation, AGENTS.md size)

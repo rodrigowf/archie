@@ -101,8 +101,11 @@ def build_session_config(
         session_cfg=session_cfg,
         assistant_cfg=assistant_cfg,
     )
-    if resolved_provider:
-        config = replace(config, provider=resolved_provider)
+    if resolved_provider and resolved_provider != config.provider:
+        # ``.manager.json``'s ``model`` (e.g. ``claude-opus-5[1m]``) belongs
+        # to the provider that file was loaded with; carrying it over to
+        # another harness makes that CLI fail with "model not supported".
+        config = replace(config, provider=resolved_provider, model=None)
     if resolved_model is not None:
         config = replace(config, model=resolved_model)
     harness_options = _resolve_harness_options(config.provider, session_cfg, assistant_cfg)

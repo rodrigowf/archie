@@ -37,7 +37,7 @@ the model APIs) is the second — see [orchestrator.md](orchestrator.md).
 | `backend/api/routes/session_config.py` | Per-session config load/save |
 | `backend/manager/base_session.py` | `BaseSessionManager` (lifecycle task, permission futures, IDs, status), `TurnAbandoned`, `SessionDeadError` |
 | `backend/manager/claude/session.py` | `ClaudeSessionManager` (alias `SessionManager`) — wraps `claude_agent_sdk.ClaudeSDKClient` |
-| `backend/manager/{qwen,gemini}/session.py` | The other harnesses ([registry](../harnesses/registry.md)) |
+| `backend/manager/{qwen,gemini,codex}/session.py` | The other harnesses ([registry](../harnesses/registry.md)) |
 | `backend/manager/types.py` | Typed events: `TextDelta`, `TextComplete`, `ThinkingDelta/Complete`, `ToolUse`, `ToolResult`, `TurnComplete`, `CompactComplete`, `PermissionRequest`, `PermissionResolved`, `SessionStalled`, `SessionTerminated`; `SessionStatus`, `TerminationReason` |
 | `backend/manager/protocol.py` | `ProviderAdapter` — reads a harness's native JSONL into normalized messages; `detect_provider()` |
 | `backend/manager/registry.py` | `HarnessSpec` / `HarnessRegistry` |

@@ -229,19 +229,11 @@ the pickers automatically. Acceptance: picker shows it; a real-CLI turn produces
 `TextDelta → TextComplete → TurnComplete`; the adapter rebuilds the conversation from the JSONL it
 wrote; removing the module from `_ADAPTER_MODULES` disables it everywhere.
 
-### Deferred: OpenAI Codex CLI
+### OpenAI Codex (added 2026-10-07)
 
-Skipped on 2026-05-15; recon notes for whoever picks it up:
-
-- npm `@openai/codex`, binary `codex`. A **Rust** binary, so `comm_prefix="codex"` (the first
-  non-Node prefix — confirm with `/proc/<pid>/comm` on a live process).
-- Auth: ChatGPT subscription OAuth (not free tier) or an OpenAI API key; state in `~/.codex/`
-  (`auth.json`, `sessions/` — verify the layout).
-- Expected to be a long-lived agent loop, not one-shot: model the session manager on Claude's.
-- Recon checklist: `codex --help` for headless prompt / session-id / resume / output-format flags;
-  run one headless turn and read the session file line by line; look for a model catalog and the
-  interrupt mechanism (SIGINT or a stdin message); **look for a trust gate** like Gemini's
-  `--skip-trust`; expect the file name to differ from the session id.
+Codex is the fourth harness (`provider="codex"`), and the first one driven over a JSON-RPC
+protocol: one persistent `codex app-server` per session, `comm_prefix="codex"` (a native binary,
+not Node). Details, storage and landmines: [codex-cli.md](codex-cli.md).
 
 ## Pitfalls
 
@@ -260,5 +252,7 @@ Skipped on 2026-05-15; recon notes for whoever picks it up:
 - 2026-05-15 — Qwen Code added as second harness (`f5eaa7d`), lazy SDK loading (`115a05b`),
   per-provider requirements (`3bab53d`); `HarnessRegistry` introduced (`e2bf29b`); each harness moved
   into its own subpackage (`3fe9c73`); Gemini CLI added (`5c9cb0f`). Codex deferred.
+- 2026-10-07 — Harness catalog (`catalog_loader`, `harness_options`) added; OpenAI Codex added as
+  the fourth harness ([codex-cli.md](codex-cli.md)).
 - 2026-05-16 — Gemini sessions discovered via `session_discoverer` (`989fd71`), then stored under
   `context/chats/` through a symlink (`24ac981`).

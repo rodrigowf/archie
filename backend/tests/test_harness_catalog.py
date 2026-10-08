@@ -249,3 +249,28 @@ def test_session_factory_overlays_session_options(monkeypatch: pytest.MonkeyPatc
     # fresh session: global map only, other providers' maps don't leak in
     config, _mcp, _info = session_factory.build_session_config()
     assert config.harness_options == {"effort": "low", "thinking": True}
+
+
+def test_manager_json_model_does_not_leak_into_other_harnesses(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """``.manager.json``'s Claude model must not reach Codex/Qwen/Gemini."""
+    import api.routes.config as cfg_module
+    import api.routes.session_config as sc
+    from api import session_factory
+    from manager.config import ManagerConfig
+
+    monkeypatch.setattr(sc, "get_context_dir", lambda: tmp_path)
+    monkeypatch.setattr(ManagerConfig, "load", classmethod(lambda cls, path=None: cls(model="claude-opus-5[1m]")))
+    assistant = cfg_module._default_config()
+    monkeypatch.setattr(cfg_module, "_load_config", lambda: assistant)
+
+    assistant["provider"] = "qwen"
+    config, _m, _i = session_factory.build_session_config()
+    assert config.provider == "qwen" and config.model is None
+
+    assistant["harness_model"] = {"qwen": "qwen3.6-plus"}
+    config, _m, _i = session_factory.build_session_config()
+    assert config.model == "qwen3.6-plus"
+
+    assistant["provider"] = "claude"
+    config, _m, _i = session_factory.build_session_config()
+    assert config.model == "claude-opus-5[1m]"
