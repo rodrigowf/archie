@@ -21,6 +21,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import signal
 import uuid
 from collections.abc import AsyncIterator
@@ -31,11 +32,13 @@ from .._ssh import (
     RemoteHostUnreachableError,
     SshTarget,
     build_remote_argv,
+    build_ssh_argv,
     probe_host_reachable,
     resolve_remote_cli_path,
 )
 from ..base_session import BaseSessionManager, TurnAbandoned
 from ..config import ManagerConfig
+from . import run_settings as _run_settings
 from ..types import (
     CompactComplete,
     Event,
@@ -78,6 +81,35 @@ def _qwen_executable() -> str:
     return os.environ.get("QWEN_CLI_PATH", "qwen")
 
 
+# ``--fork-session`` arrived in qwen-code 0.16.0; older CLIs reject it.
+_FORK_SESSION_MIN_VERSION = (0, 16, 0)
+# Seconds allowed for writing the per-run settings file on an SSH remote.
+_REMOTE_SETTINGS_TIMEOUT_S = 10.0
+
+
+def _parse_version(text: str | None) -> tuple[int, int, int] | None:
+    """``"0.25.0"`` → ``(0, 25, 0)``; ``None`` for anything unparseable."""
+    m = re.search(r"(\d+)\.(\d+)\.(\d+)", text or "")
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
+
+
+def _error_message(obj: dict) -> str | None:
+    """Turn-level failure reason from a ``result`` line.
+
+    0.2x puts it in ``error.message`` (API errors, loop detection, the
+    ``--max-wall-time`` / tool-call budgets) and leaves ``result`` empty.
+    """
+    err = obj.get("error")
+    if isinstance(err, dict):
+        msg = err.get("message")
+        if isinstance(msg, str) and msg.strip():
+            return msg
+    elif isinstance(err, str) and err.strip():
+        return err
+    subtype = obj.get("subtype")
+    return subtype if isinstance(subtype, str) and subtype != "success" else None
+
+
 class QwenSessionManager(BaseSessionManager):
     """Manage a single Qwen Code conversation.
 
@@ -103,6 +135,15 @@ class QwenSessionManager(BaseSessionManager):
         self._proc: asyncio.subprocess.Process | None = None
         # Optional handle to the reader task; used by the watchdog only.
         self._reader_task: asyncio.Task[None] | None = None
+        # ``--fork-session`` goes on the first turn of a forked session only;
+        # the result's session id then becomes this session's own id.
+        self._fork_pending: bool = fork
+        self._forking_turn: bool = False
+        # Local CLI version from the prewarm ``qwen --version`` (None = unknown).
+        self._cli_version: tuple[int, int, int] | None = None
+        # Set once a per-run settings file was written on the SSH remote, so
+        # stop() can remove it (best-effort).
+        self._remote_settings_written: bool = False
 
     @property
     def provider_name(self) -> str:
@@ -157,6 +198,8 @@ class QwenSessionManager(BaseSessionManager):
             await self._stop_requested.wait()
         finally:
             await self._kill_proc()
+            if self._remote_settings_written:
+                await self._remove_remote_settings()
             self._status = SessionStatus.DISCONNECTED
 
     async def _prewarm(self) -> None:
@@ -217,11 +260,13 @@ class QwenSessionManager(BaseSessionManager):
             proc = await asyncio.create_subprocess_exec(
                 _qwen_executable(), "--version",
                 stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )
             try:
-                await asyncio.wait_for(proc.wait(), timeout=10.0)
+                out, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+                if isinstance(out, (bytes, bytearray)):
+                    self._cli_version = _parse_version(out.decode("utf-8", "replace"))
             except asyncio.TimeoutError:
                 # Warmup overran our budget — kill and move on.  The
                 # real turn might still be slow but at least we won't
@@ -320,13 +365,34 @@ class QwenSessionManager(BaseSessionManager):
         self._status = SessionStatus.STREAMING
 
         local_argv = self._build_argv()
-        env = self._build_env()
+        self._forking_turn = "--fork-session" in local_argv
+        self._fork_pending = False
+
+        # Per-run settings file (memory extractor off, output language,
+        # harness options …) — see manager/qwen/run_settings.py.  Local runs
+        # get a private 0600 file removed after the turn; SSH runs get a
+        # copy written on the remote.  Failures fall back to the old
+        # behaviour (no file) rather than failing the turn.
+        settings_path: str | None = None
+        remote_settings_path: str | None = None
+        if self._config.ssh_host:
+            remote_settings_path = await self._write_remote_settings()
+        else:
+            settings_path = self._write_local_settings()
+        env = self._build_env(settings_path)
 
         # SSH or local?  _maybe_wrap_with_ssh returns the argv that will
         # actually be exec'd plus the local cwd to spawn from (which is
         # the project_dir for local, irrelevant for SSH since the remote
         # cwd is set inside the SSH command via `cd`).
-        argv, cwd = self._maybe_wrap_with_ssh(local_argv)
+        try:
+            argv, cwd = self._maybe_wrap_with_ssh(
+                local_argv, settings_path=remote_settings_path,
+            )
+        except BaseException:
+            _run_settings.remove_run_settings(settings_path)
+            self._status = SessionStatus.IDLE
+            raise
 
         # Pipe the prompt as a single stream-json line on stdin.
         stdin_payload = self._render_prompt(prompt).encode("utf-8")
@@ -342,6 +408,7 @@ class QwenSessionManager(BaseSessionManager):
             )
         except FileNotFoundError as e:
             self._status = SessionStatus.IDLE
+            _run_settings.remove_run_settings(settings_path)
             # argv[0] is either the local qwen path or "ssh".  Either way
             # the missing binary points to a misconfiguration: qwen CLI
             # not installed locally, or ssh binary absent.
@@ -430,6 +497,8 @@ class QwenSessionManager(BaseSessionManager):
                     logger.exception("on_pid_exit callback raised for pid=%d", proc.pid)
             self._event_inbox = None
             self._drain_pending_permissions()
+            _run_settings.remove_run_settings(settings_path)
+            self._forking_turn = False
             self._status = SessionStatus.IDLE
 
     async def _stream_events(
@@ -525,7 +594,7 @@ class QwenSessionManager(BaseSessionManager):
             subtype = obj.get("subtype", "")
             if subtype == "init":
                 sid = obj.get("session_id")
-                if sid and not self._provider_session_id:
+                if sid and (not self._provider_session_id or self._forking_turn):
                     self._provider_session_id = sid
             elif subtype == "compact":
                 out.append(CompactComplete(
@@ -630,13 +699,18 @@ class QwenSessionManager(BaseSessionManager):
             sid = obj.get("session_id")
             if sid:
                 self._provider_session_id = sid
+            is_error = bool(obj.get("is_error", False))
+            result = obj.get("result")
+            if is_error and not result:
+                # 0.2x: the reason lives in ``error.message``.
+                result = _error_message(obj)
             out.append(TurnComplete(
                 cost=None,  # qwen doesn't report cost
                 usage=usage,
                 num_turns=num_turns,
                 session_id=sid or "",
-                is_error=obj.get("is_error", False),
-                result=obj.get("result"),
+                is_error=is_error,
+                result=result,
             ))
             return out
 
@@ -680,10 +754,10 @@ class QwenSessionManager(BaseSessionManager):
 
         if self._provider_session_id:
             argv += ["--resume", self._provider_session_id]
-        elif self._fork:
-            # No native fork concept in qwen — closest analogue is a
-            # fresh session with no --resume, which we already do.
-            pass
+            if self._fork_pending and self._fork_supported():
+                # 0.16+: continue the history under a new session id.
+                argv.append("--fork-session")
+        # A fork without a resume id is just a fresh session.
 
         if self._config.model:
             argv += ["--model", self._config.model]
@@ -693,16 +767,123 @@ class QwenSessionManager(BaseSessionManager):
 
         return argv
 
-    def _build_env(self) -> dict[str, str]:
+    def _fork_supported(self) -> bool:
+        """``--fork-session`` needs qwen-code ≥ 0.16.  Unknown version (SSH,
+        prewarm skipped) → assume the pinned version, which has it."""
+        if self._cli_version is None:
+            return True
+        return self._cli_version >= _FORK_SESSION_MIN_VERSION
+
+    def _build_env(self, settings_path: str | os.PathLike | None = None) -> dict[str, str]:
         """Construct the env for the qwen subprocess."""
         env = dict(os.environ)
         # Strip Claude-specific markers so qwen doesn't get confused if
         # the wrapper itself was launched from inside Claude Code.
         env.pop("CLAUDECODE", None)
+        # 0.2x prints a "yolo without sandbox" warning to stderr every turn.
+        env["QWEN_CODE_SUPPRESS_YOLO_WARNING"] = "1"
+        if settings_path:
+            env[_run_settings.SYSTEM_SETTINGS_ENV] = str(settings_path)
+        else:
+            # Never inherit a stray system-settings path from the backend env.
+            env.pop(_run_settings.SYSTEM_SETTINGS_ENV, None)
         return env
 
+    def _run_settings_dict(self, *, remote: bool) -> dict:
+        """The per-run settings for this turn (see :mod:`.run_settings`)."""
+        if remote:
+            # The remote's own ~/.qwen/settings.json provider list is unknown
+            # here, so SSH runs only get the fixed keys (no per-run knobs).
+            return _run_settings.build_run_settings(
+                self._config.model, None, None, include_providers=False,
+            )
+        from .catalog import load_user_settings
+
+        return _run_settings.build_run_settings(
+            self._config.model,
+            self._config.harness_options,
+            load_user_settings(),
+        )
+
+    def _write_local_settings(self) -> str | None:
+        try:
+            settings = self._run_settings_dict(remote=False)
+            return str(_run_settings.write_run_settings(settings, name=self._local_id))
+        except Exception:
+            logger.exception(
+                "Could not write Qwen run settings for %s; running without them",
+                self._local_id,
+            )
+            return None
+
+    def _ssh_target(self) -> SshTarget:
+        return SshTarget(
+            host=self._config.ssh_host or "",
+            user=self._config.ssh_user,
+            key=self._config.ssh_key,
+            control_path_prefix="qwen",
+        )
+
+    def _remote_settings_path(self) -> str:
+        safe = re.sub(r"[^A-Za-z0-9_.-]", "_", self._local_id)[:80]
+        return f"/tmp/archie-qwen-{safe}.json"
+
+    async def _write_remote_settings(self) -> str | None:
+        """Write the fixed per-run settings on the SSH remote (0600, /tmp).
+
+        One extra SSH round trip per turn, multiplexed over the existing
+        ControlMaster connection.  Returns the remote path, or ``None`` when
+        the write failed (the turn then runs as before, without the file).
+        """
+        path = self._remote_settings_path()
+        payload = json.dumps(self._run_settings_dict(remote=True)).encode("utf-8")
+        argv = build_ssh_argv(self._ssh_target()) + [
+            f"umask 077 && cat > '{path}'",
+        ]
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *argv,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, err = await asyncio.wait_for(
+                proc.communicate(payload), timeout=_REMOTE_SETTINGS_TIMEOUT_S,
+            )
+        except Exception as e:  # noqa: BLE001 — degrade to the old behaviour
+            logger.warning(
+                "Could not write Qwen run settings on %s (%s); running without them",
+                self._config.ssh_host, e,
+            )
+            return None
+        if proc.returncode != 0:
+            logger.warning(
+                "Writing Qwen run settings on %s failed (rc=%s): %s",
+                self._config.ssh_host, proc.returncode,
+                (err or b"").decode("utf-8", "replace").strip()[:200],
+            )
+            return None
+        self._remote_settings_written = True
+        return path
+
+    async def _remove_remote_settings(self) -> None:
+        """Best-effort ``rm`` of the remote settings file at session stop."""
+        argv = build_ssh_argv(self._ssh_target()) + [
+            f"rm -f '{self._remote_settings_path()}'",
+        ]
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *argv,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+        except Exception:  # noqa: BLE001 — a leftover non-secret /tmp file is harmless
+            logger.debug("Could not remove remote Qwen run settings", exc_info=True)
+
     def _maybe_wrap_with_ssh(
-        self, local_argv: list[str],
+        self, local_argv: list[str], *, settings_path: str | None = None,
     ) -> tuple[list[str], str | None]:
         """Return ``(argv, cwd)`` to feed ``asyncio.create_subprocess_exec``.
 
@@ -725,25 +906,24 @@ class QwenSessionManager(BaseSessionManager):
         if not self._config.ssh_host:
             return local_argv, self._config.project_dir
 
-        target = SshTarget(
-            host=self._config.ssh_host,
-            user=self._config.ssh_user,
-            key=self._config.ssh_key,
-            control_path_prefix="qwen",
-        )
+        target = self._ssh_target()
         remote_qwen = resolve_remote_cli_path(
             "qwen",
             target,
         )
+        # The local env is NOT forwarded: the remote machine has its own
+        # .env (DASHSCOPE_API_KEY, ASSISTANT_PROVIDER, …) set up at install
+        # time, just like Claude's remote installs.  Forwarding it would
+        # either leak the local DASHSCOPE key (visible in `ps` on the
+        # remote) or quietly miss other vars the remote setup expects.
+        # Only two non-secret switches go along.
+        remote_env = {"QWEN_CODE_SUPPRESS_YOLO_WARNING": "1"}
+        if settings_path:
+            remote_env[_run_settings.SYSTEM_SETTINGS_ENV] = settings_path
         remote_cmd = RemoteCommand(
             project_dir=self._config.project_dir,
             remote_cli=remote_qwen,
-            # No env to forward: the remote machine has its own .env
-            # (DASHSCOPE_API_KEY, ASSISTANT_PROVIDER, …) set up at install
-            # time, just like Claude's remote installs.  Forwarding the
-            # local env over SSH would either leak the local DASHSCOPE
-            # key (visible in `ps` on the remote) or quietly miss other
-            # vars the remote setup expects.
+            env=remote_env,
         )
         # ``local_argv[0]`` is the LOCAL qwen path (resolved by
         # :func:`_qwen_executable`); on the remote machine that path is

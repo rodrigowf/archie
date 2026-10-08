@@ -460,3 +460,57 @@ class TestToPreviews:
             ("thinking", "let me think"), ("text", "the answer"),
         ]
         assert previews[0].text == "the answer"  # extract_text skips thinking
+
+
+# ---------------------------------------------------------------------------
+# qwen-code 0.25.0 line shapes (provenance, promptId, contextWindowSize,
+# toolCallResult.executionStatus) — captured from a real run, trimmed.
+# ---------------------------------------------------------------------------
+
+_V025_LINES = [
+    {"uuid": "u1", "parentUuid": None, "sessionId": "s25", "timestamp": "2026-10-08T00:01:00.000Z",
+     "type": "user", "provenance": "real_user", "cwd": "/p", "version": "0.25.0",
+     "message": {"role": "user", "parts": [{"text": "Run echo ok"}]}, "promptId": "s25########1"},
+    {"uuid": "y1", "parentUuid": "u1", "sessionId": "s25", "timestamp": "2026-10-08T00:01:00.100Z",
+     "type": "system", "subtype": "attribution_snapshot", "provenance": "system", "systemPayload": {}},
+    {"uuid": "a1", "parentUuid": "y1", "sessionId": "s25", "timestamp": "2026-10-08T00:01:01.000Z",
+     "type": "assistant", "provenance": "assistant_output", "model": "qwen3.6-plus",
+     "message": {"role": "model", "parts": [
+         {"text": "Run it.", "thought": True},
+         {"functionCall": {"id": "call_1", "name": "run_shell_command", "args": {"command": "echo ok"}}},
+     ]},
+     "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5}, "contextWindowSize": 1000000},
+    {"uuid": "t1", "parentUuid": "a1", "sessionId": "s25", "timestamp": "2026-10-08T00:01:01.200Z",
+     "type": "tool_result", "provenance": "tool_result",
+     "message": {"role": "user", "parts": [{"functionResponse": {
+         "id": "call_1", "name": "run_shell_command", "response": {"output": "Output: ok"}}}]},
+     "toolCallResult": {"callId": "call_1", "status": "success", "resultDisplay": {"type": "shell_result"},
+                        "executionStatus": "success"}},
+    {"uuid": "a2", "parentUuid": "t1", "sessionId": "s25", "timestamp": "2026-10-08T00:01:02.000Z",
+     "type": "assistant", "provenance": "assistant_output", "model": "qwen3.6-plus",
+     "message": {"role": "model", "parts": [{"text": "ok"}]},
+     "usageMetadata": {"promptTokenCount": 12, "candidatesTokenCount": 1}, "contextWindowSize": 1000000},
+    {"uuid": "t2", "parentUuid": "a2", "sessionId": "s25", "timestamp": "2026-10-08T00:01:03.000Z",
+     "type": "tool_result", "provenance": "tool_result",
+     "message": {"role": "user", "parts": [{"functionResponse": {
+         "id": "call_2", "name": "agent", "response": {"error": "bad params"}}}]},
+     "toolCallResult": {"callId": "call_2", "status": "error", "error": {},
+                        "errorType": "invalid_tool_params", "executionStatus": "not_started"}},
+]
+
+
+def test_v025_jsonl_normalizes(tmp_path: Path, adapter: QwenAdapter):
+    path = tmp_path / "s25.jsonl"
+    path.write_text("\n".join(json.dumps(l) for l in _V025_LINES) + "\n")
+    assert adapter.detect_provider(path)
+    msgs = adapter.read_messages(path)
+    assert [m["type"] for m in msgs] == ["user", "assistant", "user", "assistant", "user"]
+    assert msgs[1]["message"]["role"] == "assistant"
+    blocks = msgs[1]["message"]["content"]
+    assert [b["type"] for b in blocks] == ["thinking", "tool_use"]
+    assert blocks[1]["id"] == "call_1" and blocks[1]["name"] == "run_shell_command"
+    result = msgs[2]["message"]["content"][0]
+    assert result == {"type": "tool_result", "tool_use_id": "call_1",
+                      "content": "Output: ok", "is_error": False}
+    err = msgs[4]["message"]["content"][0]
+    assert err["tool_use_id"] == "call_2" and err["is_error"] is True

@@ -99,10 +99,13 @@ def test_ssh_session_wraps_argv_with_ssh_prefix():
     # PATH prepends the CLI's own dir so its `#!/usr/bin/env node` shebang
     # resolves on a non-interactive remote shell -- see
     # test_remote_command_puts_cli_dir_on_path.
+    # The yolo-warning switch is the only env that goes along (no
+    # settings path here: none was written).
     assert remote_cmd.startswith(
-        "cd '/remote/project' && PATH=/remote/.local/bin:$PATH "
-        "exec '/remote/.local/bin/qwen'",
+        "cd '/remote/project' && QWEN_CODE_SUPPRESS_YOLO_WARNING='1' "
+        "PATH=/remote/.local/bin:$PATH exec '/remote/.local/bin/qwen'",
     )
+    assert "QWEN_CODE_SYSTEM_SETTINGS_PATH" not in remote_cmd
     assert "'--input-format'" in remote_cmd
     assert "'stream-json'" in remote_cmd
     assert "'--resume'" in remote_cmd
@@ -311,3 +314,54 @@ def test_remote_command_skips_path_for_bare_cli_name():
     rendered = RemoteCommand(project_dir="/p", remote_cli="qwen").render_shell()
 
     assert "PATH=" not in rendered
+
+
+# ---------------------------------------------------------------------------
+# Per-run settings on the SSH remote
+# ---------------------------------------------------------------------------
+
+
+def test_ssh_wrapping_forwards_settings_path_only():
+    sm = QwenSessionManager(local_id="loc-1", config=_ssh_cfg())
+    with patch("manager.qwen.session.resolve_remote_cli_path", return_value="/r/qwen"):
+        argv, _ = sm._maybe_wrap_with_ssh(
+            ["/local/qwen", "--flag"], settings_path="/tmp/archie-qwen-loc-1.json",
+        )
+    remote_cmd = argv[-1]
+    assert "QWEN_CODE_SYSTEM_SETTINGS_PATH='/tmp/archie-qwen-loc-1.json'" in remote_cmd
+    assert "QWEN_CODE_SUPPRESS_YOLO_WARNING='1'" in remote_cmd
+    assert "DASHSCOPE_API_KEY" not in remote_cmd
+
+
+@pytest.mark.asyncio
+async def test_write_remote_settings_pipes_fixed_keys_over_ssh():
+    sm = QwenSessionManager(local_id="loc/2", config=_ssh_cfg())
+    proc = MagicMock()
+    proc.returncode = 0
+    proc.communicate = AsyncMock(return_value=(b"", b""))
+    spawn = AsyncMock(return_value=proc)
+    with patch("asyncio.create_subprocess_exec", spawn):
+        path = await sm._write_remote_settings()
+
+    assert path == "/tmp/archie-qwen-loc_2.json"
+    argv = spawn.call_args.args
+    assert argv[0] == "ssh" and "agent@10.0.0.1" in argv
+    assert argv[-1] == "umask 077 && cat > '/tmp/archie-qwen-loc_2.json'"
+    import json as _json
+    payload = _json.loads(proc.communicate.call_args.args[0])
+    assert payload["memory"]["enableManagedAutoMemory"] is False
+    assert "modelProviders" not in payload  # remote provider list is unknown here
+    assert sm._remote_settings_written is True
+
+
+@pytest.mark.asyncio
+async def test_write_remote_settings_failure_returns_none():
+    sm = QwenSessionManager(local_id="loc-3", config=_ssh_cfg())
+    proc = MagicMock()
+    proc.returncode = 255
+    proc.communicate = AsyncMock(return_value=(b"", b"Permission denied"))
+    with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)):
+        assert await sm._write_remote_settings() is None
+    with patch("asyncio.create_subprocess_exec", AsyncMock(side_effect=OSError("no ssh"))):
+        assert await sm._write_remote_settings() is None
+    assert sm._remote_settings_written is False

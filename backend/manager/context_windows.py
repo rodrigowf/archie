@@ -9,7 +9,9 @@ Lookup order for a given (provider, model):
 
 1. **Qwen**: parse ``~/.qwen/settings.json`` and read ``contextWindowSize``
    for the exact model id.  This is the only provider that ships a
-   user-configurable catalog, so we trust whatever the user wrote.
+   user-configurable catalog, so we trust whatever the user wrote.  Ids
+   not in it (DashScope live-list models) fall back to the approximate
+   family table in ``manager.qwen.catalog``.
 2. **Claude / Gemini / Anthropic / OpenAI**: regex-match the model id
    against a small static table.  Aliases (``"sonnet"``, ``"opus"``)
    resolve to the same window as the dated id.
@@ -75,7 +77,14 @@ def _qwen_window(model: str) -> int | None:
                 return entry.context_window
     except Exception:
         return None
-    return None
+    # Not in settings.json (e.g. a DashScope "live" model run through a
+    # synthetic provider entry): approximate window from the family table.
+    try:
+        from manager.qwen.catalog import qwen_model_traits
+
+        return qwen_model_traits(model).context_window
+    except Exception:
+        return None
 
 
 def context_window_for(provider: str | None, model: str | None) -> int | None:
