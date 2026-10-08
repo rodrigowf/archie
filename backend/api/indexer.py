@@ -2,7 +2,8 @@
 
 - MemoryWatcher: Watches memory folder, indexes on file changes
 - HistoryIndexer: Periodically indexes conversation history (every 5 min if any session
-  JSONL changed). The run is incremental (index/history.sqlite3 keeps per-session state), so
+  JSONL of any harness changed — context/*.jsonl, context/chats/*.jsonl, Codex rollouts).
+  The run is incremental (index/history.sqlite3 keeps per-session state), so
   a tick usually embeds only the messages added since the last one.
 """
 
@@ -150,6 +151,12 @@ class HistoryIndexer:
         chats_dir = get_chats_dir()
         if chats_dir.is_dir():
             paths.extend(chats_dir.glob("*.jsonl"))
+        # Codex rollouts (context/codex/sessions/YYYY/MM/DD/, or a home's
+        # sessions/) — the same discovery the history index itself uses, so a
+        # Codex-only change also triggers a run.
+        from utils.history_index import _codex_sources
+
+        paths.extend(_codex_sources())
         entries = []
         for jsonl_path in sorted(paths):
             try:

@@ -14,6 +14,7 @@ references:
   - ../infrastructure/installation.md
   - ../infrastructure/ssh-remote-execution.md
   - ../voice/qwen-omni.md
+  - ../architecture/memory-and-search.md
 ---
 
 # Qwen Code harness
@@ -65,6 +66,17 @@ The symlink also means **everything else Qwen keeps per project lands in `contex
 the `memory/` folder of its managed auto-memory, which is `context/memory/`, Archie's memory wiki.
 That is why every Archie run switches auto-memory off (see [Per-run settings](#per-run-settings)
 and the first landmine).
+
+**Memory like Claude's.** With auto-memory off nothing loads `MEMORY.md`, so in the Archie repo
+`_build_argv()` adds `--append-system-prompt <memory block>`: the live `context/memory/MEMORY.md`
+plus the rule that memory is written with file tools following `AGENTS.md`
+(`backend/manager/memory_context.py`, shared by all harnesses —
+[memory and search](../architecture/memory-and-search.md#every-harness-reads-and-writes-the-same-memory)).
+Qwen rebuilds its system prompt on every spawn, so the block is current every turn and never lands
+in the chat JSONL; over SSH it travels as one shell-quoted argument. 0.25 registers no
+`save_memory` tool (`manage_memory` / `search_memory` are declared only in structured-recall mode),
+so the model saves memory with `write_file` / `edit`. Verified live 2026-10-08 (deepseek-v4-flash):
+it quoted `MEMORY.md` without tools and saved a fact by extending an existing wiki note.
 
 Other Qwen state stays in `~/.qwen/` per machine: `settings.json` (model providers, env, auth
 type, default model), `output-language.md`, `tmp/`, `todos/`, `debug/`, and since 0.25
@@ -310,3 +322,5 @@ steps — and the subprocess plus stdin/stdout path gives that uniformly.
   (auto-memory off, English output, no auto-update), catalog with live DashScope models and the
   `thinking` / `thinking_budget` / `effort` / `temperature` options, `--fork-session`, turn errors
   from `error.message`, yolo warning suppressed.
+- 2026-10-08 — `MEMORY.md` block via `--append-system-prompt` in the repo (memory parity with
+  Claude Code).

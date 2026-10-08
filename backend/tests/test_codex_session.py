@@ -229,6 +229,38 @@ async def test_resume_and_fork(fake_codex, tmp_path):
     assert fork.sdk_session_id == THREAD
 
 
+async def test_memory_index_is_developer_instructions_on_new_threads_only(fake_codex, tmp_path, monkeypatch):
+    """Archie's MEMORY.md goes in once, at thread start (manager/memory_context.py);
+    a resumed or forked thread already carries it in its history."""
+    seen: list = []
+
+    def fake_memory(project_dir):
+        seen.append(project_dir)
+        return "# Memory\n\n<memory_index>\nX\n</memory_index>"
+
+    monkeypatch.setattr("manager.codex.session.memory_instructions", fake_memory)
+    sm = CodexSessionManager(config=_config(tmp_path))
+    await sm.start()
+    await sm.stop()
+    start = _req(fake_codex, "thread/start")[0]
+    assert start["developerInstructions"].startswith("# Memory")
+    assert seen == [str(tmp_path)]
+
+    for kw in ({}, {"fork": True}):
+        other = CodexSessionManager("01a118ca-1111-7000-8000-00000000abcd", config=_config(tmp_path), **kw)
+        await other.start()
+        await other.stop()
+    assert "developerInstructions" not in _req(fake_codex, "thread/resume")[0]
+    assert "developerInstructions" not in _req(fake_codex, "thread/fork")[0]
+
+
+async def test_no_memory_index_outside_the_repo(fake_codex, tmp_path):
+    sm = CodexSessionManager(config=_config(tmp_path))
+    await sm.start()
+    await sm.stop()
+    assert "developerInstructions" not in _req(fake_codex, "thread/start")[0]
+
+
 async def test_resume_unknown_thread_fails_start(fake_codex, tmp_path):
     sm = CodexSessionManager("missing", config=_config(tmp_path))
     with pytest.raises(Exception, match="no rollout found"):

@@ -18,6 +18,7 @@ references:
   - ../infrastructure/installation.md
   - ../infrastructure/ssh-remote-execution.md
   - ../voice/architecture.md
+  - ../architecture/memory-and-search.md
 ---
 
 # Harness registry
@@ -132,6 +133,10 @@ spec's `jsonl_path_resolver`. Delete is a soft-delete into the store's own `cont
 (the JSONL plus its `<id>.config.json` and `<stem>.summary.json` sidecars, so no orphan config is
 left behind; a name collision adds the same `.<timestamp>` suffix to all three). Titles for every
 harness live in one `context/.titles.json`.
+
+Memory is shared the same way: every harness gets `context/memory/MEMORY.md` in its context
+when working in the repo and writes notes into `context/memory/` per `AGENTS.md` — how each CLI
+gets there is in [memory and search](../architecture/memory-and-search.md#every-harness-reads-and-writes-the-same-memory).
 
 ## Dispatch sites (all registry lookups)
 

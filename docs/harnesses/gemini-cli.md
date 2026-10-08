@@ -14,6 +14,7 @@ references:
   - ../infrastructure/installation.md
   - ../infrastructure/ssh-remote-execution.md
   - ../voice/gemini-live.md
+  - ../architecture/memory-and-search.md
 ---
 
 # Gemini CLI harness
@@ -222,6 +223,21 @@ Because the file name carries only an 8-character id prefix:
   It may return `[]`; the registry contract test allows that.
 - `SessionStore` runs discoverers before its own scans and skips `session-*` names in the
   `chats/` scan, so a Gemini file never appears with its file stem as a fake id.
+- The history index uses the header `sessionId` too (`history_index.session_id_for()`, since
+  2026-10-08; before, search results carried the file stem, which `resume_conversation` and the
+  titles did not know).
+
+**Memory comes with the same symlink.** 0.63 keeps a "private project memory" in
+`~/.gemini/tmp/<label>/memory/`, whose `MEMORY.md` index it loads into every session
+(`<user_project_memory>`) — through the symlink that is `context/memory/MEMORY.md`, the wiki root.
+0.63 has no `save_memory` tool: its prompt tells the model to edit memory files directly, so
+writes follow `AGENTS.md` (`GEMINI.md`) into `context/memory/`. Nothing in the session manager is
+needed for this ([memory and search](../architecture/memory-and-search.md#every-harness-reads-and-writes-the-same-memory)).
+Two parts of its built-in guidance differ from the wiki rules: "brief facts directly into
+`MEMORY.md`" and a "global personal memory" tier at `~/.gemini/GEMINI.md` (outside `context/`, not
+synced, not indexed) for cross-project preferences. Verified live 2026-10-08 (gemini-2.5-flash): it
+quoted `MEMORY.md` without tools and saved a test fact as a wiki note with frontmatter plus an
+`INDEX.md` line. If `~/.gemini/GEMINI.md` ever appears, move its facts into the wiki.
 
 ## JSONL format (on disk)
 

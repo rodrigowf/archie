@@ -14,6 +14,7 @@ references:
   - ../architecture/agent-sessions.md
   - ../infrastructure/installation.md
   - ../infrastructure/ssh-remote-execution.md
+  - ../architecture/memory-and-search.md
 ---
 
 # Codex CLI harness
@@ -145,6 +146,21 @@ scans.
 - `thread/resume` only finds rollouts under the running `CODEX_HOME`, so `home_for_thread()` runs a
   resumed session with the home that holds its rollout (a session started on the shared fallback
   keeps resuming there after a dedicated login is created).
+- The home is chosen per session start (`codex_home()` checks for `auth.json` every time), so a new
+  login takes effect without a backend restart. Since 2026-10-08 both machines have the dedicated
+  login: a new session's rollout lands in `context/codex/sessions/YYYY/MM/DD/` and syncs.
+- History search: `history_index.session_sources()` adds the same rollouts through
+  `_codex_discover_sessions()`, and the `HistoryIndexer` change hash includes them.
+
+**Memory.** Codex has no counterpart to Claude's auto-memory that could point at the wiki: its
+`memories` feature (off by default; `CODEX_HOME/memories` + `memories_1.sqlite`) keeps its own
+store. Archie leaves it off and, for sessions in the repo, passes the shared memory block
+(`backend/manager/memory_context.py`: the live `context/memory/MEMORY.md` plus the rule to write
+memory with file tools per `AGENTS.md`) as `developerInstructions` on `thread/start` only. Codex
+records it once as a developer message at the head of the rollout (hidden by the adapter and the
+history index); `thread/resume` and `thread/fork` reuse it from the history. Verified live
+2026-10-08: quoted `MEMORY.md` without tools on a new thread and again after a resume, and saved a
+test fact by extending an existing wiki note ([memory and search](../architecture/memory-and-search.md#every-harness-reads-and-writes-the-same-memory)).
 
 ## Rollout format (adapter)
 
@@ -228,8 +244,8 @@ PID, not `codex`.
    thread from what is left.
 9. **Interrupted turns** leave no agent message in the rollout (`turn_aborted` only), so a reopened
    conversation shows the prompt without the partial answer.
-10. Rollouts are not indexed by history search yet (`backend/utils/history_index.py` scans only
-    `context/*.jsonl` and `context/chats/*.jsonl`).
+10. A new `thread/start` reads `MEMORY.md` once; a long-lived thread keeps the index it started
+    with (like a Claude session). Start a new session to see index edits.
 
 ## History
 
@@ -238,3 +254,5 @@ PID, not `codex`.
   (three generations), catalog/options, installer `--with-codex`, root `AGENTS.md` symlink.
   Verified live on CLI 0.161.0 with a ChatGPT free-plan login: text, reasoning summary, `ls`,
   file write, resume in a new process, `turn/interrupt`, history through `/api/sessions/<id>`.
+- 2026-10-08 — dedicated `~/.codex-archie` logins on both machines; memory block as
+  `developerInstructions`; Codex rollouts in the history indexer's change hash.
