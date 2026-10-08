@@ -11,6 +11,7 @@ references:
   - qwen-code.md
   - gemini-cli.md
   - codex-cli.md
+  - model-studio.md
   - ../architecture/agent-sessions.md
   - ../architecture/backend.md
   - ../architecture/orchestrator.md
@@ -139,7 +140,8 @@ harness live in one `context/.titles.json`.
 | `backend/manager/config.py` `_valid_provider_names()` | Validates `provider` / `ASSISTANT_PROVIDER` in `ManagerConfig.load()` (computed per call — do not cache; tests register fixture specs after import) |
 | `backend/api/routes/config.py` `_valid_provider_names()` | Validates `PUT /api/config` `provider`; seeds `harness_model` with one empty entry per harness |
 | `backend/api/routes/chat.py` `_resolve_session_provider()` | On resume without a pinned provider, sniffs every spec's `jsonl_path_resolver` candidates with `detect_provider()`; a detected provider is persisted to the session config |
-| `backend/manager/store.py` | Discoverers and resolvers as above |
+| `backend/manager/store.py` | Discoverers and resolvers as above; `_effective_provider()` overlays the per-session pinned provider when it names a harness that reads the detected format (`modelstudio` over `claude`) |
+| `backend/api/pool.py` `_pin_provider()` | On every `TurnComplete` in `send()` (chat tabs and the orchestrator runner), writes the session's `provider_name` into `context/<sdk-id>.config.json` unless one is pinned (`pin_session_provider()`); UUID ids and registered harnesses only |
 
 `backend/api/session_factory.py` `build_session_config()` resolves the provider in this order:
 per-session config `provider` → provider detected from the resumed JSONL → `assistant_config.json`
@@ -233,6 +235,14 @@ the pickers automatically. Acceptance: picker shows it; a real-CLI turn produces
 `TextDelta → TextComplete → TurnComplete`; the adapter rebuilds the conversation from the JSONL it
 wrote; removing the module from `_ADAPTER_MODULES` disables it everywhere.
 
+### Claude Code · Model Studio (added 2026-10-07)
+
+The fifth harness (`provider="modelstudio"`) is the claude harness again — a
+`ClaudeSessionManager` subclass — with the CLI pointed at Alibaba Model Studio's
+Anthropic-compatible endpoint. Same JSONL as Claude, so its adapter is not registered for
+detection and the harness is told apart by the provider pinned on the first turn. Details:
+[model-studio.md](model-studio.md).
+
 ### OpenAI Codex (added 2026-10-07)
 
 Codex is the fourth harness (`provider="codex"`), and the first one driven over a JSON-RPC
@@ -248,7 +258,9 @@ not Node). Details, storage and landmines: [codex-cli.md](codex-cli.md).
   shared prefix cannot hit a stranger, but whichever Node spec registered first supplies the kill
   helper (both call `_proc.kill_subprocess(pid, comm_prefix="node")`, so the result is the same).
 - There is no `.provider` marker file (an old `store.py` docstring mentioned one; corrected
-  2026-10-07). Provider detection is purely by JSONL format plus the per-session config `provider`.
+  2026-10-07). Provider detection is purely by JSONL format plus the per-session config `provider`,
+  which the pool pins on every session's first turn (2026-10-07) — needed because two harnesses
+  (`claude`, `modelstudio`) write the same format.
 - `ensure_all_registered()` must run before any lookup; call it rather than reading `_registry`.
 
 ## History

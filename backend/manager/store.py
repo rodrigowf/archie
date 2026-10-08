@@ -76,6 +76,10 @@ class SessionStore:
         # so per-session methods (get_messages_paginated, rename, etc.)
         # can locate the file without re-walking the whole external tree.
         self._external_paths: dict[str, Path] = {}
+        # Pinned-provider cache: session_id → (config mtime_ns, provider).
+        # See _effective_provider.
+        self._pin_cache: dict[str, tuple[int, str | None]] = {}
+        self._siblings_cache: dict[tuple[str, tuple[str, ...]], frozenset[str]] = {}
         # Ensure all adapters are registered (lazy import to avoid circular deps)
         ensure_all_registered()
 
@@ -224,7 +228,7 @@ class SessionStore:
         if not messages_raw:
             return None
 
-        provider_name = adapter.provider_name
+        provider_name = self._effective_provider(session_id, adapter.provider_name)
         previews = adapter.to_previews(messages_raw)
         # Attach provider name to previews
         previews = [
@@ -279,7 +283,7 @@ class SessionStore:
         if not messages_raw:
             return [], 0, False
 
-        provider_name = adapter.provider_name
+        provider_name = self._effective_provider(session_id, adapter.provider_name)
         previews = adapter.to_previews(messages_raw)
         previews = [
             dataclasses.replace(p, provider=provider_name)
@@ -303,7 +307,7 @@ class SessionStore:
         jsonl_path = self._locate_jsonl(session_id)
         if jsonl_path is None:
             return None
-        return self._parse_session_info(jsonl_path, session_id)
+        return self._with_pinned_provider(self._parse_session_info(jsonl_path, session_id))
 
     def rename_session(self, session_id: str, title: str) -> bool:
         """Store a custom title for a session. Returns True if the session exists."""
@@ -552,12 +556,85 @@ class SessionStore:
             title = titles.get(session_id) or info.title
             if title != info.title:
                 info = dataclasses.replace(info, title=title)
-            return info
+            return self._with_pinned_provider(info)
 
         info = self._parse_session_info(jsonl_path, session_id, titles)
         if info is not None:
             self._info_cache[session_id] = (st.st_mtime_ns, st.st_size, info)
-        return info
+        return self._with_pinned_provider(info)
+
+    # -- pinned provider overlay -------------------------------------------
+    #
+    # Two harnesses can write the same JSONL format: ``modelstudio`` runs
+    # Claude Code, so its files are Claude's and detection says ``claude``.
+    # The harness a session really ran under is the per-session config's
+    # ``provider`` (``context/<id>.config.json``, pinned by the pool on the
+    # first turn).  Only sessions whose detected format is shared by more
+    # than one harness pay for the lookup — a stat, plus a JSON read when
+    # the config file changed.
+
+    def _format_siblings(self, detected: str) -> frozenset[str]:
+        """Other harnesses whose adapter reads *detected*'s JSONL format."""
+        from .registry import get_registry
+
+        specs = get_registry().all()
+        key = (detected, tuple(specs))
+        cached = self._siblings_cache.get(key)
+        if cached is not None:
+            return cached
+        out: set[str] = set()
+        base = specs.get(detected)
+        try:
+            base_type = type(base.adapter_loader()) if base is not None else None
+        except Exception:
+            base_type = None
+        for name, spec in specs.items():
+            if base_type is None or name == detected:
+                continue
+            try:
+                if isinstance(spec.adapter_loader(), base_type):
+                    out.add(name)
+            except Exception:
+                continue
+        result = frozenset(out)
+        self._siblings_cache[key] = result
+        return result
+
+    def _pinned_provider(self, session_id: str) -> str | None:
+        path = self._sessions_dir / f"{session_id}.config.json"
+        try:
+            mtime = path.stat().st_mtime_ns
+        except OSError:
+            self._pin_cache.pop(session_id, None)
+            return None
+        hit = self._pin_cache.get(session_id)
+        if hit is not None and hit[0] == mtime:
+            return hit[1]
+        provider: str | None = None
+        try:
+            with open(path) as f:
+                value = json.load(f).get("provider")
+            if isinstance(value, str) and value:
+                provider = value.lower()
+        except (OSError, ValueError, AttributeError):
+            provider = None
+        self._pin_cache[session_id] = (mtime, provider)
+        return provider
+
+    def _effective_provider(self, session_id: str, detected: str) -> str:
+        siblings = self._format_siblings(detected)
+        if not siblings:
+            return detected
+        pinned = self._pinned_provider(session_id)
+        return pinned if pinned in siblings else detected
+
+    def _with_pinned_provider(self, info: SessionInfo | None) -> SessionInfo | None:
+        if info is None or not info.provider:
+            return info
+        provider = self._effective_provider(info.session_id, info.provider)
+        if provider == info.provider:
+            return info
+        return dataclasses.replace(info, provider=provider)
 
     def _parse_session_info(
         self,

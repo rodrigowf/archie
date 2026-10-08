@@ -34,7 +34,7 @@ from api.serializers import serialize_event
 from manager._proc import process_alive as _process_alive, looks_like
 from manager.base_session import BaseSessionManager, SessionDeadError
 from manager.config import ManagerConfig
-from manager.types import Event, TerminationReason
+from manager.types import Event, TerminationReason, TurnComplete
 
 
 class _PendingPrompt(NamedTuple):
@@ -173,6 +173,10 @@ class SessionPool:
         # blocking on the live turn.
         self._pending_prompts: dict[str, deque[_PendingPrompt]] = {}
         self._pending_locks: dict[str, asyncio.Lock] = {}
+
+        # Provider-side session ids whose harness is already pinned in the
+        # per-session config (see _pin_provider) — saves a disk read per turn.
+        self._provider_pinned: set[str] = set()
 
     # ------------------------------------------------------------------
     # Agent session lifecycle
@@ -939,6 +943,8 @@ class SessionPool:
             async for event in sm.send(text):
                 payload = self._wrap_payload(sm, serialize_event(event))
                 await self._broadcast_session(session_id, payload)
+                if isinstance(event, TurnComplete):
+                    self._pin_provider(sm)
                 if payload.get("type") in ("permission_request", "permission_resolved"):
                     # Mirror to the orchestrator so its UI can show a matching
                     # banner and (for permission_request) so the orchestrator
@@ -951,6 +957,41 @@ class SessionPool:
                         "event_data": payload,
                     })
                 yield event
+
+    def _pin_provider(self, sm: BaseSessionManager) -> None:
+        """Pin the session's harness in its per-session config (once).
+
+        Runs on every TurnComplete — by then the session has its
+        provider-side id, which keys the config file.  Covers every path
+        that drives turns through :meth:`send` (chat tabs and the
+        orchestrator's runner).  Without it a fresh session's harness is
+        only implied by the global default, and harnesses that share a
+        JSONL format (``claude`` / ``modelstudio``) would resume under
+        whatever format detection or the global default says.  Never
+        overwrites an existing pin.  Best-effort: failures are logged.
+        """
+        sid = sm.sdk_session_id
+        provider = sm.provider_name
+        if not isinstance(sid, str) or not isinstance(provider, str) or not provider:
+            return
+        if sid in self._provider_pinned:
+            return
+        try:
+            _uuid.UUID(sid)  # real provider ids are UUIDs; skip test doubles
+        except ValueError:
+            return
+        from manager.registry import ensure_all_registered, get_registry
+        ensure_all_registered()
+        if get_registry().get(provider) is None:
+            return
+        self._provider_pinned.add(sid)
+        try:
+            from api.routes.session_config import pin_session_provider
+            if pin_session_provider(sid, provider):
+                logger.info("Pinned provider %s for session %s", provider, sid)
+        except Exception:
+            self._provider_pinned.discard(sid)
+            logger.exception("Failed to pin provider for session %s", sid)
 
     async def compact(self, session_id: str) -> AsyncIterator[Event]:
         """Trigger compaction with per-session lock, broadcasting to all subscribers."""

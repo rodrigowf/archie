@@ -99,6 +99,13 @@ def context_window_for(provider: str | None, model: str | None) -> int | None:
         if explicit is not None:
             return explicit
         # Fall through to the static table for an unknown qwen model.
+    if provider == "modelstudio":
+        # DashScope models through Claude Code; no model = the harness default.
+        try:
+            from manager.modelstudio.catalog import model_context_window
+        except Exception:
+            return None
+        return model_context_window(model)
     if provider == "codex":
         # Codex models report their window through model/list; the harness
         # catalog carries it per model.  Without a network call here, use

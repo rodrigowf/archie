@@ -339,6 +339,27 @@ class ClaudeSessionManager(BaseSessionManager):
     def provider_name(self) -> str:
         return "claude"
 
+    # Hooks for harnesses that run this same CLI against another endpoint
+    # (manager.modelstudio): the SSH control-path / wrapper prefix, the CLI
+    # model picker sink, and the auth env forwarded over SSH.
+    _ssh_prefix: str = "claude"
+
+    def _record_cli_models(self, models: object) -> None:
+        """Feed the CLI's model picker (``server_info["models"]``) to the catalog."""
+        record_cli_models(models)
+
+    def _ssh_auth_env(self) -> dict[str, str]:
+        """Auth env forwarded to the remote ``claude`` in the SSH wrapper.
+
+        Forwards the long-lived OAuth token (minted via `claude setup-token`,
+        stored in context/.env).  It takes precedence over the remote's
+        .credentials.json, so SSH-remote sessions authenticate with the
+        1-year token instead of the refreshable creds that keep
+        expiring/corrupting. See feedback_jetson_oauth_token_expiry memory.
+        """
+        oauth_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+        return {"CLAUDE_CODE_OAUTH_TOKEN": oauth_token} if oauth_token else {}
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -400,7 +421,7 @@ class ClaudeSessionManager(BaseSessionManager):
             try:
                 server_info = await self._client.get_server_info()
                 if server_info:
-                    record_cli_models(server_info.get("models"))
+                    self._record_cli_models(server_info.get("models"))
             except Exception:
                 # Failing to read server_info shouldn't kill the session;
                 # the SDK ID will be filled in from the first ResultMessage.
@@ -1137,7 +1158,7 @@ class ClaudeSessionManager(BaseSessionManager):
             host=self._config.ssh_host or "",
             user=self._config.ssh_user,
             key=self._config.ssh_key,
-            control_path_prefix="claude",
+            control_path_prefix=self._ssh_prefix,
         )
         remote_claude = resolve_remote_cli_path(
             "claude",
@@ -1148,14 +1169,7 @@ class ClaudeSessionManager(BaseSessionManager):
             env["CLAUDE_CONFIG_DIR"] = self._config.ssh_claude_config_dir
         # Same CLI env knobs as a local session (todo tools, MCP wait).
         env.update(self._harness_env())
-        # Forward the long-lived OAuth token (minted via `claude setup-token`,
-        # stored in context/.env) to the remote claude. It takes precedence over
-        # the remote's .credentials.json, so SSH-remote sessions authenticate
-        # with the 1-year token instead of the refreshable creds that keep
-        # expiring/corrupting. See feedback_jetson_oauth_token_expiry memory.
-        oauth_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
-        if oauth_token:
-            env["CLAUDE_CODE_OAUTH_TOKEN"] = oauth_token
+        env.update(self._ssh_auth_env())
         remote_cmd = RemoteCommand(
             project_dir=self._config.project_dir,
             remote_cli=remote_claude,
@@ -1164,7 +1178,7 @@ class ClaudeSessionManager(BaseSessionManager):
         path = write_ssh_wrapper_script(
             ssh_argv=build_ssh_argv(target),
             remote_cmd=remote_cmd,
-            prefix="claude",
+            prefix=self._ssh_prefix,
         )
         self._ssh_wrapper_path = path
         return path

@@ -18,6 +18,7 @@ references:
   - ../infrastructure/installation.md
   - ../clients/browser-extension.md
   - ../operations/troubleshooting.md
+  - model-studio.md
 ---
 
 # Claude Code harness
@@ -218,6 +219,10 @@ through the `/browser-control` skill. Only the Claude harness honors this flag.
 
 ## Pitfalls
 
+- **Subclassed by the Model Studio harness** ([model-studio.md](model-studio.md)): keep
+  `_harness_env()`, `_harness_option_kwargs()`, `_ssh_prefix`, `_record_cli_models()` and
+  `_ssh_auth_env()` as the override points. `ClaudeAgentOptions.env` is merged *over*
+  `os.environ` by the SDK, so removing a key from it never removes an inherited variable.
 - **Project skills may not register** as `Skill(<name>)` or `/<name>` inside a wrapper session
   (seen 2026-08-28: "Unknown skill: browser-control" while built-in skills listed fine). The
   `.claude_config/skills` symlink is not enough. Untested but consistent with the code: with

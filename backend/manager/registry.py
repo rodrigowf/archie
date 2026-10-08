@@ -240,4 +240,7 @@ _ADAPTER_MODULES: tuple[str, ...] = (
     "manager.qwen.adapter",
     "manager.gemini.adapter",
     "manager.codex.adapter",
+    # Claude Code against Alibaba Model Studio; shares Claude's JSONL and
+    # must come after manager.claude.adapter (detection order, reaper).
+    "manager.modelstudio.adapter",
 )
