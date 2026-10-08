@@ -170,7 +170,7 @@ so did a shell command it had started — the Node CLIs spawn those detached). T
 therefore starts with `echo __ARCHIE_REMOTE_PID__=$$` before `exec`-ing the CLI (`RemoteCommand(...,
 announce_pid=True)`; `exec` keeps the PID). The session reads that line from stdout, and
 `interrupt()` / `_kill_proc()` run `kill_remote_tree()` over the same ControlMaster connection: it
-snapshots the remote process tree, SIGINTs the CLI, then TERM/KILLs what is left. Claude does not
+freezes the CLI (SIGSTOP) so it cannot spawn anything, snapshots its process tree, stops the children, lets the CLI exit on SIGINT, then TERM/KILLs what is left. The script runs detached on the remote (`nohup … &`) because the local side often closes the session — cancelling the ssh call — right after an interrupt. Claude does not
 need this: its SDK interrupt travels over the stream-json stdin.
 
 ## The nvm exit-127 trap

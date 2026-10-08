@@ -349,13 +349,16 @@ def _shell_single_quote(s: str) -> str:
 REMOTE_PID_MARKER = "__ARCHIE_REMOTE_PID__="
 
 _REMOTE_KILL_SCRIPT = (
-    "p={pid}; "
+    # Freeze the CLI so it cannot spawn anything between the snapshot and
+    # the signals, snapshot its whole tree, stop the children, then let the
+    # CLI handle SIGINT (clean exit) and TERM/KILL whatever is left.
+    "p={pid}; kill -STOP $p 2>/dev/null || exit 0; "
     "kids() {{ ps -eo pid=,ppid= | awk -v p=\"$1\" '$2==p {{print $1}}'; }}; "
     "all=''; q=$p; "
     "while [ -n \"$q\" ]; do n=''; for x in $q; do n=\"$n $(kids $x)\"; done; "
     "all=\"$all $n\"; q=$(echo $n); done; "
-    "kill -INT $p 2>/dev/null; sleep {grace}; "
-    "kill -TERM $all $p 2>/dev/null; sleep 1; "
+    "kill -TERM $all 2>/dev/null; kill -INT $p 2>/dev/null; kill -CONT $p 2>/dev/null; "
+    "sleep {grace}; kill -TERM $p 2>/dev/null; sleep 1; "
     "kill -KILL $all $p 2>/dev/null; true"
 )
 
@@ -370,9 +373,18 @@ def parse_remote_pid(line: str) -> int | None:
         return None
 
 
-def remote_kill_script(pid: int, grace_s: int = 2) -> str:
-    """Shell snippet that stops *pid* and its whole process tree on the remote."""
-    return _REMOTE_KILL_SCRIPT.format(pid=int(pid), grace=int(grace_s))
+def remote_kill_script(pid: int, grace_s: int = 2, *, detach: bool = False) -> str:
+    """Shell snippet that stops *pid* and its whole process tree on the remote.
+
+    ``detach=True`` wraps it so the remote shell returns at once and the
+    script finishes on its own: the local side may cancel the ssh call (the
+    session is often closed right after an interrupt), and killing the ssh
+    mid-script would leave the tree half-stopped.
+    """
+    script = _REMOTE_KILL_SCRIPT.format(pid=int(pid), grace=int(grace_s))
+    if not detach:
+        return script
+    return f"nohup sh -c {_shell_single_quote(script)} >/dev/null 2>&1 </dev/null &"
 
 
 async def kill_remote_tree(target: SshTarget, pid: int, *, timeout_s: float = 10.0) -> bool:
@@ -382,7 +394,7 @@ async def kill_remote_tree(target: SshTarget, pid: int, *, timeout_s: float = 10
     """
     import asyncio
 
-    argv = build_ssh_argv(target) + [remote_kill_script(pid)]
+    argv = build_ssh_argv(target) + [remote_kill_script(pid, detach=True)]
     try:
         proc = await asyncio.create_subprocess_exec(
             *argv,

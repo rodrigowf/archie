@@ -477,3 +477,19 @@ async def test_qwen_interrupt_over_ssh_kills_remote_tree(monkeypatch):
     # a second interrupt has nothing left to kill
     await sm.interrupt()
     assert killer.await_count == 1
+
+
+def test_remote_kill_script_detached_returns_immediately(tmp_path):
+    """The detached form returns at once and still stops the tree."""
+    import subprocess
+    import sys
+    import time
+
+    from manager._ssh import remote_kill_script
+
+    cli = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
+    time.sleep(0.3)
+    t0 = time.monotonic()
+    subprocess.run(["sh", "-c", remote_kill_script(cli.pid, grace_s=1, detach=True)], check=True, timeout=10)
+    assert time.monotonic() - t0 < 1.0
+    assert cli.wait(timeout=10) is not None
