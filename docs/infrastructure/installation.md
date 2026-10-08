@@ -13,6 +13,7 @@ references:
   - ssh-remote-execution.md
   - ../overview/repo-layout.md
   - ../harnesses/registry.md
+  - ../harnesses/gemini-cli.md
   - ../integrations/skills.md
   - ../clients/web.md
 ---
@@ -66,7 +67,7 @@ or import the context.
 | 3b | Qwen: `~/.qwen/projects/<mangled-cwd>` → `<repo>/context`, chats into `context/chats/`; `~/.qwen/skills` → `context/skills` if free |
 | 3c | Gemini: `~/.gemini/tmp/<label>` → `<repo>/context` (label from `~/.gemini/projects.json`, else the cwd basename) |
 | 3d | `CLAUDE.md` and `QWEN.md` at the repo root → `context/AGENTS.md` (migrates a legacy root `AGENTS.md`/`CLAUDE.md`) |
-| 3e | Seed `.claude/`, `.qwen/`, `.gemini/` from `install/cli-runtime/` without overwriting |
+| 3e | Seed `.claude/`, `.qwen/`, `.gemini/` from `install/cli-runtime/` without overwriting; then merge Archie's keys into an existing `.gemini/settings.json` (`backend/manager/gemini/workspace_settings.py`: session retention off, `context.fileFiltering`, API-key auth, thinking overrides — [gemini-cli](../harnesses/gemini-cli.md)) |
 | 4–6 | `python3 -m venv .venv`, upgrade pip, `pip install -r backend/requirements.txt` (or `-dev`) plus `requirements-claude.txt` / `-anthropic.txt` / `-openai.txt` per axis |
 | 7 | `npm install` in `apps/web` and `apps/design-tokens` (the web build's token gate needs the latter) |
 | 7b | `npm install -g` the chosen CLIs (`@anthropic-ai/claude-code`, `@qwen-code/qwen-code`, `@google/gemini-cli`) and prompt for login unless an API key is in `context/.env` |

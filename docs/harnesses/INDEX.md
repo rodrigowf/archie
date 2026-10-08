@@ -9,5 +9,5 @@ cover storage layout, CLI flags, JSONL quirks and landmines.
 - [registry.md](registry.md) — HarnessRegistry / HarnessSpec, ProviderAdapter, normalized events, SessionStore across harnesses, dispatch sites, carve-outs, how to add a harness (incl. Codex recon notes)
 - [claude-code.md](claude-code.md) — Claude Code over claude-agent-sdk: `.claude_config/` layout, session options, JSONL, SDK pin and upgrade stages, auth, Chrome flag
 - [qwen-code.md](qwen-code.md) — Qwen Code: spawn-per-turn stream-json CLI, `~/.qwen` symlinks into `context/`, JSONL normalization, model catalog, lazy SDKs, landmines
-- [gemini-cli.md](gemini-cli.md) — Gemini CLI: `--prompt` per turn, `--skip-trust`, storage symlink into `context/chats/`, glob resolver, JSONL quirks, landmines
+- [gemini-cli.md](gemini-cli.md) — Gemini CLI (pinned 0.63.0): `--prompt` per turn, API-key-only auth since the 2026-06-18 oauth-personal shutdown, env-templated workspace settings (retention off), catalog/options (thinking level/budget, approval), JSONL log replay, interrupt/process reaping, landmines
 - [codex-cli.md](codex-cli.md) — OpenAI Codex: one persistent `codex app-server` per session (JSON-RPC over stdio), dedicated vs shared `CODEX_HOME`, rollout storage + adapter (three generations), catalog/options, landmines (auth rotation, AGENTS.md size)

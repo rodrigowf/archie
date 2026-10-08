@@ -240,7 +240,7 @@ if [ -z "$WITH_CLAUDE" ] && [ -z "$WITH_QWEN" ] && [ -z "$WITH_GEMINI" ] && [ -z
     ask "Set up Qwen Code (Alibaba — open weights, OAuth or DashScope key)? [y/N] "
     read -r ANS
     if [[ "${ANS:-N}" =~ ^[Yy]$ ]]; then WITH_QWEN=true;  else WITH_QWEN=false;  fi
-    ask "Set up Gemini CLI (Google — OAuth or GEMINI_API_KEY)? [y/N] "
+    ask "Set up Gemini CLI (Google — needs GEMINI_API_KEY)? [y/N] "
     read -r ANS
     if [[ "${ANS:-N}" =~ ^[Yy]$ ]]; then WITH_GEMINI=true; else WITH_GEMINI=false; fi
     ask "Set up Codex CLI (OpenAI — ChatGPT login)? [y/N] "
@@ -925,6 +925,15 @@ seed_cli_runtime() {
 [ "$WITH_CLAUDE" = true ] && seed_cli_runtime claude
 [ "$WITH_QWEN"   = true ] && seed_cli_runtime qwen
 [ "$WITH_GEMINI" = true ] && seed_cli_runtime gemini
+# An existing .gemini/settings.json is never overwritten above, so merge
+# Archie's keys into it: session retention OFF (the CLI's sweep would delete
+# old sessions in context/chats/), context.fileFiltering (older seeds used a
+# top-level key the CLI never read), API-key auth and the thinking overrides.
+# Stdlib-only script — runs before the venv exists.
+if [ "$WITH_GEMINI" = true ] && command -v python3 &>/dev/null; then
+    python3 backend/manager/gemini/workspace_settings.py "$SCRIPT_DIR" \
+        || warn "Could not merge Archie's keys into .gemini/settings.json — fix the file; the backend refuses Gemini turns until then"
+fi
 
 echo ""
 
@@ -1127,11 +1136,23 @@ if [ "$SKIP_AUTH" = false ]; then
         fi
     fi
     if [ "$WITH_GEMINI" = true ]; then
-        install_harness_cli gemini '@google/gemini-cli' || true
+        # Pinned: Archie's JSONL adapter and workspace-settings mechanism are
+        # verified against this version (docs/harnesses/gemini-cli.md).
+        GEMINI_CLI_VERSION="0.63.0"
+        install_harness_cli gemini "@google/gemini-cli@$GEMINI_CLI_VERSION" || true
         if command -v gemini &>/dev/null; then
-            prompt_harness_login gemini 'gemini' \
-                '[ -f "$HOME/.gemini/oauth_creds.json" ]' \
-                'GEMINI_API_KEY'
+            GEMINI_HAVE="$(gemini --version 2>/dev/null | tail -1)"
+            if [ "$GEMINI_HAVE" != "$GEMINI_CLI_VERSION" ]; then
+                warn "gemini CLI is $GEMINI_HAVE; Archie is tested with $GEMINI_CLI_VERSION — run: npm install -g @google/gemini-cli@$GEMINI_CLI_VERSION"
+            fi
+            # Google stopped serving Gemini CLI to personal Google logins
+            # (oauth-personal) on 2026-06-18 — an OAuth login no longer
+            # counts; only GEMINI_API_KEY (AI Studio) does.
+            if [ -f "context/.env" ] && grep -q "^GEMINI_API_KEY=.\+" context/.env 2>/dev/null; then
+                info "gemini: GEMINI_API_KEY set in context/.env"
+            else
+                warn "gemini: set GEMINI_API_KEY in context/.env (create one at https://aistudio.google.com/apikey) — Google no longer serves Gemini CLI to personal Google-account logins"
+            fi
         fi
     fi
     if [ "$WITH_CODEX" = true ]; then

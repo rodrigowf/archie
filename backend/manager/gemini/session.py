@@ -10,33 +10,75 @@ and emits the same stream-json shape on stdout.  Argv is the simplest
 path — ``asyncio.create_subprocess_exec`` doesn't shell-interpret args,
 so even prompts with quotes/newlines survive.
 
+Authentication
+--------------
+
+Google stopped serving Gemini CLI to personal Google logins
+(``oauth-personal``, "Gemini Code Assist for individuals") on 2026-06-18;
+the CLI now fails with ``IneligibleTierError … UNSUPPORTED_CLIENT``.  The
+working path is an AI Studio key in ``GEMINI_API_KEY``.  The repo's
+workspace settings select ``gemini-api-key`` (overridable through
+``ARCHIE_GEMINI_AUTH_TYPE``), and for other working directories the
+manager sets ``GEMINI_CLI_AUTH_OVERRIDE``, so a leftover ``oauth-personal``
+in ``~/.gemini/settings.json`` no longer wins.  Without a key a local turn
+fails at once with an explanation instead of an empty turn.
+
+Workspace settings and per-turn options
+---------------------------------------
+
+The CLI has no per-run settings flag, so per-turn choices (thinking level,
+thinking budget) travel as env vars that the static workspace settings
+file expands — see :mod:`.workspace_settings`.  Before every local spawn in
+the repo root the manager makes sure that file carries Archie's keys,
+most importantly ``general.sessionRetention.enabled=false``: the CLI's
+retention sweep would otherwise delete old sessions in ``context/chats/``.
+
+Interrupt
+---------
+
+The CLI normally relaunches itself as a child Node process while the
+parent ignores SIGINT/SIGTERM, so signalling the PID we spawned did
+nothing and killing it orphaned the worker.  ``GEMINI_CLI_NO_RELAUNCH=true``
+keeps it a single process; the subprocess also gets its own process group
+so interrupt / kill reach it.  The CLI's shell tool starts commands
+*detached* (own process group) and does not stop them when it exits on
+SIGINT, so the manager snapshots the process tree before signalling and
+reaps whatever survives the CLI.
+
 SSH remote execution
 --------------------
 
 When ``ManagerConfig.ssh_host`` is set the CLI runs on the remote host,
 wrapped by an ``ssh ...`` argv produced via :mod:`manager._ssh` — same
-pattern as :class:`manager.qwen.session.QwenSessionManager`.  The
-remote argv shape Gemini needs (``gemini --prompt 'text' --skip-trust
-...``) is identical to Qwen's in structure (we build the whole argv
-ourselves, no ``"$@"`` forwarding), so :func:`build_remote_argv` does
-the right thing without provider-specific glue.
+pattern as :class:`manager.qwen.session.QwenSessionManager`.  Only
+non-secret vars (relaunch, trust, per-turn options) are forwarded; the
+remote host brings its own ``GEMINI_API_KEY`` and workspace settings.
 
 Trust prompt
 ------------
 
 Gemini CLI defaults to refusing headless runs in directories it doesn't
-"trust."  We pass ``--skip-trust`` on every invocation so the wrapper
-doesn't hang waiting for a confirmation that has no UI.  Same outcome as
-setting ``GEMINI_CLI_TRUST_WORKSPACE=true``; the flag is simpler.
+"trust."  We pass ``--skip-trust`` on every invocation and set
+``GEMINI_CLI_TRUST_WORKSPACE=true`` (trust is also what makes the CLI load
+the workspace settings file).
 
 Resume + session ids
 --------------------
 
 We generate session ids ourselves (UUIDv4) and pass them via
 ``--session-id`` on a fresh session's first turn so the CLI uses ours
-instead of inventing one.  On subsequent turns — and on every turn of a
-session resumed from history — we pass ``--resume <session-id>``; the
-CLI refuses ``--session-id`` for an id that already exists on disk.
+instead of inventing one.  Once the CLI has written resumable content for
+the id, every turn passes ``--resume <session-id>``; the CLI refuses
+``--session-id`` for an id that already exists on disk.  A turn that fails
+early still leaves a header-only stub (the CLI writes it before
+authenticating); that stub is removed so the next turn can pin again.
+
+Thinking
+--------
+
+stream-json carries no thoughts.  The CLI writes them into the session
+JSONL when it records each model step, so the manager tails that file
+during the turn and emits them as thinking events (local sessions only).
 
 Storage layout
 --------------
@@ -54,6 +96,7 @@ so the files end up in ``context/chats/``.
 from __future__ import annotations
 
 import asyncio
+import collections
 import json
 import logging
 import os
@@ -61,6 +104,8 @@ import signal
 import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path
+
+from utils.paths import PROJECT_ROOT
 
 from .._ssh import (
     RemoteCommand,
@@ -78,10 +123,14 @@ from ..types import (
     SessionStatus,
     TextComplete,
     TextDelta,
+    ThinkingComplete,
+    ThinkingDelta,
     ToolResult,
     ToolUse,
     TurnComplete,
 )
+from . import catalog as gcat
+from . import workspace_settings as ws
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +140,26 @@ _STALL_FIRST_NOTICE_S = 120.0
 _STALL_REPEAT_INTERVAL_S = 60.0
 # Abandoned-turn detection — produced zero events for this long → give up.
 _TURN_ABANDON_S = 240.0
+# stderr lines kept per turn for error reporting.
+_STDERR_TAIL_LINES = 40
+_ERROR_TEXT_MAX = 2000
+
+# stderr lines that carry no diagnostic value.
+_STDERR_NOISE = (
+    "256-color",
+    "ripgrep",
+    "yolo mode",
+    "shell cwd was reset",
+    "loaded cached credentials",
+)
+
+AUTH_HELP = (
+    "Gemini CLI needs GEMINI_API_KEY. Google stopped serving Gemini CLI to personal "
+    "Google-account logins (oauth-personal, \"Gemini Code Assist for individuals\") on "
+    "2026-06-18. Create an AI Studio key (https://aistudio.google.com/apikey), put it in "
+    "context/.env as GEMINI_API_KEY and restart the backend. Vertex AI or Code Assist "
+    "Standard/Enterprise users can set ARCHIE_GEMINI_AUTH_TYPE (e.g. vertex-ai) instead."
+)
 
 
 class GeminiAbandoned(TurnAbandoned):
@@ -111,14 +180,205 @@ def _gemini_executable() -> str:
     return os.environ.get("GEMINI_CLI_PATH", "gemini")
 
 
+def _is_noise(line: str) -> bool:
+    low = line.lower()
+    return any(n in low for n in _STDERR_NOISE)
+
+
+def _error_from_stderr(lines: list[str], rc: int | None) -> str:
+    """A user-facing error for a run that died without a ``result`` event."""
+    useful = [ln for ln in lines if ln.strip() and not _is_noise(ln)]
+    text = "\n".join(useful[-15:]).strip()
+    if len(text) > _ERROR_TEXT_MAX:
+        text = "…" + text[-_ERROR_TEXT_MAX:]
+    joined = "\n".join(lines)
+    if (
+        "IneligibleTierError" in joined
+        or "UNSUPPORTED_CLIENT" in joined
+        or "no longer supported for Gemini Code Assist" in joined
+    ):
+        return AUTH_HELP + ("\n\nCLI said:\n" + text if text else "")
+    head = f"Gemini CLI exited with status {rc}" if rc is not None else "Gemini CLI failed"
+    return f"{head}: {text}" if text else f"{head} (no output)."
+
+
+def _proc_table() -> dict[int, tuple[int, str]]:
+    """``{pid: (ppid, starttime)}`` from ``/proc`` (empty off Linux)."""
+    table: dict[int, tuple[int, str]] = {}
+    try:
+        names = os.listdir("/proc")
+    except OSError:
+        return table
+    for name in names:
+        if not name.isdigit():
+            continue
+        try:
+            with open(f"/proc/{name}/stat") as f:
+                stat = f.read()
+        except OSError:
+            continue
+        # comm may contain spaces/parens: split after the last ')'.
+        fields = stat[stat.rfind(")") + 2:].split()
+        try:
+            table[int(name)] = (int(fields[1]), fields[19])
+        except (IndexError, ValueError):
+            continue
+    return table
+
+
+def _descendants(pid: int) -> list[tuple[int, str]]:
+    """Every live descendant of *pid* as ``(pid, starttime)``.
+
+    The CLI's shell tool spawns commands ``detached`` (their own process
+    group), so a group signal misses them and they outlive the CLI.  We
+    snapshot the tree *before* signalling (afterwards they are reparented
+    and untraceable) and reap survivors once the CLI is gone.
+    """
+    table = _proc_table()
+    children: dict[int, list[int]] = {}
+    for p, (ppid, _) in table.items():
+        children.setdefault(ppid, []).append(p)
+    out: list[tuple[int, str]] = []
+    stack = list(children.get(pid, []))
+    while stack:
+        p = stack.pop()
+        out.append((p, table[p][1]))
+        stack.extend(children.get(p, []))
+    return out
+
+
+def _signal_survivors(procs: list[tuple[int, str]], sig: int) -> int:
+    """Signal the processes of *procs* that still run (same pid + start time)."""
+    if not procs:
+        return 0
+    table = _proc_table()
+    n = 0
+    for pid, start in procs:
+        cur = table.get(pid)
+        if cur is None or cur[1] != start:
+            continue
+        try:
+            os.kill(pid, sig)
+            n += 1
+        except OSError:
+            pass
+    return n
+
+
+async def _reap_descendants(
+    proc: asyncio.subprocess.Process, procs: list[tuple[int, str]], grace_s: float = 3.0,
+) -> None:
+    """Once *proc* has exited (or after *grace_s*), stop what it left behind."""
+    if not procs:
+        return
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=grace_s)
+    except (asyncio.TimeoutError, Exception):
+        pass
+    if _signal_survivors(procs, signal.SIGTERM):
+        await asyncio.sleep(1.0)
+        _signal_survivors(procs, signal.SIGKILL)
+
+
+class _ThoughtTail:
+    """Follows the session JSONL during a turn and yields new thoughts.
+
+    The CLI queues thoughts while a model step streams and writes them with
+    the step's record, so they reach the file at the end of each step.  We
+    remember what every message id carried when the turn started (including
+    old turns restated by a resume snapshot) and only report additions.
+    """
+
+    def __init__(self, session_id: str) -> None:
+        self._session_id = session_id
+        self._path: Path | None = None
+        self._offset = 0
+        self._partial = b""
+        self._seen: dict[str, int] = {}
+
+    def _find(self) -> Path | None:
+        if self._path is not None:
+            return self._path
+        from .adapter import _gemini_jsonl_candidates, _read_gemini_session_id
+
+        for p in _gemini_jsonl_candidates(self._session_id):
+            if _read_gemini_session_id(p) == self._session_id:
+                self._path = Path(p)
+                return self._path
+        return None
+
+    def prime(self) -> None:
+        """Mark everything already on disk as seen."""
+        try:
+            for _ in self.poll():
+                pass
+        except Exception:  # noqa: BLE001 — thinking is best-effort
+            logger.debug("gemini thought tail prime failed", exc_info=True)
+
+    def _records(self, obj: dict):
+        if obj.get("type") == "gemini":
+            yield obj
+        s = obj.get("$set") if "type" not in obj else None
+        if isinstance(s, dict) and isinstance(s.get("messages"), list):
+            for m in s["messages"]:
+                if isinstance(m, dict) and m.get("type") == "gemini":
+                    yield m
+
+    def poll(self) -> list[str]:
+        """Return thought texts written since the last poll."""
+        path = self._find()
+        if path is None:
+            return []
+        try:
+            with open(path, "rb") as f:
+                f.seek(self._offset)
+                data = f.read()
+        except OSError:
+            return []
+        if not data:
+            return []
+        self._offset += len(data)
+        data = self._partial + data
+        lines = data.split(b"\n")
+        self._partial = lines.pop()  # incomplete last line (or b"")
+        out: list[str] = []
+        for raw in lines:
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                obj = json.loads(raw)
+            except ValueError:
+                continue
+            if not isinstance(obj, dict):
+                continue
+            for rec in self._records(obj):
+                rid = rec.get("id")
+                thoughts = rec.get("thoughts")
+                if not isinstance(rid, str) or not isinstance(thoughts, list):
+                    continue
+                done = self._seen.get(rid, 0)
+                for t in thoughts[done:]:
+                    if not isinstance(t, dict):
+                        continue
+                    subj = t.get("subject", "") or ""
+                    desc = t.get("description", "") or ""
+                    text = f"{subj}\n{desc}".strip()
+                    if text:
+                        out.append(text)
+                self._seen[rid] = max(done, len(thoughts))
+        return out
+
+
 class GeminiSessionManager(BaseSessionManager):
     """Manage a single Google Gemini CLI conversation.
 
     Because ``gemini -p`` is one-shot, the lifecycle here is much smaller
     than Claude's: ``start()`` just records that the session exists; each
     ``send()`` spawns a fresh subprocess for the turn.  Resume is handled
-    transparently via ``--resume <session-id>`` after the first turn (from
-    the first turn when the manager was created with a resume id).
+    transparently via ``--resume <session-id>`` once the CLI has written
+    the session (from the first turn when the manager was created with a
+    resume id).
     """
 
     def __init__(
@@ -135,6 +395,12 @@ class GeminiSessionManager(BaseSessionManager):
         # The currently-running ``gemini`` subprocess for an in-flight turn.
         # None when idle.
         self._proc: asyncio.subprocess.Process | None = None
+        # Last stderr lines of the current turn (error reporting).
+        self._stderr_tail: collections.deque[str] = collections.deque(
+            maxlen=_STDERR_TAIL_LINES,
+        )
+        # Background reapers for processes an interrupted turn left behind.
+        self._reaper_tasks: set[asyncio.Task] = set()
 
     @property
     def provider_name(self) -> str:
@@ -198,24 +464,47 @@ class GeminiSessionManager(BaseSessionManager):
             await self._kill_proc()
             self._status = SessionStatus.DISCONNECTED
 
+    @staticmethod
+    def _signal_group(proc: asyncio.subprocess.Process, sig: int) -> None:
+        """Signal the subprocess's process group, falling back to the process.
+
+        Only a real subprocess we spawned with ``start_new_session=True``
+        leads its own group (pgid == pid); anything else (SSH wrapper
+        quirks, test doubles) gets a plain signal.  Raises
+        ProcessLookupError when the process is gone.
+        """
+        if isinstance(proc, asyncio.subprocess.Process):
+            try:
+                pgid = os.getpgid(proc.pid)
+            except ProcessLookupError:
+                raise
+            except OSError:
+                pgid = None
+            if pgid == proc.pid:
+                os.killpg(pgid, sig)
+                return
+        proc.send_signal(sig)
+
     async def _kill_proc(self) -> None:
-        """Terminate any in-flight gemini subprocess.  Idempotent."""
+        """Terminate any in-flight gemini subprocess (and its group).  Idempotent."""
         proc = self._proc
         if proc is None:
             return
         if proc.returncode is not None:
             self._proc = None
             return
+        tree = self._tree(proc)
         try:
-            proc.send_signal(signal.SIGTERM)
+            self._signal_group(proc, signal.SIGTERM)
         except ProcessLookupError:
             self._proc = None
+            await _reap_descendants(proc, tree, grace_s=0)
             return
         try:
             await asyncio.wait_for(proc.wait(), timeout=2.0)
         except asyncio.TimeoutError:
             try:
-                proc.kill()
+                self._signal_group(proc, signal.SIGKILL)
             except ProcessLookupError:
                 pass
             try:
@@ -225,15 +514,41 @@ class GeminiSessionManager(BaseSessionManager):
                     "gemini subprocess pid=%s did not exit after SIGKILL", proc.pid,
                 )
         self._proc = None
+        await _reap_descendants(proc, tree, grace_s=0)
+
+    @staticmethod
+    def _tree(proc: asyncio.subprocess.Process) -> list[tuple[int, str]]:
+        """Descendants of a real local subprocess (shell commands the CLI ran)."""
+        if not isinstance(proc, asyncio.subprocess.Process):
+            return []
+        try:
+            return _descendants(proc.pid)
+        except Exception:  # noqa: BLE001 — best effort
+            logger.debug("could not list gemini descendants", exc_info=True)
+            return []
 
     async def interrupt(self) -> None:
-        """Send SIGINT to the in-flight gemini subprocess."""
+        """Send SIGINT to the in-flight gemini subprocess's process group.
+
+        With ``GEMINI_CLI_NO_RELAUNCH=true`` the CLI is a single process
+        that exits on SIGINT; the group signal also stops a running shell
+        command.
+        """
         proc = self._proc
         if proc is not None and proc.returncode is None:
+            tree = self._tree(proc)
             try:
-                proc.send_signal(signal.SIGINT)
+                self._signal_group(proc, signal.SIGINT)
             except ProcessLookupError:
                 pass
+            if tree:
+                # The CLI exits on SIGINT without stopping the shell command
+                # it was running (spawned detached); reap it afterwards.
+                task = asyncio.create_task(
+                    _reap_descendants(proc, tree), name="gemini-reap",
+                )
+                self._reaper_tasks.add(task)
+                task.add_done_callback(self._reaper_tasks.discard)
         self._status = SessionStatus.INTERRUPTED
 
     # ------------------------------------------------------------------
@@ -247,12 +562,48 @@ class GeminiSessionManager(BaseSessionManager):
         proc = self._proc
         return proc.pid if proc is not None and proc.returncode is None else None
 
+    def _preflight_error(self) -> str | None:
+        """A reason this turn cannot run locally, or None.
+
+        * no usable auth (see :data:`AUTH_HELP`);
+        * the repo's workspace settings can't be made safe (without
+          ``sessionRetention.enabled=false`` the CLI would delete old
+          sessions in ``context/chats/``).
+        """
+        if self._config.ssh_host:
+            return None
+        if not os.environ.get("GEMINI_API_KEY") and not os.environ.get(ws.ENV_AUTH_TYPE):
+            return AUTH_HELP
+        if self._is_repo_root():
+            try:
+                if ws.ensure_workspace_settings(self._config.project_dir):
+                    logger.info(
+                        "Updated Archie keys in %s",
+                        ws.settings_path(self._config.project_dir),
+                    )
+            except (ws.WorkspaceSettingsError, OSError) as e:
+                return (
+                    f"Refusing to run Gemini CLI: {e}. Fix or remove "
+                    ".gemini/settings.json — without Archie's keys (session "
+                    "retention off) the CLI would delete old sessions in "
+                    "context/chats/."
+                )
+        return None
+
+    def _is_repo_root(self) -> bool:
+        try:
+            return Path(self._config.project_dir).resolve() == Path(PROJECT_ROOT).resolve()
+        except OSError:
+            return False
+
     async def send(self, prompt: str) -> AsyncIterator[Event]:
         """Send a prompt by spawning a fresh ``gemini`` subprocess.
 
         Yields the same normalized :class:`Event` types as the other
         harnesses.  The subprocess is killed automatically if the
-        iterator is closed mid-stream.
+        iterator is closed mid-stream.  A run that fails (non-zero exit
+        without a ``result``, auth problems) ends with an error
+        ``TurnComplete`` carrying the reason — never an empty turn.
         """
         if self._status == SessionStatus.DISCONNECTED:
             raise RuntimeError(
@@ -264,7 +615,16 @@ class GeminiSessionManager(BaseSessionManager):
         if self._proc is not None and self._proc.returncode is None:
             await self._kill_proc()
 
+        problem = self._preflight_error()
+        if problem:
+            self._status = SessionStatus.IDLE
+            yield TurnComplete(
+                is_error=True, result=problem, session_id=self._provider_session_id or "",
+            )
+            return
+
         self._status = SessionStatus.STREAMING
+        self._stderr_tail = collections.deque(maxlen=_STDERR_TAIL_LINES)
 
         local_argv = self._build_argv(prompt)
         env = self._build_env()
@@ -275,6 +635,11 @@ class GeminiSessionManager(BaseSessionManager):
         # remote `cd` is embedded in the SSH command).
         argv, cwd = self._maybe_wrap_with_ssh(local_argv)
 
+        thought_tail: _ThoughtTail | None = None
+        if not self._config.ssh_host and self._provider_session_id:
+            thought_tail = _ThoughtTail(self._provider_session_id)
+            thought_tail.prime()
+
         try:
             proc = await asyncio.create_subprocess_exec(
                 *argv,
@@ -283,6 +648,9 @@ class GeminiSessionManager(BaseSessionManager):
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
                 env=env,
+                # Own process group: interrupt/kill reach the CLI and the
+                # shell commands it runs, nothing else.
+                start_new_session=True,
             )
         except FileNotFoundError as e:
             self._status = SessionStatus.IDLE
@@ -319,7 +687,7 @@ class GeminiSessionManager(BaseSessionManager):
 
         # The whole thing is wrapped so we always reap the subprocess.
         try:
-            async for event in self._stream_events(proc):
+            async for event in self._stream_events(proc, stderr_task, thought_tail):
                 yield event
         finally:
             # Stop the stderr drainer.
@@ -348,12 +716,12 @@ class GeminiSessionManager(BaseSessionManager):
                 self._status = SessionStatus.IDLE
 
     async def _drain_stderr(self, proc: asyncio.subprocess.Process) -> None:
-        """Drain stderr in the background, logging anything noisy.
+        """Drain stderr in the background, logging it and keeping a tail.
 
         The Gemini CLI is chatty on stderr (terminal-color warnings,
-        ripgrep-not-found, rate-limit retries).  We log everything but
-        don't surface it to the caller — the stream-json on stdout is
-        authoritative.
+        ripgrep-not-found, rate-limit retries).  The stream-json on stdout
+        is authoritative; the tail is only used to explain a run that died
+        before producing a ``result``.
         """
         assert proc.stderr is not None
         try:
@@ -361,19 +729,11 @@ class GeminiSessionManager(BaseSessionManager):
                 line = await proc.stderr.readline()
                 if not line:
                     return
-                # Log everything except known-benign noise.
                 text = line.decode("utf-8", errors="replace").rstrip()
                 if not text:
                     continue
-                # Filter out the terminal-warning lines that don't carry
-                # useful debugging info.
-                low = text.lower()
-                if (
-                    "256-color" in low
-                    or "ripgrep" in low
-                    or "yolo mode" in low
-                    or "shell cwd was reset" in low
-                ):
+                self._stderr_tail.append(text)
+                if _is_noise(text):
                     logger.debug("gemini stderr: %s", text)
                 else:
                     logger.info("gemini stderr: %s", text)
@@ -383,7 +743,10 @@ class GeminiSessionManager(BaseSessionManager):
             logger.exception("gemini stderr drain failed")
 
     async def _stream_events(
-        self, proc: asyncio.subprocess.Process,
+        self,
+        proc: asyncio.subprocess.Process,
+        stderr_task: asyncio.Task | None = None,
+        thought_tail: _ThoughtTail | None = None,
     ) -> AsyncIterator[Event]:
         """Consume ``proc.stdout`` line-by-line and yield normalized events.
 
@@ -406,6 +769,22 @@ class GeminiSessionManager(BaseSessionManager):
         # Track tool-use ids by name so tool_result lines (which carry
         # only the id) can be paired up if needed.
         tool_uses_in_flight: dict[str, str] = {}  # tool_id → tool_name
+
+        # Turn-level state shared with _translate_event.
+        state: dict = {"completed": False, "error": None}
+
+        def _thoughts() -> list[Event]:
+            if thought_tail is None:
+                return []
+            try:
+                texts = thought_tail.poll()
+            except Exception:  # noqa: BLE001 — thinking is best-effort
+                logger.debug("gemini thought tail poll failed", exc_info=True)
+                return []
+            out: list[Event] = []
+            for t in texts:
+                out += [ThinkingDelta(text=t), ThinkingComplete(text=t)]
+            return out
 
         async def _read_one_line() -> bytes:
             return await proc.stdout.readline()
@@ -452,12 +831,30 @@ class GeminiSessionManager(BaseSessionManager):
                 if text_buffer:
                     yield TextComplete(text="".join(text_buffer))
                     text_buffer.clear()
+                for ev in _thoughts():
+                    yield ev
                 rc = await proc.wait()
-                if rc != 0 and self._status != SessionStatus.INTERRUPTED:
+                if state["completed"] or self._status == SessionStatus.INTERRUPTED:
+                    break
+                # No ``result`` event: never end the turn silently.  Let the
+                # stderr drainer catch up so the tail holds the CLI's error.
+                if stderr_task is not None and not stderr_task.done():
+                    try:
+                        await asyncio.wait_for(asyncio.shield(stderr_task), timeout=1.0)
+                    except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                        pass
+                if rc != 0:
                     logger.warning(
                         "gemini exited with non-zero status %d for session %s",
                         rc, self._local_id,
                     )
+                    message = state["error"] or _error_from_stderr(list(self._stderr_tail), rc)
+                    yield TurnComplete(
+                        is_error=True, result=message,
+                        session_id=self._provider_session_id or "",
+                    )
+                else:
+                    yield TurnComplete(session_id=self._provider_session_id or "")
                 break
 
             last_event_at = loop.time()
@@ -483,7 +880,21 @@ class GeminiSessionManager(BaseSessionManager):
                 )
                 continue
 
-            for ev in self._translate_event(obj, text_buffer, tool_uses_in_flight):
+            otype = obj.get("type") if isinstance(obj, dict) else None
+            # Thoughts of the step that just ended land on disk before the
+            # next tool call / result; pick them up at those boundaries.
+            if otype in ("tool_use", "tool_result", "result"):
+                pending = _thoughts()
+            else:
+                pending = []
+            if otype == "result" and pending and text_buffer:
+                # Close the streamed answer before its thinking arrives.
+                yield TextComplete(text="".join(text_buffer))
+                text_buffer.clear()
+            for ev in pending:
+                yield ev
+
+            for ev in self._translate_event(obj, text_buffer, tool_uses_in_flight, state):
                 yield ev
 
     def _translate_event(
@@ -491,6 +902,7 @@ class GeminiSessionManager(BaseSessionManager):
         obj: dict,
         text_buffer: list[str],
         tool_uses_in_flight: dict[str, str],
+        state: dict | None = None,
     ) -> list[Event]:
         """Translate one Gemini stream-json event into zero or more events.
 
@@ -504,9 +916,15 @@ class GeminiSessionManager(BaseSessionManager):
           text chunk.
         - ``tool_use``: model wants to call a tool.
         - ``tool_result``: tool returned a value.
+        - ``error``: ``severity`` warning (loop detected, blocked tool) or
+          error (quota, invalid stream) — logged; an error's message is
+          kept for the turn's error result.
         - ``result``: terminal event; yield TextComplete (if text was
-          accumulated) and TurnComplete.
+          accumulated) and TurnComplete (``is_error`` with the CLI's
+          message when ``status == "error"``).
         """
+        if state is None:
+            state = {"completed": False, "error": None}
         out: list[Event] = []
         obj_type = obj.get("type", "")
 
@@ -553,13 +971,13 @@ class GeminiSessionManager(BaseSessionManager):
             tool_id = obj.get("tool_id", "")
             status = obj.get("status", "success")
             is_error = status == "error"
-            # Output / error fields differ shape.  ``output`` for
-            # success, ``error.message`` for errors.
+            # ``output`` is the display text (0.63 also sends it on
+            # errors); ``error.message`` is what the model saw.
             if is_error:
                 err = obj.get("error", {})
                 output = (
                     err.get("message", "") if isinstance(err, dict) else str(err)
-                )
+                ) or obj.get("output", "")
             else:
                 output = obj.get("output", "")
             tool_uses_in_flight.pop(tool_id, None)
@@ -568,6 +986,16 @@ class GeminiSessionManager(BaseSessionManager):
                 output=str(output) if output is not None else "",
                 is_error=is_error,
             ))
+            return out
+
+        if obj_type == "error":
+            message = str(obj.get("message") or "").strip()
+            if obj.get("severity") == "error":
+                logger.warning("gemini error event: %s", message)
+                if message:
+                    state["error"] = message
+            else:
+                logger.info("gemini warning event: %s", message)
             return out
 
         if obj_type == "result":
@@ -590,7 +1018,23 @@ class GeminiSessionManager(BaseSessionManager):
                     usage["total_tokens"] = stats.get("total_tokens", 0)
                 if "cached" in stats:
                     usage["cache_read_input_tokens"] = stats.get("cached", 0)
-            out.append(TurnComplete(usage=usage))
+                models = stats.get("models")
+                if isinstance(models, dict) and models:
+                    logger.debug("gemini turn ran on %s", ", ".join(models))
+            is_error = obj.get("status") == "error"
+            result_text: str | None = None
+            if is_error:
+                err = obj.get("error")
+                result_text = (
+                    (err.get("message") if isinstance(err, dict) else None)
+                    or state.get("error")
+                    or "Gemini CLI reported an error."
+                )
+            state["completed"] = True
+            out.append(TurnComplete(
+                usage=usage, is_error=is_error, result=result_text,
+                session_id=self._provider_session_id or "",
+            ))
             return out
 
         # Anything else is informational; log and skip.
@@ -600,6 +1044,13 @@ class GeminiSessionManager(BaseSessionManager):
     # ------------------------------------------------------------------
     # Argv / env construction
     # ------------------------------------------------------------------
+
+    def _options(self) -> dict:
+        return dict(self._config.harness_options or {})
+
+    def _approval_mode(self) -> str:
+        mode = self._options().get(gcat.APPROVAL_MODE)
+        return mode if mode in gcat.APPROVAL_MODES else gcat.DEFAULT_APPROVAL_MODE
 
     def _build_argv(self, prompt: str) -> list[str]:
         """Construct the ``gemini`` argv for this turn."""
@@ -614,9 +1065,10 @@ class GeminiSessionManager(BaseSessionManager):
             "--skip-trust",
             "--output-format", "stream-json",
             # Tool approval is enforced at the wrapper level via the
-            # conversational-checkpoint policy; let the CLI auto-approve
-            # everything so it doesn't hang waiting for stdin input.
-            "--approval-mode", "yolo",
+            # conversational-checkpoint policy; by default let the CLI
+            # auto-approve everything (headless runs cannot ask — any
+            # "ask" decision becomes "deny").  ``approval_mode`` option.
+            "--approval-mode", self._approval_mode(),
         ]
 
         if self._provider_session_id:
@@ -637,28 +1089,104 @@ class GeminiSessionManager(BaseSessionManager):
         return argv
 
     def _session_written(self) -> bool:
-        """True if the CLI has already written this session, so it must be ``--resume``d.
+        """True if the CLI has written this session, so it must be ``--resume``d.
 
-        Decided by the JSONL on disk, not by the turn count: a turn that fails before the CLI
-        writes anything (bad model, auth error) must not flip the next turn to ``--resume``,
-        which the CLI rejects for an id it cannot find. The same check covers a resume id whose
-        JSONL was never written (a tab reopened before its first turn). Remote (SSH) sessions
-        write on the remote host, so there a resume id or a completed turn is trusted as-is.
+        Decided by the JSONL on disk, not by the turn count, and by the
+        CLI's own rule — the file must hold *resumable* content.  Both CLI
+        versions write the header line (0.63 also a ``$set`` snapshot) before
+        authenticating, so a turn that failed early leaves a stub that
+        ``--resume`` rejects ("invalid session identifier") while
+        ``--session-id`` refuses its id ("already exists").  Such stubs are
+        removed here so the turn can pin the id again.  Remote (SSH)
+        sessions write on the remote host, so there a resume id or a
+        completed turn is trusted as-is.
         """
         if self._config.ssh_host:
             return bool(self._resume_id) or self._turns > 0
-        from .adapter import _gemini_jsonl_candidates
-        return bool(_gemini_jsonl_candidates(self._provider_session_id))
+        from .adapter import (
+            _gemini_jsonl_candidates,
+            _read_gemini_session_id,
+            gemini_session_is_resumable,
+        )
+
+        sid = self._provider_session_id
+        stubs: list[Path] = []
+        for cand in _gemini_jsonl_candidates(sid):
+            p = Path(cand)
+            if gemini_session_is_resumable(p):
+                return True
+            if p.is_file() and _read_gemini_session_id(p) == sid:
+                stubs.append(p)
+        for p in stubs:
+            try:
+                p.unlink()
+                logger.info("Removed non-resumable Gemini session stub %s", p)
+            except OSError:
+                logger.warning("Could not remove Gemini session stub %s", p, exc_info=True)
+        return False
+
+    def _option_env(self) -> dict[str, str]:
+        """Per-turn env vars for the workspace-settings thinking overrides.
+
+        Only options the chosen model family understands are mapped
+        (``thinking_level`` → Gemini 3 and the aliases, ``thinking_budget``
+        → Gemini 2.5); values are clamped to what the model accepts.
+        Nothing is set for an unset option, so the CLI's defaults apply.
+        """
+        opts = self._options()
+        model = self._config.model
+        family = gcat.model_family(model)
+        env: dict[str, str] = {}
+
+        level = opts.get(gcat.THINKING_LEVEL)
+        if isinstance(level, str) and level in gcat.THINKING_LEVELS and family in ("3", "alias"):
+            env[ws.ENV_THINKING_LEVEL] = gcat.clamp_thinking_level(model, level).upper()
+            if family == "3" and model:
+                # Ids outside the CLI's alias table don't extend chat-base-3.
+                env[ws.ENV_LEVEL_MODEL] = model
+
+        budget = opts.get(gcat.THINKING_BUDGET)
+        if (
+            isinstance(budget, (int, float)) and not isinstance(budget, bool)
+            and family == "2.5" and model
+        ):
+            env[ws.ENV_BUDGET_MODEL] = model
+            env[ws.ENV_THINKING_BUDGET] = str(gcat.clamp_thinking_budget(model, int(budget)))
+        return env
 
     def _build_env(self) -> dict[str, str]:
         """Construct the env for the gemini subprocess."""
         env = dict(os.environ)
         # Belt + suspenders: also set the trust env var (in case the
-        # CLI's --skip-trust flag is ever renamed/removed).
+        # CLI's --skip-trust flag is ever renamed/removed).  Trust is also
+        # what makes the CLI load the workspace settings file.
         env["GEMINI_CLI_TRUST_WORKSPACE"] = "true"
+        # Single process: without this the CLI relaunches itself as a
+        # child and the parent ignores SIGINT/SIGTERM (interrupt no-op,
+        # kill orphans the worker).
+        env["GEMINI_CLI_NO_RELAUNCH"] = "true"
         # Strip markers from other harnesses so gemini doesn't get
         # confused if the wrapper itself was launched from inside one.
         env.pop("CLAUDECODE", None)
+        # Per-turn option vars come only from this session's options.
+        for k in ws.PER_TURN_ENV_VARS:
+            env.pop(k, None)
+        env.update(self._option_env())
+        # ``~/.gemini/settings.json`` may still select the retired
+        # oauth-personal login.  The repo's workspace settings override it;
+        # this covers other working directories (it only replaces the
+        # user-level choice).
+        if env.get("GEMINI_API_KEY") and not env.get(ws.ENV_AUTH_TYPE):
+            env["GEMINI_CLI_AUTH_OVERRIDE"] = "gemini-api-key"
+        return env
+
+    def _remote_env(self) -> dict[str, str]:
+        """Non-secret vars forwarded to an SSH-remote CLI."""
+        env = {
+            "GEMINI_CLI_TRUST_WORKSPACE": "true",
+            "GEMINI_CLI_NO_RELAUNCH": "true",
+        }
+        env.update(self._option_env())
         return env
 
     def _maybe_wrap_with_ssh(
@@ -671,7 +1199,7 @@ class GeminiSessionManager(BaseSessionManager):
 
         SSH sessions: swaps ``local_argv[0]`` (the local gemini path)
         for the resolved remote path and wraps everything in an
-        ``ssh ... "cd '<remote_dir>' && exec '<remote_gemini>' ..."``
+        ``ssh ... "cd '<remote_dir>' && VAR='v' exec '<remote_gemini>' ..."``
         argv.  cwd is irrelevant in that case (the remote cwd is set
         inside the SSH command), so we return ``None`` and let
         ``create_subprocess_exec`` inherit the parent's cwd.
@@ -708,11 +1236,10 @@ class GeminiSessionManager(BaseSessionManager):
         remote_cmd = RemoteCommand(
             project_dir=self._config.project_dir,
             remote_cli=remote_gemini,
-            # No env forwarding: the remote host has its own .env (e.g.
-            # GEMINI_API_KEY) set up at install time.  Forwarding the
-            # local env over SSH would either leak local credentials
-            # (visible in `ps` on the remote) or miss vars the remote
-            # setup expects.  Same rationale as Qwen.
+            # Only non-secret vars: the remote host has its own .env (e.g.
+            # GEMINI_API_KEY) set up at install time.  Forwarding the local
+            # env would leak credentials (visible in `ps` on the remote).
+            env=self._remote_env(),
         )
         # ``local_argv[0]`` is the LOCAL gemini path; the remote path is
         # already embedded inside ``remote_cmd``.  Drop it and pass the
