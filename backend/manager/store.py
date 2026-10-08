@@ -24,7 +24,6 @@ from pathlib import Path
 from utils.paths import (
     get_chats_dir,
     get_sessions_dir,
-    get_trash_dir,
 )
 
 from .index_utils import remove_session_from_index
@@ -334,7 +333,8 @@ class SessionStore:
         return self._load_titles()
 
     def delete_session(self, session_id: str, *, skip_index_cleanup: bool = False) -> bool:
-        """Soft-delete a session: move its JSONL into context/trash/.
+        """Soft-delete a session: move its JSONL (and its ``.config.json`` /
+        ``.summary.json`` sidecars) into context/trash/.
 
         The history-index cleanup (:func:`remove_session_from_index`, a SQLite
         transaction) can be skipped with ``skip_index_cleanup=True`` by
@@ -346,15 +346,35 @@ class SessionStore:
         if jsonl_path is None:
             return False
 
-        trash_dir = get_trash_dir()
+        # The trash belongs to this store's context/ (not the global one), so
+        # a store on a test project never moves files into the real
+        # context/trash/.
+        trash_dir = self._sessions_dir / "trash"
         trash_dir.mkdir(parents=True, exist_ok=True)
 
         target = trash_dir / jsonl_path.name
+        suffix = ""
         if target.exists():
             ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-            target = trash_dir / f"{jsonl_path.stem}.{ts}.jsonl"
+            suffix = f".{ts}"
+            target = trash_dir / f"{jsonl_path.stem}{suffix}.jsonl"
 
         jsonl_path.rename(target)
+
+        # Per-session sidecars go with the JSONL so no orphan is left behind:
+        # the session config (pinned provider, harness options) and the
+        # orchestrator's summary cache.
+        sidecars = (
+            (self._sessions_dir / f"{session_id}.config.json", session_id, ".config.json"),
+            (jsonl_path.with_suffix(".summary.json"), jsonl_path.stem, ".summary.json"),
+        )
+        for path, stem, ext in sidecars:
+            if path.is_file():
+                try:
+                    path.rename(trash_dir / f"{stem}{suffix}{ext}")
+                except OSError:
+                    pass
+        self._pin_cache.pop(session_id, None)
 
         titles = self._load_titles()
         if session_id in titles:

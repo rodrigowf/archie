@@ -3,7 +3,7 @@ name: backend
 category: archie/architecture
 tags: [backend, fastapi, routes, static-serving, spa, config, paths, startup, testing]
 created: 2026-02-23
-modified: 2026-10-06
+modified: 2026-10-08
 summary: The FastAPI backend — app factory, startup tasks, every route module, static/SPA serving, config files, how to run and test.
 source: curated (consolidated from memory notes assistant/architecture/project-overview.md, assistant/infrastructure/repo_layout_cutover_2026_10.md, assistant/infrastructure/features_and_integrations_summary.md, docs/projects/frontend-refactor/inventory/01-backend-api.md; verified against code 2026-10-06)
 references:
@@ -190,6 +190,13 @@ context/scripts/run.sh -m pytest backend/tests/test_foo.py::TestClass::test_meth
 
 pytest reads `backend/pyproject.toml`. Mock external dependencies with `unittest.mock`. About 85
 test modules cover the pool, managers, store, orchestrator, voice, search and routes.
+
+Tests must never write into the real `context/` (it is the private, synced repo). `backend/tests/conftest.py`
+enforces it: every `OrchestratorSession` built during the run persists into a pytest sandbox, and at
+the end of the run any new entry in `context/`, `context/chats/` or `context/trash/` whose name is
+not a UUID or a Gemini `session-*` file fails the run. Build stores and sessions on `tmp_path`.
+(Before 2026-10-08 the suite left `context/orch-1.jsonl` and an `indexed-session.*` /
+`qwen-sess-1.*` pair in `context/trash/` on every run.)
 
 ## Pitfalls
 

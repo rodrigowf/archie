@@ -3,7 +3,7 @@ name: registry
 category: archie/harnesses
 tags: [harness, harness-registry, harnessspec, provider-adapter, session-store, multi-harness, claude-code, qwen, gemini, codex]
 created: 2026-05-15
-modified: 2026-10-07
+modified: 2026-10-08
 summary: The pluggable agent-CLI harness layer — HarnessRegistry, HarnessSpec, adapters, SessionStore, dispatch sites, and how to add one.
 source: curated (consolidated from memory notes assistant/providers/provider_generalization.md, assistant/providers/qwen_code_adaptation.md, assistant/providers/gemini_cli_adaptation.md; verified against code 2026-10-06)
 references:
@@ -128,7 +128,9 @@ the orchestrator-file folding in the Claude adapter override them).
    `(mtime_ns, size)`. Results are sorted by `last_activity`, newest first.
 
 `_locate_jsonl(id)` checks the Claude root, then `chats/`, then the external-path cache, then every
-spec's `jsonl_path_resolver`. Delete is a soft-delete into `context/trash/`. Titles for every
+spec's `jsonl_path_resolver`. Delete is a soft-delete into the store's own `context/trash/`
+(the JSONL plus its `<id>.config.json` and `<stem>.summary.json` sidecars, so no orphan config is
+left behind; a name collision adds the same `.<timestamp>` suffix to all three). Titles for every
 harness live in one `context/.titles.json`.
 
 ## Dispatch sites (all registry lookups)
