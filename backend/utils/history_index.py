@@ -32,6 +32,7 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -42,6 +43,8 @@ from pathlib import Path
 from typing import Callable, Iterable, Iterator, Sequence
 
 from utils.paths import get_chats_dir, get_context_dir, get_index_dir
+
+logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 1
 # Bump when extraction/chunking changes so every session is re-derived on the next run.
@@ -217,6 +220,50 @@ def _iter_json_lines(path: Path) -> Iterator[dict]:
                 yield obj
 
 
+def session_id_for(path: Path) -> str:
+    """The session id a conversation file belongs to.
+
+    The file name for every harness except Codex, whose rollouts are named
+    ``rollout-<timestamp>-<thread-id>.jsonl``.
+    """
+    path = Path(path)
+    if path.name.startswith("rollout-"):
+        from manager.codex.adapter import session_id_from_path
+
+        return session_id_from_path(path) or path.stem
+    return path.stem
+
+
+def _extract_codex(path: Path) -> SessionDoc:
+    """Codex rollouts: reuse the harness adapter, which already hides the
+    injected instructions/environment messages and normalizes tool calls."""
+    from manager.codex.adapter import CodexAdapter
+
+    doc = SessionDoc(session_id=session_id_for(path), path=path, harness="codex")
+    for msg in CodexAdapter().read_messages(path):
+        role = msg.get("type")
+        if role not in ("user", "assistant"):
+            continue
+        content = (msg.get("message") or {}).get("content")
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    doc.tool_calls += 1
+                    if _HISTORY_TOOL_RE.search(json.dumps(block.get("input"), ensure_ascii=False)):
+                        doc.history_tool_calls += 1
+        text = _clean(_blocks_text(content))
+        if not text:
+            continue
+        ts = msg.get("timestamp") if isinstance(msg.get("timestamp"), str) else None
+        last = doc.turns[-1] if doc.turns else None
+        if last is not None and last.role == role:
+            if text != last.text and not last.text.endswith(text):
+                last.text = f"{last.text}\n\n{text}"
+            continue
+        doc.turns.append(Turn(role=role, text=text, ts=ts))
+    return doc
+
+
 def extract_session(path: Path) -> SessionDoc:
     """Parse a session JSONL from any harness into clean user/assistant turns.
 
@@ -224,6 +271,8 @@ def extract_session(path: Path) -> SessionDoc:
     content block, and voice sessions sometimes persist the same reply twice).
     """
     path = Path(path)
+    if path.name.startswith("rollout-"):
+        return _extract_codex(path)
     doc = SessionDoc(session_id=path.stem, path=path, harness="claude")
     harness: str | None = None
     skip_assistant_until_user = False
@@ -553,6 +602,7 @@ def session_sources(context_dir: Path | None = None, chats_dir: Path | None = No
     paths = list(context_dir.glob("*.jsonl"))
     if chats_dir.is_dir():
         paths.extend(chats_dir.glob("*.jsonl"))
+    paths.extend(_codex_sources())
 
     def mtime(p: Path) -> float:
         try:
@@ -561,6 +611,18 @@ def session_sources(context_dir: Path | None = None, chats_dir: Path | None = No
             return 0.0
 
     return sorted(paths, key=mtime, reverse=True)
+
+
+def _codex_sources() -> list[Path]:
+    """Archie's Codex rollouts (``context/codex/sessions/YYYY/MM/DD/`` and the
+    harness's other session roots), via the harness's own discoverer."""
+    try:
+        from manager.codex.adapter import _codex_discover_sessions, _project_dir
+
+        return [p for _sid, p in _codex_discover_sessions(_project_dir())]
+    except Exception:  # noqa: BLE001 — a missing/broken harness must not stop indexing
+        logger.debug("Codex session discovery failed", exc_info=True)
+        return []
 
 
 @dataclass
@@ -598,7 +660,7 @@ def index_all(
     started = time.monotonic()
     seen: set[str] = set()
     for path in sources:
-        sid = path.stem
+        sid = session_id_for(path)
         seen.add(sid)
         try:
             st = path.stat()
@@ -1081,4 +1143,11 @@ def find_session_file(session_id: str, context_dir: Path | None = None) -> Path 
     for p in (context_dir / f"{session_id}.jsonl", context_dir / "chats" / f"{session_id}.jsonl"):
         if p.is_file():
             return p
+    try:
+        from manager.codex.adapter import _codex_jsonl_candidates
+
+        for p in _codex_jsonl_candidates(session_id):
+            return p
+    except Exception:  # noqa: BLE001
+        logger.debug("Codex session lookup failed", exc_info=True)
     return None
