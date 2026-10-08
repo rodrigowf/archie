@@ -289,6 +289,15 @@ data class HarnessOptionDto(
     val min: Double? = null,
     val max: Double? = null,
     val step: Double? = null,
+    // Presentation hints (all optional, read leniently in `HarnessMappers`): a malformed hint is
+    // dropped and the UI infers the control, never failing the whole catalog.
+    val control: JsonElement? = null,
+    val ordered: JsonElement? = null,
+    val unit: JsonElement? = null,
+    val scale: JsonElement? = null,
+    val presets: JsonElement? = null,
+    @SerialName("custom_min") val customMin: JsonElement? = null,
+    val requires: JsonElement? = null,
 )
 
 @Serializable

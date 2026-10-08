@@ -1,7 +1,9 @@
 package com.assistant.core.protocol
 
 import com.assistant.core.model.ConfigPatch
+import com.assistant.core.model.HarnessControl
 import com.assistant.core.model.HarnessOptionKind
+import com.assistant.core.model.HarnessPreset
 import com.assistant.core.model.HarnessValue
 import com.assistant.core.model.SessionConfig
 import kotlinx.serialization.json.Json
@@ -10,6 +12,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.encodeToJsonElement
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -66,6 +69,72 @@ class HarnessDtoTest {
         assertEquals(HarnessValue.Text("medium"), codex.options.first { it.key == "effort" }.default)
         assertEquals(1, codex.warnings.size)
         assertEquals(-1.0, catalog("gemini").options.first { it.key == "thinking_budget" }.min)
+    }
+
+    /** The presentation hints (`control`, `ordered`, `unit`, `scale`, `presets`, `custom_min`, `requires`). */
+    @Test
+    fun harnesses_decodeHints() {
+        val claude = catalog("claude")
+        val effort = claude.options.first { it.key == "effort" }
+        assertTrue(effort.ordered)
+        assertNull(effort.control)
+        assertEquals(HarnessControl.SEGMENTED, claude.options.first { it.key == "thinking" }.control)
+        assertEquals(HarnessControl.DROPDOWN, claude.options.first { it.key == "fallback_model" }.control)
+        val todo = claude.options.first { it.key == "todo_tools" }
+        assertNull(todo.control)
+        assertFalse(todo.ordered)
+        assertEquals(emptyList<HarnessPreset>(), todo.presets)
+        assertNull(todo.requires)
+
+        val budget = claude.options.first { it.key == "thinking_budget" }
+        assertEquals("tokens", budget.unit)
+        assertEquals("log", budget.scale)
+        assertNull(budget.customMin)
+        assertEquals(emptyList<HarnessPreset>(), budget.presets)
+        assertEquals(mapOf("thinking" to listOf<HarnessValue?>(HarnessValue.Text("enabled"))), budget.requires)
+
+        // `null` in a requires list = unset / unknown
+        assertEquals(mapOf("thinking" to listOf(HarnessValue.Flag(true), null)), catalog("qwen").options.first { it.key == "thinking_budget" }.requires)
+
+        val gemini = catalog("gemini").options.first { it.key == "thinking_budget" }
+        assertEquals(128.0, gemini.customMin)
+        assertEquals(
+            listOf(HarnessPreset(-1.0, "Dynamic", "The model decides"), HarnessPreset(0.0, "Off", "Flash models only")),
+            gemini.presets,
+        )
+        assertTrue(catalog("gemini").options.first { it.key == "thinking_level" }.ordered)
+        assertEquals(HarnessControl.SEGMENTED, catalog("gemini").options.first { it.key == "approval_mode" }.control)
+        val codex = catalog("codex")
+        assertTrue(codex.options.first { it.key == "verbosity" }.ordered)
+        assertEquals(HarnessControl.SEGMENTED, codex.options.first { it.key == "web_search" }.control)
+        // choice-level model gating (`choice.models`)
+        val fixed = claude.options.first { it.key == "thinking" }.choices.first { it.value == "enabled" }
+        assertEquals(5, fixed.models!!.size)
+    }
+
+    /** Malformed hints are dropped one by one; the option and the catalog still decode. */
+    @Test
+    fun harnesses_hintsLenient() {
+        val o = RestJson.decodeFromString<HarnessesDto>(
+            """{"harnesses":[{"id":"x","catalog":{"options":[{"key":"n","kind":"number","control":"knob","ordered":"yes","unit":5,"scale":["log"],
+               "custom_min":"128","presets":[{"value":"x","label":"X"},{"value":5,"label":"Five"},{"value":6},{"value":-1,"label":"Dyn","description":""},3],
+               "requires":{"a":["on",null,{"x":1},2,true],"b":"on","c":[]}},
+               {"key":"s","kind":"select","control":"levels","presets":{"value":1},"requires":[1]}]}}]}""",
+        ).toModel().single().catalog!!.options
+        val n = o[0]
+        assertNull("unknown control → inferred", n.control)
+        assertFalse(n.ordered)
+        assertNull(n.unit)
+        assertNull(n.scale)
+        assertNull(n.customMin)
+        assertEquals(listOf(HarnessPreset(5.0, "Five"), HarnessPreset(-1.0, "Dyn")), n.presets)
+        assertEquals(
+            mapOf("a" to listOf(HarnessValue.Text("on"), null, HarnessValue.Num(2.0), HarnessValue.Flag(true)), "c" to emptyList()),
+            n.requires,
+        )
+        assertEquals(HarnessControl.LEVELS, o[1].control)
+        assertEquals(emptyList<HarnessPreset>(), o[1].presets)
+        assertNull(o[1].requires)
     }
 
     @Test

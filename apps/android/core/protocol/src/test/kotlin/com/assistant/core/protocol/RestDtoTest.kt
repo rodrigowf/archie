@@ -35,6 +35,12 @@ class RestDtoTest {
         assertEquals(HarnessProvider.CLAUDE, s.provider)
         assertTrue(s.isOrchestrator)
         assertNull(s.localId)
+        // Harness ids are registry-driven: Codex / Model Studio / unknown ids keep their provider.
+        for (id in listOf("codex", "modelstudio", "future-cli")) {
+            val row = decode<SessionInfoDto>("""{"session_id":"x","title":"t","message_count":1,"is_orchestrator":false,"provider":"$id"}""").toModel()
+            assertEquals(id, row.provider?.wire)
+        }
+        assertNull(decode<SessionInfoDto>("""{"session_id":"x","title":"t","message_count":1,"is_orchestrator":false,"provider":null}""").toModel().provider)
 
         val pool = decode<List<PoolSessionDto>>(
             """[{"local_id":"3540ff69","sdk_session_id":"528dbf6f","status":"idle","cost":0.0,"turns":0,"title":"lamp presets test","is_orchestrator":false},{"local_id":"x","sdk_session_id":null,"status":"weird","cost":1,"turns":2,"title":null,"is_orchestrator":false}]""",

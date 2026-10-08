@@ -3,10 +3,13 @@ package com.assistant.core.protocol
 import com.assistant.core.model.HarnessCatalog
 import com.assistant.core.model.HarnessCatalogModel
 import com.assistant.core.model.HarnessChoice
+import com.assistant.core.model.HarnessControl
 import com.assistant.core.model.HarnessInfo
 import com.assistant.core.model.HarnessOption
 import com.assistant.core.model.HarnessOptionKind
+import com.assistant.core.model.HarnessPreset
 import com.assistant.core.model.HarnessValue
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -87,7 +90,45 @@ fun HarnessOptionDto.toModel(): HarnessOption? {
         min = min,
         max = max,
         step = step,
+        control = HarnessControl.fromWire(control.stringOrNull()),
+        ordered = (ordered as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == true,
+        unit = unit.stringOrNull()?.takeIf { it.isNotEmpty() },
+        scale = scale.stringOrNull()?.takeIf { it.isNotEmpty() },
+        presets = harnessPresets(presets),
+        customMin = (customMin as? JsonPrimitive)?.takeIf { !it.isString }?.doubleOrNull?.takeIf { it.isFinite() },
+        requires = harnessRequires(requires),
     )
+}
+
+private fun JsonElement?.stringOrNull(): String? = (this as? JsonPrimitive)?.takeIf { it.isString }?.content
+
+/** `[{value: number, label, description?}]`; entries without a finite number or a label are dropped. */
+fun harnessPresets(raw: JsonElement?): List<HarnessPreset> {
+    val arr = raw as? JsonArray ?: return emptyList()
+    return arr.mapNotNull { e ->
+        val o = e as? JsonObject ?: return@mapNotNull null
+        val v = (o["value"] as? JsonPrimitive)?.takeIf { !it.isString }?.doubleOrNull?.takeIf { it.isFinite() } ?: return@mapNotNull null
+        val label = o["label"].stringOrNull() ?: return@mapNotNull null
+        HarnessPreset(v, label, o["description"].stringOrNull()?.takeIf { it.isNotEmpty() })
+    }
+}
+
+/**
+ * `{other_key: [values…]}`; `null` in a list stays (= unset / unknown), other non-values are
+ * dropped, a key whose value is not a list is skipped; nothing left → null.
+ */
+fun harnessRequires(raw: JsonElement?): Map<String, List<HarnessValue?>>? {
+    val o = raw as? JsonObject ?: return null
+    val out = LinkedHashMap<String, List<HarnessValue?>>()
+    for ((k, v) in o) {
+        val arr = v as? JsonArray ?: continue
+        val values = ArrayList<HarnessValue?>()
+        for (e in arr) {
+            if (e is JsonNull) values += null else e.toHarnessValue()?.let { values += it }
+        }
+        out[k] = values
+    }
+    return out.takeIf { it.isNotEmpty() }
 }
 
 fun HarnessCatalogModelDto.toModel() = HarnessCatalogModel(

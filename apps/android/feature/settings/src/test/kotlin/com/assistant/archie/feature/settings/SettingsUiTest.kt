@@ -1,6 +1,8 @@
 package com.assistant.archie.feature.settings
 
 import android.app.Application
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
@@ -15,6 +17,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performImeAction
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.datastore.preferences.core.Preferences
 import com.assistant.archie.feature.settings.ui.SessionSettingsSheet
 import com.assistant.archie.feature.settings.ui.SettingsPageKey
@@ -71,7 +74,7 @@ class SettingsUiTest {
     @Test fun serverSave_showsSavedSnackbar() {
         val h = h()
         show(h, SettingsPageKey.AGENT_SESSIONS)
-        compose.onNodeWithTag("chrome").assertIsOn().performClick()
+        compose.onNodeWithTag("chrome").performScrollTo().assertIsOn().performClick()
         waitText("Saved")
         eventually { h.backend.puts.singleOrNull() == """{"chrome_extension":false}""" }
         compose.waitUntil(5_000) { runCatching { compose.onNodeWithTag("chrome").assertIsOff() }.isSuccess }
@@ -81,7 +84,7 @@ class SettingsUiTest {
         val detail = "Unknown provider 'claude' (CLI not installed on the server)"
         val h = h { it.failNextPut = 400 to detail }
         show(h, SettingsPageKey.AGENT_SESSIONS)
-        compose.onNodeWithTag("chrome").performClick()
+        compose.onNodeWithTag("chrome").performScrollTo().performClick()
         waitText(detail)
         compose.onNodeWithText("Retry").performClick()
         waitText("Saved")
@@ -266,12 +269,54 @@ class SettingsUiTest {
         waitText("Codex: check the setup")
         compose.onNodeWithTag("harness:codex:verbosity", useUnmergedTree = true).assertExists()
 
-        compose.onAllNodesWithTag("select:Reasoning effort")[0].performScrollTo().performClick() // Claude Code, not Codex
-        compose.onNodeWithTag("option:max").performClick()
+        // Reasoning effort is a levels row now (catalog `ordered`): Default · Low … Max.
+        compose.onNodeWithTag("harness:claude:effort:seg:max").performScrollTo().performClick()
         eventually { h.backend.puts.lastOrNull() == """{"harness_options":{"claude":{"effort":"max"}}}""" }
         waitText("Saved")
+        compose.waitUntil(5_000) { runCatching { compose.onNodeWithTag("harness:claude:effort:seg:max").assertIsSelected() }.isSuccess }
         compose.onNodeWithTag("harness-refresh").performScrollTo().performClick()
         eventually { h.backend.requests.contains("GET /api/config/harnesses?refresh=true") }
+    }
+
+    /**
+     * Option controls on the global page: the budget is disabled (with the reason) until Thinking is
+     * Fixed budget; the number field commits on Done, clamped; a switch saves and "Use default"
+     * drops the key; Claude in Chrome is the Claude Code block's last row.
+     */
+    @Test fun agentSessions_controls_requiresSwitchAndNumberField() {
+        val h = h()
+        show(h, SettingsPageKey.AGENT_SESSIONS)
+        waitText("CLAUDE CODE DEFAULTS")
+        compose.onNodeWithText("Applies when Thinking is Fixed budget").performScrollTo().assertExists()
+        compose.onNodeWithTag("harness:claude:thinking_budget:value").assertIsNotEnabled()
+        compose.onNodeWithTag("harness:claude:effort:dot:max", useUnmergedTree = true).assertDoesNotExist()
+
+        compose.onNodeWithTag("harness:claude:thinking:seg:enabled").performScrollTo().tap()
+        eventually(message = { h.backend.puts.toString() }) { h.backend.puts.lastOrNull() == """{"harness_options":{"claude":{"thinking":"enabled"}}}""" }
+        compose.waitUntil(30_000) { runCatching { compose.onNodeWithTag("harness:claude:thinking_budget:value").assertIsEnabled() }.isSuccess }
+        compose.onNodeWithTag("harness:claude:thinking_budget:value").performScrollTo().performTextReplacement("500000")
+        compose.onNodeWithTag("harness:claude:thinking_budget:value").performImeAction()
+        eventually(message = { h.backend.puts.toString() }) { h.backend.puts.lastOrNull() == """{"harness_options":{"claude":{"thinking_budget":128000}}}""" }
+
+        compose.onNodeWithTag("harness:claude:todo_tools:switch").performScrollTo().assertIsOn().tap()
+        eventually(message = { h.backend.puts.toString() }) { h.backend.puts.lastOrNull() == """{"harness_options":{"claude":{"todo_tools":false}}}""" }
+        compose.waitUntil(30_000) { compose.onAllNodesWithTag("harness:claude:todo_tools:use-default").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("harness:claude:todo_tools:use-default").performScrollTo().tap()
+        eventually(message = { h.backend.puts.toString() }) { h.backend.puts.lastOrNull() == """{"harness_options":{"claude":{"todo_tools":null}}}""" }
+        compose.onNodeWithTag("chrome").performScrollTo().assertIsOn()
+    }
+
+    /** Gemini's budget presets: Default · Dynamic · Off · Custom; Custom saves its start value at once. */
+    @Test fun agentSessions_presets_customSavesTheStartValue() {
+        val h = h()
+        show(h, SettingsPageKey.AGENT_SESSIONS)
+        compose.onNodeWithTag("harness-group:gemini").performScrollTo().tap()
+        compose.onNodeWithTag("harness:gemini:thinking_budget:seg:preset:-1").performScrollTo().tap()
+        eventually(message = { h.backend.puts.toString() }) { h.backend.puts.lastOrNull() == """{"harness_options":{"gemini":{"thinking_budget":-1}}}""" }
+        compose.waitUntil(30_000) { runCatching { compose.onNodeWithTag("harness:gemini:thinking_budget:seg:preset:-1").assertIsSelected() }.isSuccess }
+        compose.onNodeWithTag("harness:gemini:thinking_budget:seg:__custom__").performScrollTo().tap()
+        eventually(message = { h.backend.puts.toString() }) { h.backend.puts.lastOrNull() == """{"harness_options":{"gemini":{"thinking_budget":8192}}}""" }
+        compose.waitUntil(30_000) { compose.onAllNodesWithTag("harness:gemini:thinking_budget:slider").fetchSemanticsNodes().isNotEmpty() }
     }
 
     /** Session sheet: switching the harness resets model + options to inherit, and Save sends them. */
@@ -286,11 +331,17 @@ class SettingsUiTest {
         compose.setContent { ArchieTheme { SessionSettingsSheet(h.feature, "L1", onDismiss = {}) } }
         waitText("Restart")
         compose.onNodeWithText("Opus", substring = false).performScrollTo().assertExists()
+        compose.onNodeWithTag("chrome").performScrollTo().assertIsOn() // Claude Code only
+        compose.onNodeWithText("Default from Settings (On)").assertExists()
         compose.onNodeWithTag("select:Harness").performScrollTo().performClick()
         compose.onNodeWithTag("option:codex").performClick()
         waitText("Default (CLI default (GPT-6-Luna))")
         compose.onNodeWithTag("harness:codex:effort", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("chrome").assertDoesNotExist()
         compose.onNodeWithTag("session-save").performClick()
         eventually { h.backend.puts.lastOrNull() == """{"provider":"codex","harness_model":null,"harness_options":null}""" }
     }
 }
+
+/** A click through the semantics action: the "Saved" snackbar may cover a row scrolled to the bottom edge. */
+private fun SemanticsNodeInteraction.tap(): SemanticsNodeInteraction = performSemanticsAction(SemanticsActions.OnClick)

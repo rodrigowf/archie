@@ -3,7 +3,7 @@ name: android
 category: archie/clients
 tags: [android, kotlin, compose, navigation3, views, app-main, app-lite, a300m, poco, gradle, adb, signing, vosk]
 created: 2026-04-14
-modified: 2026-10-07
+modified: 2026-10-08
 summary: apps/android — Gradle multi-module project with the main app (com.assistant.archie) and the A300M lite app (com.assistant.peripheral).
 source: curated (consolidated from memory notes assistant/android/android_peripheral_project.md, assistant/infrastructure/repo_layout_cutover_2026_10.md, assistant/devices/peripheral_devices.md, auto-memory feedback_android_ws_keepalive_silent_drop.md, feedback_use_adb_input_for_device_tests.md, feedback_hands_on_checks_over_suites.md, feedback_run_test_before_speculating.md, project_frontend_refactor_2026_10_03.md; verified against code 2026-10-06)
 references:
@@ -246,26 +246,60 @@ blip.
 
 Same behaviour as the web app (see [web.md](web.md) "Harness settings"; spec 12 §6.14, §8.1):
 Settings → Agent sessions and the session sheet (⋮ → Session settings) in `:app-main` render each
-harness's model picker and options from `GET /api/config/harnesses`, by kind (`select`, `toggle`,
-`number` → a select with "CLI default" and the values; a number adds a value field validated
-against min/max/step, the model a "Custom model id…" field). Nothing is hard-coded per harness.
+harness's model picker and options from `GET /api/config/harnesses`. Nothing is hard-coded per
+harness. The model stays a select (plus a "Custom model id…" field); each option gets a control from
+its catalog hints, or one inferred from its kind (`HarnessControls.optionControl`):
 
-- **Global page** (`feature/settings/.../ui/ServerPages.kt` `AgentSessionsPage`): the default
-  harness's "<Harness> defaults" block, then collapsible rows for the other harnesses. Each control
-  saves at once with a partial PUT (`{harness_model: {p: id}}`, `{harness_options: {p: {key: value |
-  null}}}`, null = CLI default). Catalog `warnings` show as a notice; "Refresh models" refetches
-  with `?refresh=true`.
+| Option | Control (`ui/HarnessFields.kt`) |
+|---|---|
+| `control` hint present (and suits the kind) | that control |
+| toggle with a known `default` | **switch** (`SwitchOption`): the whole row toggles; "Use default" when set |
+| toggle without `default` | **segmented**: Default · On · Off |
+| select with `ordered: true` | **levels**: segments in order, the CLI-default level dotted ("CLI default") |
+| select with ≤ 4 visible choices | **segmented** |
+| other selects | **dropdown** (the select with Default (…) / CLI default / values) |
+| number | **slider** (`LevelSlider`, log scale for `scale: "log"`, 1000 positions snapped to 2 significant digits then to `step`, ends exact) + number field (commits on Done / focus loss, clamped; a preset value such as -1 / 0 is kept). `presets` add Default · <presets> · Custom segments; the slider shows for Custom only, and choosing Custom saves its start value at once (the default if in range, else `custom_min`) |
+
+- **Segments** (`Segments`): one M3 `SingleChoiceSegmentedButtonRow` when every label fits its equal
+  share of the width, otherwise the segments wrap into pills (`FlowRow`, radio semantics) instead of
+  cutting labels. "Default" is always first; a saved value the model lacks shows as a disabled extra
+  segment. In the session sheet, a session forcing the CLI default over a global value checks no
+  segment.
+- **Supporting line**: global "CLI default · X" / "Overrides the CLI default (X)"; session
+  "Default from Settings (X)" / "Default (CLI default · X)" / "CLI default for this session (X)" /
+  "Set for this session" (a selected choice's description wins). "Use default" (switches and
+  preset-less sliders, when set) and, in the session sheet only, "Use CLI default" when the global
+  page sets the option.
+- **`requires`**: an option whose dependency's effective value (session → global → CLI default) is
+  not in the list is disabled with "Applies when <Label> is <values joined with " or ">"; its saved
+  value is kept.
+- **Claude in Chrome** (`ClaudeInChromeField`, `chrome_extension`): the last row of the Claude Code
+  block on the global page (wherever that block is), and inside the harness section of the session
+  sheet only while the effective harness is `claude`.
+- **Global page** (`feature/settings/.../ui/ServerPages.kt` `AgentSessionsPage`): "New sessions"
+  (default harness), the default harness's "<Harness> defaults" block, then collapsible rows for the
+  other harnesses. Each control saves at once with a partial PUT (`{harness_model: {p: id}}`,
+  `{harness_options: {p: {key: value | null}}}`, null = CLI default). Catalog `warnings` show as a
+  notice; "Refresh models" refetches with `?refresh=true`.
 - **Session sheet** (`ui/SessionSettingsSheet.kt`, `SessionSettingsController`): Harness, Model and
-  options, each with a "Default (…)" inherit row. `harness_options` is sent as a whole map (absent
+  options; "Default" inherits the global value. `harness_options` is sent as a whole map (absent
   key = inherit, null = CLI default, empty = null) and compared structurally for the dirty check;
   changing the harness resets model + options to inherit, switching back restores the saved values.
-- **Logic**: `feature/settings/.../HarnessSettingsLogic.kt` (`HarnessLogic`), a port of the web
-  `harness.ts` (gating by the effective model, labels, select rows, diffs), unit-tested in
-  `HarnessSettingsLogicTest`. Composables: `ui/HarnessFields.kt`.
-- **Wire**: types in `core/model/Harness.kt` (`HarnessValue` = text / flag / number), DTOs in
-  `core/protocol/RestDto.kt`, mappers and the older-server fallback (`HarnessFallback`:
-  `/api/config/providers` + `/api/config/harness/qwen/models`) in `core/protocol/HarnessMappers.kt`;
-  `ServerSettingsModel` loads the catalogs with that fallback.
+- **Logic**: `HarnessSettingsLogic.kt` (`HarnessLogic`, a port of the web `harness.ts`: gating by
+  the effective model, labels, select rows, diffs) and `HarnessControls.kt` (`HarnessControls`, a
+  port of `harnessControls.ts`: control choice, resolved values, `requires`, source lines, segments,
+  log-slider mapping, number parse / format), unit-tested in `HarnessSettingsLogicTest` and
+  `HarnessControlsTest` (mirroring the web tests).
+- **Wire**: types in `core/model/Harness.kt` (`HarnessValue` = text / flag / number; hints:
+  `HarnessControl`, `ordered`, `unit`, `scale`, `HarnessPreset`, `customMin`, `requires`), DTOs in
+  `core/protocol/RestDto.kt` (hints read as raw JSON so a malformed one is dropped, never failing the
+  catalog), mappers and the older-server fallback (`HarnessFallback`: `/api/config/providers` +
+  `/api/config/harness/qwen/models`) in `core/protocol/HarnessMappers.kt`; `ServerSettingsModel`
+  loads the catalogs with that fallback.
+- **Provider labels**: `HarnessProvider` (`core/model/Sessions.kt`) is an open-ended id, not an
+  enum — a Codex or Model Studio session keeps its provider. Tabs and history rows label it with
+  `HarnessLabels`: short tag (Claude, Qwen, Gemini, Codex, Model Studio) → the registry label (kept
+  by `ServerSettingsModel` when it loads the catalogs) → the id; never null.
 - **Test data**: the JVM tests of `:core:protocol` and `:feature:settings` read the web mock
   catalogs (`apps/web/mock-server/data/harnesses.json`) through the `archie.harnessCatalogs`
   system property, so both clients test against the same data.

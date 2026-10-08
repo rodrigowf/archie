@@ -238,16 +238,13 @@ private fun ColumnScope.SessionFields(
                 onOption = controller::setOption,
             )
         }
+        // Claude Code only (`--chrome`): shown while the session runs Claude.
+        if (effective == "claude") {
+            ClaudeInChromeField(HarnessScope.SESSION, st.chromeExtension, inherited = global.chromeExtension, enabled = !disabled) {
+                controller.set(SessionKey.CHROME_EXTENSION, it)
+            }
+        }
     }
-    val chrome = st.chromeExtension
-    Section("Advanced") {
-        ToggleField(
-            "Claude in Chrome", chrome ?: global.chromeExtension, { controller.set(SessionKey.CHROME_EXTENSION, it) },
-            help = if (chrome == null) "Default (${if (global.chromeExtension) "on" else "off"})" else "Set for this session.",
-            enabled = !disabled,
-        )
-    }
-    if (chrome != null) ArchieButton("Use default", { controller.set(SessionKey.CHROME_EXTENSION, null) }, style = ButtonStyle.Text, size = ButtonSize.Small, icon = ArchieIcons.Refresh, enabled = !disabled)
     st.saveError?.let { Notice(NoticeTone.ERROR, "Not saved", body = it) }
 }
 

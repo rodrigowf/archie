@@ -241,9 +241,10 @@ internal fun VoiceTuningPage(feature: SettingsFeature, onBack: (() -> Unit)?) = 
 // ───────────────────────────── Agent sessions ─────────────────────────────
 
 /**
- * Settings → Agent sessions (web `AgentSessionsPage`): the default harness and Chrome flag, then the
- * default harness's model + options, then a collapsible block per other harness. Every control
- * saves on its own (`harness_model` / `harness_options` partial PUTs; `null` = CLI default).
+ * Settings → Agent sessions (web `AgentSessionsPage`): the default harness, then the default
+ * harness's model + options, then a collapsible block per other harness. Every control saves on its
+ * own (`harness_model` / `harness_options` partial PUTs; `null` = CLI default). Claude in Chrome is
+ * the last row of the Claude Code block, wherever that block is.
  */
 @Composable
 internal fun AgentSessionsPage(feature: SettingsFeature, onBack: (() -> Unit)?) = ServerPageFrame(feature, "Agent sessions", onBack) { cfg, st ->
@@ -261,12 +262,6 @@ internal fun AgentSessionsPage(feature: SettingsFeature, onBack: (() -> Unit)?) 
             supporting = if (st.catalogs.harnesses == null) "Loading the harness list…" else selected?.description,
         )
         FieldBlock { HelpLine("Applies to new agent tabs. Per session: ⋮ → Session settings.") }
-        ToggleField(
-            "Claude in Chrome", cfg.chromeExtension, { m.launchSave(ConfigPatch(chromeExtension = it), "chrome_extension") },
-            help = "Starts Claude sessions with the --chrome flag.",
-            info = "Anthropic's Claude-in-Chrome integration. Archie's own browser extension (browser-control) does not need this.",
-            enabled = !saving, testTag = "chrome",
-        )
     }
     if (selected != null) {
         HarnessWarnings(selected)
@@ -302,7 +297,10 @@ internal fun AgentSessionsPage(feature: SettingsFeature, onBack: (() -> Unit)?) 
     }
 }
 
-/** Model + options of one harness, each saved on its own (`harness_model` / `harness_options` partial PUTs). */
+/**
+ * Model + options of one harness, each saved on its own (`harness_model` / `harness_options` partial
+ * PUTs); Claude Code adds its "Claude in Chrome" switch (`chrome_extension`).
+ */
 @Composable
 private fun ColumnScope.HarnessDefaults(m: ServerSettingsModel, cfg: ServerConfig, harness: HarnessInfo, enabled: Boolean) {
     val p = harness.id
@@ -316,4 +314,9 @@ private fun ColumnScope.HarnessDefaults(m: ServerSettingsModel, cfg: ServerConfi
         onModel = { m.launchSave(HarnessLogic.globalModelPatch(p, it.orEmpty()), "harness_model") },
         onOption = { key, state -> m.launchSave(HarnessLogic.globalOptionPatch(p, key, state), "harness_options") },
     )
+    if (p == "claude") {
+        ClaudeInChromeField(HarnessScope.GLOBAL, cfg.chromeExtension, inherited = cfg.chromeExtension, enabled = enabled) {
+            m.launchSave(ConfigPatch(chromeExtension = it == true), "chrome_extension")
+        }
+    }
 }

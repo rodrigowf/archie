@@ -51,9 +51,34 @@ enum class HarnessOptionKind(val wire: String) {
     }
 }
 
+/** The control an option renders as (the catalog's `control` hint; spec 12 §8.1). */
+enum class HarnessControl(val wire: String) {
+    SWITCH("switch"),
+    SEGMENTED("segmented"),
+    LEVELS("levels"),
+    SLIDER("slider"),
+    DROPDOWN("dropdown"),
+    ;
+
+    companion object {
+        /** null for a control this client does not know (the UI then infers one). */
+        fun fromWire(s: String?): HarnessControl? = entries.firstOrNull { it.wire == s }
+    }
+}
+
+/** A named special number of a `number` option (Gemini's budget: -1 = Dynamic, 0 = Off). */
+data class HarnessPreset(val value: Double, val label: String, val description: String? = null)
+
 /**
  * One configurable knob. [default] is what the CLI does when the option is unset (informational).
  * [models] restricts the option to those model ids (null = every model).
+ *
+ * Presentation hints (all optional; older servers send none and the UI infers a control):
+ * [control] forces the control; [ordered] marks a select's choices as ordinal levels; [unit] and
+ * [scale] (`linear` | `log`) describe a number; [presets] are named special numbers shown next to
+ * the slider; [customMin] is the lowest value the slider / field offers (default [min]; presets may
+ * lie below it); [requires] maps another option's key to the effective values it must have for this
+ * option to apply (`null` in a list = unset / unknown).
  */
 data class HarnessOption(
     val key: String,
@@ -66,6 +91,13 @@ data class HarnessOption(
     val min: Double? = null,
     val max: Double? = null,
     val step: Double? = null,
+    val control: HarnessControl? = null,
+    val ordered: Boolean = false,
+    val unit: String? = null,
+    val scale: String? = null,
+    val presets: List<HarnessPreset> = emptyList(),
+    val customMin: Double? = null,
+    val requires: Map<String, List<HarnessValue?>>? = null,
 )
 
 /**

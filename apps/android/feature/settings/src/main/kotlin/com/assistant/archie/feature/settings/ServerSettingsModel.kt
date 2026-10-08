@@ -4,6 +4,7 @@ import com.assistant.core.data.LoadState
 import com.assistant.core.data.ServerConfigRepository
 import com.assistant.core.model.ConfigPatch
 import com.assistant.core.model.HarnessInfo
+import com.assistant.core.model.HarnessLabels
 import com.assistant.core.model.ServerConfig
 import com.assistant.core.network.ApiResult
 import com.assistant.core.network.ArchieApi
@@ -122,7 +123,10 @@ class ServerSettingsModel(
      * any failure) fall back to `/api/config/providers` + the Qwen model list; a Qwen row without a
      * catalog gets one from the Qwen model list too (web `loadHarnessCatalogs`). null = nothing loaded.
      */
-    private suspend fun loadHarnesses(refresh: Boolean): List<HarnessInfo>? {
+    private suspend fun loadHarnesses(refresh: Boolean): List<HarnessInfo>? =
+        fetchHarnesses(refresh)?.also(HarnessLabels::register) // tab / history labels of harnesses the app does not know
+
+    private suspend fun fetchHarnesses(refresh: Boolean): List<HarnessInfo>? {
         val list = api.harnesses(refresh).getOrNull()
         if (list != null) {
             if (list.none { it.id == "qwen" && it.catalog == null }) return list
