@@ -19,6 +19,7 @@ references:
   - ../clients/browser-extension.md
   - ../operations/troubleshooting.md
   - model-studio.md
+  - ../architecture/memory-and-search.md
 ---
 
 # Claude Code harness
@@ -54,7 +55,7 @@ therefore keeps all its state in the gitignored `.claude_config/`, not in `~/.cl
 
 | Path in `.claude_config/` | What it is |
 |---|---|
-| `projects/-home-rodrigo-assistant` → `../../context` | Project dir for the repo root. Session JSONL lands at `context/<sdk-session-id>.jsonl`; subagent and tool-result state in `context/<uuid>/`; auto-memory resolves to `context/memory/` |
+| `projects/-home-rodrigo-assistant` → `../../context` | Project dir for the repo root. Session JSONL lands at `context/<sdk-session-id>.jsonl`; subagent and tool-result state in `context/<uuid>/`; auto-memory would resolve to `context/memory/` (switched off in the repo — see below) |
 | `skills` → `../context/skills` | Meant for skill discovery (see Pitfalls) |
 | `agents` → `../context/agents` | Subagent definitions |
 | `.credentials.json` | OAuth credentials of this machine's grant (not synced) |
@@ -77,6 +78,18 @@ against `requirements-claude.txt`, the bundled CLI and the auth source
 come from `CLAUDE.md` at the repo root, a symlink to `context/AGENTS.md` (shared with
 `QWEN.md` and `GEMINI.md`).
 
+**Memory.** Through that project symlink the CLI's auto-memory directory is `context/memory/`: it
+loads the wiki's `MEMORY.md`, but its own instructions make the agent save flat notes in its own
+frontmatter at the root of `context/memory/` and append pointers to `MEMORY.md` (seen live with
+Model Studio on 2026-10-08; it overwrote `MEMORY.md` on 2026-10-03). `"autoMemoryEnabled": false`
+in `.claude_config/settings.json` does not help — SDK sessions load only the `project` and `local`
+setting sources. So for a session in the repo `_harness_env()` sets
+`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` (forwarded over SSH too) and `_build_options()` appends the
+shared memory block (`backend/manager/memory_context.py`: the live `MEMORY.md`, read at session
+start, plus "write memory with file tools per `AGENTS.md`") after the gating prompt — the same block
+Qwen and Codex get ([memory and search](../architecture/memory-and-search.md#every-harness-reads-and-writes-the-same-memory)).
+Other working directories keep the CLI's default auto-memory (in `.claude_config/projects/<key>/memory/`).
+
 ## How a session is built (`_build_options()`)
 
 | Option | Value | Why |
@@ -84,14 +97,14 @@ come from `CLAUDE.md` at the repo root, a symlink to `context/AGENTS.md` (shared
 | `include_partial_messages` | `True` | Token-level `TextDelta` / `ThinkingDelta` |
 | `setting_sources` | `["project", "local"]` | Reads `<project_dir>/.claude/settings.json` and `settings.local.json` (seeded from `install/cli-runtime/claude/settings.json`) |
 | `can_use_tool` | `_can_use_tool` | Gates `_DEFAULT_GATED_TOOLS = {"ExitPlanMode"}`; everything else auto-allows |
-| `system_prompt` | preset `claude_code` + `append=_PERMISSION_GATING_PROMPT` | Agent announces intent before a gated tool |
+| `system_prompt` | preset `claude_code` + `append=_PERMISSION_GATING_PROMPT` (+ the memory block in the repo) | Agent announces intent before a gated tool; `MEMORY.md` in context |
 | `permission_mode` | from config (`"default"`, so the callback fires) | |
 | `model`, `max_budget_usd`, `max_turns` | from `ManagerConfig` | Model comes from per-session / global `harness_model.claude` |
 | `resume`, `fork_session` | SDK session id / fork flag | Resume and fork from history |
 | `mcp_servers` | resolved per session | Overrides `.claude.json` when given |
 | `effort`, `thinking`, `fallback_model` | from `ManagerConfig.harness_options` (see [Configuration](#configuration-catalog--options)) | Nothing is passed for an unset option |
 | `extra_args` | `{"chrome": None}` when the chrome flag is on, plus `{"thinking-display": "summarized"}` when no thinking mode is set | `--chrome`; thinking text (see below) |
-| `env` | `os.environ` minus `CLAUDECODE`, plus `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` (unless `todo_tools` is off) and `CLAUDE_CODE_MCP_STARTUP_WAIT_MS=2000` (unless already set) | Spawn from inside Claude Code; checklist tools; MCP tools on turn 1. The SSH wrapper forwards the two knobs too |
+| `env` | `os.environ` minus `CLAUDECODE`, plus `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` (unless `todo_tools` is off) and `CLAUDE_CODE_MCP_STARTUP_WAIT_MS=2000` (unless already set), and `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` in the repo | Spawn from inside Claude Code; checklist tools; MCP tools on turn 1. The SSH wrapper forwards the two knobs too |
 | `stderr` | logged as `claude CLI stderr [<local_id>]` | Errors visible in the backend log |
 | `cwd` / `cli_path` | `project_dir` locally; for SSH a temp wrapper script and `cwd=$HOME` | [ssh-remote-execution](../infrastructure/ssh-remote-execution.md) |
 
@@ -264,3 +277,5 @@ through the `/browser-control` skill. Only the Claude harness honors this flag.
 - 2026-10-07 — SDK 0.2.164 / CLI 2.1.292 (exact pin), behaviour-preserving defaults (thinking
   display, todo tools, MCP startup wait, `/clear` session id), config catalog + options, 1M context
   windows for 4.6+ / 5.x, SSH-wrapper apostrophe fix.
+- 2026-10-08 — auto-memory off in the repo, the shared `MEMORY.md` block appended instead
+  (memory parity across harnesses).
