@@ -34,7 +34,7 @@ import { installVoice, VoiceSlot } from '@/features/voice';
 import { HistoryPane as HistoryView, type HistoryVariant, type OpenNowItem } from '@/features/history';
 import { MemoryDocument as MemoryDocumentView, MemoryPane as MemoryView } from '@/features/memory';
 import { VisualsPane as VisualsView } from '@/features/visuals';
-import { useTabs } from '@/stores';
+import { useProviderLabel, useTabs } from '@/stores';
 import { navigate } from '../navigation/route';
 import { ArchieMark } from '../shell/ArchieMark';
 import { focusTab, newAgent, openDocument, openFromHistory, requestCloseTab, requestRename } from '../shell/actions';
@@ -42,7 +42,7 @@ import { closeShellOverlays } from '../shell/shellState';
 import { useWindowClass } from '../useWindowClass';
 import { useTitledTabs } from '../workspace/SessionTabStrip';
 import { StatusGlyph, TabLeading } from '../workspace/TabParts';
-import { PROVIDER_LABEL, useTabSummaries } from '../workspace/tabSummary';
+import { useTabSummaries } from '../workspace/tabSummary';
 
 export { Composer } from '@/features/composer';
 export { VoiceAction } from '@/features/voice';
@@ -90,6 +90,7 @@ export function HistoryPane({ variant = 'pane' }: { variant?: HistoryVariant }) 
   const activeId = useTabs((s) => s.activeId);
   const open = useMemo(() => tabs.filter((t) => t.kind === 'archie' || t.kind === 'agent'), [tabs]);
   const summaries = useTabSummaries(open);
+  const providerLabelOf = useProviderLabel();
   const openNow = useMemo<OpenNowItem[]>(
     () =>
       open.map((t) => {
@@ -99,13 +100,13 @@ export function HistoryPane({ variant = 'pane' }: { variant?: HistoryVariant }) 
           title: titles[t.id] ?? '',
           sdkId: t.sdkId ?? null,
           isArchie: t.kind === 'archie',
-          providerLabel: t.kind === 'agent' && t.provider ? PROVIDER_LABEL[t.provider] : null,
+          providerLabel: t.kind === 'agent' ? providerLabelOf(t.provider) : null,
           statusLabel: sum ? sum.label : null,
           leading: <TabLeading tab={t} size={t.kind === 'archie' ? 24 : 20} unseen={t.unseen && t.id !== activeId} />,
           status: <StatusGlyph summary={sum} />,
         };
       }),
-    [open, summaries, titles, activeId],
+    [open, summaries, titles, activeId, providerLabelOf],
   );
   return (
     <HistoryView

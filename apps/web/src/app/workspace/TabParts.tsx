@@ -1,10 +1,10 @@
 /** Shared pieces of a tab's presentation: leading icon, provider chip, status indicator. */
 import type { Provider } from '@/protocol';
-import type { Tab } from '@/stores';
+import { useProviderLabel, type Tab } from '@/stores';
 import { StatusDot, Tag } from '@/ui/controls';
 import { Icon } from '@/ui/primitives';
 import { ArchieMark } from '../shell/ArchieMark';
-import { kindIcon, PROVIDER_LABEL, type TabSummary } from './tabSummary';
+import { kindIcon, type TabSummary } from './tabSummary';
 import styles from './workspace.module.css';
 
 /**
@@ -23,8 +23,8 @@ export function TabLeading({ tab, size = 20, unseen = false }: { tab: Pick<Tab, 
 }
 
 export function ProviderTag({ provider }: { provider: Provider | null | undefined }) {
-  if (!provider) return null;
-  return <Tag>{PROVIDER_LABEL[provider]}</Tag>;
+  const label = useProviderLabel()(provider);
+  return label ? <Tag>{label}</Tag> : null;
 }
 
 /** Spinner working, dot idle, hand waiting, warning disconnected, outline dot off (never color alone). */

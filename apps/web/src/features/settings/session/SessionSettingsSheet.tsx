@@ -3,7 +3,8 @@
  * bottom sheet on Compact, opened from the session ⋮ menu. Fields: working directory, MCP servers,
  * skills & agents (read-only: the backend has no per-session selection, inv02 F-35), the harness
  * with its model and options (reasoning effort, thinking, … from the harness catalog; `HarnessFields`)
- * and under "Advanced" the Chrome flag. Changing the harness resets the model and options to inherit.
+ * and, when the session runs Claude Code, its Chrome flag. Changing the harness resets the model and
+ * options to inherit.
  *
  * Every field is `null` = inherit the global value (shown as "Default"); "Use default" writes
  * `null`. Changes are a draft until saved: **Save** PUTs only the changed keys; **Save and restart**
@@ -16,13 +17,13 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useSessionActions } from '@/features/session-actions';
 import { api, errorMessage, getSessionRuntime, SessionRuntime, type ServerConfig, type SessionConfig } from '@/services';
 import { showSnackbar, useServerConfig } from '@/stores';
-import { Button, Disclosure, Select, Switch, type SelectOption } from '@/ui/controls';
+import { Button, Disclosure, Select, type SelectOption } from '@/ui/controls';
 import { BottomSheet, SideSheet } from '@/ui/overlays';
 import { refreshSettings } from '../controller';
 import { draftForProvider, harnessInfo, harnessLabel, normalizeOptionsMap, sameOptionsMap, withSessionOption } from '../harness';
-import { HarnessFields, HarnessWarnings } from '../HarnessFields';
+import { ClaudeInChromeField, HarnessFields, HarnessWarnings } from '../HarnessFields';
 import { coerceWorkingDirectories } from '../logic';
-import { Field, FieldStack, Loading, Notice, useFieldId } from '../parts';
+import { Field, FieldStack, Loading, Notice } from '../parts';
 import { McpServerList } from '../pages/McpServersPage';
 import { WorkingDirectoryList } from '../pages/WorkingDirectoriesPage';
 import { useCompactWindow } from './useCompactWindow';
@@ -250,7 +251,6 @@ function SessionFields({ global, value, set, setProvider, disabled, onOpenSettin
   const harnesses = useServerConfig((s) => s.harnesses) ?? [];
   const skills = useServerConfig((s) => s.skills) ?? [];
   const agents = useServerConfig((s) => s.agents) ?? [];
-  const chromeId = useFieldId('schrome');
 
   const wd = value('working_directory');
   const history = coerceWorkingDirectories(global.working_directory_history);
@@ -351,23 +351,15 @@ function SessionFields({ global, value, set, setProvider, disabled, onOpenSettin
           onModel={(m) => set('harness_model', m)}
           onOption={(key, st) => set('harness_options', withSessionOption(harnessOptions, key, st))}
         />
-      </FieldStack>
-
-      <FieldStack label="Advanced">
-        <Field
-          label="Claude in Chrome"
-          labelId={chromeId}
-          help={chrome === null ? `Default (${global.chrome_extension ? 'on' : 'off'})` : 'Set for this session.'}
-          trailing={
-            <Switch aria-labelledby={chromeId} checked={chrome ?? global.chrome_extension} disabled={disabled} onCheckedChange={(v) => set('chrome_extension', v)} />
-          }
-        >
-          {chrome !== null ? (
-            <div className={styles.actionsRow}>
-              <UseDefault shown disabled={disabled} onClick={() => set('chrome_extension', null)} />
-            </div>
-          ) : null}
-        </Field>
+        {effectiveProvider === 'claude' ? (
+          <ClaudeInChromeField
+            scope="session"
+            value={chrome}
+            inherited={global.chrome_extension}
+            disabled={disabled}
+            onChange={(v) => set('chrome_extension', v)}
+          />
+        ) : null}
       </FieldStack>
     </>
   );

@@ -3,6 +3,7 @@
  * Services update the stores without React; components select narrow slices. Selectors that
  * return new objects or arrays must be wrapped in `useShallow` (re-exported here).
  */
+import { useCallback } from 'react';
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import { deriveTitle, initialConversation } from '@/protocol';
@@ -10,6 +11,7 @@ import { capabilitiesStore, type CapabilitiesState } from './capabilities';
 import { catalogStore, type CatalogState } from './catalog';
 import { connectionStore, type ConnectionState } from './connection';
 import { prefsStore, type Prefs } from './prefs';
+import { providerLabel } from './providerLabels';
 import { serverConfigStore, type ServerConfigState } from './serverConfig';
 import { getSessionEntry, sessionRegistryVersion } from './sessionRegistry';
 import type { SessionState } from './sessionStore';
@@ -23,6 +25,7 @@ export * from './catalog';
 export * from './connection';
 export * from './liveStatus';
 export * from './prefs';
+export * from './providerLabels';
 export * from './scheduler';
 export * from './serverConfig';
 export * from './sessionRegistry';
@@ -66,6 +69,13 @@ export function useCatalog<T>(selector: (s: CatalogState) => T): T {
 
 export function useServerConfig<T>(selector: (s: ServerConfigState) => T): T {
   return useStore(serverConfigStore, selector);
+}
+
+/** `providerLabel` bound to the harness registry in the store (re-renders when it loads). */
+export function useProviderLabel(): (id: string | null | undefined) => string | null {
+  const harnesses = useServerConfig((s) => s.harnesses);
+  const providers = useServerConfig((s) => s.providers);
+  return useCallback((id: string | null | undefined) => providerLabel(id, harnesses, providers), [harnesses, providers]);
 }
 
 export function usePrefs<T>(selector: (s: Prefs) => T): T {

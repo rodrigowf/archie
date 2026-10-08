@@ -126,41 +126,58 @@ describe('SessionSettingsSheet', () => {
     await waitFor(() => expect(within(sheet).getAllByRole('button', { name: 'Use default' })).toHaveLength(1));
   });
 
-  it('harness section: model + catalog options with inherit rows; Save PUTs model + the whole options map', async () => {
+  it('harness section: model + option controls that inherit; Use CLI default; Save PUTs model + the whole options map', async () => {
     const user = userEvent.setup();
     await liveAgent();
     render(<SessionSettingsSheet localId="L1" open onClose={() => undefined} kind="side" />);
     const sheet = await screen.findByRole('dialog', { name: 'Session settings' });
     const combo = (name: string) => within(sheet).findByRole('combobox', { name });
-    const pick = async (box: string, option: RegExp) => {
-      await user.click(await combo(box));
-      await user.click(await screen.findByRole('option', { name: option }));
+    const group = (name: string) => within(sheet).getByRole('radiogroup', { name });
+    const radio = (name: string, value: string) => within(group(name)).getByRole('radio', { name: value });
+    const checked = (name: string) =>
+      within(group(name))
+        .getAllByRole('radio')
+        .find((r) => r.getAttribute('aria-checked') === 'true')?.textContent;
+    const save = async (n: number) => {
+      await user.click(within(sheet).getByRole('button', { name: 'Save' }));
+      await waitFor(() => expect(h.fetch.calls('PUT', '/api/sessions/sdk-1/config')).toHaveLength(n));
+      return h.fetch.calls('PUT', '/api/sessions/sdk-1/config')[n - 1]?.body;
     };
     expect((await combo('Harness')).textContent).toContain('Default (Claude Code)');
     expect((await combo('Model')).textContent).toContain('Default (CLI default (Claude Sonnet 5.5))');
-    // global effort is "high" (fixtures): the inherit row says so
-    expect((await combo('Reasoning effort')).textContent).toContain('Default (High)');
-    expect((await combo('Checklist tools')).textContent).toContain('Default (CLI default · On)');
+    // global effort is "high" (fixtures): "Default" inherits it and says so
+    expect(checked('Reasoning effort')).toBe('Default');
+    expect(within(sheet).getByText('Default from Settings (High)')).toBeTruthy();
+    expect(within(sheet).getByRole('switch', { name: 'Checklist tools' }).getAttribute('aria-checked')).toBe('true');
+    expect(within(sheet).getByText('Default (CLI default · On)')).toBeTruthy();
+    // Claude in Chrome sits in the harness section (the session runs Claude Code)
+    expect(within(sheet).getByRole('switch', { name: 'Claude in Chrome' })).toBeTruthy();
+    expect(within(sheet).queryByRole('heading', { name: 'Advanced' })).toBeNull();
 
-    await pick('Model', /^Claude Opus 4\.6/);
-    await pick('Reasoning effort', /^Max/);
-    await pick('Thinking', /^CLI default/);
-    await pick('Checklist tools', /^Off/);
+    await user.click(await combo('Model'));
+    await user.click(await screen.findByRole('option', { name: /^Claude Opus 4\.6/ }));
+    await user.click(radio('Reasoning effort', 'Max'));
+    await user.click(radio('Thinking', 'Off'));
+    await user.click(within(sheet).getByRole('switch', { name: 'Checklist tools' }));
     expect(within(sheet).getByText('Changes apply after a restart.')).toBeTruthy();
-    await user.click(within(sheet).getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(h.fetch.calls('PUT', '/api/sessions/sdk-1/config')).toHaveLength(1));
-    expect(h.fetch.calls('PUT', '/api/sessions/sdk-1/config')[0]?.body).toEqual({
+    expect(await save(1)).toEqual({
       harness_model: 'claude-opus-4-6',
-      harness_options: { effort: 'max', thinking: null, todo_tools: false },
+      harness_options: { effort: 'max', thinking: 'disabled', todo_tools: false },
     });
 
-    // back to inherit for one key: the map shrinks; everything inherited again → null
-    await pick('Reasoning effort', /^Default/);
-    await pick('Thinking', /^Default/);
-    await pick('Checklist tools', /^Default/);
-    await user.click(within(sheet).getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(h.fetch.calls('PUT', '/api/sessions/sdk-1/config')).toHaveLength(2));
-    expect(h.fetch.calls('PUT', '/api/sessions/sdk-1/config')[1]?.body).toEqual({ harness_options: null });
+    // "Use CLI default" (only where Settings sets a value): null in the map, no level checked
+    expect(within(sheet).getAllByRole('button', { name: 'Use CLI default' })).toHaveLength(1);
+    await user.click(within(sheet).getByRole('button', { name: 'Use CLI default' }));
+    expect(checked('Reasoning effort')).toBeUndefined();
+    expect(within(sheet).getByText('CLI default for this session')).toBeTruthy();
+    expect(await save(2)).toEqual({ harness_options: { effort: null, thinking: 'disabled', todo_tools: false } });
+
+    // back to inherit: Default segments, "Use default" on the switch → the map becomes null
+    await user.click(radio('Reasoning effort', 'Default'));
+    await user.click(radio('Thinking', 'Default'));
+    // the only option set for this session now is the switch
+    await user.click(within(sheet).getByRole('button', { name: 'Use default' }));
+    expect(await save(3)).toEqual({ harness_options: null });
   });
 
   it('switching the harness resets model + options to inherit and shows that harness (warnings, its options)', async () => {
@@ -171,17 +188,24 @@ describe('SessionSettingsSheet', () => {
     render(<SessionSettingsSheet localId="L1" open onClose={() => undefined} kind="bottom" />);
     const sheet = await screen.findByRole('dialog', { name: 'Session settings' });
     const combo = (name: string) => within(sheet).findByRole('combobox', { name });
-    expect((await combo('Reasoning effort')).textContent).toContain('Max');
+    const checked = (name: string) =>
+      within(within(sheet).getByRole('radiogroup', { name }))
+        .getAllByRole('radio')
+        .find((r) => r.getAttribute('aria-checked') === 'true')?.textContent;
+    expect(await within(sheet).findByRole('radiogroup', { name: 'Reasoning effort' })).toBeTruthy();
+    expect(checked('Reasoning effort')).toBe('Max');
     await user.click(await combo('Harness'));
     await user.click(await screen.findByRole('option', { name: 'Codex' }));
     expect(await within(sheet).findByText(/shared login/)).toBeTruthy();
     expect((await combo('Model')).textContent).toContain('Default (CLI default (GPT-6-Luna))');
-    expect((await combo('Reasoning effort')).textContent).toContain('Default (CLI default · Medium)');
-    expect(within(sheet).getByRole('combobox', { name: 'Web search' })).toBeTruthy();
+    expect(checked('Reasoning effort')).toBe('Default');
+    expect(within(sheet).getByText('Default (CLI default · Medium)')).toBeTruthy();
+    expect(within(sheet).getByRole('radiogroup', { name: 'Web search' })).toBeTruthy();
+    // Claude in Chrome is Claude Code only
+    expect(within(sheet).queryByRole('switch', { name: 'Claude in Chrome' })).toBeNull();
     await user.click(await combo('Model'));
     await user.click(await screen.findByRole('option', { name: /^GPT-5\.6-Terra/ }));
-    await user.click(await combo('Reasoning effort'));
-    await user.click(await screen.findByRole('option', { name: /^Ultra/ }));
+    await user.click(within(within(sheet).getByRole('radiogroup', { name: 'Reasoning effort' })).getByRole('radio', { name: 'Ultra' }));
     await user.click(within(sheet).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(h.fetch.calls('PUT', '/api/sessions/sdk-1/config')).toHaveLength(1));
     expect(h.fetch.calls('PUT', '/api/sessions/sdk-1/config')[0]?.body).toEqual({

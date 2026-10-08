@@ -84,6 +84,32 @@ export interface HarnessOption {
   min?: number;
   max?: number;
   step?: number;
+  /**
+   * Presentation hints (all optional; older servers send none and the UI infers a control —
+   * `src/features/settings/harness.ts` `optionControl`). `control` forces the control.
+   */
+  control?: HarnessControl;
+  /** The choices of a select are ordinal levels (effort, thinking level, verbosity). */
+  ordered?: boolean;
+  /** Unit of a number ("tokens"). */
+  unit?: string;
+  /** Slider scale of a number (default linear). */
+  scale?: 'linear' | 'log';
+  /** Named special numbers next to the slider (Gemini's budget: -1 = Dynamic, 0 = Off). */
+  presets?: HarnessPreset[];
+  /** Lowest value the slider / field offers (default `min`); presets may lie below it. */
+  custom_min?: number;
+  /** Applies only while each other option's effective value is in its list (`null` = unset). */
+  requires?: Record<string, (HarnessOptionValue | null)[]>;
+}
+
+/** The control an option renders as (`HarnessOption.control`). */
+export type HarnessControl = 'switch' | 'segmented' | 'levels' | 'slider' | 'dropdown';
+
+export interface HarnessPreset {
+  value: number;
+  label: string;
+  description?: string;
 }
 
 export interface HarnessCatalog {

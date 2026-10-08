@@ -5,7 +5,7 @@
  * attach, delete (§6.8), rewind order (§6.5), agent approvals (§6.9).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { activateTab, getSessionEntry, snackbarStore, tabsStore } from '@/stores';
+import { activateTab, getSessionEntry, setCatalogItems, snackbarStore, tabsStore } from '@/stores';
 import {
   ArchieRuntime,
   closeSession,
@@ -405,6 +405,24 @@ describe('explicit actions', () => {
     const next = continueTerminated('T1');
     expect(next?.conv.ref.sdkId).toBe('sdk-t');
     expect(closeCalls()).toEqual([]);
+  });
+});
+
+describe('provider of a past session', () => {
+  it('opening a history row takes its harness from the catalog, whatever the id (codex, modelstudio, new ones)', () => {
+    setCatalogItems('sessions', [
+      { session_id: 'sdk-c', started_at: '', last_activity: '', title: 'Codex job', message_count: 2, is_orchestrator: false, provider: 'codex', local_id: null },
+      { session_id: 'sdk-n', started_at: '', last_activity: '', title: 'New harness', message_count: 2, is_orchestrator: false, provider: 'aider', local_id: null },
+    ]);
+    const c = openSession({ kind: 'agent', sdkId: 'sdk-c', focus: true }) as SessionRuntime;
+    expect(c.conv.ref.provider).toBe('codex');
+    expect(tabsStore.getState().tabs.find((t) => t.id === c.localId)?.provider).toBe('codex');
+    const n = openSession({ kind: 'agent', sdkId: 'sdk-n', focus: false }) as SessionRuntime;
+    expect(n.conv.ref.provider).toBe('aider');
+    // unknown session: Claude by default for the runtime, no provider tag
+    const u = openSession({ kind: 'agent', sdkId: 'sdk-unknown', focus: false }) as SessionRuntime;
+    expect(u.conv.ref.provider).toBe('claude');
+    expect(tabsStore.getState().tabs.find((t) => t.id === u.localId)?.provider).toBeNull();
   });
 });
 

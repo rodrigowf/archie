@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { expectNoAxeViolations } from '@/test/axe';
 import { renderUi } from '@/test/render';
@@ -78,5 +79,62 @@ describe('SegmentedButton (multiple)', () => {
     await user.click(vosk as HTMLElement);
     expect(onChange).toHaveBeenLastCalledWith(['whisper']);
     await expectNoAxeViolations(container);
+  });
+});
+
+describe('SegmentedButton (dot, title, wrap)', () => {
+  it('a dotted segment keeps its label as the name and shows its title', () => {
+    const { getByRole } = renderUi(
+      <SegmentedButton aria-label="Effort" options={[{ value: 'low', label: 'Low' }, { value: 'high', label: 'High', dot: true, title: 'CLI default' }]} defaultValue="low" />,
+    );
+    const high = getByRole('radio', { name: 'High' });
+    expect(high.getAttribute('title')).toBe('CLI default');
+    expect(high.querySelector('[aria-hidden="true"]:not(svg)')).toBeTruthy();
+  });
+
+  it('wrap: separate pills (class on the group); auto stays one row when nothing is cut', () => {
+    const opts: SegmentOption[] = [
+      { value: 'a', label: 'Alpha' },
+      { value: 'b', label: 'Beta' },
+    ];
+    const { getAllByRole, rerender } = renderUi(<SegmentedButton aria-label="Wrap" options={opts} wrap />);
+    const wrapped = (getAllByRole('radiogroup')[0] as HTMLElement).className;
+    rerender(<SegmentedButton aria-label="Wrap" options={opts} wrap="auto" fullWidth />);
+    // jsdom has no layout: nothing overflows, so "auto" keeps the one-row (full width) look
+    const auto = (getAllByRole('radiogroup')[0] as HTMLElement).className;
+    expect(auto).not.toBe(wrapped);
+    expect(auto).toContain('fullWidth');
+  });
+
+  it('wrap="auto" switches to pills when the labels need more than the row', async () => {
+    const sw = vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.getAttribute('role') === 'radiogroup' ? 100 : 80;
+    });
+    const cw = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.getAttribute('role') === 'radiogroup' ? 100 : 40;
+    });
+    // a ResizeObserver that reports at once (the test setup's stub never does)
+    class FiringObserver {
+      constructor(private readonly cb: () => void) {}
+      observe(): void {
+        this.cb();
+      }
+      disconnect(): void {}
+    }
+    vi.stubGlobal('ResizeObserver', FiringObserver);
+    try {
+      const opts: SegmentOption[] = [
+        { value: 'a', label: 'A rather long label' },
+        { value: 'b', label: 'Another long label' },
+      ];
+      const { getByRole } = renderUi(<SegmentedButton aria-label="Auto" options={opts} wrap="auto" fullWidth />);
+      const one = renderUi(<SegmentedButton aria-label="Pills" options={opts} wrap />);
+      const pills = one.getByRole('radiogroup', { name: 'Pills' }).className;
+      await waitFor(() => expect(getByRole('radiogroup', { name: 'Auto' }).className).toBe(pills));
+    } finally {
+      vi.unstubAllGlobals();
+      sw.mockRestore();
+      cw.mockRestore();
+    }
   });
 });

@@ -12,10 +12,10 @@
 import { useState } from 'react';
 import { loadHarnessCatalogs, type HarnessInfo, type ServerConfig } from '@/services';
 import { useServerConfig } from '@/stores';
-import { Button, Disclosure, Select, Switch, type SelectOption } from '@/ui/controls';
+import { Button, Disclosure, Select, type SelectOption } from '@/ui/controls';
 import { saveSetting } from '../controller';
 import { globalModelPatch, globalOptionPatch, harnessDefaultsSummary, harnessInfo } from '../harness';
-import { HarnessFields, HarnessWarnings } from '../HarnessFields';
+import { ClaudeInChromeField, HarnessFields, HarnessWarnings } from '../HarnessFields';
 import {
   audioModels,
   findModel,
@@ -25,7 +25,7 @@ import {
   modelTraits,
   textModels,
 } from '../logic';
-import { Field, FieldStack, Notice, useFieldId } from '../parts';
+import { Field, FieldStack, Notice } from '../parts';
 import { useSaving, WithConfig } from './shared';
 import type { ModelInfo } from '@/protocol';
 import styles from '../settings.module.css';
@@ -187,7 +187,6 @@ export function AgentSessionsPage() {
 function AgentSessionsForm({ cfg }: { cfg: ServerConfig }) {
   const harnesses = useServerConfig((s) => s.harnesses);
   const saving = useSaving();
-  const chromeId = useFieldId('chrome');
   const list = harnesses ?? [];
   const options: SelectOption[] = list.map((p) => ({ value: p.id, label: p.label || p.id }));
   if (cfg.provider && !options.some((o) => o.value === cfg.provider)) options.unshift({ value: cfg.provider, label: cfg.provider });
@@ -209,22 +208,6 @@ function AgentSessionsForm({ cfg }: { cfg: ServerConfig }) {
             }}
           />
         </Field>
-        <Field
-          label="Claude in Chrome"
-          labelId={chromeId}
-          help="Starts Claude sessions with the --chrome flag."
-          info="Anthropic's Claude-in-Chrome integration. Archie's own browser extension (browser-control) does not need this."
-          trailing={
-            <Switch
-              aria-labelledby={chromeId}
-              checked={cfg.chrome_extension}
-              disabled={saving}
-              onCheckedChange={(v) => {
-                void saveSetting({ chrome_extension: v }, 'chrome_extension');
-              }}
-            />
-          }
-        />
       </FieldStack>
       {selected ? (
         <>
@@ -241,18 +224,7 @@ function AgentSessionsForm({ cfg }: { cfg: ServerConfig }) {
           <p className={styles.help}>Defaults for sessions you switch to another harness (⋮ → Session settings).</p>
           <div className={styles.harnessList}>
             {others.map((h) => (
-              <Disclosure
-                key={h.id}
-                summary={h.label || h.id}
-                meta={harnessDefaultsSummary(h.catalog, cfg.harness_model?.[h.id] ?? '', cfg.harness_options?.[h.id])}
-                className={styles.harnessGroup}
-                bodyClassName={styles.harnessGroupBody}
-              >
-                <HarnessWarnings harness={h} />
-                <div className={styles.fieldStack}>
-                  <HarnessDefaults cfg={cfg} harness={h} disabled={saving} />
-                </div>
-              </Disclosure>
+              <OtherHarness key={h.id} cfg={cfg} harness={h} disabled={saving} />
             ))}
           </div>
         </div>
@@ -261,23 +233,62 @@ function AgentSessionsForm({ cfg }: { cfg: ServerConfig }) {
   );
 }
 
-/** Model + options of one harness, each saved on its own (`harness_model` / `harness_options` partial PUTs). */
+/** A collapsed block of a non-default harness; its fields mount when opened (so controls measure their real width). */
+function OtherHarness({ cfg, harness, disabled }: { cfg: ServerConfig; harness: HarnessInfo; disabled: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Disclosure
+      summary={harness.label || harness.id}
+      meta={harnessDefaultsSummary(harness.catalog, cfg.harness_model?.[harness.id] ?? '', cfg.harness_options?.[harness.id])}
+      className={styles.harnessGroup}
+      bodyClassName={styles.harnessGroupBody}
+      open={open}
+      onOpenChange={setOpen}
+    >
+      {open ? (
+        <>
+          <HarnessWarnings harness={harness} />
+          <div className={styles.fieldStack}>
+            <HarnessDefaults cfg={cfg} harness={harness} disabled={disabled} />
+          </div>
+        </>
+      ) : null}
+    </Disclosure>
+  );
+}
+
+/**
+ * Model + options of one harness, each saved on its own (`harness_model` / `harness_options` partial
+ * PUTs); Claude Code adds its "Claude in Chrome" switch (`chrome_extension`).
+ */
 function HarnessDefaults({ cfg, harness, disabled }: { cfg: ServerConfig; harness: HarnessInfo; disabled: boolean }) {
   const p = harness.id;
   return (
-    <HarnessFields
-      harness={harness}
-      scope="global"
-      model={cfg.harness_model?.[p] ?? ''}
-      options={cfg.harness_options?.[p] ?? null}
-      disabled={disabled}
-      onModel={(m) => {
-        void saveSetting(globalModelPatch(p, m ?? ''), 'harness_model');
-      }}
-      onOption={(key, st) => {
-        void saveSetting(globalOptionPatch(p, key, st), 'harness_options');
-      }}
-    />
+    <>
+      <HarnessFields
+        harness={harness}
+        scope="global"
+        model={cfg.harness_model?.[p] ?? ''}
+        options={cfg.harness_options?.[p] ?? null}
+        disabled={disabled}
+        onModel={(m) => {
+          void saveSetting(globalModelPatch(p, m ?? ''), 'harness_model');
+        }}
+        onOption={(key, st) => {
+          void saveSetting(globalOptionPatch(p, key, st), 'harness_options');
+        }}
+      />
+      {p === 'claude' ? (
+        <ClaudeInChromeField
+          scope="global"
+          value={cfg.chrome_extension}
+          disabled={disabled}
+          onChange={(v) => {
+            void saveSetting({ chrome_extension: v === true }, 'chrome_extension');
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 

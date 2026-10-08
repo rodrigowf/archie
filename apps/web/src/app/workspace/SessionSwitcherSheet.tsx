@@ -5,7 +5,7 @@
  * screen.
  */
 import { useRef } from 'react';
-import { useTabs, type Tab } from '@/stores';
+import { useProviderLabel, useTabs, type Tab } from '@/stores';
 import { useSwipe } from '@/ui/a11y';
 import { Button, IconButton, Tag } from '@/ui/controls';
 import { BottomSheet } from '@/ui/overlays';
@@ -15,7 +15,7 @@ import { focusTab, newAgent, newArchie, requestCloseTab } from '../shell/actions
 import { setShell, useShell } from '../shell/shellState';
 import { useTitledTabs } from './SessionTabStrip';
 import { StatusGlyph, TabLeading } from './TabParts';
-import { PROVIDER_LABEL, useTabSummaries, type TabSummary } from './tabSummary';
+import { useTabSummaries, type TabSummary } from './tabSummary';
 import styles from './workspace.module.css';
 
 function docSubtitle(tab: Tab): string {
@@ -29,7 +29,8 @@ function SwitcherRow({ tab, title, summary, active }: { tab: Tab; title: string;
   useSwipe(ref, () => {
     requestCloseTab(tab.id);
   });
-  const provider = tab.kind === 'agent' && tab.provider ? PROVIDER_LABEL[tab.provider] : null;
+  const label = useProviderLabel();
+  const provider = tab.kind === 'agent' ? label(tab.provider) : null;
   return (
     <div ref={ref} className={active ? `${styles.swRow} ${styles.swActive}` : styles.swRow}>
       <button

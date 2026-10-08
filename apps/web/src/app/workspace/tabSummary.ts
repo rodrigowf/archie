@@ -10,7 +10,7 @@
  */
 import { useMemo } from 'react';
 import { useStore } from 'zustand';
-import { contextUsage, type Conversation, type Provider } from '@/protocol';
+import { contextUsage, type Conversation } from '@/protocol';
 import { deriveLiveStatus, getLiveStatus, liveStatusStore, useSession, useShallow, type Tab, type TabLiveStatus } from '@/stores';
 import type { IconName } from '@/ui/icons';
 
@@ -26,8 +26,6 @@ export interface TabSummary {
   readonly contextPercent: number | null;
   readonly readOnly: boolean;
 }
-
-export const PROVIDER_LABEL: Record<Provider, string> = { claude: 'Claude', qwen: 'Qwen', gemini: 'Gemini' };
 
 export function kindIcon(kind: Tab['kind']): IconName {
   switch (kind) {

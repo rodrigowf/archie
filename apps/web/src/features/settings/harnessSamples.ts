@@ -1,7 +1,8 @@
 /**
  * Realistic harness catalogs (`GET /api/config/harnesses`) for the gallery and the tests: the
  * Claude and Gemini rows are trimmed captures of the backend's catalogs (2026-10-07); Qwen and
- * Codex follow their loaders. Same data as `mock-server/data/harnesses.json`.
+ * Codex follow their loaders; presentation hints (`control`, `ordered`, `scale`, `presets`, `requires`, …)
+ * mirror the real catalogs (2026-10-08). Same data as `mock-server/data/harnesses.json`.
  */
 import type { HarnessInfo } from '@/services';
 
@@ -194,7 +195,8 @@ export const HARNESS_SAMPLES: HarnessInfo[] = [
               "label": "Max"
             }
           ],
-          "help": "--effort. Each model lists the levels it accepts (Claude 4.6 has no xhigh; Haiku/Sonnet 4.5 have no effort control). An unsupported level is lowered to the nearest one the model accepts. The CLI turns xhigh/max into high when thinking is disabled."
+          "help": "--effort. Each model lists the levels it accepts (Claude 4.6 has no xhigh; Haiku/Sonnet 4.5 have no effort control). An unsupported level is lowered to the nearest one the model accepts. The CLI turns xhigh/max into high when thinking is disabled.",
+          "ordered": true
         },
         {
           "key": "thinking",
@@ -232,7 +234,8 @@ export const HARNESS_SAMPLES: HarnessInfo[] = [
             "claude-opus-4-6",
             "claude-opus-4-5-20251101",
             "claude-haiku-4-5-20251001"
-          ]
+          ],
+          "control": "segmented"
         },
         {
           "key": "thinking_budget",
@@ -249,7 +252,14 @@ export const HARNESS_SAMPLES: HarnessInfo[] = [
           ],
           "min": 1024,
           "max": 128000,
-          "step": 1024
+          "step": 1024,
+          "unit": "tokens",
+          "scale": "log",
+          "requires": {
+            "thinking": [
+              "enabled"
+            ]
+          }
         },
         {
           "key": "fallback_model",
@@ -301,7 +311,8 @@ export const HARNESS_SAMPLES: HarnessInfo[] = [
               "label": "Claude Haiku 4.5"
             }
           ],
-          "help": "--fallback-model: used when the main model is overloaded. Ignored if it equals the main model."
+          "help": "--fallback-model: used when the main model is overloaded. Ignored if it equals the main model.",
+          "control": "dropdown"
         },
         {
           "key": "todo_tools",
@@ -370,7 +381,15 @@ export const HARNESS_SAMPLES: HarnessInfo[] = [
           "help": "Max reasoning tokens per turn (thinking_budget). Only used while Thinking is on.",
           "min": 1,
           "max": 32768,
-          "step": 1
+          "step": 1,
+          "unit": "tokens",
+          "scale": "log",
+          "requires": {
+            "thinking": [
+              true,
+              null
+            ]
+          }
         }
       ],
       "default_model": "qwen3.6-plus",
@@ -473,7 +492,8 @@ export const HARNESS_SAMPLES: HarnessInfo[] = [
             "flash",
             "gemini-3.1-pro-preview",
             "gemini-3-flash-preview"
-          ]
+          ],
+          "ordered": true
         },
         {
           "key": "thinking_budget",
@@ -487,7 +507,22 @@ export const HARNESS_SAMPLES: HarnessInfo[] = [
           ],
           "min": -1,
           "max": 32768,
-          "step": 1
+          "step": 1,
+          "unit": "tokens",
+          "scale": "log",
+          "custom_min": 128,
+          "presets": [
+            {
+              "value": -1,
+              "label": "Dynamic",
+              "description": "The model decides"
+            },
+            {
+              "value": 0,
+              "label": "Off",
+              "description": "Flash models only"
+            }
+          ]
         },
         {
           "key": "approval_mode",
@@ -516,7 +551,8 @@ export const HARNESS_SAMPLES: HarnessInfo[] = [
             }
           ],
           "default": "yolo",
-          "help": "--approval-mode. Headless runs cannot ask, so 'ask' decisions become 'deny'."
+          "help": "--approval-mode. Headless runs cannot ask, so 'ask' decisions become 'deny'.",
+          "control": "segmented"
         }
       ],
       "default_model": "auto",
@@ -631,7 +667,8 @@ export const HARNESS_SAMPLES: HarnessInfo[] = [
             }
           ],
           "default": "medium",
-          "help": "Reasoning effort per turn (turn/start effort). Levels depend on the model; unset uses the model's default (medium)."
+          "help": "Reasoning effort per turn (turn/start effort). Levels depend on the model; unset uses the model's default (medium).",
+          "ordered": true
         },
         {
           "key": "reasoning_summary",
@@ -657,7 +694,8 @@ export const HARNESS_SAMPLES: HarnessInfo[] = [
             }
           ],
           "default": "concise",
-          "help": "How much of the model's reasoning Codex summarizes into the thinking stream. Codex models default to none; when unset Archie sends concise."
+          "help": "How much of the model's reasoning Codex summarizes into the thinking stream. Codex models default to none; when unset Archie sends concise.",
+          "control": "segmented"
         },
         {
           "key": "verbosity",
@@ -678,7 +716,8 @@ export const HARNESS_SAMPLES: HarnessInfo[] = [
             }
           ],
           "default": "low",
-          "help": "Length of the model's answers (config model_verbosity). Unset uses the model default (low)."
+          "help": "Length of the model's answers (config model_verbosity). Unset uses the model default (low).",
+          "ordered": true
         },
         {
           "key": "web_search",
@@ -700,7 +739,8 @@ export const HARNESS_SAMPLES: HarnessInfo[] = [
               "description": "Fetch live results"
             }
           ],
-          "help": "Codex's built-in web_search tool (config web_search). Unset leaves Codex's default."
+          "help": "Codex's built-in web_search tool (config web_search). Unset leaves Codex's default.",
+          "control": "segmented"
         }
       ],
       "default_model": "gpt-6-luna",

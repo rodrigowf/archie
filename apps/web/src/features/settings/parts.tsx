@@ -102,11 +102,13 @@ export interface FieldProps {
   /** A control on the label row's end (Switch). */
   trailing?: ReactNode;
   children?: ReactNode;
+  /** Small actions after the helper line ("Use default"). */
+  footer?: ReactNode;
   className?: string;
 }
 
 /** One labelled setting: label + value, the control, one helper line, details behind ⓘ. */
-export function Field({ label, labelId, value, help, info, trailing, children, className }: FieldProps) {
+export function Field({ label, labelId, value, help, info, trailing, children, footer, className }: FieldProps) {
   const [open, setOpen] = useState(false);
   const detailsId = useFieldId('fd');
   const helpLine =
@@ -153,6 +155,7 @@ export function Field({ label, labelId, value, help, info, trailing, children, c
       {children ? <div className={styles.fieldControl}>{children}</div> : null}
       {trailing ? null : helpLine}
       {details}
+      {footer}
     </div>
   );
 }
