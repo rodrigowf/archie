@@ -35,6 +35,11 @@ data class DeviceSettings(
     val listPaneCollapsed: Boolean = false,
     /** Keep the orchestrator socket in the background (spec 14 §2.5, Q7: off). New key. */
     val stayConnectedInBackground: Boolean = false,
+    /**
+     * Where the floating voice controls snap to (`top-left` … `bottom-right`, as the web app's
+     * `voiceOverlayAnchor` pref). New key; bottom-center is where the dock sits on the Archie view.
+     */
+    val voiceOverlayAnchor: String = "bottom-center",
 ) {
     val isDefaultServer: Boolean get() = serverUrl == DEFAULT_SERVER_URL
 

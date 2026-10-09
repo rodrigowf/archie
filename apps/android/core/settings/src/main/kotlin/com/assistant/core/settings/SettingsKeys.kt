@@ -48,4 +48,5 @@ object SettingsKeys {
     val SERVER_PINS = stringPreferencesKey("server_pins_v1")
     val LIST_PANE_COLLAPSED = booleanPreferencesKey("list_pane_collapsed")
     val STAY_CONNECTED = booleanPreferencesKey("stay_connected_background")
+    val VOICE_OVERLAY_ANCHOR = stringPreferencesKey("voice_overlay_anchor")
 }

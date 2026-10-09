@@ -27,6 +27,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -61,6 +62,8 @@ import com.assistant.core.design.theme.ArchieTheme
 import com.assistant.core.model.SessionRef
 import com.assistant.core.network.UploadSource
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import okio.source
 import java.util.Calendar
 
@@ -198,9 +201,14 @@ fun ConversationContent(
             state.busyOverlay?.let { BusyOverlay(it) }
             ArchieSnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).widthIn(max = MessageColumnMaxWidth))
         }
+        // The floating voice controls (over other views) stay above this area: it reports its bounds.
+        val composerBounds = LocalComposerBounds.current
+        val boundsOwner = remember { Any() }
+        DisposableEffect(composerBounds) { onDispose { composerBounds?.clear(boundsOwner) } }
         Box(
             Modifier
                 .fillMaxWidth()
+                .then(if (composerBounds != null) Modifier.onGloballyPositioned { composerBounds.report(boundsOwner, it.boundsInRoot()) } else Modifier)
                 .windowInsetsPadding(WindowInsets.navigationBars)
                 .imePadding()
                 .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 12.dp),

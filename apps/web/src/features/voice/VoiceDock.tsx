@@ -10,6 +10,8 @@
  * - Errors: the message and its recovery hint (typed `voice_error`, fixes inv02 §6.4), Retry.
  * - `ActiveElsewhereView`: read-only "Voice active on another device" with Take over; it sits
  *   above the composer, which stays usable (fixes W-1).
+ * - `useVoiceDock(localId)`: the live props (snapshot, timers, level, actions), shared by the dock
+ *   and the floating voice controls (`VoiceOverlay`), so both drive the call the same way.
  */
 import { useCallback, useMemo } from 'react';
 import { Button, IconButton } from '@/ui/controls';
@@ -37,9 +39,11 @@ export interface VoiceDockViewProps extends VoiceDockActions {
   readonly now: number;
   /** RMS source for the orb. */
   readonly level?: () => number;
+  /** Floating controls: the state text becomes a button that opens the Archie conversation. */
+  readonly onOpenConversation?: () => void;
 }
 
-function orbTone(s: VoiceSnapshot): OrbTone {
+export function orbTone(s: VoiceSnapshot): OrbTone {
   if (s.link === 'lost') return 'recon';
   if (s.status === 'speaking') return 'speak';
   if (s.status === 'error' || s.status === 'ending') return 'idle';
@@ -144,10 +148,19 @@ export function VoiceDockView(p: VoiceDockViewProps) {
       ) : (
         orb
       )}
-      <div className={styles.text} aria-live="polite">
-        <b className={styles.title}>{t.title}</b>
-        <span className={styles.detail}>{t.detail}</span>
-      </div>
+      {p.onOpenConversation ? (
+        <button type="button" className={cx(styles.text, styles.textButton)} aria-label="Open the Archie conversation" onClick={p.onOpenConversation}>
+          <span className={styles.textLive} aria-live="polite">
+            <b className={styles.title}>{t.title}</b>
+            <span className={styles.detail}>{t.detail}</span>
+          </span>
+        </button>
+      ) : (
+        <div className={styles.text} aria-live="polite">
+          <b className={styles.title}>{t.title}</b>
+          <span className={styles.detail}>{t.detail}</span>
+        </div>
+      )}
       <IconButton
         icon="mic"
         selectedIcon="mic_off"
@@ -200,8 +213,8 @@ export function ActiveElsewhereView({ provider, onTakeOver }: ActiveElsewhereVie
   );
 }
 
-/** The live dock of one Archie conversation (replaces the composer while voice is on). */
-export function VoiceDock({ localId }: { localId: string }) {
+/** The live props of one Archie conversation's dock: snapshot, timers, orb level and actions. */
+export function useVoiceDock(localId: string): VoiceDockViewProps {
   const { snapshot: s, controller: c } = useVoiceUi(localId);
   const ticking = s.link === 'lost' || (s.status === 'active' && s.vad?.state === 'listening');
   const now = useTicker(ticking || s.status === 'active', 1000);
@@ -227,5 +240,10 @@ export function VoiceDock({ localId }: { localId: string }) {
     }),
     [c, localId],
   );
-  return <VoiceDockView snapshot={s} now={now} level={level} {...actions} />;
+  return { snapshot: s, now, level, ...actions };
+}
+
+/** The live dock of one Archie conversation (replaces the composer while voice is on). */
+export function VoiceDock({ localId }: { localId: string }) {
+  return <VoiceDockView {...useVoiceDock(localId)} />;
 }

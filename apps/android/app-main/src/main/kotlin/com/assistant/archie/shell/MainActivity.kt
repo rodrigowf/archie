@@ -8,10 +8,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -19,6 +21,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.navigation3.runtime.rememberNavBackStack
+import com.assistant.archie.feature.chat.VoiceOverlayModel
+import com.assistant.archie.feature.chat.ui.ComposerBounds
+import com.assistant.archie.feature.chat.ui.LocalComposerBounds
+import com.assistant.archie.feature.chat.ui.OverlayAnchor
+import com.assistant.archie.feature.chat.ui.VoiceOverlayActivity
 import com.assistant.archie.graph.GraphOwner
 import com.assistant.archie.graph.MainAppGraph
 import com.assistant.archie.system.ShellCommand
@@ -31,6 +38,7 @@ import com.assistant.core.data.SharePayload
 import com.assistant.core.design.theme.ArchieTheme
 import com.assistant.archie.feature.settings.ui.AuthGate
 import com.assistant.archie.feature.settings.ui.ProvideTextSize
+import kotlinx.coroutines.launch
 
 /**
  * The single Activity (spec 14 §2.8). It holds no domain state: everything lives in the
@@ -110,9 +118,22 @@ fun ArchieApp(graph: MainAppGraph) {
             if (e is ConversationEvent.ArchieSwitched) while (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
         }
     }
+    // The floating voice controls (over every view but the Archie conversation while a call runs).
+    val overlayScope = rememberCoroutineScope()
+    val overlayModel = remember(graph) { VoiceOverlayModel(graph.chatVoice, overlayScope) }
+    val overlayActivity = remember { VoiceOverlayActivity() }
+    val composerBounds = remember { ComposerBounds() }
+    val anchorKey = graph.settings.settings.collectAsStateWithLifecycle().value?.voiceOverlayAnchor
+    val voiceOverlay = ShellVoiceOverlay(
+        overlayModel, overlayActivity, composerBounds,
+        anchor = OverlayAnchor.parse(anchorKey),
+        onAnchorChange = { a -> graph.scope.launch { graph.settings.setVoiceOverlayAnchor(a.key) } },
+    )
     ArchieTheme(mode = state.themeMode.toDesign(), reduceMotion = appearance.reduceMotion) {
         ProvideTextSize(appearance.textSize) {
-            AuthGate(settings) { ArchieShell(state, vm::onAction, backStack, destinations) }
+            CompositionLocalProvider(LocalComposerBounds provides composerBounds) {
+                AuthGate(settings) { ArchieShell(state, vm::onAction, backStack, destinations, voiceOverlay = voiceOverlay) }
+            }
         }
         // B-09: system-bar icon contrast (OI-1), share sheet, mic rationale, shortcut commands.
         SystemOverlays(graph) { cmd ->

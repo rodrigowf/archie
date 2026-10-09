@@ -3,7 +3,7 @@ name: android
 category: archie/clients
 tags: [android, kotlin, compose, navigation3, views, app-main, app-lite, a300m, poco, gradle, adb, signing, vosk]
 created: 2026-04-14
-modified: 2026-10-08
+modified: 2026-10-09
 summary: apps/android — Gradle multi-module project with the main app (com.assistant.archie) and the A300M lite app (com.assistant.peripheral).
 source: curated (consolidated from memory notes assistant/android/android_peripheral_project.md, assistant/infrastructure/repo_layout_cutover_2026_10.md, assistant/devices/peripheral_devices.md, auto-memory feedback_android_ws_keepalive_silent_drop.md, feedback_use_adb_input_for_device_tests.md, feedback_hands_on_checks_over_suites.md, feedback_run_test_before_speculating.md, project_frontend_refactor_2026_10_03.md; verified against code 2026-10-06)
 references:
@@ -72,6 +72,10 @@ are minSdk 26 and main-app only.
 | `build-logic/` | — | Convention plugins: SDK levels (`ArchieBuild.kt`), signing, tiers, `LiteGuards`, `verifyNoCompose`, `verifyPatchedVosk` |
 | `tools/native/` | — | `patch_vosk_weaken.py`, `verify_vosk_patch.py`, `check_elf_alignment.sh` |
 | `tools/parity/` | — | `extract_old_constants.py` + `old_constants.json` (constants pinned from the old app) |
+
+The main app's floating voice controls (over every non-Archie view during a call) are
+`:feature:chat`'s `VoiceOverlay`, hosted by `app-main`'s `ShellVoiceOverlay`
+([voice architecture](../voice/architecture.md#floating-voice-controls-web-and-android)).
 
 `VERSIONS.md` lists every pinned library version (the voice-parity pins — stream-webrtc-android
 1.1.1, vosk-android 0.3.47 — are deliberate).

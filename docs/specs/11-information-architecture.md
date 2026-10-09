@@ -126,6 +126,10 @@ Tabs as in Expanded, with the overflow menu kicking in earlier.
   label (Listening · Speaking · Thinking · Using tools), mic mute, speaker mute, end. Transcripts
   stream into the conversation. On another device's voice session: dock shows "Voice active on
   <device>" read-only, transcripts still mirror, text input remains usable (fixes web bug 1).
+  While this device has a call and another view is open (agent session, memory, visual,
+  settings), the same controls **float** above it (default where the dock sits, above any
+  composer; draggable to a corner), fading to a small orb + mic pill after a few still seconds
+  and returning on any touch, move, scroll or key. Its state text returns to the Archie view.
 - **Empty states**: new Archie conversation shows a greeting + suggestion chips + big voice
   button; a blank screen is never shown (fixes A6).
 
