@@ -309,6 +309,21 @@ Fix: rebuild on the laptop, rsync both dists.
 Code reaches the Jetson through git first (so `apps/web/` exists there before the rsync);
 context-sync never carries dists.
 
+## Live visuals and internal links
+
+- `visualization_changed` / `memory_changed` (spec 12 §9.3) are handled at the channel level
+  (`services/sessions/orchestratorChannel.ts` → `services/contentChanges.ts`) and bump per-path
+  counters in `stores/contentChanges.ts`. `features/visuals/VisualViewer.tsx` remounts its iframe
+  once per burst (scroll restored for same-origin pages, "Updated" cue); `MemoryDocument.tsx`
+  refetches in place. On a reopened socket the list's `modified` is compared instead (VZ-6).
+- Links (spec 12 §9.4): `features/links/` holds the resolver (`internalLinks.ts`, shared corpus
+  `apps/protocol-fixtures/links/internal-links.json`) and `InternalLinksProvider`; it is kept apart
+  from `features/markdown` so the app root can import it without pulling the markdown renderer into
+  the initial bundle. `features/markdown/remarkInternalPaths.ts` auto-links printed paths, and
+  `app/internalLinks.tsx` provides the links at the app root, so every
+  `Markdown` (chat, plans, tool output, memory documents) opens viz / memory links with
+  `openDocument`. Modified clicks keep the browser default.
+
 ## Backend routes
 
 `backend/api/app.py` `_spa_dirs()` plus the root catch-all: `/` → `apps/web/dist`,

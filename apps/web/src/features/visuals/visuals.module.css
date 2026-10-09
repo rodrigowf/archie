@@ -73,6 +73,33 @@
   text-overflow: ellipsis;
 }
 
+/* Live reload cue (spec 12 VZ-6): a small pill that fades out. */
+.updatedCue {
+  flex: none;
+  padding: 2px 10px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  font-size: var(--md-sys-typescale-label-medium-size);
+  line-height: var(--md-sys-typescale-label-medium-line-height);
+  animation: updated-cue 2.5s var(--md-sys-motion-easing-standard, ease) both;
+}
+
+@keyframes updated-cue {
+  0% {
+    opacity: 0;
+  }
+
+  10%,
+  75% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
 .frameWrap {
   position: relative;
   flex: 1 1 auto;

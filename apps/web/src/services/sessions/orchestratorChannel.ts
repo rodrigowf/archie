@@ -15,6 +15,9 @@
  *   WATCH-1 already stopped that view, so the channel hands it to `onSwitch` attached or not.
  * - `agent_turn_started/finished` (§3.7, device notifications) are app-level too: `onTurn`,
  *   attached or not.
+ * - `visualization_changed` / `memory_changed` (§9.3) are app-level too: `onContent`, attached or
+ *   not. `onReopen` fires on every open after the first, so the app can catch up on what the
+ *   dropped socket missed (VZ-6).
  */
 import type {
   AgentSessionClosedFrame,
@@ -24,6 +27,7 @@ import type {
   OrchestratorSwitchFrame,
   ServerFrame,
 } from '@/protocol';
+import type { ContentFrame } from '../contentChanges';
 import { Reconnector, type ReconnectPolicy } from '../ws/reconnect';
 import { ArchieSocket, ORCHESTRATOR_WS_PATH } from '../ws/socket';
 
@@ -39,22 +43,35 @@ export interface ChannelClient {
 export type WatcherFrame = AgentSessionOpenedFrame | AgentSessionClosedFrame;
 export type AgentTurnFrame = AgentTurnStartedFrame | AgentTurnFinishedFrame;
 
+/** App-level hooks besides the watcher events. */
+export interface ChannelHooks {
+  /** §9.3 content changes. */
+  onContent?: (frame: ContentFrame) => void;
+  /** The socket opened again after a drop (not on the first open). */
+  onReopen?: () => void;
+  /** Agent turn started/finished (§3.7, device notifications). */
+  onTurn?: (frame: AgentTurnFrame) => void;
+}
+
 export class OrchestratorChannel {
   private readonly socket: ArchieSocket;
   private readonly reconnector: Reconnector;
   private client: ChannelClient | null = null;
   private started = false;
+  private everOpened = false;
 
   constructor(
     private readonly onWatcher: (frame: WatcherFrame) => void,
     policy?: ReconnectPolicy,
     private readonly onSwitch: (frame: OrchestratorSwitchFrame) => void = () => undefined,
-    private readonly onTurn: (frame: AgentTurnFrame) => void = () => undefined,
+    private readonly hooks: ChannelHooks = {},
   ) {
     this.socket = new ArchieSocket(ORCHESTRATOR_WS_PATH, {
       onOpen: () => {
         if (this.client) this.client.onSocketOpen();
         else this.reconnector.markHealthy();
+        if (this.everOpened) this.hooks.onReopen?.();
+        this.everOpened = true;
       },
       onFrame: (f) => this.onFrame(f),
       onClose: () => {
@@ -118,7 +135,11 @@ export class OrchestratorChannel {
       return;
     }
     if (f.type === 'agent_turn_started' || f.type === 'agent_turn_finished') {
-      this.onTurn(f); // device notifications: app level, attached or not
+      this.hooks.onTurn?.(f); // device notifications: app level, attached or not
+      return;
+    }
+    if (f.type === 'visualization_changed' || f.type === 'memory_changed') {
+      this.hooks.onContent?.(f); // §9.3: app level, attached or not
       return;
     }
     if (this.client) {
@@ -131,6 +152,7 @@ export class OrchestratorChannel {
   /** Teardown: closes the socket, sends nothing (P-1). */
   stop(): void {
     this.started = false;
+    this.everOpened = false;
     this.client = null;
     this.reconnector.stop();
     this.socket.close();

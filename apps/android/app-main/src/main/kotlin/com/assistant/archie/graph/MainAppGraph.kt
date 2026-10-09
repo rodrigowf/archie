@@ -6,6 +6,7 @@ import androidx.lifecycle.LifecycleOwner
 import com.assistant.core.data.AgentSocketPool
 import com.assistant.core.data.ConversationKey
 import com.assistant.core.data.ConnectionRepository
+import com.assistant.core.data.ContentChangesRepository
 import com.assistant.core.data.ConversationRepository
 import com.assistant.core.data.HistoryRepository
 import com.assistant.core.data.LanScanner
@@ -62,9 +63,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.dropWhile
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -149,6 +150,11 @@ class MainAppGraph(
 
     val memory = MemoryRepository(api, scope)
     val visuals = VisualsRepository(api, scope)
+
+    /** Spec 12 §9.3: `visualization_changed` / `memory_changed` → per-file counters the viewers reload on. */
+    val content = ContentChangesRepository(
+        orchestrator.frames, orchestrator.state.map { it.socket }.distinctUntilChanged(), visuals, memory, scope,
+    )
     val serverConfig = ServerConfigRepository(api, scope)
     val uploads = UploadRepository(UploadClient(rest))
     val share = ShareRepository()

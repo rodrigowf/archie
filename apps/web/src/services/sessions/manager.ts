@@ -52,6 +52,7 @@ import { isApiError } from '../http/errors';
 import type { PoolSession } from '../http/types';
 import { probeBackendCapabilities, probeCast } from '../capabilitiesProbe';
 import { cancelScheduledRefreshes, refreshSessionList, scheduleListRefresh, scheduleVisualsRefresh, refreshVisuals } from '../catalogService';
+import { cancelContentRefreshes, onContentFrame, resyncContent } from '../contentChanges';
 import type { ReconnectPolicy } from '../ws/reconnect';
 import { ArchieSocket, CHAT_WS_PATH } from '../ws/socket';
 import { ArchieRuntime } from './ArchieRuntime';
@@ -96,7 +97,12 @@ function findBySdk(sdkId: string): AnyRuntime | undefined {
 }
 
 function getChannel(): OrchestratorChannel {
-  if (!channel) channel = new OrchestratorChannel(onWatcherEvent, policy, onOrchestratorSwitch, (f) => turnEvents.emit('turn', f));
+  if (!channel)
+    channel = new OrchestratorChannel(onWatcherEvent, policy, onOrchestratorSwitch, {
+      onTurn: (f) => turnEvents.emit('turn', f),
+      onContent: onContentFrame,
+      onReopen: () => void resyncContent(),
+    });
   return channel;
 }
 
@@ -666,6 +672,7 @@ export function stopServices(): void {
   poolFetch = null;
   switchesDone.clear();
   cancelScheduledRefreshes();
+  cancelContentRefreshes();
   started = false;
 }
 

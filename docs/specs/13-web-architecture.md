@@ -687,7 +687,8 @@ are allowed until the owner delivers.
 | `@/stores` | `useTabs`, `useSession(localId, selector)`, `useCatalog`, `useServerConfig`, `usePrefs`, `useCapabilities`, `useSnackbar`, `useConnection` |
 | `@/voice` | `getVoiceController(localId)` (`start/stop/mute`, subscribe), capability helpers |
 | `@/ui/*` | components per §3.5 |
-| `@/features/markdown` | `Markdown{source, linkResolver?}`, `StreamingMarkdown{source, streaming}`, `CodeBlock{code, lang}` |
+| `@/features/markdown` | `Markdown{source, linkResolver?}`, `StreamingMarkdown{source, streaming}`, `CodeBlock{code, lang}`; under an `InternalLinksProvider`, viz / memory links open in the app and printed paths auto-link (spec 12 §9.4) |
+| `@/features/links` | `resolveInternalLink(href, ctx)`, `linkableCode`, `findBarePaths`, `internalTargetUrl`, `InternalLinksProvider{value: {context, open, hrefOf}}` (spec 12 §9.4). No markdown renderer: the app root provides it without growing the initial bundle (§5.4) |
 | `@/features/conversation` | `ConversationPanel{localId, hidden}` |
 | `@/features/tools` | `ToolCard{block, sessionKind}`, `StepGroup{blocks, live}` |
 | `@/features/composer` | `Composer{localId}` |

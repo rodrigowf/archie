@@ -81,6 +81,8 @@ const SCHEMAS: Readonly<Record<ServerFrameType, Schema>> = {
     preview: OPT_STR,
     error: OPT_STR,
   },
+  visualization_changed: { visualizations: 'arr?', files: 'arr?' },
+  memory_changed: { changes: 'arr?' },
   audio_upload: {},
   ping: {},
   voice_event: { event: OBJ },

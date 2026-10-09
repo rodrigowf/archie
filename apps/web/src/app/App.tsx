@@ -1,5 +1,5 @@
 /**
- * App root (W-07, spec 13 §4.2): AuthGate → AppShell. Starts the services once (tabs hydrate,
+ * App root (W-07, spec 13 §4.2): AuthGate → AppShell, with internal links (spec 12 §9.4) on. Starts the services once (tabs hydrate,
  * watcher socket, pool sync, probes), applies the theme pref, and mirrors navigation to the hash.
  *
  * P-1: nothing here ever closes a session. There is no unload / pagehide handler and unmounting
@@ -10,6 +10,7 @@ import { startServices } from '@/services';
 import { usePrefs } from '@/stores';
 import { applyTheme } from '@/styles';
 import { AppShell } from './AppShell';
+import { InternalLinksHost } from './internalLinks';
 import { installHashSync } from './navigation/route';
 import { installTurnNotifications } from './notifications/turnNotifier';
 import { AuthGate } from './slots';
@@ -32,7 +33,9 @@ export function App({ services = true }: AppProps) {
   useEffect(() => (services ? installTurnNotifications() : undefined), [services]);
   return (
     <AuthGate>
-      <AppShell />
+      <InternalLinksHost>
+        <AppShell />
+      </InternalLinksHost>
     </AuthGate>
   );
 }

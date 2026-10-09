@@ -81,6 +81,11 @@ class ProtocolCodecTest {
         ServerFrame.OrchestratorSwitch("past-1", "Lamps", true, "O1"),
         ServerFrame.AgentTurnStarted("A1", "S1", "claude"),
         ServerFrame.AgentTurnFinished("A1", "S1", "codex", "Energy", "error", "Half done", "Credit balance is too low"),
+        ServerFrame.VisualizationChanged(
+            listOf(ContentChange("dash/index.html", ContentChange.Kind.MODIFIED), ContentChange("old.html", ContentChange.Kind.DELETED)),
+            listOf(ContentChange("dash/data.json", ContentChange.Kind.MODIFIED)),
+        ),
+        ServerFrame.MemoryChanged(listOf(ContentChange("archie/specs/12-client-protocol.md", ContentChange.Kind.CREATED))),
         ServerFrame.AudioUpload("AAAA", "webm", "hi", 3),
         ServerFrame.Ping(),
         ServerFrame.VoiceEvent(tree),

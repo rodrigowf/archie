@@ -260,6 +260,31 @@ export interface OrchestratorSwitchFrame extends Sequenced {
   from_session_id?: string | null;
 }
 
+/** `created` | `modified` | `deleted` (advisory: an atomic save or rsync reports a create). */
+export type ContentChangeKind = 'created' | 'modified' | 'deleted';
+
+export interface ContentChange {
+  path: string;
+  kind: ContentChangeKind;
+}
+
+/**
+ * §9.3: files under `context/public/` changed (content watcher, pushed to every orchestrator
+ * socket like the watcher events). `visualizations` are list paths (`GET /api/visualizations`)
+ * whose page or assets changed; `files` the raw changed paths. Handled at the channel level.
+ */
+export interface VisualizationChangedFrame extends Sequenced {
+  type: 'visualization_changed';
+  visualizations?: ContentChange[] | null;
+  files?: ContentChange[] | null;
+}
+
+/** §9.3: markdown under the memory tree changed (paths as in `GET /api/memory/tree`). */
+export interface MemoryChangedFrame extends Sequenced {
+  type: 'memory_changed';
+  changes?: ContentChange[] | null;
+}
+
 export interface AudioUploadFrame extends Sequenced {
   type: 'audio_upload';
 }
@@ -346,6 +371,8 @@ export type ServerFrame =
   | OrchestratorSwitchFrame
   | AgentTurnStartedFrame
   | AgentTurnFinishedFrame
+  | VisualizationChangedFrame
+  | MemoryChangedFrame
   | AudioUploadFrame
   | PingFrame
   | VoiceEventFrame

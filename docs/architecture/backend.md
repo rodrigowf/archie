@@ -3,7 +3,7 @@ name: backend
 category: archie/architecture
 tags: [backend, fastapi, routes, static-serving, spa, config, paths, startup, testing]
 created: 2026-02-23
-modified: 2026-10-08
+modified: 2026-10-09
 summary: The FastAPI backend — app factory, startup tasks, every route module, static/SPA serving, config files, how to run and test.
 source: curated (consolidated from memory notes assistant/architecture/project-overview.md, assistant/infrastructure/repo_layout_cutover_2026_10.md, assistant/infrastructure/features_and_integrations_summary.md, docs/projects/frontend-refactor/inventory/01-backend-api.md; verified against code 2026-10-06)
 references:
@@ -44,7 +44,8 @@ search in [memory-and-search.md](memory-and-search.md).
 | `backend/api/pool.py` | `SessionPool` — every live agent session plus the single orchestrator ([agent-sessions.md](agent-sessions.md)) |
 | `backend/api/routes/*.py` | One router per area (table below) |
 | `backend/api/session_factory.py` | `build_session_config()` — resolves a `ManagerConfig` from global + per-session config; shared by the chat WS and the orchestrator's `open_agent_session` |
-| `backend/api/indexer.py` | `MemoryWatcher` and `HistoryIndexer` background tasks ([memory-and-search.md](memory-and-search.md)) |
+| `backend/api/indexer.py` | `MemoryWatcher` (single-flight memory re-index) and `HistoryIndexer` background tasks ([memory-and-search.md](memory-and-search.md)) |
+| `backend/api/content_watcher.py` | `ContentWatcher`: one `watchfiles` loop over `context/public/` + the memory tree; pushes `visualization_changed` / `memory_changed` to every orchestrator socket and wakes `MemoryWatcher` ([visualizations-and-sharing.md](../integrations/visualizations-and-sharing.md), spec 12 §9.3) |
 | `backend/api/serializers.py` | `serialize_event()` — typed manager events → wire JSON |
 | `backend/api/models.py` | Pydantic response models |
 | `backend/api/connections.py`, `deps.py` | `ConnectionManager`; FastAPI dependencies (`get_pool`, `get_store`) |
@@ -63,7 +64,7 @@ In order:
 3. `ManagerConfig.load()` → `app.state.config`; `SessionStore(config.project_dir)` → `app.state.store`.
 4. `AuthManager(headless=...)` — headless when `HEADLESS=1|true|yes` or there is no `DISPLAY`.
 5. `SessionPool()`, then `start_orphan_reaper()` (every 30 s) and `start_dead_session_reaper()` (every 5 s).
-6. `MemoryWatcher` task (re-indexes memory on file change) and `HistoryIndexer` task
+6. `ContentWatcher` task (file changes under `context/public/` and the memory tree → change frames to the clients, memory re-index via the `MemoryWatcher` task) and `HistoryIndexer` task
    (`interval_seconds=300`).
 7. `_prewarm_sessions` — fills the `SessionStore` cache off the loop (cold listing can take 30–60 s
    on the Jetson's SD card).
@@ -114,9 +115,9 @@ Registered after the API, in this order (earlier wins):
 | `/projects/<path>` | repo `projects/` | Only if the dir exists at startup |
 | `/uploads/<path>` | `context/uploads/` | Resolved per request (dir may appear after startup) |
 | `/memory`, `/memory/` | `context/memory/MEMORY.md` | |
-| `/memory/<path>` | raw file under `context/memory/` | No directory listing |
+| `/memory/<path>` | raw file under `context/memory/` | No directory listing; `Cache-Control: no-cache` + `ETag` → 304 (files change in place) |
 | `/assets/*`, `/` | `apps/web/dist` | `index.html` sent with `Cache-Control: no-cache, no-store, must-revalidate` |
-| `/<anything else>` | 1) `context/public/<path>`, 2) `apps/web/dist/<path>`, 3) `index.html` | Visualizations, photo server, downloads, PWA files |
+| `/<anything else>` | 1) `context/public/<path>` (a folder with `index.html`: `/<dir>/` serves it, `/<dir>` redirects to `/<dir>/`), 2) `apps/web/dist/<path>`, 3) `index.html` | Visualizations, photo server, downloads, PWA files. Public files are sent with `Cache-Control: no-cache` + `ETag` (304 when unchanged), so a live reload never shows a cached copy (`revalidated_file`) |
 
 `_spa_dirs()` returns the three prefixed SPAs; `_register_spa()` mounts each only when its
 `index.html` exists (hashed `assets/` mounted separately, path-traversal guarded, SPA fallback to

@@ -70,8 +70,13 @@ import java.util.Calendar
 /** Navigation and system hooks the host (the shell, B-03/B-09) provides. */
 @Immutable
 data class ConversationCallbacks(
-    /** Raw href from markdown; null = open with the platform URI handler. */
+    /**
+     * Raw href from markdown, including printed paths (spec 12 §9.4 LNK-5); the host opens internal
+     * links in the app. null = open with the platform URI handler.
+     */
     val onLink: ((String) -> Unit)? = null,
+    /** The backend origin, so a server URL printed in backticks auto-links too (spec 12 LNK-3/LNK-5). */
+    val linkOrigin: String? = null,
     /** A fork result to open, focused (§6.5). */
     val onOpenSession: (SessionRef) -> Unit = {},
     /** The empty state's "Start an agent session" suggestion (§6.10). */
@@ -196,6 +201,7 @@ fun ConversationContent(
                     onAction = onAction,
                     onLongPress = { actionsFor = it },
                     onLink = onLink,
+                    linkOrigin = callbacks.linkOrigin,
                 )
             }
             state.busyOverlay?.let { BusyOverlay(it) }

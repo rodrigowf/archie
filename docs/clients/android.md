@@ -8,6 +8,7 @@ summary: apps/android — Gradle multi-module project with the main app (com.ass
 source: curated (consolidated from memory notes assistant/android/android_peripheral_project.md, assistant/infrastructure/repo_layout_cutover_2026_10.md, assistant/devices/peripheral_devices.md, auto-memory feedback_android_ws_keepalive_silent_drop.md, feedback_use_adb_input_for_device_tests.md, feedback_hands_on_checks_over_suites.md, feedback_run_test_before_speculating.md, project_frontend_refactor_2026_10_03.md; verified against code 2026-10-06)
 references:
   - ../harnesses/authentication.md
+  - ../integrations/visualizations-and-sharing.md
   - ../specs/14-android-architecture.md
   - ../specs/12-client-protocol.md
   - ../projects/frontend-refactor/README.md
@@ -342,6 +343,19 @@ Copy puts it on the clipboard — pasted-back code, credentials paste, API-key f
 Test, and the Environment keys list with reveal-on-demand / edit / delete / add). DTOs in
 `core/protocol` `RestDto.kt` (`AccountServiceDto`, `LoginFlowDto`, `EnvKeyDto`, …). The AuthGate
 (Claude only) is unchanged. See [authentication.md](../harnesses/authentication.md).
+
+## Live visuals and internal links
+
+- `:core:protocol` decodes `visualization_changed` / `memory_changed` (spec 12 §9.3);
+  `:core:data` `ContentChangesRepository` (in `MainAppGraph`) bumps per-path counters, refreshes
+  the lists and catches up after a reconnect (VZ-6). `VisualWebView` reloads the pooled WebView
+  (`reload()`, keeps the scroll) when the counter passes the version the pool entry loaded, also
+  after the tab was away; memory documents refetch in place. Both show a short "Updated" cue.
+- Links (spec 12 §9.4): `:core:markdown` `InternalLinks` (same corpus as the web,
+  `InternalLinksTest`), `autoLinkPaths` behind `MarkdownStyle.autoLinkPaths` (chat and memory
+  documents). Chat links go through `rememberChatLinkHandler` (`shell/ContentWiring.kt`): visuals
+  and memory files open as workspace items; memory documents open visuals in the app too (a
+  `VisualDoc` screen on Compact).
 
 ## Rules for changing the apps
 
