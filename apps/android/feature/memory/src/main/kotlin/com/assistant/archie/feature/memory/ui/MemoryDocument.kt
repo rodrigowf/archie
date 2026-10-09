@@ -296,7 +296,7 @@ internal fun MemoryDocumentBody(
     val modified = remember(split?.frontmatter, now) { modifiedLine(split?.frontmatter, now ?: Instant.now()) }
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    val style = MarkdownStyle.fromTheme().copy(autoLinkPaths = true)
+    val style = MarkdownStyle.fromTheme().copy(autoLinkPaths = true, linkOrigin = deps.origin())
     val linkCtx = remember(deps) { InternalLinks.Context(deps.origin()) }
     // Items before the markdown blocks: [frontmatter], [error], [loading] (see below).
     val hasFm = split?.frontmatter != null

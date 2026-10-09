@@ -6,7 +6,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { InternalLinksProvider, internalTargetUrl, type InternalLinks } from '@/features/links';
-import { Markdown, StreamingMarkdown } from '.';
+import { createMemoryLinkResolver, Markdown, StreamingMarkdown } from '.';
 
 function links(open = vi.fn()): InternalLinks {
   return { context: { origin: 'https://192.168.0.200' }, open, hrefOf: (t) => `https://192.168.0.200${internalTargetUrl(t)}` };
@@ -63,6 +63,22 @@ describe('internal links', () => {
     expect(open).toHaveBeenLastCalledWith({ kind: 'memory', path: 'archie/specs/12-client-protocol.md', fragment: null });
     expect(screen.queryByRole('link', { name: 'backend/api/app.py' })).toBeNull();
     expect(container.querySelector('pre a, .md-link pre')).toBeNull();
+  });
+
+  it('auto-links carry the canonical URL, so a memory document does not resolve them relative to itself', () => {
+    const open = vi.fn();
+    const openDoc = vi.fn();
+    render(
+      <InternalLinksProvider value={links(open)}>
+        <Markdown source={'See `docs/specs/x.md` and context/memory/projects/y.md.'} linkResolver={createMemoryLinkResolver('projects/notes/a.md', openDoc)} />
+      </InternalLinksProvider>,
+    );
+    const code = screen.getByRole('link', { name: 'docs/specs/x.md' });
+    fireEvent.click(code);
+    expect(openDoc).toHaveBeenLastCalledWith('archie/specs/x.md');
+    fireEvent.click(screen.getByRole('link', { name: 'context/memory/projects/y.md' }));
+    expect(openDoc).toHaveBeenLastCalledWith('projects/y.md');
+    expect(open).not.toHaveBeenCalled();
   });
 
   it('streaming text gets the same handling', () => {

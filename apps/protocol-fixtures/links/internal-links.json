@@ -85,6 +85,16 @@
       "note": "climbs out of the memory root"
     },
     {
+      "href": "/visualizations/..%2F..%2Fapi%2Fx.html",
+      "expect": null,
+      "note": "an encoded separator never hides a .. segment"
+    },
+    {
+      "href": "/memory/projects%2F..%2F..%2Fsecret.md",
+      "expect": null,
+      "note": "encoded separator in a memory path"
+    },
+    {
       "href": "/markdown_reader.html?file=memory/projects/archie-avatar/next_priorities.md",
       "expect": {
         "kind": "memory",

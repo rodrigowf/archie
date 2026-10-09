@@ -72,6 +72,8 @@ data class ConversationCallbacks(
      * links in the app. null = open with the platform URI handler.
      */
     val onLink: ((String) -> Unit)? = null,
+    /** The backend origin, so a server URL printed in backticks auto-links too (spec 12 LNK-3/LNK-5). */
+    val linkOrigin: String? = null,
     /** A fork result to open, focused (§6.5). */
     val onOpenSession: (SessionRef) -> Unit = {},
     /** The empty state's "Start an agent session" suggestion (§6.10). */
@@ -196,6 +198,7 @@ fun ConversationContent(
                     onAction = onAction,
                     onLongPress = { actionsFor = it },
                     onLink = onLink,
+                    linkOrigin = callbacks.linkOrigin,
                 )
             }
             state.busyOverlay?.let { BusyOverlay(it) }

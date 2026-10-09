@@ -20,6 +20,14 @@ def client(tmp_path: Path, monkeypatch):
     (public / "dash" / "index.html").write_text("<title>Dash</title>")
     (public / "dash" / "data" / "state.json").write_text("{}")
     (public / "empty").mkdir()
+    (public / "my dir").mkdir()
+    (public / "my dir" / "index.html").write_text("<title>Spaced</title>")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "index.html").write_text("SECRET")
+    (public / "escape").mkdir()
+    (public / "escape" / "index.html").symlink_to(outside / "index.html")
+    (tmp_path / "secret.txt").write_text("top secret")
     memory = tmp_path / "context" / "memory"
     memory.mkdir()
     (memory / "MEMORY.md").write_text("# Memory")
@@ -61,6 +69,39 @@ def test_folder_serves_its_index(client):
     redirect = client.get("/dash", follow_redirects=False)
     assert redirect.status_code == 307
     assert redirect.headers["location"] == "/dash/"
+
+
+def test_redirect_keeps_the_query_and_encodes_the_name(client):
+    redirect = client.get("/my dir?x=1&y=two", follow_redirects=False)
+    assert redirect.status_code == 307
+    assert redirect.headers["location"] == "/my%20dir/?x=1&y=two"
+
+
+def test_folder_index_symlinked_out_of_public_is_not_served(client):
+    resp = client.get("/escape/")
+    assert "SECRET" not in resp.text
+    assert client.get("/escape", follow_redirects=False).status_code != 307
+
+
+@pytest.mark.parametrize("path", ["/..%2F..%2Fsecret.txt", "/%2E%2E/%2E%2E/%2E%2E/secret.txt", "//etc/hostname"])
+def test_dist_lookup_cannot_escape(client, path):
+    resp = client.get(path)
+    assert "top secret" not in resp.text
+    assert "localhost" not in resp.text or "app shell" in resp.text
+
+
+def test_unknown_html_is_404_not_the_app(client):
+    resp = client.get("/visualizations/missing.html")
+    assert resp.status_code == 404
+    assert "app shell" not in resp.text
+    # other unknown paths still get the app shell (client-side routes)
+    assert "app shell" in client.get("/some/route").text
+
+
+def test_memory_root_revalidates(client):
+    first = client.get("/memory/")
+    assert first.status_code == 200 and first.headers["cache-control"] == "no-cache"
+    assert client.get("/memory/", headers={"If-None-Match": first.headers["etag"]}).status_code == 304
 
 
 def test_folder_without_index_falls_back_to_the_app(client):

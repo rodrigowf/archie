@@ -21,7 +21,9 @@ import com.assistant.archie.feature.sessions.SessionsIntent
 import com.assistant.archie.graph.MainAppGraph
 import com.assistant.core.data.ConversationKey
 import com.assistant.core.data.ItemKey
+import com.assistant.core.model.DeviceSettings
 import com.assistant.core.model.SessionKind
+import com.assistant.core.network.UrlScheme
 
 /**
  * The content the shell hosts (spec 14 §7: "navigation destinations as clearly-marked placeholder
@@ -95,6 +97,7 @@ class GraphDestinations(private val graph: MainAppGraph, private val sessions: S
             callbacks = ConversationCallbacks(
                 // Spec 12 §9.4: visualization / memory links (and printed paths) open in the app.
                 onLink = rememberChatLinkHandler(graph),
+                linkOrigin = UrlScheme.httpBase(graph.settings.settings.value?.serverUrl ?: DeviceSettings.DEFAULT_SERVER_URL),
                 onOpenSession = { ref ->
                     val sdk = ref.sdkId
                     if (sessions != null && ref.kind == SessionKind.ORCHESTRATOR && sdk != null) sessions.requestResumeArchie(sdk)

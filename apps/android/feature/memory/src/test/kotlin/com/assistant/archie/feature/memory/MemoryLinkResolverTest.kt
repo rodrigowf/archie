@@ -80,8 +80,12 @@ class MemoryLinkResolverTest {
         assertEquals(MemoryLink.Visual("avatar-pipeline/index.html"), MemoryLinkResolver.resolve("p/b.md", "https://192.168.0.200/avatar-pipeline/", ctx))
         assertEquals(MemoryLink.Visual("visualizations/x.html"), MemoryLinkResolver.resolve("p/b.md", "/visualizations/x.html", ctx))
         assertEquals(MemoryLink.Document("projects/x.md"), MemoryLinkResolver.resolve("p/b.md", "https://192.168.0.200/memory/projects/x.md", ctx))
-        // MEM-2 first: a relative .md is relative to this file, even under a "docs/" folder name.
+        // An explicit relative markdown link is MEM-2 (relative to this file, like the web)...
         assertEquals(MemoryLink.Document("p/docs/x.md"), MemoryLinkResolver.resolve("p/b.md", "docs/x.md", ctx))
+        // ...while an auto-linked printed path carries its canonical URL and lands on the docs file.
+        val auto = com.assistant.core.markdown.autoLinkPaths(listOf(com.assistant.core.markdown.MdInline.Code("docs/specs/x.md")))
+        val href = (auto.single() as com.assistant.core.markdown.MdInline.Link).href
+        assertEquals(MemoryLink.Document("archie/specs/x.md"), MemoryLinkResolver.resolve("p/b.md", href, ctx))
         assertEquals(MemoryLink.External("https://example.com/x.html"), MemoryLinkResolver.resolve("p/b.md", "https://example.com/x.html", ctx))
     }
 

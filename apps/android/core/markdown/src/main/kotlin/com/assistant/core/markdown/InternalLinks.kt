@@ -114,10 +114,13 @@ object InternalLinks {
         s
     }
 
+    /** `null` when it climbs above the root or a segment decodes to a separator (`..%2F..`). */
     private fun normalize(path: String): String? {
         val out = ArrayList<String>()
         for (raw in path.split('/')) {
-            when (val seg = decode(raw)) {
+            val seg = decode(raw)
+            if ('/' in seg || '\\' in seg) return null
+            when (seg) {
                 "", "." -> Unit
                 ".." -> if (out.isEmpty()) return null else out.removeAt(out.size - 1)
                 else -> out += seg
@@ -178,15 +181,16 @@ object InternalLinks {
 
 /**
  * LNK-5: inline code that is exactly an internal path and bare `context/…` paths in text become
- * [MdInline.Link]s whose href is the printed path (the host resolves it with [InternalLinks.resolve]).
- * Never inside an existing link. Returns [inlines] itself when nothing changed.
+ * [MdInline.Link]s. The href is the target's canonical URL ([InternalLinks.url]: `/memory/archie/x.md`,
+ * `/x/index.html`), never the printed path, which a memory document would resolve relative to
+ * itself (MEM-2). Never inside an existing link. Returns [inlines] itself when nothing changed.
  */
 fun autoLinkPaths(inlines: List<MdInline>, ctx: InternalLinks.Context = InternalLinks.Context()): List<MdInline> {
     var out: ArrayList<MdInline>? = null
     for ((i, n) in inlines.withIndex()) {
         val replaced: List<MdInline>? = when (n) {
             is MdInline.Code ->
-                if (InternalLinks.linkableCode(n.code, ctx) != null) listOf(MdInline.Link(n.code.trim(), null, listOf(n))) else null
+                InternalLinks.linkableCode(n.code, ctx)?.let { listOf(MdInline.Link(InternalLinks.url(it), null, listOf(n))) }
             is MdInline.Text -> {
                 val found = InternalLinks.findBarePaths(n.text)
                 if (found.isEmpty()) null
@@ -194,7 +198,8 @@ fun autoLinkPaths(inlines: List<MdInline>, ctx: InternalLinks.Context = Internal
                     var at = 0
                     for (f in found) {
                         if (f.start > at) add(MdInline.Text(n.text.substring(at, f.start)))
-                        add(MdInline.Link(f.path, null, listOf(MdInline.Text(f.path))))
+                        val t = InternalLinks.resolve(f.path, ctx)
+                        add(if (t != null) MdInline.Link(InternalLinks.url(t), null, listOf(MdInline.Text(f.path))) else MdInline.Text(f.path))
                         at = f.end
                     }
                     if (at < n.text.length) add(MdInline.Text(n.text.substring(at)))

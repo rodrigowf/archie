@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from urllib.parse import quote
 from contextlib import asynccontextmanager
 from pathlib import Path
 from utils.paths import PROJECT_ROOT, is_within_memory
@@ -162,11 +163,17 @@ def revalidated_file(request: Request, path: Path) -> Response:
     ``If-None-Match`` itself).
     """
     headers = {"Cache-Control": "no-cache"}
-    response = FileResponse(path, stat_result=path.stat(), headers=headers)
-    etag = response.headers.get("etag")
+    try:
+        stat = path.stat()
+    except OSError:
+        raise HTTPException(status_code=404)
+    # The ETag of this stat answers If-None-Match; a full response stats again
+    # when it is sent, so a file rewritten in between never gets a stale
+    # Content-Length (the watcher's reload races the writer by design).
+    etag = FileResponse(path, stat_result=stat).headers.get("etag")
     if etag and etag in request.headers.get("if-none-match", ""):
         return Response(status_code=304, headers={**headers, "ETag": etag})
-    return response
+    return FileResponse(path, headers=headers)
 
 
 def _spa_dirs() -> list[tuple[str, Path]]:
@@ -344,10 +351,10 @@ def create_app() -> FastAPI:
     if context_memory_resolved is not None:
         @app.get("/memory")
         @app.get("/memory/")
-        async def serve_memory_index():
+        async def serve_memory_index(request: Request):
             candidate = context_memory / "MEMORY.md"
             if candidate.is_file():
-                return FileResponse(candidate)
+                return revalidated_file(request, candidate.resolve())
             raise HTTPException(status_code=404)
 
         @app.get("/memory/{full_path:path}")
@@ -365,6 +372,7 @@ def create_app() -> FastAPI:
     # Serve the production frontend build if it exists
     frontend_dist = project_root / "apps" / "web" / "dist"
     if frontend_dist.exists():
+        frontend_dist_resolved = frontend_dist.resolve()
         app.mount("/assets", StaticFiles(directory=frontend_dist / "assets"), name="assets")
 
         # Same no-cache policy as the compat index — see comment above.
@@ -385,17 +393,30 @@ def create_app() -> FastAPI:
                         return revalidated_file(request, candidate)
                     # A folder visualization: /<dir>/ serves its index.html;
                     # /<dir> redirects first so its relative asset URLs resolve.
-                    if candidate.is_dir() and (candidate / "index.html").is_file():
+                    # The index is resolved again: it may be a symlink out of public/.
+                    index = (candidate / "index.html").resolve() if candidate.is_dir() else None
+                    if index is not None and index.is_relative_to(context_public_resolved) and index.is_file():
                         if full_path.endswith("/"):
-                            return revalidated_file(request, candidate / "index.html")
-                        return RedirectResponse(f"/{full_path}/", status_code=307)
+                            return revalidated_file(request, index)
+                        target = "/" + quote(full_path) + "/"
+                        if request.url.query:
+                            target += "?" + request.url.query
+                        return RedirectResponse(target, status_code=307)
 
-            # 2) Then check the built frontend dist for static assets.
-            file_path = frontend_dist / full_path
-            if file_path.exists() and file_path.is_file():
-                return FileResponse(file_path)
+            # 2) Then check the built frontend dist for static assets (same guard:
+            #    resolve, then stay under the dist).
+            if full_path:
+                file_path = (frontend_dist / full_path).resolve()
+                if file_path.is_relative_to(frontend_dist_resolved) and file_path.is_file():
+                    return FileResponse(file_path)
 
-            # 3) SPA fallback — serve index.html for client-side routing.
+            # 3) An unknown page is a 404, not the app shell: a stale visualization
+            #    link must not load the whole app inside the Visuals viewer (spec 12
+            #    VZ-2). The app routes on the URL hash, so no app route ends in .html.
+            if full_path.lower().endswith((".html", ".htm")):
+                raise HTTPException(status_code=404)
+
+            # 4) SPA fallback — serve index.html for client-side routing.
             return FileResponse(frontend_dist / "index.html", headers=_no_cache)
 
     return app

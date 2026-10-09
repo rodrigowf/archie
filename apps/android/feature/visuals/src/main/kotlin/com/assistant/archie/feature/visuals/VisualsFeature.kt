@@ -68,9 +68,16 @@ class RepositoryVisualsDeps(
 
 /** Opening things outside the app (spec 14 §4.2: Custom Tab; ACTION_VIEW for other schemes). */
 object ExternalLinks {
+    /**
+     * Schemes a markdown link may open. `file:` throws FileUriExposedException, and `content:`,
+     * `javascript:` and `intent:` must never be launched from text an agent wrote.
+     */
+    private val ALLOWED = setOf("http", "https", "mailto", "tel", "sms", "geo")
+
     fun open(context: Context, url: String) {
         val uri = Uri.parse(url)
         val scheme = uri.scheme?.lowercase()
+        if (scheme !in ALLOWED) return
         val newTask = context.findActivity() == null
         try {
             if (scheme == "http" || scheme == "https") {
@@ -82,6 +89,8 @@ object ExternalLinks {
             }
         } catch (_: ActivityNotFoundException) {
             // No browser / handler: nothing to open it with. The link stays inert rather than crashing.
+        } catch (_: RuntimeException) {
+            // A malformed or refused URI (SecurityException, …): inert too.
         }
     }
 

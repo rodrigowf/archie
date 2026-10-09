@@ -53,11 +53,15 @@ function safeDecode(s: string): string {
   }
 }
 
-/** Decoded, `.`/`..`-normalised segments; `null` when it climbs above the root. */
+/**
+ * Decoded, `.`/`..`-normalised segments; `null` when it climbs above the root, or when a segment
+ * decodes to a separator (`..%2F..` must not smuggle a `..` past the check).
+ */
 function normalize(path: string): string | null {
   const out: string[] = [];
   for (const raw of path.split('/')) {
     const seg = safeDecode(raw);
+    if (seg.indexOf('/') >= 0 || seg.indexOf('\\') >= 0) return null;
     if (seg === '' || seg === '.') continue;
     if (seg === '..') {
       if (!out.length) return null;

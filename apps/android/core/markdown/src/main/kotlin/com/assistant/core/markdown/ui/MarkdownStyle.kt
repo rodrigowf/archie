@@ -72,6 +72,8 @@ data class MarkdownStyle(
      * link handler resolves them with [com.assistant.core.markdown.InternalLinks] (chat, memory).
      */
     val autoLinkPaths: Boolean = false,
+    /** The backend origin for [autoLinkPaths] (an `https://<server>/…` URL in backticks is internal, LNK-3). */
+    val linkOrigin: String? = null,
 ) {
     fun heading(level: Int): TextStyle = headings[(level - 1).coerceIn(0, headings.size - 1)]
 

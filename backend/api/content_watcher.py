@@ -53,6 +53,11 @@ STEP_MS = 300
 
 # Used only when inotify is out of watches (see run()).
 POLL_DELAY_MS = 2000
+# A missing root (context/public/, context/memory/) is looked for again this often.
+ROOTS_RECHECK_S = 30
+# Retry after a watcher error: 5 s, doubling, at most 5 min.
+ERROR_BACKOFF_S = 5
+ERROR_BACKOFF_MAX_S = 300
 
 HTML_SUFFIXES = (".html", ".htm")
 
@@ -103,9 +108,12 @@ def _merge_kind(old: str | None, new: str) -> str:
 
 
 def _refers_to(page: Path, name: str) -> bool:
+    """*page* names the file *name* as a whole path segment (``a.js`` is not
+    found in ``data.js`` or ``a.json``)."""
+    pattern = re.compile(r"(?<![\w.-])" + re.escape(name) + r"(?![\w-]|\.\w)")
     try:
         with open(page, "r", encoding="utf-8", errors="replace") as f:
-            return name in f.read(_REFERENCE_SCAN_BYTES)
+            return pattern.search(f.read(_REFERENCE_SCAN_BYTES)) is not None
     except OSError:
         return False
 
@@ -228,6 +236,10 @@ class ContentWatcher:
                 rel = PurePosixPath(path.relative_to(public_root).as_posix())
                 if is_ignored(rel) or (kind != "deleted" and path.is_dir()):
                     continue
+                # A deleted folder cannot be stat'ed any more; its files are
+                # reported one by one, so a suffix-less deletion is skipped.
+                if kind == "deleted" and not rel.suffix:
+                    continue
                 public[rel.as_posix()] = _merge_kind(public.get(rel.as_posix()), kind)
                 continue
             if not path.name.lower().endswith(".md"):
@@ -261,24 +273,19 @@ class ContentWatcher:
             "files": [{"path": p, "kind": k} for p, k in sorted(files.items())],
         }
 
-    async def run(self) -> None:
-        public_root, memory_roots = self.roots()
-        watched = [p for p in [public_root, *(r for r, _ in memory_roots)] if p is not None]
-        if not watched:
-            logger.info("Content watcher: neither context/public/ nor context/memory/ exists")
-            return
+    async def _sleep(self, seconds: float) -> None:
+        """Sleep, or return early on :meth:`stop`."""
+        try:
+            await asyncio.wait_for(self._stop_event.wait(), timeout=seconds)
+        except asyncio.TimeoutError:
+            pass
 
+    async def run(self) -> None:
         try:
             from watchfiles import awatch
         except ImportError:
             logger.error("watchfiles not installed, content watcher disabled")
             return
-
-        logger.info("Content watcher started: %s", ", ".join(str(p) for p in watched))
-
-        def keep(_change, raw: str) -> bool:
-            rel = _relative(Path(raw), watched)
-            return rel is None or not is_ignored(rel)
 
         # awatch wraps a blocking Rust call in anyio.to_thread; that thread
         # only honors stop_event, not asyncio cancellation. If we don't set
@@ -286,8 +293,24 @@ class ContentWatcher:
         # cancellation forever and burns 100% CPU. Set it in finally so it
         # fires for both CancelledError and any other exit.
         polling = False
+        failures = 0
         try:
-            while self._running:
+            while self._running and not self._stop_event.is_set():
+                # Roots are recomputed on every (re)start: context/public/,
+                # context/memory/ or the archie link may appear after boot.
+                public_root, memory_roots = self.roots()
+                watched = [p for p in [public_root, *(r for r, _ in memory_roots)] if p is not None]
+                if not watched:
+                    await self._sleep(ROOTS_RECHECK_S)
+                    continue
+                # Some root still missing: wake up now and then to pick it up.
+                complete = public_root is not None and bool(memory_roots)
+                logger.info("Content watcher started: %s", ", ".join(str(p) for p in watched))
+
+                def keep(_change, raw: str, watched=watched) -> bool:
+                    rel = _relative(Path(raw), watched)
+                    return rel is None or not is_ignored(rel)
+
                 try:
                     async for changes in awatch(
                         *watched,
@@ -297,24 +320,36 @@ class ContentWatcher:
                         stop_event=self._stop_event,
                         force_polling=polling or None,
                         poll_delay_ms=POLL_DELAY_MS,
+                        rust_timeout=None if complete else int(ROOTS_RECHECK_S * 1000),
+                        yield_on_timeout=not complete,
                     ):
                         if not self._running:
                             break
+                        failures = 0
+                        if not changes:
+                            if self.roots() != (public_root, memory_roots):
+                                break  # a root appeared: restart with it
+                            continue
                         try:
                             await self._handle(changes, public_root, memory_roots)
                         except Exception:
                             logger.exception("Content watcher: failed to handle a batch")
-                    return
                 except Exception as e:
+                    if not self._running:
+                        return
                     # The per-user inotify watch budget is shared with every other
                     # process (an IDE can take all of it): poll instead of going dark.
-                    if self._running and not polling and "limit" in str(e).lower():
+                    if not polling and "limit" in str(e).lower():
                         logger.warning("Content watcher: %s; falling back to polling every %d ms", e, POLL_DELAY_MS)
                         polling = True
                         continue
-                    if self._running:
-                        logger.error("Content watcher error: %s", e)
-                    return
+                    # Anything else (a watched dir removed, a transient OS error):
+                    # retry with backoff rather than leave the clients and the
+                    # memory index without changes until the next restart.
+                    failures += 1
+                    delay = min(ERROR_BACKOFF_MAX_S, ERROR_BACKOFF_S * 2 ** (failures - 1))
+                    logger.error("Content watcher error: %s; retrying in %ds", e, delay)
+                    await self._sleep(delay)
         finally:
             self._stop_event.set()
 

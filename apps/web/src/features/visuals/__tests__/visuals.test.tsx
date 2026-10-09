@@ -53,7 +53,7 @@ describe('<VisualViewer> live reload (spec 12 §9.3, VZ-6)', () => {
 
   it('remounts once per burst of changes, shows the Updated cue, and ignores older and other changes', () => {
     bumpContent('visuals', [{ path: W.path, deleted: false }]); // before mount: already in what it loads
-    const { container } = render(<VisualViewer path={W.path} url={W.url} hidden />);
+    const { container } = render(<VisualViewer path={W.path} url={W.url} hidden={false} />);
     const first = container.querySelector('iframe');
     act(() => {
       vi.advanceTimersByTime(LIVE_RELOAD_DEBOUNCE_MS * 2);
@@ -85,13 +85,30 @@ describe('<VisualViewer> live reload (spec 12 §9.3, VZ-6)', () => {
       vi.advanceTimersByTime(LIVE_RELOAD_DEBOUNCE_MS);
     });
     const second = container.querySelector('iframe') as HTMLIFrameElement;
-    expect(second).not.toBe(first); // reloaded while hidden too
+    expect(second).not.toBe(first);
     expect(second.getAttribute('data-reload')).toBe('1');
     expect(screen.getByRole('status').textContent).toBe('Updated');
     act(() => {
       vi.advanceTimersByTime(UPDATED_CUE_MS + 10);
     });
     expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('a hidden view waits until it is shown again', () => {
+    const { container, rerender } = render(<VisualViewer path={W.path} url={W.url} hidden />);
+    const first = container.querySelector('iframe');
+    act(() => {
+      bumpContent('visuals', [{ path: W.path, deleted: false }]);
+    });
+    act(() => {
+      vi.advanceTimersByTime(LIVE_RELOAD_DEBOUNCE_MS * 3);
+    });
+    expect(container.querySelector('iframe')).toBe(first);
+    rerender(<VisualViewer path={W.path} url={W.url} hidden={false} />);
+    act(() => {
+      vi.advanceTimersByTime(LIVE_RELOAD_DEBOUNCE_MS + 10);
+    });
+    expect(container.querySelector('iframe')).not.toBe(first);
   });
 
   it('a deleted page is not reloaded and says so', () => {

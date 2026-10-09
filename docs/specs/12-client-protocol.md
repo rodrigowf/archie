@@ -1636,7 +1636,7 @@ open:    view key "viz:<path>"; load <origin> + encodePath(url) in an iframe (we
 rename:  optimistic title → PATCH /api/visualizations/rename {path, title} (204; 404 tolerated) → refresh
 ```
 - **VZ-1.** `url` is not percent-encoded (G-38): encode each path segment with `encodeURIComponent`.
-- **VZ-2.** Unknown paths return `200` + the SPA `index.html` (G-38). Before showing a stale entry, a client that needs to know whether a file still exists MUST `GET` it and check `Content-Type` and that the body is not the app shell. `HEAD` is not supported (405).
+- **VZ-2.** Unknown paths return `200` + the SPA `index.html` (G-38), except unknown `*.html` / `*.htm` paths, which return `404` since 2026-10-09 (the app routes on the URL hash, so no app route ends in `.html`; a stale link must not load the whole app inside the viewer). For other paths, a client that needs to know whether a file still exists MUST `GET` it and check `Content-Type` and that the body is not the app shell. `HEAD` is not supported (405).
 - **VZ-3.** Web iframe sandbox: `allow-scripts allow-same-origin allow-popups allow-forms allow-modals` (no top navigation, no downloads). Android WebView: JavaScript and DOM storage enabled, same origin as the backend, navigation outside the visualization opens the external browser, file access disabled, the self-signed certificate accepted only for the configured backend host.
 - **VZ-4.** A visualization view keeps its frame/WebView alive while hidden (state survives view switches). Reload = remount (web) / `reload()` (Android). "Open in browser" opens `<origin><url>`.
 - **VZ-5.** Item meta: relative `modified` time (parsed with its UTC offset, A-8.4), parent folder name or "public". Rename only; no delete.
@@ -1678,9 +1678,9 @@ onContentFrame(f):                      // channel level, never the conversation
 ```
 
 - **VZ-6.** An open visualization view reloads when its stamp moves past the version it loaded (a change from
-  before it opened is already in what it loaded), once per burst (300 ms debounce), hidden or not (web: the
-  iframe stays mounted; Android: the pooled WebView remembers the version it loaded, so a change that arrived
-  while the tab was away reloads it when it shows). A deleted page is not reloaded; the meta line says
+  before it opened is already in what it loaded), once per burst (300 ms debounce) (web: the
+  iframe stays mounted but waits while hidden; Android: the pooled WebView remembers the version it loaded), so
+  a change that arrived while the view was hidden reloads it when it shows again. A deleted page is not reloaded; the meta line says
   "Deleted". The reload keeps the scroll position (web: same-origin frames are scrolled back after `load`;
   Android: `WebView.reload()`), and a small "Updated" cue shows for 2.5 s. An open memory document refetches
   in place the same way (the text stays visible, so does the scroll position); its cue shows only when the
@@ -1716,9 +1716,16 @@ the shared corpus `apps/protocol-fixtures/links/internal-links.json`. First matc
   path that is in the visualization list.
 - **LNK-5** Auto-linking: inline code that is exactly an internal path or URL (no whitespace or glob
   characters) becomes a link; bare `context/public/….html` / `context/memory/….md` paths in plain text too.
-  `docs/` paths only from inline code; never inside fenced code or an existing link.
+  `docs/` paths only from inline code; never inside fenced code or an existing link. The link's href is the
+  target's canonical URL (`/memory/archie/x.md`, `/x/index.html`), never the printed path, which a memory
+  document's MEM-2 resolver would resolve relative to itself.
 - **LNK-6** Web: a plain click opens in the app; middle / ctrl / cmd-click keep the browser default on the
   real URL (the anchor's `href`). Memory documents ask their relative-link resolver (MEM-2) first.
+- **LNK-7** A visual target opens in the viewer only when it is a real page: in the visualization list,
+  under `visualizations/`, or in the list after one refresh. Otherwise the URL opens externally (web: a
+  snackbar with "Open in browser", a user gesture; Android: the Custom Tab). A segment that decodes to a
+  separator (`..%2F..`) makes a path not internal. Android opens only `http(s)`, `mailto`, `tel`, `sms` and
+  `geo` links externally; anything else (`file:`, `content:`, `javascript:`, `intent:`) is inert.
 
 **Link convention for agents.** Print root-relative markdown links, which work in the app and, against the
 server, in any browser: `[Avatar pipeline](/avatar-pipeline/index.html)`, `[Energy](/visualizations/energy.html)`,

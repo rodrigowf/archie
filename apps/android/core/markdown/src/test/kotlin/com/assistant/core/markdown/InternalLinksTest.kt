@@ -78,9 +78,10 @@ class InternalLinksTest {
         assertEquals(
             listOf(
                 MdInline.Text("Saved to "),
-                MdInline.Link("context/public/a/index.html", null, listOf(MdInline.Text("context/public/a/index.html"))),
+                // The canonical URL, not the printed path (a memory document resolves relative hrefs itself).
+                MdInline.Link("/a/index.html", null, listOf(MdInline.Text("context/public/a/index.html"))),
                 MdInline.Text(". See "),
-                MdInline.Link("docs/specs/12-client-protocol.md:40", null, listOf(MdInline.Code("docs/specs/12-client-protocol.md:40"))),
+                MdInline.Link("/memory/archie/specs/12-client-protocol.md", null, listOf(MdInline.Code("docs/specs/12-client-protocol.md:40"))),
                 MdInline.Text(" and "),
                 MdInline.Code("backend/api/app.py"),
                 MdInline.Link("/memory/x.md", null, listOf(MdInline.Code("context/memory/y.md"))),

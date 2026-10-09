@@ -81,6 +81,11 @@ class TestAffectedVisualizations:
         _write(tmp_path, "viz/index.html", "<script src='lib.js'></script>")
         assert affected_visualizations(tmp_path, "viz/app.js") == ["viz/index.html"]
 
+    def test_name_match_is_boundary_aware(self, tmp_path):
+        _write(tmp_path, "v/index.html", "<script src='data.js'></script><script src='a.json'></script>")
+        _write(tmp_path, "v/other.html", "<script src=\"./a.js\"></script>")
+        assert affected_visualizations(tmp_path, "v/a.js") == ["v/other.html"]
+
     def test_unrelated_asset_is_none(self, tmp_path):
         _write(tmp_path, "visualizations/a.html", "x")
         assert affected_visualizations(tmp_path, "videos/clip.mp4") == []
@@ -120,6 +125,14 @@ class TestClassify:
         pub, mem = ContentWatcher.classify(changes, public, [])
         assert pub == {"v/a.html": "created"}
         assert mem == {}
+
+    def test_deleted_folder_is_skipped_its_files_are_not(self, tmp_path):
+        public = tmp_path / "public"
+        public.mkdir()
+        pub, _ = ContentWatcher.classify(
+            [(DELETED, str(public / "old")), (DELETED, str(public / "old" / "index.html"))], public, [],
+        )
+        assert pub == {"old/index.html": "deleted"}
 
     def test_directory_events_are_skipped(self, tmp_path):
         public = tmp_path / "public"
@@ -240,6 +253,61 @@ class TestRun:
         with patch("utils.paths.PROJECT_ROOT", tmp_path), patch("watchfiles.awatch", fake_awatch):
             await asyncio.wait_for(ContentWatcher(broadcast).run(), timeout=2)
         assert calls == [None, True]
+
+
+    @pytest.mark.asyncio
+    async def test_a_root_that_appears_later_is_picked_up(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("WATCHFILES_FORCE_POLLING", "1")
+        monkeypatch.setattr("api.content_watcher.POLL_DELAY_MS", 100)
+        monkeypatch.setattr("api.content_watcher.ROOTS_RECHECK_S", 0.3)
+        (tmp_path / "context" / "public").mkdir(parents=True)
+        frames: list[dict] = []
+        got = asyncio.Event()
+
+        async def broadcast(frame: dict) -> None:
+            frames.append(frame)
+            if frame["type"] == "memory_changed":
+                got.set()
+
+        with patch("utils.paths.PROJECT_ROOT", tmp_path):
+            watcher = ContentWatcher(broadcast, debounce_ms=300, step_ms=50)
+            task = asyncio.create_task(watcher.run())
+            try:
+                await asyncio.sleep(0.3)
+                memory = tmp_path / "context" / "memory"
+                memory.mkdir()
+                await asyncio.sleep(1.0)  # the recheck restarts the watch with memory/
+                _write(memory, "late.md", "# late")
+                await asyncio.wait_for(got.wait(), timeout=10)
+            finally:
+                watcher.stop()
+                await asyncio.wait_for(task, timeout=10)
+        assert any(f["type"] == "memory_changed" and f["changes"][0]["path"] == "late.md" for f in frames)
+
+    @pytest.mark.asyncio
+    async def test_other_errors_retry_with_backoff(self, tmp_path, monkeypatch):
+        (tmp_path / "context" / "public").mkdir(parents=True)
+        monkeypatch.setattr("api.content_watcher.ERROR_BACKOFF_S", 0.01)
+        calls: list[int] = []
+
+        def fake_awatch(*paths, stop_event=None, **kwargs):
+            calls.append(1)
+
+            async def gen():
+                if len(calls) < 3:
+                    raise OSError("watched directory went away")
+                stop_event.set()
+                return
+                yield  # pragma: no cover
+
+            return gen()
+
+        async def broadcast(_frame):
+            pass
+
+        with patch("utils.paths.PROJECT_ROOT", tmp_path), patch("watchfiles.awatch", fake_awatch):
+            await asyncio.wait_for(ContentWatcher(broadcast).run(), timeout=2)
+        assert len(calls) == 3
 
 
 class TestMemoryIndexer:

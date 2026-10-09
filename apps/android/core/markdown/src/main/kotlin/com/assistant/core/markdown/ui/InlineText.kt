@@ -30,6 +30,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import com.assistant.core.markdown.MdInline
+import com.assistant.core.markdown.InternalLinks
 import com.assistant.core.markdown.autoLinkPaths
 
 internal const val INLINE_CODE_TAG = "md-icode"
@@ -72,7 +73,7 @@ internal fun buildInline(inlines: List<MdInline>, style: MarkdownStyle, onLink: 
                 }
             }
         }
-        emit(if (style.autoLinkPaths) autoLinkPaths(inlines) else inlines)
+        emit(if (style.autoLinkPaths) autoLinkPaths(inlines, InternalLinks.Context(style.linkOrigin)) else inlines)
     }
 
 /** Plain text of inline nodes (semantics, tests, copy). */

@@ -73,10 +73,11 @@ loop, which also wakes the memory indexer) and pushes `visualization_changed` / 
 to every orchestrator socket (spec 12 §9.3). The web and Android apps reload an open
 visualization when its page **or any of its assets** changes (an asset maps to the pages in its
 folder tree that name it, else the folder's `index.html`), keep the scroll position, and show a
-short "Updated" cue; open memory documents refetch in place. Bursts (an rsync from context-sync)
+short "Updated" cue (a hidden tab waits until it is shown); open memory documents refetch in place. Bursts (an rsync from context-sync)
 are coalesced; temp files are ignored. If the machine is out of inotify watches the watcher
-falls back to polling every 2 s. Public and memory files are served with `Cache-Control:
-no-cache` + `ETag`, and `/<dir>/` serves `<dir>/index.html`.
+falls back to polling every 2 s; other errors retry with backoff, and a root that appears after
+boot is picked up. Public and memory files are served with `Cache-Control: no-cache` + `ETag`,
+`/<dir>/` serves `<dir>/index.html`, and an unknown `*.html` path is a 404 (not the app shell).
 
 ### Links open in the app
 

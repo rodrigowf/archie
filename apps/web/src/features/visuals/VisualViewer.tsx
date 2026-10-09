@@ -13,8 +13,9 @@
  * - Toolbar (mockup h): "Updated 2 h ago · folder", **Show on TV** (only when the BX-2 probe says
  *   available — hidden, not disabled, spec 13 §3.7), ⋮ Reload / Open in browser / Copy link.
  * - Live reload (spec 12 §9.3, VZ-6): when the content watcher reports this page or one of its
- *   assets changed, the frame remounts once per burst (debounced), hidden or not, and a short
- *   "Updated" cue shows. A same-origin page gets its scroll position back after the reload
+ *   assets changed, the frame remounts once per burst (debounced) and a short "Updated" cue
+ *   shows. A hidden view waits until it is shown again (its state is not thrown away for a page
+ *   nobody is looking at, and the scroll position can be read back). A same-origin page gets its scroll position back after the reload
  *   (re-applied briefly while scripts build the page); a deleted page is left as it is.
  */
 import { useEffect, useRef, useState } from 'react';
@@ -49,9 +50,9 @@ function readScroll(frame: HTMLIFrameElement | null): ScrollPos | null {
   }
 }
 
-function restoreScroll(frame: HTMLIFrameElement | null, pos: ScrollPos): void {
+function restoreScroll(frame: HTMLIFrameElement | null, pos: ScrollPos, timers: ReturnType<typeof setTimeout>[]): void {
   for (const ms of SCROLL_RESTORE_DELAYS_MS) {
-    setTimeout(() => {
+    timers.push(setTimeout(() => {
       try {
         const w = frame?.contentWindow;
         // The user scrolled meanwhile, or it already holds: leave it.
@@ -59,7 +60,7 @@ function restoreScroll(frame: HTMLIFrameElement | null, pos: ScrollPos): void {
       } catch {
         // cross-origin: nothing to restore
       }
-    }, ms);
+    }, ms));
   }
 }
 
@@ -85,6 +86,7 @@ export function VisualViewer({ path, url, hidden }: VisualViewerProps) {
   const menuRef = useRef<HTMLButtonElement>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const pendingScroll = useRef<ScrollPos | null>(null);
+  const scrollTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const stamp = useContentStamp('visuals', path);
   // Changes from before this viewer mounted are already in what it loads.
   const handledVersion = useRef(stamp ? stamp.version : 0);
@@ -92,7 +94,14 @@ export function VisualViewer({ path, url, hidden }: VisualViewerProps) {
   const deleted = !!stamp && stamp.deleted;
 
   useEffect(() => {
-    if (version <= handledVersion.current || deleted) return undefined;
+    const timers = scrollTimers.current;
+    return () => {
+      for (const t of timers.splice(0)) clearTimeout(t);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (version <= handledVersion.current || deleted || hidden) return undefined;
     const t = setTimeout(() => {
       handledVersion.current = version;
       pendingScroll.current = readScroll(frameRef.current);
@@ -102,7 +111,7 @@ export function VisualViewer({ path, url, hidden }: VisualViewerProps) {
     return () => {
       clearTimeout(t);
     };
-  }, [version, deleted]);
+  }, [version, deleted, hidden]);
 
   useEffect(() => {
     if (!cue) return undefined;
@@ -206,7 +215,7 @@ export function VisualViewer({ path, url, hidden }: VisualViewerProps) {
           onLoad={() => {
             const pos = pendingScroll.current;
             pendingScroll.current = null;
-            if (pos && (pos.x || pos.y)) restoreScroll(frameRef.current, pos);
+            if (pos && (pos.x || pos.y)) restoreScroll(frameRef.current, pos, scrollTimers.current);
           }}
         />
       </div>

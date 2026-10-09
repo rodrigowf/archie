@@ -79,12 +79,12 @@ class MemoryWatcher:
         """Index after each :meth:`notify` until :meth:`stop`."""
         logger.info(f"Memory indexer started: {self._get_memory_dir()}")
         stop = asyncio.ensure_future(self._stop_event.wait())
+        dirty: asyncio.Future | None = None
         try:
             while self._running:
                 dirty = asyncio.ensure_future(self._dirty.wait())
                 await asyncio.wait({dirty, stop}, return_when=asyncio.FIRST_COMPLETED)
                 if not self._running or not self._dirty.is_set():
-                    dirty.cancel()
                     break
                 self._dirty.clear()
                 try:
@@ -94,6 +94,8 @@ class MemoryWatcher:
                     logger.error(f"Memory indexer error: {e}")
         finally:
             stop.cancel()
+            if dirty is not None:
+                dirty.cancel()
 
     def stop(self) -> None:
         """Signal the indexer to stop."""
