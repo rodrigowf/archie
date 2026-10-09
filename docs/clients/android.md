@@ -3,10 +3,11 @@ name: android
 category: archie/clients
 tags: [android, kotlin, compose, navigation3, views, app-main, app-lite, a300m, poco, gradle, adb, signing, vosk]
 created: 2026-04-14
-modified: 2026-10-08
+modified: 2026-10-09
 summary: apps/android — Gradle multi-module project with the main app (com.assistant.archie) and the A300M lite app (com.assistant.peripheral).
 source: curated (consolidated from memory notes assistant/android/android_peripheral_project.md, assistant/infrastructure/repo_layout_cutover_2026_10.md, assistant/devices/peripheral_devices.md, auto-memory feedback_android_ws_keepalive_silent_drop.md, feedback_use_adb_input_for_device_tests.md, feedback_hands_on_checks_over_suites.md, feedback_run_test_before_speculating.md, project_frontend_refactor_2026_10_03.md; verified against code 2026-10-06)
 references:
+  - ../harnesses/authentication.md
   - ../specs/14-android-architecture.md
   - ../specs/12-client-protocol.md
   - ../projects/frontend-refactor/README.md
@@ -303,6 +304,16 @@ its catalog hints, or one inferred from its kind (`HarnessControls.optionControl
 - **Test data**: the JVM tests of `:core:protocol` and `:feature:settings` read the web mock
   catalogs (`apps/web/mock-server/data/harnesses.json`) through the `archie.harnessCatalogs`
   system property, so both clients test against the same data.
+
+## Settings → Accounts
+
+`feature/settings`: `AccountsModel.kt` (state + actions over `ArchieApi.accounts()` … `deleteEnv()`,
+flow polling while the page is shown, pure helpers in its companion) and `ui/AccountsPage.kt` (one
+card per service, the link flow — Open opens the URL in the browser via an `ACTION_VIEW` intent,
+Copy puts it on the clipboard — pasted-back code, credentials paste, API-key fields, sign out,
+Test, and the Environment keys list with reveal-on-demand / edit / delete / add). DTOs in
+`core/protocol` `RestDto.kt` (`AccountServiceDto`, `LoginFlowDto`, `EnvKeyDto`, …). The AuthGate
+(Claude only) is unchanged. See [authentication.md](../harnesses/authentication.md).
 
 ## Rules for changing the apps
 

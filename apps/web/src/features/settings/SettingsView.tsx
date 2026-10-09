@@ -19,7 +19,7 @@ import { useSettingsRefresh } from './controller';
 import { DEFAULT_PAGE, findSettingsPage, type SettingsPageDef, type SettingsPageId } from './pages';
 import { ScopeChip, useFieldId } from './parts';
 import { SettingsHome } from './SettingsHome';
-import { AccountPage } from './pages/AccountPage';
+import { AccountsPage } from './pages/AccountsPage';
 import { AboutPage, AppearancePage } from './pages/DevicePages';
 import { McpServersPage } from './pages/McpServersPage';
 import { AgentSessionsPage, ConversationModelPage } from './pages/ModelPages';
@@ -35,7 +35,7 @@ export const PAGE_COMPONENTS: Record<SettingsPageId, ComponentType> = {
   'agent-sessions': AgentSessionsPage,
   'working-directories': WorkingDirectoriesPage,
   'mcp-servers': McpServersPage,
-  account: AccountPage,
+  account: AccountsPage,
   about: AboutPage,
 };
 
@@ -89,7 +89,7 @@ export interface SettingsViewProps {
 export default function SettingsView({ page, onNavigate, load = true, layout }: SettingsViewProps) {
   useSettingsRefresh(load);
   useEffect(() => {
-    if (load) void checkAuth(); // the Account row's value
+    if (load) void checkAuth(); // the Accounts row's value until the page has loaded every service
   }, [load]);
   const wide = useTwoPane();
   const mode = layout ?? (wide ? 'two-pane' : 'pushed');

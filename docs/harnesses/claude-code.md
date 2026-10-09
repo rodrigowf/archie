@@ -3,11 +3,12 @@ name: claude-code
 category: archie/harnesses
 tags: [claude-code, claude-agent-sdk, harness, claude-config-dir, jsonl, skills, auth, oauth, chrome, sdk-upgrade, harness-catalog, effort, thinking]
 created: 2026-05-15
-modified: 2026-10-08
+modified: 2026-10-09
 summary: The Claude Code harness — ClaudeSessionManager over claude-agent-sdk, .claude_config layout, JSONL, SDK pin (0.2.164), config catalog + options, auth, Chrome flag.
 source: curated (consolidated from memory notes assistant/providers/provider_generalization.md, assistant/providers/qwen_code_adaptation.md, assistant/utilities/project_skills_not_registered.md, auto-memory project_sdk_upgrade_path_2026_06_18.md, feedback_verify_auth_under_backend_config_dir.md, feedback_jetson_oauth_token_expiry.md, feedback_ssh_remote_cli_nvm_path.md; verified against code 2026-10-06)
 references:
   - registry.md
+  - authentication.md
   - qwen-code.md
   - gemini-cli.md
   - ../architecture/agent-sessions.md
@@ -202,7 +203,8 @@ deliberately not an option: gating needs `"default"`. No options → only the de
 
 ## Auth
 
-Two credential paths, in precedence order:
+Settings → Accounts drives every method below from the UI, also on a headless server
+([authentication.md](authentication.md)). Two credential paths, in precedence order:
 
 1. **`CLAUDE_CODE_OAUTH_TOKEN` in `context/.env`** — a 1-year token printed by
    `claude setup-token`. `run.sh` exports it, local sessions inherit it through `env`, and

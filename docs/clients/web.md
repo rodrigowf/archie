@@ -3,10 +3,11 @@ name: web
 category: archie/clients
 tags: [web, react, vite, zustand, safari-12, ipad, compat-build, remote-console, low-end, deploy]
 created: 2026-04-14
-modified: 2026-10-07
+modified: 2026-10-09
 summary: apps/web — React 18 + Vite web client; one source tree, main build at / and Safari 12 build at /compat/.
 source: curated (consolidated from memory notes assistant/devices/frontend-compat.md, assistant/infrastructure/repo_layout_cutover_2026_10.md, assistant/infrastructure/features_and_integrations_summary.md §3–4, auto-memory feedback_always_build_both_frontends.md, feedback_stale_web_build_voice_symptom.md, project_frontend_refactor_2026_10_03.md; verified against code 2026-10-06)
 references:
+  - ../harnesses/authentication.md
   - ../specs/13-web-architecture.md
   - ../specs/11-information-architecture.md
   - ../specs/12-client-protocol.md
@@ -191,6 +192,20 @@ reports. Tab tags, the switcher and history rows label them with `providerLabel`
 Codex, Model Studio), else the label from the harness registry already in the store
 (`/api/config/harnesses`, or `/api/config/providers` on older servers), else the raw id — so a new
 harness needs no web edit.
+
+## Settings → Accounts
+
+`src/features/settings/pages/AccountsPage.tsx` over `src/features/settings/accounts/`
+(`accountsStore.ts` — zustand store over `api.accounts` / `api.env`; `ServiceCard.tsx` — status
+chip, facts, warnings, one button per method, the link-flow / credentials / key panels;
+`EnvKeys.tsx` — key fields in cards and the Environment keys list; `logic.ts` — pure helpers).
+One card per service grouped Agent harnesses / Voice & AI APIs / Other, then Environment keys.
+A link sign-in shows the URL (Open / Copy), the device code, a field for the pasted-back code and
+a live status (polled every 2 s while active); credentials paste names the file to copy and where
+it lands; env values are masked and revealed one at a time on demand (never stored). The page id
+stays `account` (deep links); the label is "Accounts". The mock server (`npm run mock`) serves the
+same endpoints from `mock-server/accounts.mjs` ("good" is the code that signs in). Backend, methods
+and trust model: [authentication.md](../harnesses/authentication.md); protocol: spec 12 §8.1.
 
 ## Low-end mode
 

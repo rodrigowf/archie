@@ -28,7 +28,7 @@ from utils.paths import PROJECT_ROOT
 
 from . import envfile
 from .base import AccountError, AccountService, Method
-from .common import child_env, env_field, find_cli, key_set, run, verify_http
+from .common import child_env, env_field, find_cli, key_set, run
 from .files import atomic_write, iso_from_epoch, read_json
 from .flows import FlowSpec, Scan, clean, find_url
 
@@ -243,13 +243,3 @@ class ClaudeAccount(AccountService):
         if rc != 0:
             raise AccountError(f"`claude auth logout` failed: {out.strip()[-200:] or rc}", 502)
         return "Signed out of this server's login."
-
-    async def verify(self) -> dict[str, Any]:
-        key = envfile.effective(API_KEY_ENV)
-        if not key:
-            raise AccountError("Nothing to test: the subscription login is checked by `claude auth status` (Check again).", 409)
-        return await verify_http(
-            "https://api.anthropic.com/v1/models?limit=1",
-            {"x-api-key": key, "anthropic-version": "2023-06-01"},
-            ok_message="The Anthropic API key works.",
-        )

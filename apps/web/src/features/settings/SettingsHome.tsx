@@ -19,6 +19,8 @@ import {
   voiceProviderLabel,
   workingDirectoriesSummary,
 } from './logic';
+import { useAccounts } from './accounts/accountsStore';
+import { accountsSummary } from './accounts/logic';
 import { SETTINGS_PAGES, type SettingsPageDef, type SettingsPageId } from './pages';
 import { SettingsGroup, SettingsRow } from './parts';
 import { TEXT_SIZE_LABELS, THEME_LABELS } from './pages/DevicePages';
@@ -28,7 +30,9 @@ import styles from './settings.module.css';
 function useServerSummaries(): Partial<Record<SettingsPageId, string>> {
   const s = useServerConfig((x) => x);
   const auth = useAuth((a) => a);
-  const out: Partial<Record<SettingsPageId, string>> = { account: authSummary(auth) };
+  const services = useAccounts((a) => a.services);
+  // Every service once Accounts has been opened; until then the Claude check the gate does anyway.
+  const out: Partial<Record<SettingsPageId, string>> = { account: services ? accountsSummary(services) : authSummary(auth) };
   const cfg = s.config;
   if (!cfg) {
     const msg = s.error ? "Couldn't load" : 'Loading…';

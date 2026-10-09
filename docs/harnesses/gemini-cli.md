@@ -7,6 +7,7 @@ modified: 2026-10-08
 summary: The Gemini CLI harness (pinned 0.63.0) — spawn-per-turn gemini --prompt, API-key-only auth since the oauth-personal shutdown, env-templated workspace settings, catalog + options, JSONL log semantics, landmines.
 source: curated (consolidated from memory notes assistant/providers/gemini_cli_adaptation.md, assistant/providers/provider_generalization.md; upgraded to CLI 0.63.0 and verified live 2026-10-07)
 references:
+  - authentication.md
   - registry.md
   - qwen-code.md
   - claude-code.md
@@ -51,6 +52,9 @@ Set `ARCHIE_GEMINI_AUTH_TYPE` (e.g. `vertex-ai`, or `oauth-personal` for Code As
 Standard/Enterprise accounts) to use something else. Without a key (and without that variable) a
 local turn fails immediately with an explanation instead of an empty turn. SSH remotes bring their
 own `GEMINI_API_KEY`.
+
+Settings → Accounts sets the key and the auth type, pastes `oauth_creds.json`, and drives the TUI's
+Google sign-in on a headless server ([authentication.md](authentication.md)).
 
 A possible future harness: Google's successor, **Antigravity CLI** (`agy`).
 

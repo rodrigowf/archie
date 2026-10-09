@@ -95,6 +95,7 @@ class ServiceStatus:
     docs: str | None = None
     flow: dict[str, Any] | None = None  # the active / last sign-in flow (filled by the registry)
     verified: dict[str, Any] | None = None  # result of an explicit "Test" (API keys)
+    can_verify: bool = False  # the service implements verify() (filled by the registry)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

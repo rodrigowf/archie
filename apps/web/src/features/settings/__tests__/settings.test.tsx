@@ -511,25 +511,15 @@ describe('Agent sessions', () => {
   });
 });
 
-describe('Account and About', () => {
-  it('Account: status from /api/auth/status, Check again, and replacing credentials while signed in', async () => {
+describe('Accounts and About', () => {
+  it('Accounts: titled "Accounts", loads every service and the env keys (details: accounts.test.tsx)', async () => {
     srv = serveConfig(h.fetch);
-    const { user } = view('account');
-    const status = await screen.findByText('Signed in');
-    expect(status.getAttribute('data-auth-state')).toBe('in');
-    expect(screen.getByText('Paste credentials (no screen on the server)')).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Check again' }));
-    await waitFor(() => expect(h.fetch.calls('GET', '/api/auth/status').length).toBeGreaterThanOrEqual(2));
-    await user.click(screen.getByRole('button', { name: /Replace credentials/ }));
-    expect(screen.getByRole('textbox', { name: 'Credentials JSON' })).toBeTruthy();
-  });
-
-  it('Account: signed out on a headless server offers the paste flow', async () => {
-    srv = serveConfig(h.fetch);
-    h.fetch.on('GET', '/api/auth/status', { authenticated: false, auth_url: null, headless: true });
+    h.fetch.on('GET', '/api/accounts', { services: [], env_path: '' }).on('GET', '/api/env', { path: '/srv/context/.env', exists: true, keys: [] });
     view('account');
-    expect(await screen.findByText('Not signed in')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Set credentials' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Accounts' })).toBeTruthy();
+    await waitFor(() => expect(h.fetch.calls('GET', '/api/accounts')).toHaveLength(1));
+    await waitFor(() => expect(h.fetch.calls('GET', '/api/env')).toHaveLength(1));
+    expect(screen.getByRole('heading', { name: 'Environment keys' })).toBeTruthy();
   });
 
   it('About: version, build, backend; remote logging is a device switch', async () => {

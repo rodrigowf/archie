@@ -7,6 +7,7 @@ modified: 2026-10-08
 summary: The Qwen Code harness (qwen-code 0.25.0) — spawn-per-turn qwen CLI, per-run system settings file, ~/.qwen symlinks into context/, JSONL normalization, model catalog + options, the auto-memory landmine.
 source: curated (consolidated from memory notes assistant/providers/qwen_code_adaptation.md, assistant/providers/provider_generalization.md; verified against code 2026-10-06)
 references:
+  - authentication.md
   - registry.md
   - claude-code.md
   - gemini-cli.md
@@ -106,8 +107,9 @@ qwen --input-format stream-json --output-format stream-json --include-partial-me
 - The env is the backend's env minus `CLAUDECODE`, plus `QWEN_CODE_SUPPRESS_YOLO_WARNING=1` (0.25
   prints a yolo-without-sandbox warning to stderr on every turn otherwise) and
   `QWEN_CODE_SYSTEM_SETTINGS_PATH=<per-run file>` ([Per-run settings](#per-run-settings)). API keys
-  (`DASHSCOPE_API_KEY`) come from `context/.env` via `run.sh`, or from Qwen's own OAuth / settings
-  `env` block.
+  (`DASHSCOPE_API_KEY`) come from `context/.env` via `run.sh`, or from the settings `env` block. Qwen
+  OAuth was discontinued on 2026-04-15 (0.25 marks `qwen auth` "removed"); Settings → Accounts
+  manages the keys ([authentication.md](authentication.md)).
 - Fork: the first turn of a forked session runs `--resume <parent> --fork-session` (0.16+); the
   new session id from `system/init` / `result` becomes the session's own id and later turns
   resume it without the flag. If the prewarm saw a CLI older than 0.16 the flag is left out and

@@ -65,6 +65,7 @@ class AccountsManager:
         except Exception as e:  # noqa: BLE001 — one broken service must not break the page
             logger.exception("accounts: status of %s failed", service_id)
             st = svc.new_status(state="unknown", warnings=[f"Couldn't check: {type(e).__name__}: {e}"])
+        st.can_verify = type(svc).verify is not AccountService.verify
         return self._finish(st)
 
     async def status_all(self) -> list[dict[str, Any]]:
