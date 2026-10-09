@@ -303,6 +303,24 @@
     ta: '*{touch-action:auto!important;cursor:auto!important}'
   };
   var exps = [];
+
+  /* ?exp=passive: every touch listener registered after this point becomes passive (tests whether
+   * a blocking touch handler delays native scrolling; drags that need preventDefault stop working). */
+  function forcePassiveTouch() {
+    var proto = w.EventTarget && w.EventTarget.prototype;
+    if (!proto || typeof proto.addEventListener !== 'function') {
+      return;
+    }
+    var original = proto.addEventListener;
+    proto.addEventListener = function (type, listener, options) {
+      if (type === 'touchstart' || type === 'touchmove' || type === 'touchend' || type === 'touchcancel') {
+        var capture = typeof options === 'boolean' ? options : !!(options && options.capture);
+        return original.call(this, type, listener, { capture: capture, passive: true });
+      }
+      return original.apply(this, arguments);
+    };
+  }
+
   try {
     var m = /[?&]exp=([^&#]*)/.exec(w.location.search || '');
     var names = m ? decodeURIComponent(m[1]).split(',') : [];
@@ -312,6 +330,10 @@
         exps.push(names[xi]);
         css += EXPERIMENTS[names[xi]];
       }
+    }
+    if (exps.indexOf('passive') < 0 && names.indexOf('passive') >= 0) {
+      exps.push('passive');
+      forcePassiveTouch();
     }
     if (css && w.document && w.document.head) {
       var styleEl = w.document.createElement('style');
@@ -438,6 +460,8 @@
   var pendingTap = null;
 
   if (w.document && typeof w.document.addEventListener === 'function') {
+    /* Every touch listener here is passive: a non-passive touch handler (touchend included) makes
+     * iOS treat the whole page as a synchronous touch region, which can delay native scrolling. */
     var passive = { capture: true, passive: true };
     w.document.addEventListener('touchstart', perfStart, passive);
     w.document.addEventListener(
@@ -508,7 +532,7 @@
           }
         }, TAP_MS);
       },
-      true
+      passive
     );
   }
 
