@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse
 
+from manager.accounts import AccountsManager
 from manager.auth import AuthManager
 from manager.config import ManagerConfig
 from manager.loop_watchdog import start_loop_watchdog
@@ -22,7 +23,7 @@ from manager.store import SessionStore
 from .connections import ConnectionManager
 from .indexer import HistoryIndexer, MemoryWatcher
 from .pool import SessionPool
-from .routes import agents, auth, browser, chat, config, debug, mcp, memory, orchestrator, sessions, skills, uploads, visualizations, voice
+from .routes import accounts, agents, auth, browser, chat, config, debug, mcp, memory, orchestrator, sessions, skills, uploads, visualizations, voice
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ async def lifespan(app: FastAPI):
         not os.environ.get("DISPLAY") and os.name != "nt"
     )
     app.state.auth = AuthManager(headless=headless)
+    app.state.accounts = AccountsManager()
 
     app.state.connections = ConnectionManager()
     app.state.pool = SessionPool()
@@ -115,6 +117,12 @@ async def lifespan(app: FastAPI):
             await app.state.pool.stop_dead_session_reaper()
         except Exception:
             logger.exception("Error stopping dead-session reaper on shutdown")
+
+        # Kill any sign-in CLI still waiting for a pasted code (Settings → Accounts).
+        try:
+            await app.state.accounts.flows.shutdown()
+        except Exception:
+            logger.exception("Error stopping sign-in flows on shutdown")
 
         # Drain the session pool first so remote SSH + claude children get
         # clean SIGTERMs instead of being orphaned by the backend exiting.
@@ -228,6 +236,7 @@ def create_app() -> FastAPI:
     app.include_router(sessions.router)
     app.include_router(chat.router)
     app.include_router(auth.router)
+    app.include_router(accounts.router)
     app.include_router(orchestrator.router)
     app.include_router(voice.router)
     app.include_router(mcp.router)
