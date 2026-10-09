@@ -24,8 +24,9 @@ Settings → **Accounts** (web and Android) shows every service Archie signs in 
 (signed in, method, account, plan, expiry) and every sign-in method the service supports, then the
 `context/.env` key manager. Backend: `backend/manager/accounts/` (one `AccountService` per service,
 the login-flow driver and the env manager) behind `backend/api/routes/accounts.py`
-(`/api/accounts`, `/api/env`; spec 12 §8.1). The first-run AuthGate still uses the Claude-only
-`/api/auth/*` routes.
+(`/api/accounts`, `/api/env`; spec 12 §8.1). The first-run AuthGate's "Sign in with Claude" uses the same link
+sign-in (Claude `token` method); the Claude-only `/api/auth/*` routes stay for older clients
+(`/api/auth/login` is refused while a link sign-in runs).
 
 The backend runs 24/7 on a server **without a screen**; the user is on a phone or laptop. Every
 method therefore works without a browser on the server: the backend runs the CLI's own login,
@@ -47,7 +48,7 @@ API-key services also get **Test**: a request to the provider's free "list model
 | Service | Methods (✔ = in Accounts) | Where the credential lives (as Archie runs it) | Status from |
 |---|---|---|---|
 | Claude Code | ✔ link `claude setup-token` → 1-year token saved as `CLAUDE_CODE_OAUTH_TOKEN` in `context/.env` (recommended); ✔ link `claude auth login --claudeai` → this server's refreshing login; ✔ link `claude auth login --console` (API billing); ✔ paste `.credentials.json`; ✔ env `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY`; ✔ sign out `claude auth logout` | `CLAUDE_CONFIG_DIR=<repo>/.claude_config` → `.credentials.json` (per machine); token in `context/.env` (synced, forwarded to SSH remotes) | `claude auth status --json` (`loggedIn`, `authMethod` = `claude.ai` / `oauth_token` / `api_key` / `none`, `email`, `orgName`, `subscriptionType`, `apiKeySource`) + `refreshTokenExpiresAt` of the file |
-| Codex | ✔ link `codex login --device-auth` (URL + one-time code, recommended); ✔ link `codex login` with the redirect address pasted back; ✔ API key via `codex login --with-api-key`; ✔ paste `auth.json`; ✔ sign out `codex logout` | `CODEX_HOME` = `~/.codex-archie` (dedicated, logins from Accounts go here) or the shared `~/.codex` fallback; `ARCHIE_CODEX_HOME` overrides | `auth.json`: `auth_mode`, `tokens.id_token` claims (`email`, `https://api.openai.com/auth.chatgpt_plan_type`), `last_refresh` |
+| Codex | ✔ link `codex login --device-auth` (URL + one-time code, recommended); ✔ link `codex login` with the redirect address pasted back; ✔ API key via `codex login --with-api-key`; ✔ paste `auth.json`; ✔ sign out `codex logout` — only Archie's own home, never the shared `~/.codex` (unavailable while borrowing it) | `CODEX_HOME` = `~/.codex-archie` (dedicated, logins from Accounts go here) or the shared `~/.codex` fallback; `ARCHIE_CODEX_HOME` overrides | `auth.json`: `auth_mode`, `tokens.id_token` claims (`email`, `https://api.openai.com/auth.chatgpt_plan_type`), `last_refresh` |
 | Gemini CLI | ✔ env `GEMINI_API_KEY` (recommended; the only option for personal accounts since 2026-06-18); ✔ env `ARCHIE_GEMINI_AUTH_TYPE` (`""`/`oauth-personal`/`vertex-ai`); ✔ link Google sign-in (the TUI's `NO_BROWSER` user-code flow); ✔ paste `oauth_creds.json`; ✔ env Vertex (`GOOGLE_API_KEY`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `GOOGLE_APPLICATION_CREDENTIALS`); ✔ sign out (moves `oauth_creds.json` aside) | `context/.env`; Google login in `~/.gemini/oauth_creds.json` (`GEMINI_HOME` overrides), account in `google_accounts.json` | The auth type Archie selects plus the credential it needs |
 | Qwen Code | ✔ env: `DASHSCOPE_API_KEY` and every `envKey` named by `~/.qwen/settings.json` `modelProviders`; ✗ Qwen OAuth (discontinued 2026-04-15; `qwen auth` is "(removed)" in 0.25) | `context/.env` (or the `env` block of `~/.qwen/settings.json`, flagged as a warning) | `security.auth.selectedType` + whether each `envKey` is set |
 | Model Studio | ✔ env `DASHSCOPE_API_KEY`, `MODELSTUDIO_ANTHROPIC_BASE_URL` | `context/.env` | Key set |
@@ -61,7 +62,7 @@ API-key services also get **Test**: a request to the provider's free "list model
 ### What the CLIs print (verified by probing in throwaway config dirs)
 
 - **`claude auth login`** works over plain pipes: `If the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&…&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback…` then `Paste code here if prompted > `. The code (`<code>#<state>`) is read from stdin; a bad one prints `Login failed: Request failed with status code 400`. Success writes `.credentials.json` and exits 0.
-- **`claude setup-token`** is an Ink TUI: it prints nothing useful without a terminal. In a PTY it shows the URL as an OSC 8 hyperlink (the driver reads the link target, so wrapping doesn't matter; the PTY is 1000 columns anyway), takes the code on the keyboard, and prints the `sk-ant-oat01-…` token, which the backend saves to `context/.env`. A bad code: `OAuth error: … Press Enter to retry.`
+- **`claude setup-token`** is an Ink TUI: it prints nothing useful without a terminal. In a PTY it shows the URL as an OSC 8 hyperlink (the driver reads the link target, so wrapping doesn't matter; the PTY is 1000 columns anyway), takes the code on the keyboard, and prints the `sk-ant-oat01-…` token, which the backend saves to `context/.env` — only once the token is followed by whitespace (output arrives in chunks), and the flow succeeds only from that save. Plain-text URLs likewise count only once terminated. A bad code: `OAuth error: … Press Enter to retry.`
 - **`claude auth status`** precedence seen: `CLAUDE_CODE_OAUTH_TOKEN` reports `oauth_token` even with a credentials file or `ANTHROPIC_API_KEY` present (the latter shows as `apiKeySource`). Exit 1 when signed out, JSON either way.
 - **`codex login --device-auth`**: `https://auth.openai.com/codex/device` + a code like `ABCD-EFG12` ("expires in 15 minutes"); exits 0 with `Successfully logged in` once approved.
 - **`codex login`** (browser) starts `http://localhost:1455` and redirects to `http://127.0.0.1:1455/auth/callback?code=…&state=…` — unreachable from the user's device when the CLI runs on the server. The user pastes that address; the backend sends the same GET to the CLI's local server, which finishes the login (a wrong `state` answers 400).
@@ -78,7 +79,11 @@ against `bash -c 'source …'`). Edits rewrite only the edited key's line(s) —
 ordering, `export` prefixes and trailing `# comments` stay byte-identical; a duplicated key has its
 last assignment updated (bash keeps the last) and all removed on delete. Values are written bare
 when safe, otherwise single-quoted (`'\''` for quotes). Names must match `^[A-Z_][A-Z0-9_]*$`.
-Writes are atomic, keep the file's mode, and leave a backup in `context/.env.backups/` (newest 10).
+Writes are atomic, set the file to 0600, and leave a backup in `<repo>/.backups/env/` (newest 10;
+directory 0700, files 0600, gitignored — deliberately not under `context/`, which is synced to the
+other machine and is a git repo). An unterminated quote (`FOO=it's`) is read as a one-line value,
+never as a range to the end of the file. Values containing `~` are quoted (no tilde expansion).
+Names follow bash (`^[A-Za-z_][A-Za-z0-9_]*$`); the UIs suggest capitals for new keys.
 
 The running backend's `os.environ` is updated for the edited key: code that reads the variable at
 call time (voice providers, catalogs, re-rank, the harness managers when they start a session)
@@ -91,8 +96,16 @@ machine's running backend keeps its old values until restarted (its list shows `
 ## Trust model
 
 The API has no authentication of its own; anyone who can reach it can already run commands through
-an agent session. The accounts routes add no new capability, but keep secrets off the wire by
-default: lists and statuses carry masked previews only (`••••` + the last 4 characters of values of
+an agent session. The accounts routes add no new capability, but they guard against **other web
+sites**: the API's CORS policy is `*` and a simple POST needs no preflight, so without a guard any
+page open in a LAN browser could call `POST /api/env/X/reveal`. `backend/api/guard.py`
+(`/api/accounts/*`, `/api/env/*`, `/api/auth/login`, `/api/auth/credentials`) refuses
+`Sec-Fetch-Site: cross-site`, an `Origin` that is not this server (same host name as `Host`; nginx
+passes `Host $host`), the web dev servers (ports 5450/5451/8799 on a trusted host) or
+`ARCHIE_TRUSTED_ORIGINS`; and, against DNS rebinding, a `Host` that is not an IP literal, a
+single-label name, `localhost`, `*.local`/`.lan`/`.home`/`.internal`/`.localhost`/`.ts.net`, this
+machine's names or `ARCHIE_TRUSTED_HOSTS`. Requests without `Origin` (Android, curl) pass. Secrets
+also stay off the wire by default: lists and statuses carry masked previews only (`••••` + the last 4 characters of values of
 16+ characters), a full value is returned only by `POST /api/env/{name}/reveal` (`Cache-Control:
 no-store`), and raw CLI output — which can hold tokens — never leaves the server (clients get the
 URL, the device code and one-line, redacted messages). Credentials files are written 0600.

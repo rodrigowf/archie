@@ -96,6 +96,17 @@ class AccountsModelTest {
         assertTrue(h.backend.accountWrites.any { it.startsWith("DELETE /api/env/NEW_KEY") })
     }
 
+    @Test fun authGate_linkSignIn_succeeds_andReChecks() = runBlocking {
+        h.feature.auth.startLink()
+        val flow = h.feature.auth.state.value.flow!!
+        assertEquals("waiting", flow.status)
+        val checks = h.backend.requests.count { it == "GET /api/auth/status" }
+        h.feature.auth.submitLinkCode(" abc#def ")
+        assertEquals("succeeded", h.feature.auth.state.value.flow?.status)
+        assertTrue(h.backend.accountWrites.any { it.contains("/login/code") && it.contains("\"abc#def\"") })
+        assertTrue(h.backend.requests.count { it == "GET /api/auth/status" } > checks)
+    }
+
     @Test fun helpers() {
         assertNull(AccountsModel.envNameError("MY_KEY_2"))
         assertEquals("Enter a name", AccountsModel.envNameError(" "))
