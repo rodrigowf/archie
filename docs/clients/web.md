@@ -206,15 +206,27 @@ highlighting skipped for blocks over 8 KB, 10 fps meters. Details: spec 13 §2.7
 Devices without DevTools (the iPad) report their console to the backend:
 
 - `scripts/remote-console.js` is a hand-written ES5 script inlined into `index.html` by
-  `vite-plugin-html-target.ts`. It mirrors `console.*` and always sends window `error` and
-  `unhandledrejection` events, via `navigator.sendBeacon` to **`POST /api/debug/log`**. Limits:
-  60 messages per 10 s (then one "dropped N" line), 4 KB per message. Compat lines carry a
-  `[compat]` prefix.
+  `vite-plugin-html-target.ts`. It mirrors `console.*` and always sends window `error` (with the
+  error's stack) and `unhandledrejection` events to **`POST /api/debug/log`**, by
+  `XMLHttpRequest` first (`sendBeacon` is the fallback, and the transport on `pagehide`).
+  Limits: 60 messages per 10 s (then one "dropped N" line), 4 KB per message. Compat lines
+  carry a `[compat]` prefix.
 - Console mirroring is **on by default on compat, off on main**; the device pref
   Settings → This device → Remote logging (`src/platform/remoteLog.ts`, localStorage key
   `archie.remoteConsole`) overrides it per device.
-- The backend handler (`backend/api/routes/debug.py`) appends to **`logs/remote_console.log`**;
-  `GET /api/debug/log` returns the file.
+- While mirroring is on the script also **traces** the page, so a device with no devtools shows
+  what it is doing even when nothing throws: `[boot]` (UA, URL, viewport; proves the logger runs),
+  `[click]` (every click, with a target descriptor and its rect), `[tap] no click followed`
+  (a touch that never became a click), `[nav]` (hash changes), `[probe]` (1 s after boot and
+  after each nav: the element on top at 9 viewport points, which finds overlays eating taps),
+  `[stall]` (main thread blocked > 2.5 s), `[unload]`. `window.__archieRemoteConsole.probe()`
+  runs a probe on demand.
+- `src/app/RootErrorBoundary.tsx` wraps the app: a render error is sent as a `[REACT]` line with
+  React's component stack (always, regardless of the pref) and the screen shows a Reload button
+  instead of going blank.
+- The backend handler (`backend/api/routes/debug.py`) appends to **`logs/remote_console.log`**,
+  tagging each line with the device IP (`X-Real-IP` from nginx); `GET /api/debug/log` returns
+  the file.
 
 ```bash
 tail -f logs/remote_console.log            # watch live (on the machine serving the page)
