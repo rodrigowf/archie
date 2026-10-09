@@ -116,11 +116,11 @@ describe('FloatingVoiceDock', () => {
     });
   };
 
-  it('the same controls as the dock, in a "Voice call" region kept over modals; the state text opens Archie', () => {
+  it('the same controls as the dock, in a "Voice call" region; the state text opens Archie', () => {
     const d = dock();
     const { container, onOpen } = mount(d);
     expect(screen.getByRole('region', { name: 'Voice call' })).toBeTruthy();
-    expect(container.querySelector('[data-voice-overlay]')?.hasAttribute('data-a11y-keep')).toBe(true);
+    expect(container.querySelector('[data-voice-overlay]')).toBeTruthy();
     expect(controls()).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Mute microphone' }));
     fireEvent.click(screen.getByRole('button', { name: 'End voice' }));
@@ -190,6 +190,38 @@ describe('FloatingVoiceDock', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Mute microphone' }));
     expect(d.calls).toEqual(['mic']);
+  });
+
+  it('a mouse drag snaps it to the anchor nearest the drop (no click on the controls)', () => {
+    main.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 800, right: 1000, bottom: 800, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    const d = dock();
+    const { onAnchor } = mount(d);
+    const frame = screen.getByRole('region', { name: 'Voice call' });
+    frame.getBoundingClientRect = () => ({ left: 220, top: 700, width: 560, height: 84, right: 780, bottom: 784, x: 220, y: 700, toJSON: () => ({}) }) as DOMRect;
+    fireEvent.mouseDown(screen.getByRole('button', { name: 'Mute microphone' }), { button: 0, clientX: 500, clientY: 760 });
+    fireEvent.mouseMove(document, { clientX: 520, clientY: 740 });
+    expect(frame.hasAttribute('data-dragging')).toBe(true);
+    // dropped with its centre at (900, 142): the right third, the top half
+    fireEvent.mouseMove(document, { clientX: 900, clientY: 160 });
+    fireEvent.mouseUp(document, { clientX: 900, clientY: 160 });
+    fireEvent.click(screen.getByRole('button', { name: 'Mute microphone' }));
+    expect(onAnchor).toHaveBeenCalledWith('top-right');
+    expect(d.calls).toEqual([]); // the release after a drag is not a click
+  });
+
+  it('an iframe added while idle (a visual screen opening) is watched at once', async () => {
+    mount();
+    idleNow();
+    const frame = document.createElement('iframe');
+    main.appendChild(frame);
+    await act(async () => {
+      await Promise.resolve();
+      vi.advanceTimersByTime(1);
+    });
+    const doc = frame.contentDocument;
+    if (!doc) throw new Error('no frame document');
+    fireEvent.mouseMove(doc.body, { clientX: 31, clientY: 41 });
+    expect(controls()).toBeTruthy();
   });
 
   it('activity inside a same-origin iframe (a visualization) wakes it', () => {

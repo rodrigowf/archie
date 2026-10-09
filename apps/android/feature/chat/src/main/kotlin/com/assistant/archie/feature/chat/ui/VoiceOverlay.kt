@@ -23,6 +23,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
@@ -64,6 +65,7 @@ import com.assistant.core.design.components.VoiceOrb
 import com.assistant.core.design.icons.ArchieIcon
 import com.assistant.core.design.icons.ArchieIcons
 import com.assistant.core.design.theme.ArchieTheme
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.max
@@ -216,10 +218,11 @@ fun Modifier.observeVoiceOverlayActivity(activity: VoiceOverlayActivity): Modifi
         }
     }
 
-/** Placement of the last layout pass (read by the drag's snap). */
+/** Placement of the last layout pass (read by the drag's snap), and the running snap animation. */
 private class Placed {
     var topLeft = Offset.Zero
     var size = IntSize.Zero
+    var settling: Job? = null
 }
 
 /**
@@ -293,21 +296,24 @@ fun VoiceOverlay(
     val bottom = VoiceOverlayGeometry.bottomPadding(region, gap, avoidTop, with(density) { VoiceOverlayGeometry.AvoidGap.toPx() })
     val maxWidth = with(density) { VoiceOverlayGeometry.MaxWidth.toPx() }
 
-    fun settle() {
+    // Snap a drop to its anchor. The anchor is committed (and saved) first, with the offset that
+    // keeps the controls where they were dropped; only that offset eases home, so an interrupted
+    // animation (a new drag) never loses the choice. Always reads this composition's values.
+    val settle by rememberUpdatedState {
         val dropped = placed.topLeft + drag
         val center = dropped + Offset(placed.size.width / 2f, placed.size.height / 2f)
         val next = VoiceOverlayGeometry.snap(center, region)
-        val target = VoiceOverlayGeometry.topLeft(next, region, placed.size, side, topInset, bottom) - placed.topLeft
-        scope.launch {
-            if (!reduceMotion) {
-                animate(Offset.VectorConverter, drag, target, animationSpec = tween(Motion.DurationMedium1, easing = Motion.EasingEmphasizedDecelerate)) { v, _ -> drag = v }
+        val base = VoiceOverlayGeometry.topLeft(next, region, placed.size, side, topInset, bottom)
+        Snapshot.withMutableSnapshot {
+            current = next
+            drag = if (reduceMotion) Offset.Zero else dropped - base
+            dragging = false
+        }
+        onAnchorChange(next)
+        if (!reduceMotion) {
+            placed.settling = scope.launch {
+                animate(Offset.VectorConverter, drag, Offset.Zero, animationSpec = tween(Motion.DurationMedium1, easing = Motion.EasingEmphasizedDecelerate)) { v, _ -> drag = v }
             }
-            Snapshot.withMutableSnapshot {
-                current = next
-                drag = Offset.Zero
-                dragging = false
-            }
-            if (next != anchor) onAnchorChange(next)
         }
     }
 
@@ -320,7 +326,10 @@ fun VoiceOverlay(
                     .onGloballyPositioned { activity.bounds = it.boundsInRoot() }
                     .pointerInput(Unit) {
                         detectDragGestures(
-                            onDragStart = { dragging = true },
+                            onDragStart = {
+                                placed.settling?.cancel() // a new drag takes over from a running snap
+                                dragging = true
+                            },
                             onDragEnd = { settle() },
                             onDragCancel = { settle() },
                             onDrag = { change, amount ->
@@ -350,7 +359,7 @@ fun VoiceOverlay(
         val p = measurables.first().measure(Constraints(maxWidth = w))
         layout(constraints.maxWidth, constraints.maxHeight) {
             val size = IntSize(p.width, p.height)
-            val tl = if (dragging || drag != Offset.Zero) placed.topLeft else VoiceOverlayGeometry.topLeft(current, region, size, side, topInset, bottom)
+            val tl = VoiceOverlayGeometry.topLeft(current, region, size, side, topInset, bottom)
             placed.topLeft = tl
             placed.size = size
             p.place((tl.x - origin.x + drag.x).roundToInt(), (tl.y - origin.y + drag.y).roundToInt())

@@ -20,7 +20,8 @@
  *   (connecting, reconnecting, errors); a mic mute change wakes it.
  * - **A11y.** Region "Voice call"; the pill is a button naming the state, and a polite live
  *   region speaks state changes while it is one; Tab onto the pill expands it and focuses the
- *   controls. `data-a11y-keep`: modal compact screens leave it exposed and focusable. Fade and
+ *   controls. Modal compact screens leave it exposed and focusable (`VOICE_OVERLAY_SELECTOR`);
+ *   dialogs, sheets and menus hide it like the rest of the page. Fade and
  *   snap motion are off under reduced motion / low-end (motion.css).
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type RefObject } from 'react';
@@ -214,7 +215,8 @@ export function FloatingVoiceDock(p: FloatingVoiceDockProps) {
         }
       },
     },
-    { threshold: 6 },
+    // The frame mounts once the first measure lands (`box`): enabling then attaches the listeners.
+    { threshold: 6, enabled: box !== null },
   );
 
   /* ---------------------------------------------------------------- wake, focus */
@@ -249,7 +251,6 @@ export function FloatingVoiceDock(p: FloatingVoiceDockProps) {
       )}
       style={{ left: box.left, width: box.width, ...position }}
       data-voice-overlay=""
-      data-a11y-keep=""
     >
       <div
         ref={frameRef}

@@ -5,9 +5,10 @@
  *
  * - Listens on the window (capture, passive) for mousemove, mousedown, touchstart, touchmove,
  *   wheel and keydown, and on every same-origin iframe document too (visualizations run in
- *   iframes, whose events never reach the parent). Iframes are re-scanned when `scanKey`
- *   changes, on going idle, when the window blurs (focus moved into a frame) and on each frame's
- *   `load` (a navigation replaces its document). Cross-origin frames are skipped.
+ *   iframes, whose events never reach the parent). Iframes are re-scanned when one is added
+ *   (MutationObserver), when `scanKey` changes, on going idle, when the window blurs (focus moved
+ *   into a frame) and on each frame's `load` (a navigation replaces its document). Cross-origin
+ *   frames are skipped.
  * - Only user intent counts: no `scroll` (a streaming conversation scrolls itself), and a
  *   mousemove whose coordinates did not change (the browser's synthetic hover update) is ignored.
  * - Presses inside the controls do not wake them through here: the pill's own click does, so a
@@ -138,10 +139,35 @@ export function useActivityIdle({ enabled, hold, pause = false, ref, idleAfterMs
       if (idleRef.current) setIdle(false);
     };
 
+    // A new view's iframe (a visual opened on a compact screen, a lazy viewer) is watched at once.
+    let pendingScan: ReturnType<typeof setTimeout> | null = null;
+    const hasFrame = (n: Node): boolean =>
+      n.nodeType === 1 && ((n as Element).tagName === 'IFRAME' || (n as Element).getElementsByTagName('iframe').length > 0);
+    const mo =
+      typeof MutationObserver === 'function'
+        ? new MutationObserver((records) => {
+            if (pendingScan !== null) return;
+            for (const r of records)
+              for (let i = 0; i < r.addedNodes.length; i += 1) {
+                const n = r.addedNodes[i];
+                if (n && hasFrame(n)) {
+                  pendingScan = setTimeout(() => {
+                    pendingScan = null;
+                    scan();
+                  }, 0);
+                  return;
+                }
+              }
+          })
+        : null;
+    mo?.observe(document.body, { childList: true, subtree: true });
+
     for (const t of EVENTS) window.addEventListener(t, onActivity, OPTS);
     window.addEventListener('blur', onBlur);
     scan();
     return () => {
+      mo?.disconnect();
+      if (pendingScan !== null) clearTimeout(pendingScan);
       for (const t of EVENTS) window.removeEventListener(t, onActivity, OPTS);
       window.removeEventListener('blur', onBlur);
       frames.forEach((f) => f.off());

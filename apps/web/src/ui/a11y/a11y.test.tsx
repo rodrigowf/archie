@@ -178,6 +178,22 @@ describe('hideOthers', () => {
     expect($('pre').getAttribute('aria-hidden')).toBe('true'); // not ours: untouched
     document.body.innerHTML = '';
   });
+
+  it('`keep` leaves a selector exposed for that layer only (a compact screen, not a dialog over it)', () => {
+    document.body.innerHTML = `
+      <div id="shell"><div id="screens"><section id="screen"></section></div><div id="voice" data-voice-overlay></div>
+      <div id="root"><div id="dialog"></div></div></div>`;
+    const $ = (id: string) => document.getElementById(id) as HTMLElement;
+    const undoScreen = hideOthers($('screen'), '[data-voice-overlay]');
+    expect($('voice').hasAttribute('aria-hidden')).toBe(false);
+    expect($('root').getAttribute('aria-hidden')).toBe('true');
+    const undoDialog = hideOthers($('dialog'));
+    expect($('voice').getAttribute('aria-hidden')).toBe('true');
+    undoDialog();
+    expect($('voice').hasAttribute('aria-hidden')).toBe(false);
+    undoScreen();
+    document.body.innerHTML = '';
+  });
 });
 
 /* ---------------------------------------------------------------- scroll lock */

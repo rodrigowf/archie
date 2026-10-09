@@ -16,9 +16,11 @@ import kotlinx.coroutines.launch
 /**
  * The voice controls' state and actions for one surface (IA §6): [ConversationUiMapper.voice] over
  * the voice host plus the reconnect timeline (mockup k: Reconnecting… → Reconnected for
- * [OUTCOME_MS], or Couldn't reconnect until voice runs again or the user ends it). Shared by the
- * Archie conversation's composer slot ([ConversationViewModel]) and the floating controls
- * ([VoiceOverlayModel]), so both show the same state from the same rules and act the same way.
+ * [OUTCOME_MS], or Couldn't reconnect until voice runs again or the user ends it). ONE instance
+ * per process in the app (next to the voice host, in the app graph), shared by the Archie
+ * conversation's composer slot ([ConversationViewModel]) and the floating controls
+ * ([VoiceOverlayModel]): ending from either clears the outcome on both, and the timeline survives
+ * rotation. Tests and previews may give a view model its own.
  */
 class VoiceDockModel(
     private val voice: ChatVoice,
@@ -29,6 +31,10 @@ class VoiceDockModel(
     private val outcome = MutableStateFlow<VoiceUi?>(null)
     private var outcomeJob: Job? = null
     private var wasReconnecting = false
+    private var following: Job? = null
+
+    /** The orb's live level (measured only while a dock observes it). */
+    val level: StateFlow<Float?> get() = voice.level
 
     val ui: Flow<VoiceUi> = combine(
         combine(voice.state, voice.speakerMuted, voice.remoteDevice, voice.remoteTranscriptMirrored, ::Inputs),
@@ -45,8 +51,10 @@ class VoiceDockModel(
         val mirrored: Boolean,
     )
 
-    /** Follow the voice host (once, from the owner's init). */
-    fun start(): Job = scope.launch { voice.state.collect { v -> onVoiceState(v.reconnectBanner != null, v.phase) } }
+    /** Follow the voice host. Idempotent: every surface sharing this model may call it. */
+    fun start() {
+        if (following == null) following = scope.launch { voice.state.collect { v -> onVoiceState(v.reconnectBanner != null, v.phase) } }
+    }
 
     /** The voice actions of [ChatAction]; false for any other action. */
     fun onAction(a: ChatAction): Boolean {
@@ -94,17 +102,18 @@ class VoiceDockModel(
 }
 
 /**
- * The floating voice controls' state (spec 14 §2.4; the web app's `VoiceOverlay`): this device's
- * voice from the process-scoped voice host, independent of any conversation screen, so the
- * controls work over agent sessions, memory, visuals and settings. Lives as long as the shell.
+ * The floating voice controls' state (spec 14 §2.4; the web app's `VoiceOverlay`): the shared
+ * [dock] model, independent of any conversation screen, so the controls work over agent sessions,
+ * memory, visuals and settings. [scope]: the shell's.
  */
-class VoiceOverlayModel(voice: ChatVoice, scope: CoroutineScope, clock: () -> Long = System::currentTimeMillis) {
-    private val dock = VoiceDockModel(voice, scope, clock).also { it.start() }
+class VoiceOverlayModel(private val dock: VoiceDockModel, scope: CoroutineScope) {
+    init {
+        dock.start()
+    }
 
     val ui: StateFlow<VoiceUi> = dock.ui.stateIn(scope, SharingStarted.Eagerly, VoiceUi.Off)
 
-    /** The orb's live level (measured only while the floating dock observes it). */
-    val level: StateFlow<Float?> = voice.level
+    val level: StateFlow<Float?> get() = dock.level
 
     fun onAction(a: ChatAction) {
         dock.onAction(a)

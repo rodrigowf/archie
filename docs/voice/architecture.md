@@ -340,11 +340,13 @@ itself nothing floats: the dock in the composer slot is the control. "Voice
 active on another device" never floats (not this device's microphone).
 
 - **Same controls, same logic.** Web: `VoiceDockView` driven by
-  `useVoiceDock(localId)`, shared with `VoiceDock`. Android: `VoiceControls`
-  (`:feature:chat` `ComposerArea.kt`), shared with the composer slot, fed by
-  `VoiceOverlayModel`, which uses the same `VoiceDockModel` (mapping + reconnect
-  timeline) as `ConversationViewModel`. The state text opens the Archie
-  conversation.
+  `useVoiceDock(localId)`, shared with `VoiceDock`; the overlay itself is a lazy
+  chunk, preloaded when a call starts. Android: `VoiceControls` (`:feature:chat`
+  `ComposerArea.kt`), shared with the composer slot. One process-wide
+  `VoiceDockModel` (mapping + reconnect timeline, `MainAppGraph.voiceDock`)
+  feeds both `ConversationViewModel` and `VoiceOverlayModel`, so ending from one
+  surface clears the outcome on the other and it survives rotation. The state
+  text opens the Archie conversation.
 - **Where.** Default: where the dock sits on the Archie page (bottom centre of
   the workspace, the dock's gutters), lifted above a visible composer (web: the
   panel's `[data-conversation-dock]`; Android: `LocalComposerBounds`, reported by
@@ -356,13 +358,15 @@ active on another device" never floats (not this device's microphone).
 - **Drag.** Mouse or touch drag snaps to one of six anchors (top/bottom ×
   left/centre/right, thirds across and halves down by the dropped centre),
   persisted per device: web pref `voiceOverlayAnchor`, Android
-  `DeviceSettings.voiceOverlayAnchor` (same keys, e.g. `bottom-center`).
+  `DeviceSettings.voiceOverlayAnchor` (same keys, e.g. `bottom-center`). The
+  anchor is committed and saved on release; only the offset eases home, so a
+  new drag interrupting the snap never loses it.
 - **Idle fade.** After 4 s without activity it shrinks to a faded pill (orb +
   mic / muted icon, opacity 0.55; never invisible, so a live microphone always
   shows). Activity: web — mousemove (real moves only), mousedown, touch, wheel
   and keys on the window and on every same-origin iframe document (visuals),
-  re-scanned on view change, on going idle, on window blur and on each frame's
-  `load`; no `scroll` (streaming conversations scroll themselves). Android — every
+  picked up when added (MutationObserver), on view/screen change, on going
+  idle, on window blur and on each frame's `load`; no `scroll` (streaming conversations scroll themselves). Android — every
   pointer event at `PointerEventPass.Initial` on the shell root (never
   consumed, so WebView touches count) and hardware keys. It never shrinks while
   hovered or with keyboard focus inside (web), mid-drag, or while the call needs
@@ -373,9 +377,9 @@ active on another device" never floats (not this device's microphone).
   system's accessibility "time to take action" as the delay. Motion (fade,
   snap) is off under reduced motion / low-end.
 - **A11y.** Web: region "Voice call", the pill is a button naming the state, a
-  polite live region speaks state changes while it is a pill, `data-a11y-keep`
-  keeps it exposed (and focusable: the focus trap allows it) while a compact
-  screen is modal. Android: pane title "Voice call", the pill's description
+  polite live region speaks state changes while it is a pill. A modal compact
+  screen leaves it exposed and focusable (`useOverlayLayer({keepExposed})`);
+  dialogs, sheets and menus hide it like the rest of the page. Android: pane title "Voice call", the pill's description
   names the state (polite live region).
 
 ### Android (`apps/android/core/`)

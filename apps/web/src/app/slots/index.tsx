@@ -46,7 +46,7 @@ import { StatusGlyph, TabLeading } from '../workspace/TabParts';
 import { useTabSummaries } from '../workspace/tabSummary';
 
 export { Composer } from '@/features/composer';
-export { VoiceAction, VoiceOverlay, useLiveVoiceId } from '@/features/voice';
+export { VoiceAction, VoiceOverlay, preloadVoiceOverlay, useLiveVoiceId, VOICE_OVERLAY_SELECTOR } from '@/features/voice';
 
 // W-12: voice controllers follow the Archie runtimes; the composer's Voice button starts voice.
 installVoice();

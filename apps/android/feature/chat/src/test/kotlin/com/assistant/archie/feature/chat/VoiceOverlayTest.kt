@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -14,8 +15,12 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.IntSize
+import com.assistant.archie.feature.chat.support.FakeChatBackend
 import com.assistant.archie.feature.chat.support.FakeChatVoice
+import com.assistant.archie.feature.chat.support.Frames
+import com.assistant.archie.feature.chat.ui.DefaultToolCardRenderer
 import com.assistant.archie.feature.chat.ui.OverlayAnchor
 import com.assistant.archie.feature.chat.ui.VoiceOverlay
 import com.assistant.archie.feature.chat.ui.VoiceOverlayActivity
@@ -24,6 +29,7 @@ import com.assistant.core.design.theme.ArchieTheme
 import com.assistant.core.voice.ports.SessionPhase
 import com.assistant.core.voice.ports.VoiceSessionState
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -92,7 +98,7 @@ class VoiceOverlayModelTest {
     @Test
     fun followsTheHostAndActsLikeTheDock() = runTest {
         val voice = FakeChatVoice(VoiceSessionState(phase = SessionPhase.ACTIVE, isOwner = true))
-        val m = VoiceOverlayModel(voice, backgroundScope) { testScheduler.currentTime }
+        val m = VoiceOverlayModel(VoiceDockModel(voice, backgroundScope) { testScheduler.currentTime }, backgroundScope)
         runCurrent()
         assertEquals(VoiceUi.Active(SessionPhase.ACTIVE, false, false), m.ui.value)
         m.onAction(ChatAction.ToggleMic)
@@ -109,6 +115,31 @@ class VoiceOverlayModelTest {
 
         m.onAction(ChatAction.EndVoice)
         assertEquals(1, voice.stops)
+    }
+
+    @Test
+    fun oneTimelineForTheDockAndTheFloatingControls() = runTest {
+        val voice = FakeChatVoice(VoiceSessionState(phase = SessionPhase.ACTIVE, isOwner = true))
+        val dock = VoiceDockModel(voice, backgroundScope) { testScheduler.currentTime }
+        val vm = ConversationViewModel(
+            FakeChatBackend(Frames.archie()), voice, DefaultToolCardRenderer::describe,
+            flattenDispatcher = StandardTestDispatcher(testScheduler), externalScope = backgroundScope,
+            clock = { testScheduler.currentTime }, voiceDock = dock,
+        )
+        val overlay = VoiceOverlayModel(dock, backgroundScope)
+        runCurrent()
+        voice.state.value = voice.state.value.copy(reconnectBanner = "Reconnecting…")
+        runCurrent()
+        voice.state.value = VoiceSessionState(phase = SessionPhase.ERROR, errorMessage = "5 tries over 60 s")
+        runCurrent()
+        assertEquals(VoiceUi.ReconnectFailed("5 tries over 60 s"), vm.state.value.voice)
+        assertEquals(VoiceUi.ReconnectFailed("5 tries over 60 s"), overlay.ui.value)
+
+        // ending from the floating controls clears the card in the conversation too (and vice versa)
+        overlay.onAction(ChatAction.EndVoice)
+        runCurrent()
+        assertEquals(VoiceUi.Off, overlay.ui.value)
+        assertEquals(VoiceUi.Off, vm.state.value.voice)
     }
 }
 
@@ -186,5 +217,63 @@ class VoiceOverlayUiTest {
         // the state text opens the Archie conversation
         compose.onNodeWithText("Listening").performClick()
         assertEquals(1, opened)
+    }
+}
+
+/** Drag-to-snap: saved through the latest callback, from the latest region, back to the start too. */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [36], qualifiers = "w1200dp-h800dp-mdpi", application = Application::class)
+class VoiceOverlayDragTest {
+    @get:Rule val compose = createComposeRule()
+
+    private fun settle() {
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(100)
+    }
+
+    private fun drag(by: Offset) {
+        compose.onNodeWithTag("voice-overlay").performTouchInput {
+            down(center)
+            repeat(4) { moveBy(by / 4f) }
+            up()
+        }
+        settle()
+    }
+
+    @Test
+    fun snapsAreSavedIncludingBackToTheStartAndUseTheCurrentRegion() {
+        val saved = mutableListOf<OverlayAnchor>()
+        var anchor by mutableStateOf(OverlayAnchor.BottomCenter)
+        var region by mutableStateOf(Rect(0f, 0f, 1200f, 800f))
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            ArchieTheme(reduceMotion = true) {
+                Box(Modifier.fillMaxSize()) {
+                    VoiceOverlay(
+                        voice = VoiceUi.Active(SessionPhase.ACTIVE, false, false),
+                        onAction = {},
+                        activity = remember { VoiceOverlayActivity() },
+                        region = region,
+                        anchor = anchor,
+                        onAnchorChange = { saved += it; anchor = it },
+                        onOpenConversation = {},
+                        compact = false,
+                    )
+                }
+            }
+        }
+        settle()
+        // 560 wide at the bottom centre (x 320..880): dropped with its centre at x≈300, near the top
+        drag(Offset(-300f, -600f))
+        assertEquals(listOf(OverlayAnchor.TopLeft), saved)
+        // back to where it started: saved too (the anchor it compares against is the current one)
+        drag(Offset(300f, 600f))
+        assertEquals(listOf(OverlayAnchor.TopLeft, OverlayAnchor.BottomCenter), saved)
+
+        // the workspace shrinks to the right half: a small nudge stays bottom-centre of the NEW region
+        compose.runOnIdle { region = Rect(600f, 0f, 1200f, 800f) }
+        settle()
+        drag(Offset(30f, 0f))
+        assertEquals(OverlayAnchor.BottomCenter, saved.last())
     }
 }
