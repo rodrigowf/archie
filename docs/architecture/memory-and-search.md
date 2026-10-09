@@ -3,7 +3,7 @@ name: memory-and-search
 category: archie/architecture
 tags: [memory, wiki, frontmatter, search, history-search, sqlite, fts5, embeddings, rerank, session-summaries, indexing, recall]
 created: 2026-02-23
-modified: 2026-10-08
+modified: 2026-10-09
 summary: The memory wiki as a system, and the search stack over memory and conversation history (indexes, warm server, tools).
 source: curated (consolidated from memory notes assistant/architecture/project-overview.md, assistant/architecture/permissions_branch_architecture.md, assistant/plans/memory_improvements.md, assistant/infrastructure/features_and_integrations_summary.md, context/memory/MEMORY.md, auto-memory project_indexer_full_reembed_fix_2026_06_17.md, project_history_search_rebuild_2026_10_06.md; verified against code 2026-10-06)
 references:
@@ -146,7 +146,7 @@ Rebuilt and evaluated on 2026-10-06 (design and measurements: [PLAN.md](../proje
 | Search service | `backend/utils/search_service.py` `SearchService` | `history_search` / `memory_search` requests; the single code path for the warm server, the cold fallback and the eval harness |
 | Warm server | `shared/scripts/search-server.py` | Long-lived process that keeps the embedding model loaded; JSON lines over stdin/stdout and a Unix socket `index/.search-server.sock` |
 | Orchestrator client | `backend/orchestrator/tools/search.py` | Manages the warm server singleton (`_ensure_server`, auto-restart), cold fallback to `shared/scripts/search.py`, the seven search/navigation tools |
-| Indexers | `backend/api/indexer.py` `MemoryWatcher`, `HistoryIndexer` | Background tasks in the backend that run `index-memory.py` |
+| Indexers | `backend/api/indexer.py` `MemoryWatcher`, `HistoryIndexer`; `backend/api/content_watcher.py` `ContentWatcher` | Background tasks in the backend that run `index-memory.py` (the content watcher does the file watching) |
 | CLI | `shared/scripts/search.py`, `shared/scripts/index-memory.py` | One-shot search (`--collection memory|history`, `--also`, `--json`); (re)index (`--memory-only`, `--history-only`, `--reset`, `--no-summaries`, `--local-model`) |
 | `/recall` skill | `shared/skills/recall/SKILL.md` | Lets Claude Code sessions search both stores via `search.py` |
 | Eval harness | `shared/scripts/history_eval/` (data private in `context/evals/history_search/`) | Retrieval and agent-level evaluation |
@@ -193,7 +193,7 @@ Claude Code sessions use `/recall` or `context/scripts/run.sh context/scripts/se
 
 | Store | Trigger | What happens |
 |---|---|---|
-| Memory | `MemoryWatcher`: `watchfiles.awatch` on `context/memory/` **and** the linked `docs/` (inotify does not follow the symlink), 1 s debounce | `index-memory.py --memory-only` |
+| Memory | `ContentWatcher`: `watchfiles.awatch` on `context/memory/` **and** the linked `docs/` (inotify does not follow the symlink) plus `context/public/`, batches closed after 300 ms of quiet (max 1.5 s), polling fallback when out of inotify watches; markdown changes wake `MemoryWatcher`, which runs the script single-flight (changes during a run → one more run) | `index-memory.py --memory-only` |
 | History | `HistoryIndexer`: every 300 s, only if the hash of all JSONL names/sizes/mtimes changed (`context/*.jsonl`, `context/chats/*.jsonl` and the Codex rollouts) | `index-memory.py --history-only` (summaries for new/grown sessions first) |
 
 A history session's id is the one `SessionStore` uses: the file name, except Codex (thread id from

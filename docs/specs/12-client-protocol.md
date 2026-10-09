@@ -392,6 +392,8 @@ onWatcherEvent(e):               // only arrives on the orchestrator WS, even un
              if v.openedBySync and not v.everFocused and not v.isActive: closeView(v)
        if is_orchestrator: orchestratorRef = null ; voice teardown if any (§7)
        refreshList()
+  visualization_changed / memory_changed:   // same fan-out, handled at the channel level (§9.3)
+       onContentFrame(e)
 ```
 
 - **FOCUS-1.** No server-originated event (pool sync, `agent_session_opened`, `user_message`, a background turn, a voice transcript) may change which view is active or navigate the UI. Only a direct user action may change focus. Clients MAY open a **background** view for a session started elsewhere (web parity), shown with an unread/live badge, but it MUST NOT become active (fixes W-6.1 focus stealing, A-1.1 auto-navigation).
@@ -1621,14 +1623,15 @@ Storage writes MUST NOT happen per streamed event (A-8.14). Every storage access
 
 ## 9. Visualizations and Memory
 
-These flows exist on the web today and are new on Android (charter goal 5). Neither has push events; both are pull-only.
+These flows exist on the web today and are new on Android (charter goal 5). Lists and files are fetched over REST; since 2026-10-09 the backend also pushes change events (§9.3) so open views reload live, and links to either open in the app (§9.4).
 
 ### 9.1 Visualizations
 
 ```
 list:    GET /api/visualizations → [{path, url, title, created, modified, size}]  (sorted by modified desc)
 refresh: when the section opens; manual Refresh / pull-to-refresh; after any view's endTurn (debounced 2 s,
-         compat included, 02 §5.2 regression); on agent_session_opened/closed
+         compat included, 02 §5.2 regression); on agent_session_opened/closed; on visualization_changed
+         (debounced 400 ms, §9.3)
 open:    view key "viz:<path>"; load <origin> + encodePath(url) in an iframe (web) / WebView (Android)
 rename:  optimistic title → PATCH /api/visualizations/rename {path, title} (204; 404 tolerated) → refresh
 ```
@@ -1644,13 +1647,84 @@ rename:  optimistic title → PATCH /api/visualizations/rename {path, title} (20
 tree:   GET /api/memory/tree → MemoryNode[] {name, path, is_dir, children|null}   (dirs first, alphabetical)
 file:   GET /memory/<encodePath(path)> → raw markdown (text/markdown), 404 for dirs/missing
 root:   GET /memory/ → MEMORY.md
-refresh: when the section opens; manual Refresh. (No refresh on turn end.)
+refresh: when the section opens; manual Refresh; on memory_changed with a created/deleted file while the
+         tree is loaded (§9.3). (No refresh on turn end.) An open document refetches on memory_changed for it.
 ```
 - **MEM-1.** Split leading frontmatter with `/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/` and show it verbatim in a collapsed "Frontmatter" section; render the rest as markdown (02 §7.13).
 - **MEM-2.** Relative links (`[x](../projects/frontend-refactor/folder/y.md)`, `#anchor`) MUST resolve against the directory of the current file, normalising `.` and `..`. A result inside the memory root that ends in `.md` opens a memory view (`memory:<path>`) in the app; a result escaping the root, or an absolute `http(s)` link, opens externally (fixes 02 F-37).
 - **MEM-3.** Paths are percent-encoded per segment when fetched (02 §6.2).
 - **MEM-4.** Folder expand state is per view and local; top-level folders start expanded.
 - **MEM-5.** Read-only: no write, rename or search endpoints exist.
+
+### 9.3 Live changes
+
+The backend's content watcher (`backend/api/content_watcher.py`, one `watchfiles` loop over `context/public/`,
+`context/memory/` and `docs/`) pushes two frames to **every orchestrator socket**, the same fan-out as the pool
+watcher events (§3.7: they arrive with no Archie view, subscribed or not):
+
+```
+visualization_changed {visualizations: [{path, kind}], files: [{path, kind}]}
+    visualizations: list paths (GET /api/visualizations `path`) whose page or one of its assets changed
+    files:          the raw changed paths under context/public/
+memory_changed {changes: [{path, kind}]}
+    changes:        markdown paths as in GET /api/memory/tree (docs/x.md is reported as archie/x.md)
+kind: "created" | "modified" | "deleted"   (advisory: an atomic save or an rsync reads as a create)
+
+onContentFrame(f):                      // channel level, never the conversation reducer
+  visualization_changed: for c in f.visualizations: stamp.visuals[c.path] = {version+1, deleted: c.kind == deleted}
+                         refreshVisuals() debounced 400 ms
+  memory_changed:        for c in f.changes: stamp.memory[c.path] = {version+1, deleted: …}
+                         if memory tree loaded and some kind != modified: refreshTree() debounced 400 ms
+```
+
+- **VZ-6.** An open visualization view reloads when its stamp moves past the version it loaded (a change from
+  before it opened is already in what it loaded), once per burst (300 ms debounce), hidden or not (web: the
+  iframe stays mounted; Android: the pooled WebView remembers the version it loaded, so a change that arrived
+  while the tab was away reloads it when it shows). A deleted page is not reloaded; the meta line says
+  "Deleted". The reload keeps the scroll position (web: same-origin frames are scrolled back after `load`;
+  Android: `WebView.reload()`), and a small "Updated" cue shows for 2.5 s. An open memory document refetches
+  in place the same way (the text stays visible, so does the scroll position); its cue shows only when the
+  text changed. **Fallback:** when the orchestrator socket opens again after a drop (not on the first open),
+  the client refetches the visualization list and bumps every entry whose `modified` moved (vanished ones as
+  deleted), and bumps a resync epoch on which open memory documents refetch quietly. An asset-only change of a
+  folder visualization during the outage is not caught by this fallback (the list's `modified` is the page's).
+- **VZ-7.** Batches are coalesced on the server (`awatch` step 300 ms, max 1.5 s); temp and editor files
+  (rsync's `.name.XXXXXX`, `*.swp`, `*.tmp.*`, dot-folders, `node_modules`) never appear. An asset maps to the
+  pages in its folder or an ancestor folder (below the public root) whose source names it, else to the nearest
+  `index.html` above it, else to nothing (the list still refreshes). Public and memory files are served with
+  `Cache-Control: no-cache` + `ETag` (304 when unchanged), so a reload never shows a cached copy, and
+  `/<dir>/` serves `<dir>/index.html` (`/<dir>` redirects there).
+
+### 9.4 Internal links
+
+In chat (agent sessions and Archie, including plans and tool output on the web) and in memory documents, a
+link to a visualization or a memory file opens the in-app view (`viz:<path>` / `memory:<path>`, the same
+navigation as the Visuals / Memory lists) instead of a browser tab. One resolver per platform
+(`apps/web/src/features/markdown/internalLinks.ts`, `:core:markdown` `InternalLinks.kt`), both checked against
+the shared corpus `apps/protocol-fixtures/links/internal-links.json`. First match wins:
+
+- **LNK-1** Filesystem paths as agents print them: `context/public/<x>.html` → visual, `context/memory/<x>.md`
+  → memory (relative, `./`, absolute `/home/u/assistant/context/…`, or `~/…`); `docs/<x>.md` and
+  `…/assistant/docs/<x>.md` → memory `archie/<x>.md`. A trailing `:line` / `:line-line` is dropped.
+- **LNK-2** Root-relative URLs: `/memory/<x>.md` (`/memory/` → `MEMORY.md`), the old
+  `/markdown_reader.html?file=memory/<x>.md`, and `/<x>.html` or `/<dir>/` (→ `<dir>/index.html`) outside
+  the app's own prefixes (`api assets compat legacy legacy_compat next next-compat memory uploads projects`),
+  with no query string. Absolute filesystem roots (`/home/`, `/tmp/`, …) are not URLs.
+- **LNK-3** `http(s)` URLs on the backend's host (any port) → as LNK-2.
+- **LNK-4** Other private-network hosts (LAN, Tailscale CGNAT `100.64/10`, `*.ts.net`, localhost: the other
+  Archie machine, whose content is synced) → LNK-2 only for `/memory/…`, the reader, `/visualizations/…`, or a
+  path that is in the visualization list.
+- **LNK-5** Auto-linking: inline code that is exactly an internal path or URL (no whitespace or glob
+  characters) becomes a link; bare `context/public/….html` / `context/memory/….md` paths in plain text too.
+  `docs/` paths only from inline code; never inside fenced code or an existing link.
+- **LNK-6** Web: a plain click opens in the app; middle / ctrl / cmd-click keep the browser default on the
+  real URL (the anchor's `href`). Memory documents ask their relative-link resolver (MEM-2) first.
+
+**Link convention for agents.** Print root-relative markdown links, which work in the app and, against the
+server, in any browser: `[Avatar pipeline](/avatar-pipeline/index.html)`, `[Energy](/visualizations/energy.html)`,
+`[Voice notes](/memory/projects/voice.md)`, `[Client protocol](/memory/archie/specs/12-client-protocol.md)`.
+A full URL on the server (`https://<server>/avatar-pipeline/`) also opens in the app, for a link meant to be
+pasted elsewhere.
 
 ---
 

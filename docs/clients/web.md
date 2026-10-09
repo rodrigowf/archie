@@ -3,7 +3,7 @@ name: web
 category: archie/clients
 tags: [web, react, vite, zustand, safari-12, ipad, compat-build, remote-console, low-end, deploy]
 created: 2026-04-14
-modified: 2026-10-07
+modified: 2026-10-09
 summary: apps/web — React 18 + Vite web client; one source tree, main build at / and Safari 12 build at /compat/.
 source: curated (consolidated from memory notes assistant/devices/frontend-compat.md, assistant/infrastructure/repo_layout_cutover_2026_10.md, assistant/infrastructure/features_and_integrations_summary.md §3–4, auto-memory feedback_always_build_both_frontends.md, feedback_stale_web_build_voice_symptom.md, project_frontend_refactor_2026_10_03.md; verified against code 2026-10-06)
 references:
@@ -245,6 +245,19 @@ Fix: rebuild on the laptop, rsync both dists.
 
 Code reaches the Jetson through git first (so `apps/web/` exists there before the rsync);
 context-sync never carries dists.
+
+## Live visuals and internal links
+
+- `visualization_changed` / `memory_changed` (spec 12 §9.3) are handled at the channel level
+  (`services/sessions/orchestratorChannel.ts` → `services/contentChanges.ts`) and bump per-path
+  counters in `stores/contentChanges.ts`. `features/visuals/VisualViewer.tsx` remounts its iframe
+  once per burst (scroll restored for same-origin pages, "Updated" cue); `MemoryDocument.tsx`
+  refetches in place. On a reopened socket the list's `modified` is compared instead (VZ-6).
+- Links (spec 12 §9.4): `features/markdown/internalLinks.ts` is the resolver (shared corpus
+  `apps/protocol-fixtures/links/internal-links.json`), `remarkInternalPaths.ts` auto-links printed
+  paths, and `app/internalLinks.tsx` provides `InternalLinksProvider` at the app root, so every
+  `Markdown` (chat, plans, tool output, memory documents) opens viz / memory links with
+  `openDocument`. Modified clicks keep the browser default.
 
 ## Backend routes
 

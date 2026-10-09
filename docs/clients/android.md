@@ -3,10 +3,11 @@ name: android
 category: archie/clients
 tags: [android, kotlin, compose, navigation3, views, app-main, app-lite, a300m, poco, gradle, adb, signing, vosk]
 created: 2026-04-14
-modified: 2026-10-08
+modified: 2026-10-09
 summary: apps/android — Gradle multi-module project with the main app (com.assistant.archie) and the A300M lite app (com.assistant.peripheral).
 source: curated (consolidated from memory notes assistant/android/android_peripheral_project.md, assistant/infrastructure/repo_layout_cutover_2026_10.md, assistant/devices/peripheral_devices.md, auto-memory feedback_android_ws_keepalive_silent_drop.md, feedback_use_adb_input_for_device_tests.md, feedback_hands_on_checks_over_suites.md, feedback_run_test_before_speculating.md, project_frontend_refactor_2026_10_03.md; verified against code 2026-10-06)
 references:
+  - ../integrations/visualizations-and-sharing.md
   - ../specs/14-android-architecture.md
   - ../specs/12-client-protocol.md
   - ../projects/frontend-refactor/README.md
@@ -303,6 +304,19 @@ its catalog hints, or one inferred from its kind (`HarnessControls.optionControl
 - **Test data**: the JVM tests of `:core:protocol` and `:feature:settings` read the web mock
   catalogs (`apps/web/mock-server/data/harnesses.json`) through the `archie.harnessCatalogs`
   system property, so both clients test against the same data.
+
+## Live visuals and internal links
+
+- `:core:protocol` decodes `visualization_changed` / `memory_changed` (spec 12 §9.3);
+  `:core:data` `ContentChangesRepository` (in `MainAppGraph`) bumps per-path counters, refreshes
+  the lists and catches up after a reconnect (VZ-6). `VisualWebView` reloads the pooled WebView
+  (`reload()`, keeps the scroll) when the counter passes the version the pool entry loaded, also
+  after the tab was away; memory documents refetch in place. Both show a short "Updated" cue.
+- Links (spec 12 §9.4): `:core:markdown` `InternalLinks` (same corpus as the web,
+  `InternalLinksTest`), `autoLinkPaths` behind `MarkdownStyle.autoLinkPaths` (chat and memory
+  documents). Chat links go through `rememberChatLinkHandler` (`shell/ContentWiring.kt`): visuals
+  and memory files open as workspace items; memory documents open visuals in the app too (a
+  `VisualDoc` screen on Compact).
 
 ## Rules for changing the apps
 
