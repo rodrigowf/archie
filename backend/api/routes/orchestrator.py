@@ -547,12 +547,8 @@ async def _handle_start(
             )
             return session, True
         elif not voice and current_voice:
-            # Text WS reconnecting while voice is active — subscribe without
+            # Text ``start`` while voice is active — subscribe without
             # disrupting the voice session (the text WS auto-connects on mount).
-            # Not the initiator: another client owns the live voice
-            # connection. Carry voice metadata so this client's UI can
-            # reflect that voice is active, but don't let it try to open
-            # its own provider transport.
             pool.subscribe_orchestrator(local_id, ws)
             reconnect_payload: dict = {
                 "type": "session_started",
@@ -563,6 +559,28 @@ async def _handle_start(
                 "voice": current_voice,
                 "model_info": session.get_model_info(),
             }
+            if session.voice_owner_ws is ws:
+                # The voice OWNER re-sent a plain ``start`` on its own socket
+                # (spec 12 T-9: every foreground / resync; Android also sends
+                # one beside its reconnect ``voice_start``). It still owns the
+                # call, so it must hear ``voice_initiator: true`` — answering
+                # false demoted the device that holds the WebRTC peer: it then
+                # dropped every ``voice_command`` (tool results never reached
+                # the model) and ignored ``voice_ended`` (the call outlived
+                # ``end_voice_session``). 2026-10-08, POCO X7 Pro.
+                # Metadata only: its provider is already configured, so no
+                # session.update to re-apply and no new ephemeral token.
+                _attach_voice_metadata(reconnect_payload, session, initiator=True)
+                logger.info(
+                    "plain start from the voice owner session=%s — ownership kept",
+                    local_id,
+                )
+                await _safe_send_bytes(ws, orjson.dumps(reconnect_payload))
+                return session, True
+            # Not the initiator: another client owns the live voice
+            # connection. Carry voice metadata so this client's UI can
+            # reflect that voice is active, but don't let it try to open
+            # its own provider transport.
             await _attach_voice_payload(
                 reconnect_payload, session,
                 initiator=False, initiator_ws=None,
@@ -806,6 +824,24 @@ async def _handle_start(
     return session, True
 
 
+def _attach_voice_metadata(
+    payload: dict,
+    session: OrchestratorSession,
+    *,
+    initiator: bool,
+) -> None:
+    """The voice fields of ``session_started`` that describe the live call
+    (provider, model, voice, language, ownership, recording) — no
+    session.update, no connection info, no relay side effects."""
+    payload["voice_provider"] = session.voice_provider_id
+    payload["voice_model"] = session.voice_model_id
+    payload["voice_name"] = session.voice_name_id
+    payload["voice_transcription_language"] = session.voice_transcription_language
+    payload["voice_initiator"] = initiator
+    # Tell frontend whether to record audio (relevant for WebRTC where audio bypasses backend)
+    payload["voice_recording_enabled"] = session.audio_recorder is not None
+
+
 async def _attach_voice_payload(
     payload: dict,
     session: OrchestratorSession,
@@ -834,13 +870,7 @@ async def _attach_voice_payload(
     swallowed and reported back as ``voice_connection_error`` so the
     frontend can surface them; the session itself stays alive.
     """
-    payload["voice_provider"] = session.voice_provider_id
-    payload["voice_model"] = session.voice_model_id
-    payload["voice_name"] = session.voice_name_id
-    payload["voice_transcription_language"] = session.voice_transcription_language
-    payload["voice_initiator"] = initiator
-    # Tell frontend whether to record audio (relevant for WebRTC where audio bypasses backend)
-    payload["voice_recording_enabled"] = session.audio_recorder is not None
+    _attach_voice_metadata(payload, session, initiator=initiator)
 
     # Sub-step timing inside _attach_voice_payload — when start is slow,
     # the cost is almost always in get_session_update (system prompt +

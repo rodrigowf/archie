@@ -278,7 +278,7 @@ sendStart(conv):
 
 - **T-9.** `start` MUST be (re-)sent on every socket open and on every visibility/foreground resume while the socket is open (§3.5). Re-sending `start` on a subscribed socket is safe: subscription is a set (`api/pool.py:488-491`).
 - **T-10.** `resume_from` MUST only be sent when the conversation's entries were built in this process from the same stream (in-memory checkpoint). A client that rebuilt the conversation from REST (cold open, process death, page reload) MUST NOT send a persisted checkpoint (fixes W-7). Checkpoints MUST NOT be written to persistent storage per event (A-2.2/A-8.14). Android MAY persist `{localId, checkpoint}` **together with a full snapshot of the entries** on `onStop`; restoring both is equivalent to "in memory".
-- **T-11.** For the orchestrator, `voice_start` replaces `start` while this client owns voice (§7.3).
+- **T-11.** For the orchestrator, `voice_start` replaces `start` while this client owns voice (§7.3). A plain `start` from the owner's own socket is still safe: the server answers it with `voice_initiator: true` and voice metadata only (no `voice_session_update`, no `voice_connection_info`). Android's conversation layer sends one on every foreground.
 - **T-12.** Responses to `start`:
   - `status{connecting}` → `status = connecting`.
   - `session_started` → `connState = subscribed`; clear `connectionBanner`; adopt `localId` (ID-1); set `counters.contextWindow` from `context_window` (chat) or `model_info.model_info.context_window` (orchestrator), fallback 200 000; then §3.6.
@@ -1543,7 +1543,7 @@ voice_owner_active{active:true}  and not voice.pendingStart and voice.state == o
 voice_owner_active{active:false} | voice_ended | voice_stopped → remoteActive = false
 ```
 - **V-12.** A passive device MUST NOT change its own `voice.state` from mirrored provider events, MUST NOT hide its text input, MUST NOT play `voice_audio_out` and MUST NOT send any `voice_*` frame. Its voice button shows "Active elsewhere" (disabled). The conversation reducer still processes `voice_event`, `tool_use`/`tool_result`, `voice_ended` (VT-2, VT-3).
-- **V-13. Ownership loss.** If the owner receives `voice_owner_active{active:true}` while `voice.pendingStart == false`, another device took over: tear the transport down locally **without** sending `voice_stop`, set `voice.state = off`, `remoteActive = true`.
+- **V-13. Ownership loss.** If the owner receives `voice_owner_active{active:true}` while `voice.pendingStart == false`, another device took over: tear the transport down locally **without** sending `voice_stop`, set `voice.state = off`, `remoteActive = true`. The same applies to `session_started{voice:true, voice_initiator:false}` received while the client holds a live transport and has no `voice_start` in flight. A client MUST NOT become a non-owner while keeping its transport up: such a call drops every `voice_command` and ignores `voice_ended` (2026-10-08).
 
 ### 7.6 Ending
 
