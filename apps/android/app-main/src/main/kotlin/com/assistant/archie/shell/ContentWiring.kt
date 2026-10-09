@@ -82,13 +82,13 @@ fun rememberMemoryDeps(graph: MainAppGraph): MemoryDeps {
 }
 
 /**
- * Opens a visualization in the app only when it is a real page (spec 12 §9.4): in the list, under
- * `visualizations/`, or in the list after a refresh (a page written a moment ago). Otherwise the
+ * Opens a visualization in the app only when it is a real page (spec 12 §9.4): in the list, or in
+ * the list after a refresh (a page written a moment ago). Otherwise the
  * URL goes to [external] rather than framing a 404 in the viewer.
  */
 fun MainAppGraph.openVisualChecked(path: String, external: (String) -> Unit) {
     fun listed() = visuals.list.value.value?.any { it.path == path } == true
-    if (listed() || path.startsWith("visualizations/")) {
+    if (listed()) {
         openSessions.openVisual(path)
         return
     }

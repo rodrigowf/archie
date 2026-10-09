@@ -1739,7 +1739,7 @@ the shared corpus `apps/protocol-fixtures/links/internal-links.json`. First matc
 - **LNK-6** Web: a plain click opens in the app; middle / ctrl / cmd-click keep the browser default on the
   real URL (the anchor's `href`). Memory documents ask their relative-link resolver (MEM-2) first.
 - **LNK-7** A visual target opens in the viewer only when it is a real page: in the visualization list,
-  under `visualizations/`, or in the list after one refresh. Otherwise the URL opens externally (web: a
+  or in the list after one refresh (also under `visualizations/`). Otherwise the URL opens externally (web: a
   snackbar with "Open in browser", a user gesture; Android: the Custom Tab). A segment that decodes to a
   separator (`..%2F..`) makes a path not internal. Android opens only `http(s)`, `mailto`, `tel`, `sms` and
   `geo` links externally; anything else (`file:`, `content:`, `javascript:`, `intent:`) is inert.

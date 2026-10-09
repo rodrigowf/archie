@@ -4,8 +4,8 @@
  * a document screen on compact) instead of a browser tab. The anchor keeps the real URL, so
  * middle / ctrl-click still open a new tab.
  *
- * A visual opens in the viewer only when it is a real page: in the list, under `visualizations/`,
- * or in the list after a refresh (a page written a moment ago). Otherwise a snackbar offers to
+ * A visual opens in the viewer only when it is a real page: in the list, or in the list after a
+ * refresh (a page written a moment ago). Otherwise a snackbar offers to
  * open the URL in the browser (a user gesture, so no popup blocker), rather than framing a 404.
  */
 import type { ReactNode } from 'react';
@@ -41,7 +41,7 @@ export function openInternalTarget(t: InternalTarget): void {
     const v = listed(t.path);
     openDocument('visual', t.path, { compact, ...(v ? { url: v.url, title: v.title } : {}) });
   };
-  if (listed(t.path) || t.path.indexOf('visualizations/') === 0) {
+  if (listed(t.path)) {
     open();
     return;
   }

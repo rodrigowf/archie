@@ -21,11 +21,18 @@ afterEach(() => {
 const tabIds = () => tabsStore.getState().tabs.map((t) => t.id);
 
 describe('openInternalTarget', () => {
-  it('opens listed pages and visualizations/ at once', () => {
+  it('opens listed pages at once', () => {
     setCatalogItems('visuals', [viz('dash/index.html')] as never);
     openInternalTarget({ kind: 'visual', path: 'dash/index.html' });
-    openInternalTarget({ kind: 'visual', path: 'visualizations/new.html' });
-    expect(tabIds()).toEqual(expect.arrayContaining(['viz:dash/index.html', 'viz:visualizations/new.html']));
+    expect(tabIds()).toContain('viz:dash/index.html');
+  });
+
+  it('checks visualizations/ pages too: a missing one offers the browser instead of a 404 viewer', async () => {
+    h.fetch.on('GET', '/api/visualizations', []);
+    openInternalTarget({ kind: 'visual', path: 'visualizations/does-not-exist.html' });
+    await flushPromises();
+    expect(tabIds()).not.toContain('viz:visualizations/does-not-exist.html');
+    expect(JSON.stringify(snackbarStore.getState())).toContain('Open in browser');
   });
 
   it('refreshes the list for an unknown page; a page that is there opens, a missing one offers the browser', async () => {
