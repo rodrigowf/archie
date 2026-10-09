@@ -7,6 +7,7 @@ modified: 2026-10-08
 summary: The Model Studio harness — Claude Code's agent loop driving GLM, DeepSeek, Kimi and Qwen through Alibaba Model Studio's Anthropic-compatible endpoint; env contract, provider pinning, catalog/options, landmines.
 source: curated (implementation + live verification 2026-10-07, CLI 2.1.292, claude-agent-sdk 0.2.164)
 references:
+  - authentication.md
   - registry.md
   - claude-code.md
   - qwen-code.md

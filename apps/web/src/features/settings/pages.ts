@@ -35,7 +35,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDef[] = [
   { id: 'agent-sessions', title: 'Agent sessions', icon: 'smart_toy', group: 'server' },
   { id: 'working-directories', title: 'Working directories', icon: 'folder', group: 'server' },
   { id: 'mcp-servers', title: 'MCP servers', icon: 'hub', group: 'server' },
-  { id: 'account', title: 'Account', icon: 'account_circle', group: 'server' },
+  { id: 'account', title: 'Accounts', icon: 'account_circle', group: 'server' },
   { id: 'about', title: 'About Archie', icon: 'info', group: 'about' },
 ];
 

@@ -152,7 +152,7 @@ Settings
 │   ├── Agent sessions         default provider, harness model, Chrome flag
 │   ├── Working directories    full list CRUD incl. SSH host/user (now on Android too)
 │   ├── MCP servers            per-server switches with "all enabled" semantics shown correctly
-│   └── Account                Claude sign-in / credentials (AuthGate flows)
+│   └── Accounts               sign-in of every harness / API (link, device code, credentials paste, API key, sign out) + context/.env keys
 └── ABOUT                  app version (real), backend version/host, remote logging, licenses
 ```
 

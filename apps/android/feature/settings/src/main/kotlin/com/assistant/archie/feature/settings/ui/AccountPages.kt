@@ -51,7 +51,8 @@ import com.assistant.core.design.theme.ArchieTheme
 import kotlinx.coroutines.launch
 
 /**
- * The sign-in flows (inv02 §1.11), shared by the AuthGate and Settings → Account (web `AuthPanel`):
+ * The Claude sign-in flows of the AuthGate (inv02 §1.11, web `AuthPanel`); Settings → Accounts has every
+ * service's methods (`AccountsPage`):
  * - **Server with a screen** (not headless): "Sign in with Claude" runs `claude setup-token` on the
  *   server (`POST /api/auth/login`, blocks until it exits); "Paste credentials instead" opens the
  *   manual flow.
@@ -115,56 +116,6 @@ internal fun AuthPanel(auth: AuthModel, host: String, startWithPaste: Boolean = 
             }
             if (!headless && !startWithPaste) {
                 ArchieButton("Back", { auth.clearError(); pasteChosen = false }, style = ButtonStyle.Text, icon = ArchieIcons.ArrowBack)
-            }
-        }
-    }
-}
-
-/** Settings → Archie (server) → Account: the backend's Claude CLI sign-in (web `AccountPage`). */
-@Composable
-internal fun AccountPage(feature: SettingsFeature, onBack: (() -> Unit)?) {
-    val st by feature.auth.state.collectAsStateWithLifecycle()
-    val conn by feature.connection.state.collectAsStateWithLifecycle()
-    val host = conn.status.serverUrl?.let(ConnectionRepository::hostOf).orEmpty().ifEmpty { "the server" }
-    androidx.compose.runtime.LaunchedEffect(feature) { feature.auth.check() }
-    var replacing by rememberSaveable { mutableStateOf(false) }
-    SettingsPageFrame("Account", feature.messages, onBack, scope = ScopeLabel.server(conn.status.serverLabel.ifEmpty { host })) {
-        st.checkError?.let { Notice(NoticeTone.ERROR, "Couldn't check the sign-in", body = it) }
-        val status = st.status
-        val state = when {
-            status == null -> if (st.phase == AuthPhase.CHECKING) "Checking…" else "Unknown"
-            status.authenticated -> "Signed in"
-            else -> "Not signed in"
-        }
-        Section("Claude Code on the server") {
-            FieldBlock(Modifier.testTag("account-status")) {
-                KeyValues(
-                    listOf(
-                        "Status" to state,
-                        "Server" to host,
-                        "Sign-in method" to when {
-                            status == null -> "—"
-                            status.headless -> "Paste credentials (no screen on the server)"
-                            else -> "Sign-in window on the server"
-                        },
-                    ),
-                )
-                ArchieButton("Check again", feature.auth::check, style = ButtonStyle.Text, icon = ArchieIcons.Refresh, enabled = st.phase != AuthPhase.CHECKING)
-            }
-        }
-        if (status != null && !status.authenticated) {
-            Section("Sign in") { FieldBlock { AuthPanel(feature.auth, host) } }
-        }
-        if (status?.authenticated == true) {
-            Section(null) {
-                FieldBlock {
-                    if (!replacing) {
-                        ArchieButton("Replace credentials", { replacing = true }, style = ButtonStyle.Text, icon = ArchieIcons.ContentPaste, modifier = Modifier.testTag("auth-replace"))
-                        HelpLine("Use this when agent sessions fail with “Invalid authentication credentials”: the token may have expired.")
-                    } else {
-                        AuthPanel(feature.auth, host, startWithPaste = true, onSignedIn = { replacing = false })
-                    }
-                }
             }
         }
     }

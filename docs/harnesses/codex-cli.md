@@ -7,6 +7,7 @@ modified: 2026-10-08
 summary: The OpenAI Codex harness — one persistent `codex app-server` per session (JSON-RPC over stdio), CODEX_HOME choice, rollout storage and adapter, catalog/options, landmines.
 source: curated (implemented and verified against Codex CLI 0.161.0 on 2026-10-07)
 references:
+  - authentication.md
   - registry.md
   - claude-code.md
   - gemini-cli.md
@@ -122,7 +123,8 @@ keeps the same `(stream_id, seq)` replay ring as Claude for WebSocket resume.
 | `ARCHIE_CODEX_HOME` | env override | wherever that home keeps them |
 
 Create the dedicated login with `CODEX_HOME=~/.codex-archie codex login --device-auth` (each
-machine needs its own).
+machine needs its own) — or from Settings → Accounts, which runs the same device-code login (and
+the browser login, API key, `auth.json` paste, sign out) for that home ([authentication.md](authentication.md)).
 
 **Skills.** Codex 0.161 lists skills from `<cwd>/.agents/skills` up to the repo root,
 `<repo>/.codex/skills`, `$CODEX_HOME/skills` (its own `.system/` skills live there — so do not link
