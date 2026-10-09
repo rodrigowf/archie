@@ -153,7 +153,7 @@ class CompactSettingsGoldens : SettingsGoldenBase("compact") {
     })
 
     /** Headless server, signed out: the paste-credentials flow. */
-    @Test fun account() = page(SettingsPageKey.ACCOUNT, "settings-account", harness { it.auth = """{"authenticated":false,"auth_url":null,"headless":true}""" })
+    @Test fun account() = page(SettingsPageKey.ACCOUNT, "settings-account", harness())
 
     @Test fun about() = page(SettingsPageKey.ABOUT, "settings-about")
 

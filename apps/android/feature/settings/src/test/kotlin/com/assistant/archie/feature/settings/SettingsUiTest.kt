@@ -218,16 +218,57 @@ class SettingsUiTest {
         compose.onNodeWithText("jetson · offline").assertExists()
     }
 
-    @Test fun account_pasteFlow_validatesThenSignsIn() {
+    @Test fun authGate_pasteFlow_validatesThenSignsIn() {
         val h = h { it.auth = """{"authenticated":false,"auth_url":null,"headless":true}""" }
-        show(h, SettingsPageKey.ACCOUNT)
+        compose.setContent { ArchieTheme { com.assistant.archie.feature.settings.ui.AuthGate(h.feature) { } } }
+        compose.waitForIdle()
         compose.onNodeWithTag("auth-credentials").performTextReplacement("{not json")
         compose.onNodeWithTag("auth-set-credentials").performClick()
         waitText("That isn't valid JSON. Copy the whole file, including the braces.")
         compose.onNodeWithTag("auth-credentials").performTextReplacement("""{"claudeAiOauth":{"accessToken":"sk-x"}}""")
         compose.onNodeWithTag("auth-set-credentials").performClick()
-        waitText(AuthModel.SIGNED_IN)
-        assertTrue(h.backend.requests.contains("POST /api/auth/credentials"))
+        eventually { h.backend.requests.contains("POST /api/auth/credentials") }
+    }
+
+    @Test fun accounts_linkFlow_showsTheUrl_andSendsThePastedCode() {
+        val h = h()
+        show(h, SettingsPageKey.ACCOUNT)
+        waitText("Claude Code")
+        compose.onNodeWithTag("method:claude:token").performScrollTo().performClick()
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText("https://claude.com/cai/oauth/authorize?code=true&state=S")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("flow-code").performScrollTo().performTextReplacement("abc#def")
+        compose.onNodeWithTag("flow-submit").performScrollTo().performClick()
+        eventually { h.backend.accountWrites.any { it.startsWith("POST /api/accounts/claude/login/code") && it.contains("abc#def") } }
+    }
+
+    @Test fun accounts_credentialsPaste_validatesLocally_thenShowsTheServerError() {
+        val h = h()
+        show(h, SettingsPageKey.ACCOUNT)
+        waitText("Claude Code")
+        compose.onNodeWithTag("method:claude:credentials").performScrollTo().performClick()
+        compose.onNodeWithTag("credentials-input").performScrollTo().performTextReplacement("{nope")
+        compose.onNodeWithTag("credentials-save").performScrollTo().performClick()
+        waitText("That isn't valid JSON. Copy the whole file, including the braces.")
+        assertTrue(h.backend.accountWrites.none { it.contains("/credentials") })
+        compose.onNodeWithTag("credentials-input").performTextReplacement("""{"other":1}""")
+        compose.onNodeWithTag("credentials-save").performScrollTo().performClick()
+        waitText("Invalid credentials: the file has no claudeAiOauth.accessToken.")
+    }
+
+    @Test fun accounts_envKeys_revealOnDemand() {
+        val h = h()
+        show(h, SettingsPageKey.ACCOUNT)
+        waitText("OPENAI_API_KEY")
+        compose.onNodeWithTag("env-value:OPENAI_API_KEY").performScrollTo()
+        waitText("••••abcd · 51 chars")
+        assertTrue(compose.onAllNodes(hasText("sk-full-secret-value")).fetchSemanticsNodes().isEmpty())
+        compose.onNodeWithTag("env-reveal:OPENAI_API_KEY").performScrollTo().performClick()
+        waitText("sk-full-secret-value")
+        compose.onNodeWithTag("env-reveal:OPENAI_API_KEY").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("sk-full-secret-value")).fetchSemanticsNodes().isEmpty() }
+        assertEquals(1, h.backend.accountWrites.count { it.startsWith("POST /api/env/OPENAI_API_KEY/reveal") })
+        // The Add-key dialog never settles under Robolectric (a Dialog window); its name validation is
+        // AccountsModel.envNameError (AccountsModelTest) and the dialog is checked on a device.
     }
 
     @Test fun sessionSheet_putsOnlyChangedKeys_thenRestarts() {

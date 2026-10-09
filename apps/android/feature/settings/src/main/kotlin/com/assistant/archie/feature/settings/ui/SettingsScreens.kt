@@ -74,7 +74,7 @@ enum class SettingsPageKey(val title: String, val group: Group) {
     AGENT_SESSIONS("Agent sessions", Group.SERVER),
     WORKING_DIRECTORIES("Working directories", Group.SERVER),
     MCP_SERVERS("MCP servers", Group.SERVER),
-    ACCOUNT("Account", Group.SERVER),
+    ACCOUNT("Accounts", Group.SERVER),
     ABOUT("About Archie", Group.ABOUT),
 
     /** Wake word & triggers → Background (spec 14 §2.6). Not on the home list. */
@@ -186,7 +186,7 @@ internal fun SettingsPage(feature: SettingsFeature, page: SettingsPageKey, onBac
         SettingsPageKey.AGENT_SESSIONS -> AgentSessionsPage(feature, onBack)
         SettingsPageKey.WORKING_DIRECTORIES -> WorkingDirectoriesPage(feature, onBack)
         SettingsPageKey.MCP_SERVERS -> McpServersPage(feature, onBack)
-        SettingsPageKey.ACCOUNT -> AccountPage(feature, onBack)
+        SettingsPageKey.ACCOUNT -> AccountsPage(feature, onBack)
         SettingsPageKey.ABOUT -> AboutPage(feature, onBack)
     }
 }
@@ -219,6 +219,7 @@ internal fun SettingsHomeList(feature: SettingsFeature, onBack: (() -> Unit)?, s
     val conn by feature.connection.state.collectAsStateWithLifecycle()
     val server by feature.server.state.collectAsStateWithLifecycle()
     val auth by feature.auth.state.collectAsStateWithLifecycle()
+    val accounts by feature.accounts.state.collectAsStateWithLifecycle()
     val appearance by feature.device.appearance.collectAsStateWithLifecycle()
     val speaker by feature.device.speakerLevel.collectAsStateWithLifecycle()
     val perms by feature.permissions.state.collectAsStateWithLifecycle()
@@ -274,7 +275,8 @@ internal fun SettingsHomeList(feature: SettingsFeature, onBack: (() -> Unit)?, s
         summaries[SettingsPageKey.MCP_SERVERS] = if (c.mcpServers != null) McpLogic.summary(cfg.enabledMcps, c.mcpNames)
         else if (cfg.enabledMcps.isNotEmpty()) "${cfg.enabledMcps.size} enabled" else "All enabled"
     }
-    summaries[SettingsPageKey.ACCOUNT] = auth.summary
+    // Every service once Accounts has been opened; until then the Claude check the gate does anyway.
+    summaries[SettingsPageKey.ACCOUNT] = accounts.summary ?: auth.summary
     val v = feature.platform.appVersion
     summaries[SettingsPageKey.ABOUT] = "App ${v.name} (${v.code}) · backend on ${host.ifEmpty { "—" }}"
 
