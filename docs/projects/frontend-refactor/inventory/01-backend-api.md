@@ -44,6 +44,8 @@ nginx facts (read from the Jetson's `~/nginx-server.conf`): `listen 443 ssl; ser
 
 `CORSMiddleware(allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])` (`api/app.py:154-159`). No credentials mode is configured (`allow_credentials` defaults to False), which is fine because **the API uses no cookies**.
 
+> **Superseded 2026-10-09:** CORS now echoes only trusted origins and a browser-origin guard refuses cross-site writes and WebSocket handshakes — see [backend.md](../../../architecture/backend.md#auth-and-the-browser-origin-guard).
+
 ### 1.3 Authentication — there is none for clients
 
 - **There is no user/client authentication on any REST or WebSocket endpoint** except the browser-extension channel (§3.13). No tokens, cookies or headers are required. The trust model is "anyone on the LAN / tailnet". `GET /api/config/openai-key` even hands out the raw OpenAI key (`api/routes/config.py:304-322`).

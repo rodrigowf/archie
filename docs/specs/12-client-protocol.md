@@ -239,6 +239,7 @@ Mapping to the requested concept list:
 - **T-2.** Client→server frames MUST be **text** frames. A client MUST NEVER send a binary frame: the server drops the socket with no close frame.
 - **T-3.** A frame that does not parse as a JSON object, or has no string `type`, MUST be logged and ignored. It MUST NOT reach the reducer.
 - **T-4.** Clients MUST NOT send `ping` on the chat WS (it answers `error: unknown_type`, G-24). Keep-alive relies on protocol pings: OkHttp `pingInterval(30s)` on Android; the browser's own on web. Android MUST NOT add an app-level heartbeat (03 §3.3). Server `{"type":"ping"}` frames on the orchestrator WS MUST be ignored.
+- **T-4a.** The server refuses requests from other web sites (`backend/api/guard.py`, [backend.md](../architecture/backend.md#auth-and-the-browser-origin-guard)): every `/api/*` `POST`/`PUT`/`PATCH`/`DELETE` and every WebSocket handshake with `Sec-Fetch-Site: cross-site` or an untrusted `Origin` (`null` included) gets 403 (sockets: closed with 1008 before `accept`), and every `/api/*` request with an untrusted `Host` (DNS rebinding) gets 403. Trusted origins: the server's own host name (any scheme/port), the web dev/mock servers (5450/5451/8799) on a trusted host, `chrome-extension://`, `ARCHIE_TRUSTED_ORIGINS`. CORS echoes only trusted origins (no `*`). Clients MUST call the API from the origin that served them (web: `location.origin`) or send no `Origin` at all (native clients); a page served elsewhere needs its origin in `ARCHIE_TRUSTED_ORIGINS`. Static content is never refused.
 
 ### 3.2 Sockets per conversation
 
@@ -1607,7 +1608,7 @@ When `session_started.voice_recording_enabled` and the transport is WebRTC, the 
 
 - **ACC-1.** Lists and statuses carry masked previews only; a client MUST fetch a full value only on an explicit user action (reveal, edit) via `POST /api/env/{name}/reveal`, keep it in view state only (never in persisted storage) and drop it when the page closes.
 - **ACC-2.** While a service's `flow.status` is `starting|waiting|verifying` the Accounts page polls `GET …/login` (2 s) and, when it ends `succeeded`, refetches that service; a Claude change also re-checks `/api/auth/status` (the AuthGate).
-- **ACC-4.** `/api/accounts/*`, `/api/env/*`, `/api/auth/login` and `/api/auth/credentials` answer 403 to cross-site browser requests (`Sec-Fetch-Site: cross-site`, or an `Origin` other than the server / the web dev servers / `ARCHIE_TRUSTED_ORIGINS`) and to untrusted `Host`s (DNS rebinding). Clients on the server's own origin and native clients (no `Origin`) are unaffected.
+- **ACC-4.** `/api/accounts/*` and `/api/env/*` answer 403 to cross-site browser requests on every method, reads included (`Sec-Fetch-Site: cross-site`, or an `Origin` other than the server / the web dev servers / Archie's browser extension / `ARCHIE_TRUSTED_ORIGINS`), on top of the API-wide guard (T-4a). Clients on the server's own origin and native clients (no `Origin`) are unaffected.
 - **ACC-3.** The page refetches `GET /api/accounts` on open (CFG-3) and after every env change (keys are shared between services: `GEMINI_API_KEY`, `DASHSCOPE_API_KEY`).
 
 - **CFG-1.** Each control saves immediately with a partial `PUT`; the response replaces the local copy. Sliders MUST commit on release, not on every tick (W-6.2). Controls of the section in flight are disabled.
