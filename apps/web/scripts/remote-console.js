@@ -27,6 +27,10 @@
  *             (finds invisible overlays that eat taps) plus the size of #root;
  *  - [stall]  the main thread was blocked for more than 2.5 s (logged when it recovers);
  *  - [unload] the page is going away (reload / navigation), sent by beacon.
+ *  - [perf]   one line per touch gesture (see perfFinish).
+ *
+ * Experiments: `?exp=wos,ta` in the URL injects override CSS (EXPERIMENTS below) for on-device A/B
+ * tests; [perf] lines name the active ones.
  *
  * __REMOTE_CONSOLE_CONFIG__ is replaced by a JSON object literal at build time:
  *   { endpoint: string, prefix: string, defaultOn: boolean }
@@ -290,6 +294,35 @@
     }
   }
 
+  /* ---- experiments: ?exp=a,b injects override CSS for on-device A/B tests; [perf] names them ---- */
+
+  var EXPERIMENTS = {
+    /* native momentum scrolling off */
+    wos: '*{-webkit-overflow-scrolling:auto!important}',
+    /* the tap hints on buttons/links off */
+    ta: '*{touch-action:auto!important;cursor:auto!important}'
+  };
+  var exps = [];
+  try {
+    var m = /[?&]exp=([^&#]*)/.exec(w.location.search || '');
+    var names = m ? decodeURIComponent(m[1]).split(',') : [];
+    var css = '';
+    for (var xi = 0; xi < names.length; xi++) {
+      if (EXPERIMENTS.hasOwnProperty(names[xi])) {
+        exps.push(names[xi]);
+        css += EXPERIMENTS[names[xi]];
+      }
+    }
+    if (css && w.document && w.document.head) {
+      var styleEl = w.document.createElement('style');
+      styleEl.setAttribute('data-archie-exp', exps.join(','));
+      styleEl.appendChild(w.document.createTextNode(css));
+      w.document.head.appendChild(styleEl);
+    }
+  } catch (e) {
+    /* no experiments */
+  }
+
   /* ---- [perf] one line per touch gesture: how late input reaches JS, frame gaps, forced styles ---- */
 
   var perf = null;
@@ -392,7 +425,7 @@
     var ro = w.__archieRoStats;
     send(
       'perf',
-      '[perf] gesture ' + r0(dur) + ' ms on ' + (p.scrollTarget ? describe(p.scrollTarget).replace(/ "[^"]*"/, '') : 'no scroller') +
+      '[perf] ' + (exps.length ? '{exp ' + exps.join(',') + '} ' : '') + 'gesture ' + r0(dur) + ' ms on ' + (p.scrollTarget ? describe(p.scrollTarget).replace(/ "[^"]*"/, '') : 'no scroller') +
         ' | touch late start ' + r0(p.startLate) + ' ms, moves ' + p.moves + ' (first at +' + r0(p.firstMove) + ' ms, late avg ' + r0(p.moves ? p.moveLateSum / p.moves : 0) + ' max ' + r0(p.maxMoveLate) + ')' +
         ' | scroll events ' + p.scrolls + ' (first at +' + r0(p.firstScroll) + ' ms, top ' + p.top0 + ' -> ' + p.top1 + ')' +
         ' | frames ' + p.frames + ' avg ' + r0(p.frames ? p.frameSum / p.frames : 0) + ' ms max ' + r0(p.maxGap) + ' ms, >100ms: ' + p.longGaps + ' (' + r0(p.longSum) + ' ms)' +
