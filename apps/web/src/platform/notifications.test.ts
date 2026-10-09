@@ -73,11 +73,42 @@ describe('showSystemNotification', () => {
     const win: NotifyWindow = {
       isSecureContext: true,
       Notification: N,
-      navigator: { serviceWorker: { getRegistration: () => Promise.resolve({ showNotification }) } },
+      navigator: { serviceWorker: { getRegistration: () => Promise.resolve({ active: {}, showNotification }) } },
     };
     expect(await showSystemNotification(notice, () => undefined, win)).toBe('sw');
     expect(showNotification).toHaveBeenCalledWith('Energy', expect.objectContaining({ body: 'Done', tag: 'archie-turn:A1', renotify: true }));
     expect(made).toHaveLength(0);
+  });
+
+  it('a registration still installing: waits for `ready`, else falls back to the page', async () => {
+    const showNotification = vi.fn(() => Promise.resolve());
+    const { N, made } = fakeNotification('granted');
+    const ready: NotifyWindow = {
+      isSecureContext: true,
+      Notification: N,
+      navigator: {
+        serviceWorker: {
+          getRegistration: () => Promise.resolve({ showNotification }),
+          ready: Promise.resolve({ active: {}, showNotification }),
+        },
+      },
+    };
+    expect(await showSystemNotification(notice, () => undefined, ready)).toBe('sw');
+    vi.useFakeTimers();
+    try {
+      const never: NotifyWindow = {
+        isSecureContext: true,
+        Notification: N,
+        navigator: { serviceWorker: { getRegistration: () => Promise.resolve({ showNotification }), ready: new Promise(() => undefined) } },
+      };
+      const p = showSystemNotification(notice, () => undefined, never);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(await p).toBe('page');
+      expect(made).toHaveLength(1);
+      expect(showNotification).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('falls back to the page Notification; its click focuses and runs the handler', async () => {

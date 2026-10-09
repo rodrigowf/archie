@@ -28,15 +28,21 @@ class RuntimeAgentWorkHoldTest {
         assertFalse("nothing needs the service yet", r.runtime.serviceWanted())
         val starts = r.service.starts
 
-        r.runtime.setAgentWorkHold(true)
+        r.runtime.setAgentWorkHold(1)
         assertTrue(r.runtime.serviceWanted())
+        assertFalse("hold-only never takes the microphone FGS type", r.runtime.micTypeWanted())
         assertEquals(starts + 1, r.service.starts)
+        r.settle()
+        assertEquals(1, r.state.agentTurnsWaiting)
 
-        r.runtime.setAgentWorkHold(true)                       // idempotent
+        r.runtime.setAgentWorkHold(1)                       // idempotent
+        r.runtime.setAgentWorkHold(2)                       // more turns: no second start
         assertEquals(starts + 1, r.service.starts)
+        r.settle()
+        assertEquals(2, r.state.agentTurnsWaiting)
 
         val stops = r.service.stops
-        r.runtime.setAgentWorkHold(false)
+        r.runtime.setAgentWorkHold(0)
         assertFalse(r.runtime.serviceWanted())
         assertEquals(stops + 1, r.service.stops)
     }
@@ -46,7 +52,7 @@ class RuntimeAgentWorkHoldTest {
         val r = mainRig(this)
         r.connectAndAdopt(HostRig.SETTINGS.copy(enableWakeWord = false))
         val starts = r.service.starts
-        r.runtime.setAgentWorkHold(true)                       // UI not started: Android 12+ would refuse
+        r.runtime.setAgentWorkHold(1)                       // UI not started: Android 12+ would refuse
         assertEquals(starts, r.service.starts)
         assertTrue("still wanted: the socket stays allowed to reconnect", r.runtime.serviceWanted())
     }
@@ -57,9 +63,12 @@ class RuntimeAgentWorkHoldTest {
         r.connectAndAdopt(HostRig.SETTINGS.copy(enableWakeWord = false, stayConnectedInBackground = true))
         r.runtime.onUiStarted()
         r.settle()
-        r.runtime.setAgentWorkHold(true)
+        r.runtime.setAgentWorkHold(1)
+        r.settle()
+        assertTrue("another reason runs the service: the mic type stays allowed", r.runtime.micTypeWanted())
+        assertEquals("not hold-only: the usual notification text", 0, r.state.agentTurnsWaiting)
         val stops = r.service.stops
-        r.runtime.setAgentWorkHold(false)
+        r.runtime.setAgentWorkHold(0)
         assertTrue(r.runtime.serviceWanted())
         assertEquals(stops, r.service.stops)
     }

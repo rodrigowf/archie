@@ -31,24 +31,35 @@ self.addEventListener('fetch', (event) => {
   // Other requests are not intercepted (network only).
 });
 
+// Only the app shell (hash routing: '/' or '/index.html'), never another same-origin page
+// (/legacy/, /compat/, a visualization, a memory file) that happens to share the origin.
+const isShell = (client) => {
+  const path = new URL(client.url).pathname;
+  return path === SCOPE || path === INDEX;
+};
+
 self.addEventListener('notificationclick', (event) => {
   const data = (event.notification && event.notification.data) || {};
   event.notification.close();
-  if (data.kind !== 'agent-turn' || !data.localId) return;
+  if (typeof data.kind !== 'string') return; // not one of ours
+  // 'agent-turn' opens its session; any other kind (the settings test notice) just brings Archie forward.
+  const target = data.kind === 'agent-turn' && data.localId ? data : null;
+  const message = target && { type: 'archie:notification-click', kind: target.kind, localId: target.localId, sdkId: target.sdkId || null };
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
-      const pages = list.filter((c) => new URL(c.url).pathname.startsWith(SCOPE));
+      const pages = list.filter(isShell);
       const page = pages.find((c) => c.focused) || pages.find((c) => c.visibilityState === 'visible') || pages[0];
-      const message = { type: 'archie:notification-click', kind: data.kind, localId: data.localId, sdkId: data.sdkId || null };
       if (page) {
         return page.focus().then(
-          (focused) => (focused || page).postMessage(message),
-          () => page.postMessage(message),
+          (focused) => message && (focused || page).postMessage(message),
+          () => message && page.postMessage(message),
         );
       }
       const url = new URL(SCOPE, self.location.origin);
-      url.searchParams.set('open_session', data.localId);
-      if (data.sdkId) url.searchParams.set('open_sdk', data.sdkId);
+      if (target) {
+        url.searchParams.set('open_session', target.localId);
+        if (target.sdkId) url.searchParams.set('open_sdk', target.sdkId);
+      }
       return self.clients.openWindow(url.href);
     }),
   );

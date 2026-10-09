@@ -11,6 +11,7 @@ import { FakeWebSocket, setupServices, teardownServices } from '../../services/_
 import { navigate, resetRoute } from '../navigation/route';
 import { FALLBACK_TITLE, decideTurnNotice, isViewing, noticeBody, noticeTitle, type ViewState } from '../notifications/turnNotices';
 import { installTurnNotifications } from '../notifications/turnNotifier';
+import { VIEWING_KEY, VIEWING_REFRESH_MS, VIEWING_TTL_MS, ViewPresence } from '../notifications/viewPresence';
 
 const F = (o: Partial<AgentTurnFinishedFrame> = {}): AgentTurnFinishedFrame => ({
   type: 'agent_turn_finished',
@@ -60,6 +61,38 @@ describe('decideTurnNotice', () => {
     expect(isViewing({ ...v, focused: false }, 'A1')).toBe(false);
     expect(isViewing({ ...v, workspaceOnTop: false }, 'A1')).toBe(false);
     expect(isViewing(v, 'B2')).toBe(false);
+  });
+});
+
+describe('ViewPresence (several Archie pages on one device)', () => {
+  beforeEach(() => localStorage.removeItem(VIEWING_KEY));
+
+  it('another page viewing the session suppresses; its own claim and stale claims do not', () => {
+    let now = 1_000;
+    const a = new ViewPresence('A', () => now);
+    const b = new ViewPresence('B', () => now);
+    a.update('S1');
+    expect(b.viewedElsewhere('S1')).toBe(true);
+    expect(b.viewedElsewhere('S2')).toBe(false);
+    expect(a.viewedElsewhere('S1')).toBe(false); // its own page: the local check covers it
+    now += VIEWING_TTL_MS + 1;
+    expect(b.viewedElsewhere('S1')).toBe(false); // stale (a crashed page)
+  });
+
+  it('a page only clears its own entry; viewing pages refresh their claim', () => {
+    let now = 1_000;
+    const a = new ViewPresence('A', () => now);
+    const b = new ViewPresence('B', () => now);
+    a.update('S1');
+    b.update('S2'); // B got focus before A's blur arrived
+    a.update(null); // A's late blur must not erase B's claim
+    expect(a.viewedElsewhere('S2')).toBe(true);
+    now += VIEWING_REFRESH_MS + 1;
+    b.update('S2');
+    now += VIEWING_TTL_MS - 1;
+    expect(a.viewedElsewhere('S2')).toBe(true);
+    b.update(null);
+    expect(a.viewedElsewhere('S2')).toBe(false);
   });
 });
 
@@ -132,5 +165,16 @@ describe('turn notifier wiring', () => {
     expect(made).toHaveLength(0);
     expect(console.info).toHaveBeenCalledWith('[notify] suppressed A1 status=ok reason=viewing');
     expect(console.info).toHaveBeenCalledWith('[notify] suppressed B2 status=interrupted reason=interrupted');
+  });
+
+  it('this page publishes what it shows; another page showing the session suppresses here', async () => {
+    tabsStore.setState({ activeId: 'A1' });
+    expect(JSON.parse(localStorage.getItem(VIEWING_KEY) ?? 'null')).toMatchObject({ localId: 'A1' });
+    tabsStore.setState({ activeId: 'Z9' });
+    localStorage.setItem(VIEWING_KEY, JSON.stringify({ page: 'other-tab', localId: 'A1', at: Date.now() }));
+    watcher().emit({ ...F() });
+    await settle();
+    expect(made).toHaveLength(0);
+    expect(console.info).toHaveBeenCalledWith('[notify] suppressed A1 status=ok reason=viewing (another tab)');
   });
 });

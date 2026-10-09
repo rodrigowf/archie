@@ -216,9 +216,14 @@ on top + that tab active) and posts through `src/platform/notifications.ts`.
 - **Posting**: the main build's service worker (`public-main/sw.js`, `registration.showNotification`)
   first, the only path on Android Chrome; otherwise `new Notification`. Tag `archie-turn:<localId>`
   replaces the previous one for that session.
-- **Click**: the SW focuses an open Archie page and posts `archie:notification-click`; with no page
+- **Several pages**: each Archie page publishes the session it shows (localStorage
+  `archie.notify.viewing`, `viewPresence.ts`); a page skips the notice while another page shows
+  that session (`[notify] suppressed … reason=viewing (another tab)`).
+- **Click**: the SW focuses an open Archie page (only the app shell, `/` or `/index.html`) and posts `archie:notification-click`; with no page
   left it opens `/?open_session=<localId>&open_sdk=<sdkId>`, read once at startup. Either way
-  `openFromNotification` (shell actions) focuses that session (a user action, FOCUS-1).
+  `openFromNotification` (shell actions) focuses that session (a user action, FOCUS-1). The test
+  notice just brings Archie forward. A registration whose worker is still installing is awaited
+  (`serviceWorker.ready`, 1.5 s) before falling back to `new Notification`.
 - **Limits**: delivery needs the page open (a background tab works while the browser keeps it
   alive; a closed tab or a frozen mobile tab gets nothing, there is no push server).
 - **Checking it**: every decision logs `[notify] posted|suppressed <localId> status=… reason=…`

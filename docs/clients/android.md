@@ -191,7 +191,7 @@ request.
 
 Settings → This device → Notifications → "Agent session finished" (DataStore
 `notify_agent_turns`, off by default; turning it on asks for POST_NOTIFICATIONS through the
-usual rationale) posts a notification on the "Agent sessions" channel when any agent session
+usual rationale) posts a heads-up notification on the "Agent sessions" channel when any agent session
 finishes a turn (spec 12 TURN-1/TURN-2). `app-main/.../system/TurnNotifier.kt` holds the decision
 (`TurnAttention`: switch, Stop, "looking at it" = the approvals' `lookingAtFrom`), the notifier and
 `SystemTurnSink`; the graph feeds it `orchestrator.frames`. A tap reuses the approval tap path
@@ -200,8 +200,11 @@ finishes a turn (spec 12 TURN-1/TURN-2). `app-main/.../system/TurnNotifier.kt` h
 **Background delivery.** Frames only arrive while the process runs and is not frozen.
 `AgentWork` tracks in-flight agent turns (`agent_turn_started/finished`, reconciled with
 `pool/live`); while the switch is on and one is in flight, the graph holds the voice host's
-foreground service (`VoiceHostRuntime.setAgentWorkHold`, the "Archie · Connected" notification),
-released with the last turn. Android 12+ only starts that service from the foreground, so the hold
+foreground service (`VoiceHostRuntime.setAgentWorkHold`; special-use type only, notification
+"Waiting for N agent sessions"), released with the last turn. To keep a missed finish (backend
+restart, dropped socket) from holding it forever, the graph re-reads `pool/live` on every
+orchestrator reconnect and every 3 min while turns run; a finish newer than the read wins, and a
+turn older than 2 h ages out. Android 12+ only starts that service from the foreground, so the hold
 covers a turn that was running while Archie was open (send, pocket the phone). A turn started on
 another device while Archie sat in the background reaches the phone only with "Stay connected in
 background", the wake word or a live voice call (all of which run the same service). No push

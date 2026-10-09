@@ -22,11 +22,15 @@ interface NotificationCtor {
 }
 
 interface RegistrationLike {
+  /** The activated worker; `showNotification` rejects without one. */
+  active?: unknown;
   showNotification?: (title: string, options?: Record<string, unknown>) => Promise<void>;
 }
 
 interface ServiceWorkerContainerLike {
   getRegistration?: () => Promise<RegistrationLike | undefined>;
+  /** Resolves with the registration once it has an active worker. */
+  ready?: Promise<RegistrationLike>;
   addEventListener?: (type: 'message', fn: (ev: { data?: unknown }) => void) => void;
   removeEventListener?: (type: 'message', fn: (ev: { data?: unknown }) => void) => void;
 }
@@ -130,8 +134,10 @@ export async function showSystemNotification(
   const sw = win.navigator?.serviceWorker;
   if (sw && typeof sw.getRegistration === 'function') {
     try {
-      const reg = await withTimeout(sw.getRegistration(), SW_LOOKUP_TIMEOUT_MS);
-      if (reg && typeof reg.showNotification === 'function') {
+      let reg = await withTimeout(sw.getRegistration(), SW_LOOKUP_TIMEOUT_MS);
+      // Registered but still installing (first load): wait briefly for it to activate.
+      if (reg && !reg.active && sw.ready) reg = (await withTimeout(sw.ready, SW_LOOKUP_TIMEOUT_MS)) ?? reg;
+      if (reg && reg.active && typeof reg.showNotification === 'function') {
         await reg.showNotification(n.title, options);
         return 'sw';
       }

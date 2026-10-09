@@ -174,7 +174,7 @@ export function NotificationsPage() {
     });
   };
   const test = (): void => {
-    void showSystemNotification({ title: 'Archie', body: 'Notifications work on this device.', tag: 'archie-test' }, () => undefined).then(
+    void showSystemNotification({ title: 'Archie', body: 'Notifications work on this device.', tag: 'archie-test', data: { kind: 'archie-test' } }, () => undefined).then(
       (path) => {
         console.info(`[notify] test via=${path}`);
         if (path === 'failed') showSnackbar("Couldn't show a notification here", { tone: 'error' });

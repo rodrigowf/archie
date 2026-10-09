@@ -93,41 +93,62 @@ object TurnAttention {
  */
 class AgentWork(private val now: () -> Long = System::currentTimeMillis) {
     private val started = HashMap<String, Long>()
-    private val _busy = MutableStateFlow(false)
-    val busy: StateFlow<Boolean> = _busy.asStateFlow()
+    /** When each session's last turn ended (finish or close): a pool read older than that is stale for it. */
+    private val ended = HashMap<String, Long>()
+    private val _busy = MutableStateFlow(0)
+    /** How many agent turns are in flight (drives the background hold and its notification text). */
+    val busy: StateFlow<Int> = _busy.asStateFlow()
 
     @Synchronized
     fun onFrame(f: ServerFrame) {
         when (f) {
             is ServerFrame.AgentTurnStarted -> f.sessionId?.let { started[it] = now() }
-            is ServerFrame.AgentTurnFinished -> f.sessionId?.let { started.remove(it) }
-            is ServerFrame.AgentSessionClosed -> if (!f.isOrchestrator) f.sessionId?.let { started.remove(it) }
+            is ServerFrame.AgentTurnFinished -> f.sessionId?.let { end(it) }
+            is ServerFrame.AgentSessionClosed -> if (!f.isOrchestrator) f.sessionId?.let { end(it) }
             else -> return
         }
         publish()
     }
 
+    private fun end(id: String) {
+        started.remove(id)
+        ended[id] = now()
+    }
+
     /**
-     * A fresh `GET /api/sessions/pool/live`: a session no longer in the pool is not busy; one the pool
-     * reports idle is not busy unless its start is very recent (the pool row may predate it); a busy
-     * row counts even if its start was missed. Entries older than [MAX_AGE_MS] go (a missed finish).
+     * A `GET /api/sessions/pool/live` result whose request started at [requestedAt]: a session no
+     * longer in the pool is not busy; one the pool reports idle is not busy unless its start is very
+     * recent (the row may predate it); a busy row counts even if its start was missed, unless that
+     * session's turn ended after the request started (a stale read racing the finish frame).
+     * Entries older than [MAX_AGE_MS] go (a missed finish). Reads of unknown age (another caller's
+     * sync) pass `now - RESULT_SLACK_MS`.
      */
     @Synchronized
-    fun reconcile(pool: List<PoolSession>) {
+    fun reconcile(pool: List<PoolSession>, requestedAt: Long = now() - RESULT_SLACK_MS) {
         val t = now()
         val rows = pool.filter { !it.isOrchestrator }.associateBy { it.localId }
         started.entries.removeAll { (id, at) ->
             val row = rows[id]
             row == null || t - at > MAX_AGE_MS || (!isBusy(row.status) && t - at > RECENT_START_MS)
         }
-        rows.values.filter { isBusy(it.status) }.forEach { started.putIfAbsent(it.localId, t) }
+        rows.values.filter { isBusy(it.status) && (ended[it.localId] ?: Long.MIN_VALUE) < requestedAt }
+            .forEach { started.putIfAbsent(it.localId, t) }
+        ended.entries.removeAll { (_, at) -> t - at > MAX_AGE_MS }
+        publish()
+    }
+
+    /** No pool answer (offline): at least age out missed finishes. */
+    @Synchronized
+    fun expire() {
+        val t = now()
+        started.entries.removeAll { (_, at) -> t - at > MAX_AGE_MS }
         publish()
     }
 
     @Synchronized
     fun inFlight(): Set<String> = started.keys.toSet()
 
-    private fun publish() { _busy.value = started.isNotEmpty() }
+    private fun publish() { _busy.value = started.size }
 
     companion object {
         /** A turn longer than this is assumed finished (its `agent_turn_finished` was missed). */
@@ -135,6 +156,12 @@ class AgentWork(private val now: () -> Long = System::currentTimeMillis) {
 
         /** A start this recent survives an "idle" pool row read just before it. */
         const val RECENT_START_MS = 30_000L
+
+        /** How old a pool read of unknown request time is assumed to be. */
+        const val RESULT_SLACK_MS = 15_000L
+
+        /** While turns are in flight the graph re-reads the pool this often (missed finishes, backend restarts). */
+        const val RESYNC_MS = 3 * 60 * 1000L
 
         fun isBusy(s: LiveStatus?): Boolean = s == LiveStatus.STREAMING || s == LiveStatus.TOOL_USE || s == LiveStatus.THINKING
     }
@@ -177,13 +204,13 @@ class TurnNotifier(
     }
 }
 
-/** The "Agent sessions" channel: default importance (sound, no heads-up), private on the lock screen. */
+/** The "Agent sessions" channel: high importance (heads-up; the feature is opt-in), private on the lock screen. */
 class SystemTurnSink(private val app: Application) : TurnSink {
     private val nm = app.getSystemService(NotificationManager::class.java)
 
     private fun ensureChannel() {
         nm?.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Agent sessions", NotificationManager.IMPORTANCE_DEFAULT).apply {
+            NotificationChannel(CHANNEL_ID, "Agent sessions", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "An agent session finished its work"
             },
         )
@@ -198,7 +225,7 @@ class SystemTurnSink(private val app: Application) : TurnSink {
             .setContentText(notice.text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(notice.text))
             .setCategory(if (notice.error) NotificationCompat.CATEGORY_ERROR else NotificationCompat.CATEGORY_STATUS)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(openIntent(notice))
             .build()

@@ -495,11 +495,18 @@ class BackgroundAgentRunner:
                 # Interrupt the wedged SDK turn so the bundled `claude`
                 # subprocess isn't left stuck on the original query.
                 try:
-                    await self._pool.interrupt(record.session_id)
-                except Exception:  # noqa: BLE001
-                    logger.exception("Failed to interrupt abandoned turn %s", record.turn_id)
-                # Brief pause so the SDK can settle before the retry.
-                await asyncio.sleep(1.0)
+                    try:
+                        await self._pool.interrupt(record.session_id)
+                    except Exception:  # noqa: BLE001
+                        logger.exception("Failed to interrupt abandoned turn %s", record.turn_id)
+                    # Brief pause so the SDK can settle before the retry.
+                    await asyncio.sleep(1.0)
+                except BaseException as gap:
+                    # No pool.send() runs between the attempts: announce the end here.
+                    announce_gap = getattr(self._pool, "announce_turn_aborted", None)
+                    if announce_gap is not None:
+                        announce_gap(record.session_id, gap)
+                    raise
                 await _consume()
 
         # The try/except below sets a specific status; the outer finally is a

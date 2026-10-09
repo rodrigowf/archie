@@ -8,7 +8,6 @@ import com.assistant.core.model.LiveStatus
 import com.assistant.core.model.PoolSession
 import com.assistant.core.protocol.ServerFrame
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -76,17 +75,17 @@ class TurnNotifierTest {
 
     @Test fun agentWorkTracksTurnsFromFrames() {
         val w = AgentWork { 0L }
-        assertFalse(w.busy.value)
+        assertEquals(0, w.busy.value)
         w.onFrame(ServerFrame.AgentTurnStarted("A1", "S1", "claude"))
         w.onFrame(ServerFrame.AgentTurnStarted("B2", "S2", "codex"))
-        assertTrue(w.busy.value)
+        assertEquals(2, w.busy.value)
         w.onFrame(ServerFrame.AgentTurnFinished("A1", status = "ok"))
-        assertTrue(w.busy.value)
+        assertEquals(1, w.busy.value)
         w.onFrame(ServerFrame.AgentSessionClosed("B2", isOrchestrator = false))
-        assertFalse(w.busy.value)
+        assertEquals(0, w.busy.value)
         w.onFrame(ServerFrame.AgentTurnStarted("C3"))
         w.onFrame(ServerFrame.AgentSessionClosed("C3", isOrchestrator = true))  // not an agent: ignored
-        assertTrue(w.busy.value)
+        assertEquals(1, w.busy.value)
     }
 
     @Test fun agentWorkReconcilesWithThePool() {
@@ -95,16 +94,43 @@ class TurnNotifierTest {
         fun row(id: String, s: LiveStatus?) = PoolSession(id, "sdk-$id", s, 0.0, 0, null, isOrchestrator = false)
         w.onFrame(ServerFrame.AgentTurnStarted("A1"))
         w.onFrame(ServerFrame.AgentTurnStarted("GONE"))
-        w.reconcile(listOf(row("A1", LiveStatus.IDLE), row("MISSED", LiveStatus.TOOL_USE)))
+        w.reconcile(listOf(row("A1", LiveStatus.IDLE), row("MISSED", LiveStatus.TOOL_USE)), requestedAt = now)
         assertEquals("a fresh start survives an idle row; a session out of the pool goes; a missed start is added", setOf("A1", "MISSED"), w.inFlight())
         now += AgentWork.RECENT_START_MS + 1
-        w.reconcile(listOf(row("A1", LiveStatus.IDLE), row("MISSED", LiveStatus.STREAMING)))
+        w.reconcile(listOf(row("A1", LiveStatus.IDLE), row("MISSED", LiveStatus.STREAMING)), requestedAt = now)
         assertEquals(setOf("MISSED"), w.inFlight())
         now += AgentWork.MAX_AGE_MS + 1
-        w.reconcile(listOf(row("MISSED", LiveStatus.STREAMING)))
+        w.reconcile(listOf(row("MISSED", LiveStatus.STREAMING)), requestedAt = now)
         assertEquals("a missed finish expires, then the busy row counts as a new start", setOf("MISSED"), w.inFlight())
         w.reconcile(emptyList())
-        assertFalse(w.busy.value)
+        assertEquals(0, w.busy.value)
+    }
+
+    @Test fun aStalePoolReadDoesNotResurrectAFinishedTurn() {
+        var now = 1_000L
+        val w = AgentWork { now }
+        val busyRow = PoolSession("A1", "S1", LiveStatus.STREAMING, 0.0, 0, null, isOrchestrator = false)
+        w.onFrame(ServerFrame.AgentTurnStarted("A1"))
+        val requestedAt = now                      // the sync request goes out…
+        now += 500
+        w.onFrame(ServerFrame.AgentTurnFinished("A1", status = "ok"))   // …the finish arrives…
+        now += 500
+        w.reconcile(listOf(busyRow), requestedAt)  // …then the stale "busy" answer
+        assertEquals(0, w.busy.value)
+        now += 1_000
+        w.reconcile(listOf(busyRow), requestedAt = now)   // a read sent after the finish: a new turn
+        assertEquals(1, w.busy.value)
+    }
+
+    @Test fun expireAgesOutMissedFinishesWithoutThePool() {
+        var now = 0L
+        val w = AgentWork { now }
+        w.onFrame(ServerFrame.AgentTurnStarted("A1"))
+        w.expire()
+        assertEquals(1, w.busy.value)
+        now += AgentWork.MAX_AGE_MS + 1
+        w.expire()
+        assertEquals(0, w.busy.value)
     }
 }
 
@@ -120,7 +146,7 @@ class TurnNotificationRobolectricTest {
         sink.post(TurnNotice("A1", "S1", "Energy dashboard", "Done", error = false))
         sink.post(TurnNotice("A1", "S1", "Energy dashboard", "Failed: boom", error = true))
         val ch = nm.getNotificationChannel(SystemTurnSink.CHANNEL_ID)
-        assertEquals(NotificationManager.IMPORTANCE_DEFAULT, ch.importance)
+        assertEquals(NotificationManager.IMPORTANCE_HIGH, ch.importance)
         val sbn = shadowOf(nm).activeNotifications.single()
         assertEquals("turn:A1", sbn.tag)
         val n = sbn.notification

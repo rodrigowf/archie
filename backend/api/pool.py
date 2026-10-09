@@ -173,6 +173,9 @@ class SessionPool:
         # In-flight ``agent_turn_finished`` emissions (strong refs so they
         # are not garbage-collected mid-flight).
         self._announce_tasks: set[asyncio.Task[None]] = set()
+        # The latest ``agent_turn_started`` emission per session: its finish
+        # waits for it, so watchers always see start before end.
+        self._last_started: dict[str, asyncio.Task[None]] = {}
 
         # Belt-and-braces: PIDs of every bundled-claude subprocess we ever
         # spawned, mapped to a (session_id, first_seen_at) tuple.  The
@@ -435,6 +438,8 @@ class SessionPool:
         self._locks.pop(session_id, None)
         self._pending_prompts.pop(session_id, None)
         self._pending_locks.pop(session_id, None)
+        self._interrupted.discard(session_id)
+        self._last_started.pop(session_id, None)
 
         # Hand the pid(s) off to the closed-session shadow map so the
         # reaper has a grace window to verify the subprocess actually
@@ -984,12 +989,16 @@ class SessionPool:
             final_text: str | None = None
             finished = False
             try:
-                await self._notify_watchers({
+                # Fire-and-forget like the finish: a stalled watcher socket must
+                # never delay the turn (we hold the session lock here).
+                started = self._spawn_announce({
                     "type": "agent_turn_started",
                     "session_id": session_id,
                     "sdk_session_id": _str_or_none(sm.sdk_session_id),
                     "provider": _str_or_none(sm.provider_name),
-                })
+                }, None, None)
+                if started is not None:
+                    self._last_started[session_id] = started
                 if announce:
                     await self._broadcast_session(
                         session_id,
@@ -1092,19 +1101,45 @@ class SessionPool:
             "agent_turn_finished %s status=%s watchers=%d",
             session_id, status, len(self._watchers),
         )
+        self._spawn_announce(payload, sdk_id, self._last_started.pop(session_id, None))
+
+    def announce_turn_aborted(self, session_id: str, exc: BaseException) -> None:
+        """A turn ended outside send() (cancelled / failed between an abandoned
+        attempt and its retry): ``interrupted`` for a cancellation, else ``error``."""
+        if isinstance(exc, asyncio.CancelledError):
+            self.announce_turn_finished(session_id, status="interrupted")
+        else:
+            self.announce_turn_finished(session_id, status="error", error=str(exc) or type(exc).__name__)
+
+    def _spawn_announce(
+        self,
+        payload: dict[str, Any],
+        sdk_id: str | None,
+        after: asyncio.Task[None] | None,
+    ) -> asyncio.Task[None] | None:
+        """Run one turn watcher emission as its own task (None without a running loop)."""
         try:
             task = asyncio.get_running_loop().create_task(
-                self._emit_turn_finished(payload, sdk_id),
-                name=f"turn-finished-{session_id[:8]}",
+                self._emit_turn_event(payload, sdk_id, after),
+                name=f"{payload['type']}-{str(payload['session_id'])[:8]}",
             )
         except RuntimeError:  # no running loop (sync tests)
-            return
+            return None
         self._announce_tasks.add(task)
         task.add_done_callback(self._announce_tasks.discard)
+        return task
 
-    async def _emit_turn_finished(self, payload: dict[str, Any], sdk_id: str | None) -> None:
+    async def _emit_turn_event(
+        self,
+        payload: dict[str, Any],
+        sdk_id: str | None,
+        after: asyncio.Task[None] | None,
+    ) -> None:
+        if after is not None and not after.done():
+            # Start before end on every watcher socket.
+            await asyncio.wait([after], timeout=10.0)
         resolver = self.title_resolver
-        if resolver is not None and sdk_id:
+        if payload["type"] == "agent_turn_finished" and resolver is not None and sdk_id:
             try:
                 payload["title"] = await asyncio.wait_for(asyncio.to_thread(resolver, sdk_id), timeout=5.0)
             except Exception:  # noqa: BLE001 — a title is a nicety; clients fall back
@@ -1112,7 +1147,7 @@ class SessionPool:
         try:
             await self._notify_watchers(payload)
         except Exception:  # noqa: BLE001
-            logger.exception("Failed to notify watchers of agent_turn_finished")
+            logger.exception("Failed to notify watchers of %s", payload["type"])
 
     def _pin_provider(self, sm: BaseSessionManager) -> None:
         """Pin the session's harness in its per-session config (once).
@@ -1340,10 +1375,16 @@ class SessionPool:
                     "detail": f"upstream silent for {exc.elapsed_seconds:.0f}s, retrying",
                 })
                 try:
-                    await self.interrupt(session_id)
-                except Exception:
-                    logger.exception("Failed to interrupt abandoned turn for %s", session_id)
-                await asyncio.sleep(1.0)
+                    try:
+                        await self.interrupt(session_id)
+                    except Exception:
+                        logger.exception("Failed to interrupt abandoned turn for %s", session_id)
+                    await asyncio.sleep(1.0)
+                except BaseException as gap:
+                    # Between the abandoned attempt and its retry no send() is
+                    # running to announce the end: do it here, then re-raise.
+                    self.announce_turn_aborted(session_id, gap)
+                    raise
                 await _stream_once(prompt, ws, announce)
 
         try:

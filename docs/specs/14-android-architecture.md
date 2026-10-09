@@ -512,7 +512,10 @@ interface TranscriptSink { fun userTranscript(t: String, final: Boolean); fun as
 optional "Stay connected in background" setting is on (needed for permission-request notifications, §2.7), **or**
 "Agent session finished" notifications are on and an agent turn is in flight (`VoiceHostRuntime.setAgentWorkHold`,
 driven by `AgentWork` in `app-main/system/TurnNotifier.kt` from the `agent_turn_started/finished` watcher frames,
-spec 12 TURN-1). That last hold lets a turn started while the app was open notify with the phone in a pocket; like
+spec 12 TURN-1; re-synced with `pool/live` on every orchestrator reconnect and every 3 min while turns run, so a missed
+finish cannot hold the service forever). When it is the only reason the service runs, the service takes the special-use
+FGS type only (never the microphone type: `VoiceHostRuntime.micTypeWanted`; wake word or voice promote it later from a
+foreground start) and its notification reads "Waiting for N agent sessions". That last hold lets a turn started while the app was open notify with the phone in a pocket; like
 every reason it only *starts* the service from a foreground context, so turns started elsewhere while the app sits in
 the background need "Stay connected". Otherwise
 the service stops itself, and the runtime keeps the socket only while the UI is started
@@ -548,7 +551,7 @@ renders the new state. This is inv04 §8 design rule 3. Re-validating the timing
 | `voice` | DEFAULT, silent, ongoing, chronometer | a voice session is active (owner) | "Archie · Listening/Speaking/Thinking/Using tools" | **Mute/Unmute**, **End** (direct `PendingIntent.getService` to the running service; allowed because the service is already in the foreground) |
 | `attention` | HIGH | only while the app is not visible: an agent `permission_request` (e.g. `ExitPlanMode`), `session_stalled` for >2 min, `session_terminated` | Session title + one line | **Approve**, **Reject** (with `RemoteInput` "Reply with feedback" → deny with reason, the web's semantics, inv02 F-14), **Open** |
 | `background` | LOW | `BackgroundRestricted` | "Archie can't listen in the background" | **Fix** → `BackgroundReliabilityPage` |
-| `agent_turns` ("Agent sessions") | DEFAULT | an agent turn finished (`agent_turn_finished`, spec 12 TURN-2), Settings → Notifications on, the user not looking at that session | Session title + the reply's first line, or "Failed: …"; id 1004, tag `turn:<localId>` (one per session, replaced) | tap → focus that session (`EXTRA_OPEN_AGENT` + `EXTRA_OPEN_AGENT_SDK`); cleared when the session is opened |
+| `agent_turns` ("Agent sessions") | HIGH (heads-up; opt-in) | an agent turn finished (`agent_turn_finished`, spec 12 TURN-2), Settings → Notifications on, the user not looking at that session | Session title + the reply's first line, or "Failed: …"; id 1004, tag `turn:<localId>` (one per session, replaced) | tap → focus that session (`EXTRA_OPEN_AGENT` + `EXTRA_OPEN_AGENT_SDK`); cleared when the session is opened |
 
 The FGS notification id is 1001 (inv04 §4.5). The `host` and `voice` notifications are the same notification id
 updated in place, so only one ongoing notification is shown.

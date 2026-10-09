@@ -23,6 +23,7 @@ import com.assistant.core.network.HttpStack
 import com.assistant.core.network.NetLog
 import com.assistant.core.network.NetworkMonitor
 import com.assistant.core.network.RestCaller
+import com.assistant.core.network.SocketState
 import com.assistant.core.network.ServerDiscovery
 import com.assistant.core.network.SocketClient
 import com.assistant.core.network.TrustStore
@@ -53,7 +54,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.dropWhile
@@ -63,6 +66,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import java.io.File
 
 /** Reached as `(application as GraphOwner).graph` (spec 14 §2.2). */
@@ -190,18 +194,39 @@ class MainAppGraph(
                 turns.onFinished(f, settings.settings.value?.notifyAgentTurns == true, lookingAtAgent.value)
             }
         }.launchIn(scope)
-        history.pool.onEach(agentWork::reconcile).launchIn(scope)
+        history.pool.onEach { agentWork.reconcile(it) }.launchIn(scope)
         lookingAtAgent.onEach(turns::onLooking).launchIn(scope)
+        // Hold hygiene: finishes missed while the socket was down (backend restart, drop) must not
+        // keep the service up. Re-read the pool on every orchestrator (re)connect, and every few
+        // minutes while turns are in flight (an unreachable pool still ages them out).
+        orchestrator.state.map { it.socket }.distinctUntilChanged()
+            .onEach { if (it == SocketState.Open && (agentWork.busy.value > 0 || settings.settings.value?.notifyAgentTurns == true)) resyncAgentWork() }
+            .launchIn(scope)
+        scope.launch {
+            agentWork.busy.map { it > 0 }.distinctUntilChanged().collectLatest { busy ->
+                while (busy) {
+                    delay(AgentWork.RESYNC_MS)
+                    resyncAgentWork()
+                }
+            }
+        }
         // The background hold: switch on and a turn in flight. Nothing happens before the first hold
         // (the voice host is built lazily; building it here would start it at process start).
-        combine(agentWork.busy, settings.settings.map { it?.notifyAgentTurns == true }) { busy, on -> busy && on }
+        combine(agentWork.busy, settings.settings.map { it?.notifyAgentTurns == true }) { busy, on -> if (on) busy else 0 }
             .distinctUntilChanged()
-            .dropWhile { !it }
-            .onEach { hold ->
-                android.util.Log.i(TurnNotifier.TAG, "background hold ${if (hold) "on" else "off"} (turns in flight: ${agentWork.inFlight().size})")
-                voiceHost?.setAgentWorkHold(hold)
+            .dropWhile { it == 0 }
+            .onEach { n ->
+                android.util.Log.i(TurnNotifier.TAG, "background hold ${if (n > 0) "on" else "off"} (turns in flight: $n)")
+                voiceHost?.setAgentWorkHold(n)
             }
             .launchIn(scope)
+    }
+
+    private suspend fun resyncAgentWork() {
+        val requestedAt = System.currentTimeMillis()
+        val rows = history.syncPool()
+        if (rows != null) agentWork.reconcile(rows, requestedAt) else agentWork.expire()
+        android.util.Log.i(TurnNotifier.TAG, "pool re-sync: ${if (rows == null) "unreachable" else "ok"} (turns in flight: ${agentWork.busy.value})")
     }
 
     /** T-14: reconnect immediately when a network becomes available. Called once by the Application. */

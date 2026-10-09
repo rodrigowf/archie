@@ -187,8 +187,8 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
     @Volatile private var switchHold = false
     private var switchHoldJob: Job? = null
 
-    /** Main app: agent work this device will notify about is in flight ([setAgentWorkHold]). */
-    @Volatile private var agentWorkHold = false
+    /** Main app: agent turns this device will notify about that are in flight ([setAgentWorkHold]). */
+    private val agentTurns = MutableStateFlow(0)
 
     private val orchestratorContext = object : OrchestratorContext {
         override val isOrchestratorSession: Boolean get() = true
@@ -475,14 +475,22 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
      * Whether the FGS should run (spec 14 §2.5): always (lite) or wake / voice / "stay connected" /
      * agent work being watched for a notification (main).
      */
-    fun serviceWanted(): Boolean {
+    fun serviceWanted(): Boolean = agentTurns.value > 0 || serviceWantedBesidesAgentWork()
+
+    private fun serviceWantedBesidesAgentWork(): Boolean {
         if (deps.config.serviceRunsAlways) return true
-        if (agentWorkHold) return true
         val s = settingsFlow.value ?: return false
         val p = session.state.value.phase
         val voiceLive = p != SessionPhase.OFF && p != SessionPhase.ERROR
         return s.enableWakeWord || voiceLive || switchHold || s.stayConnectedInBackground
     }
+
+    /**
+     * Whether a (re)start may take the microphone FGS type. False while the agent-work hold is the
+     * only reason the service runs: it never opens the mic, so it starts as special-use only; wake
+     * word or voice later promote it from a foreground start (FgsPolicy).
+     */
+    fun micTypeWanted(): Boolean = serviceWantedBesidesAgentWork()
 
     /**
      * Main app (Settings → Notifications → "Agent session finished" on, an agent turn running): keep
@@ -491,11 +499,16 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
      * service only *starts* from a foreground context (Android 12+), so this works for turns that are
      * running while the app is in front or brought to front; the hold drops with the last turn.
      */
-    fun setAgentWorkHold(active: Boolean) {
-        if (agentWorkHold == active) return
-        agentWorkHold = active
-        log.d(TAG, "agent work hold ${if (active) "on" else "off"}")
-        if (active) ensureServiceIfForeground() else if (!serviceWanted()) deps.service.stop()
+    fun setAgentWorkHold(turns: Int) {
+        val n = turns.coerceAtLeast(0)
+        val was = agentTurns.value
+        if (was == n) return
+        agentTurns.value = n
+        log.d(TAG, "agent work hold: $n turn(s)")
+        when {
+            was == 0 -> ensureServiceIfForeground()
+            n == 0 -> if (!serviceWanted()) deps.service.stop()
+        }
     }
 
     /** The last applied settings (null until loaded). */
@@ -682,9 +695,10 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
         val visibleLink = combine(session.link, linkDismissed) { l, dismissed -> if (dismissed && l is VoiceLinkState.Failed) VoiceLinkState.Up else l }
         val talk = combine(router.talkUi, pushToTalkActive) { t, ptt -> if (ptt) t.copy(isRecording = true) else t }
         combine(
-            listOf(channel.state, session.state, visibleLink, talk, wakeInputs, wakePhase, speakerMuted, pushToTalkActive, lastExchange, settingsFlow),
+            listOf(channel.state, session.state, visibleLink, talk, wakeInputs, wakePhase, speakerMuted, pushToTalkActive, lastExchange, settingsFlow, agentTurns),
         ) { a ->
             val ch = a[0] as ChannelState
+            val turns = a[10] as Int
             @Suppress("UNCHECKED_CAST")
             VoiceUiState(
                 connection = connectionOf(ch.socket),
@@ -698,6 +712,7 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
                 speakerMuted = a[6] as Boolean,
                 pushToTalk = a[7] as Boolean,
                 lastExchange = a[8] as LastExchange,
+                agentTurnsWaiting = if (turns > 0 && !serviceWantedBesidesAgentWork()) turns else 0,
             )
         }.collect { _state.value = it }
     }

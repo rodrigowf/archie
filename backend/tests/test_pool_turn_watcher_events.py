@@ -257,6 +257,70 @@ async def test_a_failing_title_lookup_still_announces():
     assert finished["status"] == "ok"
 
 
+async def _abandon_then_hang(calls: dict):
+    calls["n"] += 1
+    if calls["n"] == 1:
+        raise SessionAbandoned(0.5)
+    await asyncio.Event().wait()  # pragma: no cover — the gap is cancelled first
+    yield TurnComplete(cost=0.0, num_turns=1, session_id="sdk-1")
+
+
+async def _wait_for(cond, timeout: float = 2.0) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while not cond():
+        assert asyncio.get_running_loop().time() < deadline, "condition never became true"
+        await asyncio.sleep(0.01)
+
+
+@pytest.mark.asyncio
+async def test_cancel_between_abandoned_attempt_and_retry_announces_interrupted():
+    """No send() runs during the retry pause: the cancellation must still end the turn."""
+    calls = {"n": 0}
+    sm = _session(lambda _t: _abandon_then_hang(calls))
+    pool, ws = _pool(sm)
+    await pool.start_turn(SID, "go")
+    await _wait_for(lambda: sm.interrupt.await_count == 1)  # in the 1 s gap now
+    task = pool._turn_tasks[SID]
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await _settle(pool)
+    assert calls["n"] == 1
+    (finished,) = _frames(ws, "agent_turn_finished")
+    assert finished["status"] == "interrupted"
+
+
+@pytest.mark.asyncio
+async def test_runner_cancel_between_abandoned_attempt_and_retry_announces_interrupted():
+    from orchestrator.runner import BackgroundAgentRunner, NotificationQueue
+
+    calls = {"n": 0}
+    sm = _session(lambda _t: _abandon_then_hang(calls))
+    pool, ws = _pool(sm)
+    runner = BackgroundAgentRunner(pool, MagicMock(), NotificationQueue())
+    handle = await runner.spawn(SID, "go")
+    await _wait_for(lambda: sm.interrupt.await_count == 1)
+    assert await runner.cancel(handle.turn_id) is True
+    await _wait_for(lambda: runner.notifications.has_pending())
+    await _settle(pool)
+    assert calls["n"] == 1
+    (finished,) = _frames(ws, "agent_turn_finished")
+    assert finished["status"] == "interrupted"
+
+
+@pytest.mark.asyncio
+async def test_a_stalled_watcher_never_delays_the_turn():
+    """The emissions run as their own tasks: the turn finishes while a watcher hangs."""
+    sm = _session(_events(TurnComplete(cost=0.0, num_turns=1, session_id="sdk-1")))
+    pool, ws = _pool(sm)
+    stuck = _watcher()
+    stuck.send_bytes = AsyncMock(side_effect=lambda _d: asyncio.Event().wait())
+    pool.watch(stuck)
+    await asyncio.wait_for(_drain(pool), timeout=1.0)
+    for t in list(pool._announce_tasks):
+        t.cancel()
+
+
 def test_turn_preview():
     assert turn_preview(None) is None
     assert turn_preview("   \n ") is None
