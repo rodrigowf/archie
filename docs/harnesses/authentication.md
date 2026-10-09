@@ -16,6 +16,7 @@ references:
   - ../specs/12-client-protocol.md
   - ../clients/web.md
   - ../clients/android.md
+  - ../architecture/backend.md
 ---
 
 # Authentication (Settings → Accounts)
@@ -96,17 +97,18 @@ machine's running backend keeps its old values until restarted (its list shows `
 ## Trust model
 
 The API has no authentication of its own; anyone who can reach it can already run commands through
-an agent session. The accounts routes add no new capability, but they guard against **other web
-sites**: the API's CORS policy is `*` and a simple POST needs no preflight, so without a guard any
-page open in a LAN browser could call `POST /api/env/X/reveal`. `backend/api/guard.py`
-(`/api/accounts/*`, `/api/env/*`, `/api/auth/login`, `/api/auth/credentials`) refuses
-`Sec-Fetch-Site: cross-site`, an `Origin` that is not this server (same host name as `Host`; nginx
-passes `Host $host`), the web dev servers (ports 5450/5451/8799 on a trusted host) or
-`ARCHIE_TRUSTED_ORIGINS`; and, against DNS rebinding, a `Host` that is not an IP literal, a
-single-label name, `localhost`, `*.local`/`.lan`/`.home`/`.internal`/`.localhost`/`.ts.net`, this
-machine's names or `ARCHIE_TRUSTED_HOSTS`. Requests without `Origin` (Android, curl) pass. Secrets
-also stay off the wire by default: lists and statuses carry masked previews only (`••••` + the last 4 characters of values of
-16+ characters), a full value is returned only by `POST /api/env/{name}/reveal` (`Cache-Control:
+an agent session. The accounts routes add no new capability, but like the rest of the API they are
+closed to **other web sites**: the API-wide browser-origin guard (`backend/api/guard.py`, described
+in [backend.md](../architecture/backend.md#auth-and-the-browser-origin-guard)) refuses cross-site
+writes, cross-site WebSocket handshakes and untrusted `Host`s (DNS rebinding), and the CORS policy
+echoes only trusted origins, so no other page can read a response. `/api/accounts/*` and
+`/api/env/*` add the same origin checks on **reads** too (`require_trusted_origin`): a request
+with `Sec-Fetch-Site: cross-site`, or an `Origin` that is not this server, the web dev servers or
+`ARCHIE_TRUSTED_ORIGINS`, gets 403 whatever its method. Requests without `Origin` (Android, curl)
+pass.
+
+Secrets also stay off the wire by default: lists and statuses carry masked previews only (`••••` +
+the last 4 characters of values of 16+ characters), a full value is returned only by `POST /api/env/{name}/reveal` (`Cache-Control:
 no-store`), and raw CLI output — which can hold tokens — never leaves the server (clients get the
 URL, the device code and one-line, redacted messages). Credentials files are written 0600.
 

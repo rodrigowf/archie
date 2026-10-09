@@ -5,10 +5,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.deps import get_accounts, get_auth
-from api.guard import require_trusted_origin
 from api.models import AuthStatusResponse, SetCredentialsRequest
 from manager.auth import AuthManager
 
+# The writes below are refused to other web sites by the API-wide guard (api/guard.py).
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
@@ -27,7 +27,7 @@ async def auth_status(auth: AuthManager = Depends(get_auth)):
     )
 
 
-@router.post("/login", response_model=AuthStatusResponse, dependencies=[Depends(require_trusted_origin)])
+@router.post("/login", response_model=AuthStatusResponse)
 async def auth_login(auth: AuthManager = Depends(get_auth), accounts=Depends(get_accounts)):
     """Legacy: run `claude setup-token` on the server (older clients).
 
@@ -45,7 +45,7 @@ async def auth_login(auth: AuthManager = Depends(get_auth), accounts=Depends(get
     )
 
 
-@router.post("/credentials", response_model=AuthStatusResponse, dependencies=[Depends(require_trusted_origin)])
+@router.post("/credentials", response_model=AuthStatusResponse)
 async def set_credentials(
     request: SetCredentialsRequest,
     auth: AuthManager = Depends(get_auth),

@@ -11,7 +11,6 @@ from pathlib import Path
 from utils.paths import PROJECT_ROOT, is_within_memory
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse, Response
 
@@ -22,6 +21,7 @@ from manager.loop_watchdog import start_loop_watchdog
 from manager.store import SessionStore
 
 from .connections import ConnectionManager
+from .guard import RequestGuardMiddleware, TrustedCORSMiddleware
 from .content_watcher import ContentWatcher
 from .indexer import HistoryIndexer, MemoryWatcher
 from .pool import SessionPool
@@ -261,12 +261,13 @@ def create_app() -> FastAPI:
     # to tests that mount the router without running the full lifespan.
     app.state.browser_hub = browser.BrowserHub()
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],  # Allow all origins for Android app and local dev
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # Other web sites must not drive or read the API (api/guard.py): the guard refuses
+    # cross-site writes to /api/*, cross-site WebSocket handshakes and untrusted Hosts (DNS
+    # rebinding); CORS echoes only trusted origins. Native clients (no Origin) are unaffected.
+    # The last middleware added runs first: CORS wraps the guard, so a trusted page (e.g. a dev
+    # server) can read the guard's 403 detail.
+    app.add_middleware(RequestGuardMiddleware)
+    app.add_middleware(TrustedCORSMiddleware)
 
     app.include_router(sessions.router)
     app.include_router(chat.router)

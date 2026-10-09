@@ -5,8 +5,8 @@
 
 Trust model: the API has no authentication of its own — anyone who can reach it can already run
 commands through an agent session — so these routes add no new capability; they just make the
-credentials easier to manage. Browser requests from other sites are refused (``api/guard.py``:
-the API's CORS policy is ``*``, so without it any web page on the LAN could read a key), and
+credentials easier to manage. Browser requests from other sites are refused — reads included, a
+step stricter than the API-wide guard (``api/guard.py``: ``require_trusted_origin``) — and
 secrets stay off the wire by default: lists and statuses
 carry masked previews only, a full value is sent only by the explicit ``POST /api/env/{name}/reveal``
 (``Cache-Control: no-store``), and raw CLI output never leaves the server. The legacy Claude routes
@@ -26,7 +26,7 @@ from manager.accounts import AccountError, AccountsManager
 from manager.accounts import envfile
 
 # Every route here can read or change credentials: browser requests from other sites are refused
-# (api/guard.py) — the API's CORS policy is open to any origin.
+# on every method (api/guard.py), not only the writes the API-wide middleware covers.
 router = APIRouter(tags=["accounts"], dependencies=[Depends(require_trusted_origin)])
 
 

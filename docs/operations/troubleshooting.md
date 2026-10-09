@@ -3,7 +3,7 @@ name: troubleshooting
 category: archie/operations
 tags: [troubleshooting, incidents, symptoms, fixes, jetson, deploy, context-sync, ssh, voice, android, search]
 created: 2026-04-20
-modified: 2026-10-06
+modified: 2026-10-09
 summary: Symptom → cause → fix table for every known Archie incident, each linked to the doc with the detail.
 source: curated (consolidated from all feedback_* and reference_* auto-memory notes, project_jetson_crash_2026_04_20.md, project_context_sync_delete_gating.md, project_indexer_full_reembed_fix_2026_06_17.md, project_voice_ghost_state_fix_2026_06_30.md (index line), project_qwen_voice_gate_no_staleness_clear.md (index line), assistant/infrastructure/server_hub_project.md, assistant/utilities/*.md, projects/video-editing/large_assets_outside_context.md; verified against code 2026-10-06)
 references:
@@ -15,6 +15,7 @@ references:
   - ../infrastructure/jetson-server.md
   - ../infrastructure/installation.md
   - ../infrastructure/topology.md
+  - ../architecture/backend.md
   - ../architecture/memory-and-search.md
   - ../architecture/orchestrator.md
   - ../voice/lifecycle.md
@@ -86,6 +87,7 @@ matches, start from [debugging.md](debugging.md) and capture real logs first.
 
 | Symptom | Cause | Fix | Detail |
 |---|---|---|---|
+| A page or tool gets **403 "Cross-site request rejected"** (WebSocket: handshake refused / close 1008); backend log `Rejected POST /api/… (origin=… host=…)` | The browser-origin guard: the request came from a page served by another origin (other port or machine), with `Origin: null`, or reached the server under a `Host` it does not trust | Open the page from the server itself, or add its origin (`scheme://host[:port]`) to `ARCHIE_TRUSTED_ORIGINS` (a public DNS name for the server: `ARCHIE_TRUSTED_HOSTS`) — via Settings → Accounts it applies at once, in `context/.env` after a restart | [backend.md](../architecture/backend.md#auth-and-the-browser-origin-guard) |
 | Android chat freezes mid-session after the phone slept; no error | okhttp closed the WS (`1011 keepalive ping timeout`) and the reconnect didn't re-send `start`, so the socket wasn't subscribed | Clients re-send `start` + resume checkpoint on every reconnect (fixed `b9646ee` in the old app; built into the new protocol) | [debugging.md](debugging.md#device-playbook-android) |
 | Every new tab shows "Preparing conversation…" without anyone starting voice | Backend ghost voice state (`_voice=True` with lifecycle idle) | Fixed `f5b339a`; diagnose with the WS probe, clear with `POST /api/sessions/{local_id}/close` | [debugging.md](debugging.md#direct-websocket-probe), [lifecycle.md](../voice/lifecycle.md) |
 | Voice "stopped suddenly mid-call" | Relay closed | Read `voice_session_closed` and its reason in the backend log before anything else | [debugging.md](debugging.md#voice-debugging-signals) |

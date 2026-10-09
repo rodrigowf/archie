@@ -18,6 +18,8 @@ references:
   - ../integrations/visualizations-and-sharing.md
   - ../infrastructure/deployment.md
   - ../infrastructure/jetson-server.md
+  - ../harnesses/authentication.md
+  - ../operations/troubleshooting.md
   - ../infrastructure/ssh-remote-execution.md
   - ../operations/debugging.md
   - ../overview/repo-layout.md
@@ -48,6 +50,7 @@ search in [memory-and-search.md](memory-and-search.md).
 | `backend/api/content_watcher.py` | `ContentWatcher`: one `watchfiles` loop over `context/public/` + the memory tree; pushes `visualization_changed` / `memory_changed` to every orchestrator socket and wakes `MemoryWatcher` ([visualizations-and-sharing.md](../integrations/visualizations-and-sharing.md), spec 12 §9.3) |
 | `backend/api/serializers.py` | `serialize_event()` — typed manager events → wire JSON |
 | `backend/api/models.py` | Pydantic response models |
+| `backend/api/guard.py` | Browser-origin guard: `RequestGuardMiddleware`, `TrustedCORSMiddleware`, `require_trusted_origin` ([below](#auth-and-the-browser-origin-guard)) |
 | `backend/api/connections.py`, `deps.py` | `ConnectionManager`; FastAPI dependencies (`get_pool`, `get_store`) |
 | `backend/manager/` | Session managers wrapping the harness CLIs, `SessionStore`, `ManagerConfig`, `AuthManager`, loop watchdog |
 | `backend/orchestrator/` | The orchestrator agent, model and voice providers, tools |
@@ -77,8 +80,9 @@ watcher/indexer/prewarm tasks.
 
 ## Routes
 
-All `/api/*` routers are registered before the static routes. CORS is open (`allow_origins=["*"]`,
-no credentials).
+All `/api/*` routers are registered before the static routes. Two middlewares wrap them: the
+browser-origin guard and a CORS policy that echoes only trusted origins (no credentials) — see
+[Auth and the browser-origin guard](#auth-and-the-browser-origin-guard).
 
 | Module (`backend/api/routes/`) | Prefix / paths | Purpose |
 |---|---|---|
@@ -123,12 +127,59 @@ Registered after the API, in this order (earlier wins):
 `index.html` exists (hashed `assets/` mounted separately, path-traversal guarded, SPA fallback to
 `index.html`). Tests: `backend/tests/test_spa_routes.py`.
 
-## Auth
+## Auth and the browser-origin guard
 
 There is **no client authentication** on any REST or WebSocket endpoint except the browser-extension
-channel. The trust model is "anyone on the LAN". TLS (self-signed) is terminated by nginx on the
-Jetson, which proxies to `127.0.0.1:8765` ([jetson-server](../infrastructure/jetson-server.md)).
+channel. The trust model is "anyone on the LAN / tailnet" — anyone who can reach the API can already
+run commands through an agent session. TLS (self-signed) is terminated by nginx on the Jetson, which
+proxies to `127.0.0.1:8765` with `Host $host` ([jetson-server](../infrastructure/jetson-server.md)).
 `/api/auth/*` is only about the backend's own Claude CLI credentials in `.claude_config/`.
+
+What the API does guard against is **other web sites** open in a browser on the LAN: without a
+check, any page could `POST /api/sessions/inject` (agents with a shell), open the chat sockets, read
+history, memory and keys, or DNS-rebind its own name to the server. `backend/api/guard.py` holds
+the rules, applied by two middlewares installed in `create_app()`:
+
+- **`RequestGuardMiddleware`** answers **403** (HTTP) or closes the handshake with **1008** before
+  `accept` (the client sees HTTP 403), with one warning log line per refusal (method, path, origin,
+  host, reason):
+  - every `/api/*`, `/memory`, `/uploads` and `/projects` request, any method, whose `Host` is not
+    trusted (DNS rebinding — a rebound page is same-origin with the server, so CORS cannot stop it
+    reading these);
+  - every `/api/*` `POST`/`PUT`/`PATCH`/`DELETE` and **every WebSocket handshake** (any path) that
+    carries `Sec-Fetch-Site: cross-site` or an `Origin` that is not trusted. `Origin: null`
+    (sandboxed frames, `file://`) is never trusted.
+
+  The web apps (`/`, `/compat/`, `/legacy/`, `/legacy_compat/`) and `context/public/` pages are
+  never looked at, so the Fire TV, phones and other browsers keep opening them under any name.
+- **`TrustedCORSMiddleware`** (Starlette CORS) echoes `Access-Control-Allow-Origin` only for a
+  trusted origin, so a cross-site page cannot read API responses; a preflight from an untrusted
+  origin gets 400. Same-origin pages (the web app at `/`, `/compat/`, `/legacy/`, `/legacy_compat/`,
+  visualizations calling `/api/...`) need no CORS at all.
+- **`require_trusted_origin`** — a FastAPI dependency the credential routes (`/api/accounts/*`,
+  `/api/env/*`) add on top: origin checks on reads too ([authentication.md](../harnesses/authentication.md#trust-model)).
+
+**Trusted origins:** the request's own host name (any scheme or port, so `https://<server>` via nginx
+and `http://<server>:8765` direct both match); the web dev and mock servers (ports 5450, 5451, 8799)
+on a trusted host — they proxy `/api` here; `chrome-extension://…` (Archie's browser extension, which
+also presents its token); and `ARCHIE_TRUSTED_ORIGINS` (comma-separated, exact
+`scheme://host[:port]`). Only the last two are exempt from `Sec-Fetch-Site: cross-site`: a page
+served by another machine is always cross-site, so a same-host-looking `Origin` on a cross-site
+request is still refused.
+
+**Trusted hosts** (names a rebinding page cannot have registered): IP literals, single-label names,
+`localhost`, `*.local`, `*.lan`, `*.home`, `*.internal`, `*.localhost`, `*.ts.net` (Tailscale
+MagicDNS), this machine's host names, and `ARCHIE_TRUSTED_HOSTS` (comma-separated).
+
+**Requests without `Origin` pass** the origin checks: the Android apps (OkHttp sets none), curl,
+`context/scripts/*.py`, the orchestrator's tools. They still need a trusted `Host`.
+
+**Allowing a page served elsewhere** (another port or machine — e.g. a visualization dev server, or
+the avatar observer opened from another host with `?host=`): add its origin to
+`ARCHIE_TRUSTED_ORIGINS` (e.g. `http://192.168.0.28:5173`) — from Settings → Accounts' key manager it
+applies at once (the guard reads the environment per request); edited by hand in `context/.env`
+it needs a backend restart; reaching the server under a public DNS name needs that name in
+`ARCHIE_TRUSTED_HOSTS`. Tests: `backend/tests/test_request_guard.py`.
 
 ## Configuration files
 
@@ -213,7 +264,10 @@ not a UUID or a Gemini `session-*` file fails the run. Build stores and sessions
   restart. Before this existed the orchestrator used a startup snapshot and opened sessions with the
   wrong working directory.
 - **`GET /api/config/openai-key` hands out the raw key** to any LAN client (needed by the Android
-  wake-word confirm). Same trust model as the rest of the API.
+  wake-word confirm). Same trust model as the rest of the API; other web sites cannot read it (the
+  CORS policy echoes only trusted origins).
+- **A 403 "Cross-site request rejected"** comes from the browser-origin guard: the page's origin or
+  the `Host` is not trusted. Add it to `ARCHIE_TRUSTED_ORIGINS` / `ARCHIE_TRUSTED_HOSTS`.
 - **Restart the Jetson backend with `sudo systemctl restart agentic-backend.service`**, not by
   killing the PID; don't `pkill -f uvicorn` from an agent's Bash tool (the pattern matches its own
   shell).
@@ -226,5 +280,7 @@ not a UUID or a Gemini `session-*` file fails the run. Build stores and sessions
 - 2026-10-06: `context/memory/archie` became a symlink to `docs/`; `paths.py` gained
   `get_docs_dir()` / `get_memory_link_targets()` / `is_within_memory()` so the memory routes and
   search follow it.
+- 2026-10-09: the browser-origin guard of the accounts routes became API-wide
+  (`RequestGuardMiddleware`) and CORS stopped answering `*` (`TrustedCORSMiddleware`).
 
 Related: [repo layout](../overview/repo-layout.md), [SSH remote execution](../infrastructure/ssh-remote-execution.md) (working-directory entries with `ssh_host`).
