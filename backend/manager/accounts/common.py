@@ -7,6 +7,7 @@ import asyncio
 import glob
 import os
 import shutil
+import signal
 import time
 from collections.abc import Iterable
 from typing import Any
@@ -74,13 +75,20 @@ async def run(argv: list[str], env: dict[str, str], *, timeout: float = 15.0, st
     try:
         out, _ = await asyncio.wait_for(proc.communicate(stdin.encode() if stdin is not None else None), timeout)
     except asyncio.TimeoutError:
-        try:
-            os.killpg(proc.pid, 9)
-        except (ProcessLookupError, PermissionError):
-            pass
-        await proc.wait()
+        await _reap(proc)
         return None, "timed out"
+    except asyncio.CancelledError:  # the request went away: don't leave the CLI behind
+        await asyncio.shield(_reap(proc))
+        raise
     return proc.returncode, out.decode("utf-8", "replace")
+
+
+async def _reap(proc: asyncio.subprocess.Process) -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    await proc.wait()
 
 
 def env_field(name: str, label: str, **kw: Any) -> EnvField:

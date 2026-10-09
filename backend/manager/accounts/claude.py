@@ -30,11 +30,13 @@ from . import envfile
 from .base import AccountError, AccountService, Method
 from .common import child_env, env_field, find_cli, key_set, run
 from .files import atomic_write, iso_from_epoch, read_json
-from .flows import FlowSpec, Scan, clean, find_url
+from .flows import FlowSpec, Scan, clean, find_url, redact
 
 _AUTHORIZE = "/oauth/authorize"
 _ERROR_RE = re.compile(r"(Login failed[^\n]*|OAuth error[^\n]*)")
-_TOKEN_RE = re.compile(r"sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,}")
+# The token must be followed by something (whitespace in the cleaned text): output arrives in
+# chunks and a token at the very end of the buffer may still be incomplete.
+_TOKEN_RE = re.compile(r"sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,}(?=\s)")
 _LOGIN_DROP = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 
 TOKEN_ENV = "CLAUDE_CODE_OAUTH_TOKEN"
@@ -217,7 +219,9 @@ class ClaudeAccount(AccountService):
         common = dict(service=self.id, method=method, env=env, needs_code=True, code_label="Code",
                       code_help="The page shows a code after you sign in.")
         if method == "token":
+            # Success only from on_secret: an exit without a captured token saved nothing.
             return FlowSpec(argv=[cli, "setup-token"], pty=True, scan=scan_setup_token, on_secret=store_token,
+                            exit_ok_is_success=False,
                             success_message="Signed in. The token is saved as CLAUDE_CODE_OAUTH_TOKEN in context/.env.",
                             **common)
         if method == "login":
@@ -241,5 +245,5 @@ class ClaudeAccount(AccountService):
             raise AccountError("The claude CLI isn't installed on the server.", 409)
         rc, out = await run([cli, "auth", "logout"], child_env(_LOGIN_DROP, cli=cli, CLAUDE_CONFIG_DIR=str(config_dir())), timeout=20)
         if rc != 0:
-            raise AccountError(f"`claude auth logout` failed: {out.strip()[-200:] or rc}", 502)
+            raise AccountError(redact(f"`claude auth logout` failed: {out.strip()[-200:] or rc}"), 502)
         return "Signed out of this server's login."

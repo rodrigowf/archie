@@ -56,7 +56,9 @@ _OSC_RE = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 _CSI_COL_RE = re.compile(r"\x1b\[\d*G")  # Ink positions words with "cursor to column"
 _CSI_RE = re.compile(r"\x1b\[[0-9;?<>=!]*[ -/]*[@-~]")
 _ESC_RE = re.compile(r"\x1b[@-Z\\-_78]")
-_URL_RE = re.compile(r"https?://[^\s\x07\x1b\"'<>]+")
+# A plain-text URL only counts once something follows it: output arrives in chunks, and a URL at
+# the very end of the buffer may still be growing.
+_URL_RE = re.compile(r"https?://[^\s\x07\x1b\"'<>]+(?=[\s\"'<>])")
 _LONG_TOKEN_RE = re.compile(r"(sk-[A-Za-z0-9_-]{6})[A-Za-z0-9_-]+|\b[A-Za-z0-9_-]{40,}\b")
 
 
@@ -135,6 +137,8 @@ class FlowSpec:
     # Exit status 0 means signed in (most CLIs).
     exit_ok_is_success: bool = True
     success_message: str = "Signed in."
+    # Called once when the flow's process is gone (temp dirs and the like).
+    on_close: Callable[[], None] | None = None
     # Output lines never worth showing as the failure reason.
     noise: tuple[str, ...] = ()
 
@@ -174,33 +178,39 @@ class LoginFlow:
         return self.started_at + self.spec.timeout_s
 
     async def start(self) -> None:
+        """Spawn the login. Never raises: a failure to start leaves the flow `failed`."""
         spec = self.spec
         env = dict(spec.env)
+        master: int | None = None
         try:
             if spec.pty:
                 master, slave = pty.openpty()
-                # Very wide, so Ink / readline never wrap the URL or a printed token.
-                fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 60, 1000, 0, 0))
-                env.setdefault("TERM", "xterm-256color")
-                env["COLUMNS"], env["LINES"] = "1000", "60"
                 try:
+                    # Very wide, so Ink / readline never wrap the URL or a printed token.
+                    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 60, 1000, 0, 0))
+                    env.setdefault("TERM", "xterm-256color")
+                    env["COLUMNS"], env["LINES"] = "1000", "60"
                     self._proc = await asyncio.create_subprocess_exec(
                         *spec.argv, stdin=slave, stdout=slave, stderr=slave,
                         env=env, cwd=spec.cwd, start_new_session=True,
                     )
                 finally:
                     os.close(slave)
-                self._master = master
-                os.set_blocking(master, False)
-                asyncio.get_running_loop().add_reader(master, self._on_pty_readable)
+                self._master, master = master, None
+                os.set_blocking(self._master, False)
+                asyncio.get_running_loop().add_reader(self._master, self._on_pty_readable)
             else:
                 self._proc = await asyncio.create_subprocess_exec(
                     *spec.argv, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.STDOUT, env=env, cwd=spec.cwd, start_new_session=True,
                 )
                 self._reader = asyncio.create_task(self._read_pipe())
-        except (FileNotFoundError, PermissionError) as e:
-            self._finish("failed", f"Couldn't run {spec.argv[0]}: {e.strerror or e}")
+        except Exception as e:  # noqa: BLE001 — OSError (missing CLI, no PTYs left, bad cwd) or worse
+            if master is not None:
+                with contextlib.suppress(OSError):
+                    os.close(master)
+            self._finish("failed", f"Couldn't run {os.path.basename(spec.argv[0])}: {getattr(e, 'strerror', None) or e}")
+            await self._kill()
             return
         logger.info("accounts: %s/%s login started (pid %s)", spec.service, spec.method, self._proc.pid)
         self._supervisor = asyncio.create_task(self._supervise())
@@ -301,7 +311,7 @@ class LoginFlow:
                 self.spec.on_secret(found.secret)
             except Exception as e:  # noqa: BLE001 — reported to the user
                 logger.exception("accounts: storing the credential of %s failed", self.spec.service)
-                self._finish("failed", f"Signed in, but saving the credential failed: {e}")
+                self._finish("failed", redact(f"Signed in, but saving the credential failed: {e}"))
             else:
                 self._finish("succeeded", self.spec.success_message)
             asyncio.get_running_loop().create_task(self._kill())
@@ -388,6 +398,10 @@ class LoginFlow:
     async def _release(self) -> None:
         """Close our ends (stdin pipe, PTY master) so asyncio can close the transport."""
         proc = self._proc
+        if self.spec.on_close is not None and (proc is None or proc.returncode is not None):
+            hook, self.spec.on_close = self.spec.on_close, None
+            with contextlib.suppress(Exception):
+                hook()
         if proc is not None and proc.stdin is not None and not proc.stdin.is_closing():
             proc.stdin.close()
         self._close_master()
@@ -452,7 +466,11 @@ class FlowManager:
                 )
             flow = LoginFlow(spec)
             self._flows[spec.service] = flow
-            await flow.start()
+            try:
+                await flow.start()
+            except BaseException:
+                self._flows.pop(spec.service, None)
+                raise
         await flow.wait_ready()
         return flow
 

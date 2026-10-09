@@ -23,6 +23,9 @@ import {
 import { envNameError } from './logic';
 import styles from './accounts.module.css';
 
+/** A key's state as listed; a revealed value is shown only while this still matches. */
+const keySig = (k: EnvKey): string => `${k.preview}|${k.length}|${k.line}|${k.duplicates}`;
+
 /** A password-style field with a show/hide toggle (the 16 px rule: always a TextField). */
 export function SecretField({
   label,
@@ -187,7 +190,9 @@ export function EnvKeysSection() {
   const loading = useAccounts((s) => s.envLoading);
   const error = useAccounts((s) => s.envError);
   const busy = useAccounts((s) => s.envBusy);
-  const [revealed, setRevealed] = useState<Record<string, string>>({});
+  // Revealed values, each tagged with the key's state when it was fetched: after any change to the
+  // key (new preview / length / line) the stale value is no longer shown.
+  const [revealed, setRevealed] = useState<Record<string, { value: string; sig: string }>>({});
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
   useEffect(() => {
@@ -196,8 +201,11 @@ export function EnvKeysSection() {
   }, []);
   const forget = (name: string): void =>
     setRevealed((r) => {
-      const next: Record<string, string> = {};
-      for (const k of Object.keys(r)) if (k !== name) next[k] = r[k] as string;
+      const next: Record<string, { value: string; sig: string }> = {};
+      for (const k of Object.keys(r)) {
+        const v = r[k];
+        if (k !== name && v) next[k] = v;
+      }
       return next;
     });
   return (
@@ -223,9 +231,9 @@ export function EnvKeysSection() {
             <EnvKeyRow
               key={k.name}
               k={k}
-              value={revealed[k.name]}
+              value={revealed[k.name]?.sig === keySig(k) ? revealed[k.name]?.value : undefined}
               busy={busy === k.name}
-              onReveal={(v) => setRevealed((r) => ({ ...r, [k.name]: v }))}
+              onReveal={(v) => setRevealed((r) => ({ ...r, [k.name]: { value: v, sig: keySig(k) } }))}
               onHide={() => forget(k.name)}
               onDelete={() => setRemoving(k.name)}
             />
@@ -361,7 +369,13 @@ function EnvKeyRow({
             <Button type="submit" variant="filled" icon="check" loading={busy}>
               Save
             </Button>
-            <Button variant="text" onClick={() => setEditing(false)}>
+            <Button
+              variant="text"
+              onClick={() => {
+                onHide(); // it was revealed only to prefill the editor
+                setEditing(false);
+              }}
+            >
               Cancel
             </Button>
           </div>

@@ -23,15 +23,19 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from utils.paths import get_context_dir
+from utils.paths import PROJECT_ROOT, get_context_dir
 
 from .files import atomic_write
 
-NAME_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+# Any name bash accepts (existing files may hold lowercase ones); the UIs suggest CAPITALS for new keys.
+NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _ASSIGN_RE = re.compile(r"^(?P<lead>\s*)(?P<export>export\s+)?(?P<name>[A-Za-z_][A-Za-z0-9_]*)=(?P<rest>.*)$", re.S)
-_BARE_SAFE = re.compile(r"^[A-Za-z0-9_@%+=:,./~^-]+$")
+# Characters that stay literal when bash reads an unquoted assignment value. No `~` (tilde
+# expansion, also after `:` in assignments), no `$`, quotes, spaces, globs or `#`.
+_BARE_SAFE = re.compile(r"^[A-Za-z0-9_@%+=:,./^-]+$")
 
-# How many backups of .env to keep (they live in context/.env.backups/).
+# How many backups of .env to keep. They live in <repo>/.backups/env/ (gitignored, 0700) — not
+# under context/, which context-sync copies to the other machine and which is a git repo.
 ENV_BACKUPS = 10
 
 # Variables the backend copies at startup (or that change how it starts): editing them needs a
@@ -51,7 +55,7 @@ def env_path() -> Path:
 
 
 def backups_dir() -> Path:
-    return get_context_dir() / ".env.backups"
+    return PROJECT_ROOT / ".backups" / "env"
 
 
 class EnvError(ValueError):
@@ -140,8 +144,12 @@ def parse(text: str) -> _Parsed:
             rest += lines[end]
             end += 1
             scanned = _scan_value(rest)
-        if scanned is None:  # unterminated quote: bash would fail; take the rest literally
-            value, consumed = rest.rstrip("\n"), len(rest)
+        if scanned is None:
+            # A quote never closed before EOF (``FOO=it's``). Never let it swallow the rest of the
+            # file: it is a one-line value, taken literally, and an edit rewrites only that line.
+            end = i + 1
+            rest = m.group("rest")
+            value, consumed = rest.rstrip("\r\n"), len(rest)
         else:
             value, consumed = scanned
         tail = rest[consumed:].rstrip("\r\n")
@@ -181,7 +189,7 @@ def mask(value: str) -> str:
 
 def validate_name(name: str) -> str:
     if not isinstance(name, str) or not NAME_RE.match(name):
-        raise EnvError("Key names use capital letters, digits and underscores, and don't start with a digit (e.g. MY_API_KEY).")
+        raise EnvError("Key names use letters, digits and underscores and don't start with a digit (e.g. MY_API_KEY).")
     return name
 
 
@@ -254,25 +262,8 @@ def has(name: str) -> bool:
 
 
 def _write(path: Path, text: str) -> None:
-    mode = 0o600
-    try:
-        mode = path.stat().st_mode & 0o777
-    except FileNotFoundError:
-        pass
-    atomic_write(path, text, mode=mode, backup=path.exists(), backup_dir=backups_dir())
-    _prune_env_backups()
-
-
-def _prune_env_backups() -> None:
-    try:
-        olds = sorted(backups_dir().glob(".env.bak-*"))
-    except OSError:
-        return
-    for old in olds[:-ENV_BACKUPS]:
-        try:
-            old.unlink()
-        except OSError:
-            pass
+    # Always 0600: the file holds every secret (it may have been created world-readable).
+    atomic_write(path, text, mode=0o600, backup=path.exists(), backup_dir=backups_dir(), keep=ENV_BACKUPS)
 
 
 def set_value(name: str, value: str, *, create: bool | None = None) -> EnvKey:

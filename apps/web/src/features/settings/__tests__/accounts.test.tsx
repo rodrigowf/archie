@@ -11,7 +11,7 @@ import type { AccountMethod, AccountService, LoginFlow } from '@/services';
 import { expectNoAxeViolations } from '@/test/axe';
 import { resetAuth } from '@/features/auth';
 import { jsonResponse, setupServices, teardownServices, type Harness } from '../../../services/__tests__/fakes';
-import { resetAccounts } from '../accounts/accountsStore';
+import { accountsStore, loadAccounts, pollLogin, resetAccounts, startLogin } from '../accounts/accountsStore';
 import { accountsSummary, envNameError, formatExpiry, groupServices, jsonError, stateTone } from '../accounts/logic';
 import { resetSettingsUi } from '../controller';
 import SettingsView from '../SettingsView';
@@ -193,6 +193,20 @@ describe('Accounts logic', () => {
   });
 });
 
+describe('Accounts store', () => {
+  it('drops a poll answer about another (older) flow', async () => {
+    serve([CODEX]);
+    await loadAccounts();
+    h.fetch
+      .on('POST', '/api/accounts/codex/login', () => jsonResponse(flow({ id: 'new', service: 'codex', method: 'device', needs_code: false })))
+      .on('GET', '/api/accounts/codex/login', () => jsonResponse(flow({ id: 'old', service: 'codex', status: 'succeeded' })));
+    await startLogin('codex', 'device');
+    await pollLogin('codex');
+    const f = accountsStore.getState().services?.[0]?.flow;
+    expect([f?.id, f?.status]).toEqual(['new', 'waiting']);
+  });
+});
+
 describe('Accounts page', () => {
   it('renders every group and state, with facts, warnings and unavailable methods', async () => {
     serve();
@@ -263,6 +277,7 @@ describe('Accounts page', () => {
     expect(await c.findByText('ABCD-EFG12')).toBeTruthy();
     expect(c.queryByRole('textbox', { name: 'Code' })).toBeNull();
     await waitFor(() => expect(polls).toBeGreaterThan(0), { timeout: 4000 });
+    expect(c.getByText('ABCD-EFG12')).toBeTruthy();
     await user.click(c.getByRole('button', { name: /Cancel sign-in/ }));
     expect(await c.findByText('Sign-in cancelled.')).toBeTruthy();
     await user.click(c.getByRole('button', { name: 'Dismiss' }));
@@ -386,6 +401,11 @@ describe('Environment keys', () => {
       expect(el).toBeTruthy();
       return el as HTMLElement;
     });
+    await user.click(within(vad).getByRole('button', { name: 'Edit VOICE_DEBUG_VAD' }));
+    expect(((await within(vad).findByLabelText('Value')) as HTMLInputElement).value).toBe('1');
+    // Cancel hides the value that was revealed only to prefill the editor
+    await user.click(within(vad).getByRole('button', { name: 'Cancel' }));
+    expect(within(vad).queryByText('1', { exact: true })).toBeNull();
     await user.click(within(vad).getByRole('button', { name: 'Edit VOICE_DEBUG_VAD' }));
     const input = (await within(vad).findByLabelText('Value')) as HTMLInputElement;
     expect(input.value).toBe('1');

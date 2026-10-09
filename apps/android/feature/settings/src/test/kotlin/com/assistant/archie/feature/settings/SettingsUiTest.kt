@@ -244,12 +244,25 @@ class SettingsUiTest {
         val h = h { it.auth = """{"authenticated":false,"auth_url":null,"headless":true}""" }
         compose.setContent { ArchieTheme { com.assistant.archie.feature.settings.ui.AuthGate(h.feature) { } } }
         compose.waitForIdle()
+        compose.onNodeWithText("Paste credentials instead").performClick()
         compose.onNodeWithTag("auth-credentials").performTextReplacement("{not json")
         compose.onNodeWithTag("auth-set-credentials").performClick()
         waitText("That isn't valid JSON. Copy the whole file, including the braces.")
         compose.onNodeWithTag("auth-credentials").performTextReplacement("""{"claudeAiOauth":{"accessToken":"sk-x"}}""")
         compose.onNodeWithTag("auth-set-credentials").performClick()
         eventually { h.backend.requests.contains("POST /api/auth/credentials") }
+    }
+
+    @Test fun authGate_linkSignIn_showsTheUrl_andSendsTheCode() {
+        val h = h { it.auth = """{"authenticated":false,"auth_url":null,"headless":true}""" }
+        compose.setContent { ArchieTheme { com.assistant.archie.feature.settings.ui.AuthGate(h.feature) { } } }
+        compose.waitForIdle()
+        compose.onNodeWithTag("auth-sign-in").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText("https://claude.com/cai/oauth/authorize?code=true&state=S")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("auth-link-code").performTextReplacement("abc#def")
+        compose.onNodeWithTag("auth-link-submit").performClick()
+        eventually { h.backend.accountWrites.any { it.startsWith("POST /api/accounts/claude/login/code") && it.contains("abc#def") } }
+        assertTrue(h.backend.requests.none { it == "POST /api/auth/login" })
     }
 
     @Test fun accounts_linkFlow_showsTheUrl_andSendsThePastedCode() {

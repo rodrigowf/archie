@@ -39,7 +39,15 @@ export function useAccounts<T>(selector: (s: AccountsState) => T): T {
   return useStore(accountsStore, selector);
 }
 
+let loadInFlight: Promise<void> | null = null;
+let loadGen = 0;
+/** Per-service flow version: a poll answer that started before a newer change is dropped. */
+const flowSeq = new Map<string, number>();
+
 export function resetAccounts(): void {
+  loadInFlight = null;
+  loadGen += 1;
+  flowSeq.clear();
   accountsStore.setState(initial(), true);
 }
 
@@ -73,20 +81,29 @@ function touched(id: string): void {
   if (id === 'claude') void checkAuth();
 }
 
-let loadInFlight: Promise<void> | null = null;
 
-/** `GET /api/accounts` (CFG-3: refetched every time the page opens). */
-export function loadAccounts(): Promise<void> {
-  if (loadInFlight) return loadInFlight;
+/**
+ * `GET /api/accounts` (CFG-3: refetched every time the page opens). Concurrent calls share one
+ * request, except `fresh` (after a change): it always starts a new one, and only the newest
+ * answer is applied.
+ */
+export function loadAccounts(fresh = false): Promise<void> {
+  if (loadInFlight && !fresh) return loadInFlight;
+  const gen = ++loadGen;
   accountsStore.setState({ loading: true, loadError: null });
-  loadInFlight = api.accounts
+  const p: Promise<void> = api.accounts
     .list()
-    .then((r) => accountsStore.setState({ services: r.services, loading: false }))
-    .catch((err: unknown) => accountsStore.setState({ loading: false, loadError: errorMessage(err) }))
+    .then((r) => {
+      if (gen === loadGen) accountsStore.setState({ services: r.services, loading: false });
+    })
+    .catch((err: unknown) => {
+      if (gen === loadGen) accountsStore.setState({ loading: false, loadError: errorMessage(err) });
+    })
     .finally(() => {
-      loadInFlight = null;
+      if (loadInFlight === p) loadInFlight = null;
     });
-  return loadInFlight;
+  loadInFlight = p;
+  return p;
 }
 
 export async function refreshService(id: string): Promise<void> {
@@ -100,6 +117,7 @@ export async function refreshService(id: string): Promise<void> {
 }
 
 function setFlow(id: string, flow: LoginFlow | null): void {
+  flowSeq.set(id, (flowSeq.get(id) ?? 0) + 1);
   patch(id, (s) => ({ ...s, flow }));
 }
 
@@ -143,8 +161,10 @@ export async function submitCode(id: string, code: string): Promise<boolean> {
 export async function pollLogin(id: string): Promise<void> {
   const before = accountsStore.getState().services?.find((s) => s.id === id)?.flow;
   if (!flowActive(before)) return;
+  const seq = flowSeq.get(id) ?? 0;
   try {
     const flow = await api.accounts.login(id);
+    if ((flowSeq.get(id) ?? 0) !== seq || flow.id !== before?.id) return; // superseded meanwhile
     setFlow(id, flow);
     if (!flowActive(flow)) await afterFlow(id, flow);
   } catch {
@@ -242,7 +262,7 @@ export async function removeServiceKey(id: string, name: string): Promise<boolea
 
 async function afterEnvChange(id?: string): Promise<void> {
   // Keys are shared between cards (GEMINI_API_KEY, DASHSCOPE_API_KEY…): refresh them all.
-  const jobs: Promise<unknown>[] = [loadAccounts()];
+  const jobs: Promise<unknown>[] = [loadAccounts(true)];
   if (accountsStore.getState().envKeys) jobs.push(loadEnv());
   await Promise.all(jobs);
   if (id) touched(id);

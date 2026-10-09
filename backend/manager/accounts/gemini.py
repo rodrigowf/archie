@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -188,14 +189,16 @@ class GeminiAccount(AccountService):
             raise AccountError("The gemini CLI isn't installed on the server.", 409)
         path = creds_path()
         baseline = _mtime(path)
-        workdir = Path(tempfile.gettempdir()) / f"archie-gemini-login-{os.getuid()}"
-        workdir.mkdir(mode=0o700, exist_ok=True)
+        # A fresh private directory, so the TUI starts outside any project (no workspace settings,
+        # no trust prompt); removed when the flow ends.
+        workdir = tempfile.mkdtemp(prefix="archie-gemini-login-")
         env = child_env(
             ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI"), cli=cli,
             NO_BROWSER="true", GEMINI_CLI_NO_RELAUNCH="true", GEMINI_CLI_AUTH_OVERRIDE="oauth-personal",
         )
         return FlowSpec(
-            service=self.id, method=method, argv=[cli], env=env, cwd=str(workdir), pty=True, scan=scan_google,
+            service=self.id, method=method, argv=[cli], env=env, cwd=workdir, pty=True, scan=scan_google,
+            on_close=lambda: shutil.rmtree(workdir, ignore_errors=True),
             needs_code=True, code_label="Authorization code", code_help="Google shows it after you sign in.",
             watch=lambda: _mtime(path) > baseline, exit_ok_is_success=False, timeout_s=300,
             success_message=f"Signed in. Set Sign-in type to Google sign-in for Archie's sessions to use it ({ENV_AUTH_TYPE}).",

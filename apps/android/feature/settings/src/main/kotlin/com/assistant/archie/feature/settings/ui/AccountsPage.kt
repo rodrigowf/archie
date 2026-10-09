@@ -49,6 +49,7 @@ import com.assistant.archie.feature.settings.Option
 import com.assistant.archie.feature.settings.SettingsFeature
 import com.assistant.core.data.ConnectionRepository
 import com.assistant.core.design.components.ArchieButton
+import com.assistant.core.design.components.ArchieButtonDefaults
 import com.assistant.core.design.components.ArchieConfirmDialog
 import com.assistant.core.design.components.ArchieDialogSurface
 import com.assistant.core.design.components.ArchieIconButton
@@ -194,10 +195,16 @@ private fun ServiceCard(model: AccountsModel, s: AccountServiceDto, busy: String
                 ArchieButton("Test", { scope.launch { model.verify(s.id) } }, Modifier.testTag("verify:${s.id}"), style = ButtonStyle.Text, size = ButtonSize.Small, icon = ArchieIcons.NetworkCheck, enabled = busy != "verify")
             }
             if (signout?.available == true) {
-                ArchieButton(signout.label, { confirmSignOut = true }, Modifier.testTag("signout:${s.id}"), style = ButtonStyle.Danger, size = ButtonSize.Small, icon = ArchieIcons.Logout)
+                ArchieButton(
+                    signout.label, { confirmSignOut = true }, Modifier.testTag("signout:${s.id}"), style = ButtonStyle.Text, size = ButtonSize.Small,
+                    icon = ArchieIcons.Logout, colors = ArchieButtonDefaults.colors(ButtonStyle.Text).copy(content = c.error),
+                )
             }
         }
         for (m in methods.filter { !it.available }) Line(ArchieIcons.Close, "${m.label}: ${m.unavailableReason}", c.onSurfaceVariant)
+        if (signout != null && !signout.available && s.state == "signed_in" && signout.unavailableReason.isNotEmpty()) {
+            Line(ArchieIcons.Info, signout.unavailableReason, c.onSurfaceVariant)
+        }
         val openMethod = methods.firstOrNull { it.id == open }
         if (openMethod != null) {
             when (openMethod.kind) {
@@ -265,7 +272,9 @@ private fun FlowPanel(model: AccountsModel, s: AccountServiceDto, flow: LoginFlo
     val context = LocalContext.current
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
-    var code by rememberSaveable(flow.id) { mutableStateOf("") }
+    // Secrets are never put in saved state (`remember`, not `rememberSaveable`): a pasted code,
+    // credentials or key value is gone after process death / rotation instead of being persisted.
+    var code by remember(flow.id) { mutableStateOf("") }
     val label = s.methods.firstOrNull { it.id == flow.method }?.label ?: "Sign in"
     val icon = when (flow.status) {
         "succeeded" -> ArchieIcons.CheckCircle
@@ -332,7 +341,7 @@ private fun FlowPanel(model: AccountsModel, s: AccountServiceDto, flow: LoginFlo
 @Composable
 private fun CredentialsPanel(model: AccountsModel, serviceId: String, m: AccountMethodDto, busy: String?, onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var text by rememberSaveable(serviceId, m.id) { mutableStateOf("") }
+    var text by remember(serviceId, m.id) { mutableStateOf("") }
     var localError by remember { mutableStateOf<String?>(null) }
     val secret = m.input == "secret"
     val saving = busy == "credentials:${m.id}"
@@ -388,8 +397,10 @@ private fun SecretField(
 private fun EnvFieldRow(model: AccountsModel, serviceId: String, f: AccountEnvFieldDto, busy: Boolean) {
     val c = ArchieTheme.colors
     val scope = rememberCoroutineScope()
-    var editing by rememberSaveable(f.name) { mutableStateOf(false) }
-    var draft by rememberSaveable(f.name) { mutableStateOf("") }
+    // Editor open-state and draft live and die together (both `remember`): after a rotation the
+    // editor is closed rather than open with an empty draft that Save would write.
+    var editing by remember(f.name) { mutableStateOf(false) }
+    var draft by remember(f.name) { mutableStateOf("") }
     var removing by rememberSaveable(f.name) { mutableStateOf(false) }
     val choices = f.choices
     if (choices != null) {
@@ -449,7 +460,7 @@ private fun EnvKeysBlock(model: AccountsModel) {
     val st by model.state.collectAsStateWithLifecycle()
     val revealed = remember { mutableStateMapOf<String, String>() }
     val scope = rememberCoroutineScope()
-    var adding by rememberSaveable { mutableStateOf(false) }
+    var adding by remember { mutableStateOf(false) }
     var deleting by rememberSaveable { mutableStateOf<String?>(null) }
     DisposableEffect(model) { onDispose { revealed.clear(); model.clearEnvError() } }
     FieldBlock(Modifier.testTag("env-keys")) {
@@ -486,7 +497,7 @@ private fun EnvKeysBlock(model: AccountsModel) {
 private fun EnvKeyRow(model: AccountsModel, k: EnvKeyDto, value: String?, busy: Boolean, onReveal: (String) -> Unit, onHide: () -> Unit, onDelete: () -> Unit) {
     val c = ArchieTheme.colors
     val scope = rememberCoroutineScope()
-    var editing by rememberSaveable(k.name) { mutableStateOf(false) }
+    var editing by remember(k.name) { mutableStateOf(false) }
     var draft by remember(k.name) { mutableStateOf("") }
     var fetching by remember(k.name) { mutableStateOf(false) }
     suspend fun fetch(): String? {
@@ -543,7 +554,7 @@ private fun AddKeyDialog(model: AccountsModel, existing: List<String>, onClose: 
     val st by model.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var name by rememberSaveable { mutableStateOf("") }
-    var value by rememberSaveable { mutableStateOf("") }
+    var value by remember { mutableStateOf("") }
     var touched by rememberSaveable { mutableStateOf(false) }
     val nameError = AccountsModel.envNameError(name, existing)
     Dialog(onDismissRequest = onClose) {

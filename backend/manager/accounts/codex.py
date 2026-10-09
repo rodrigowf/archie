@@ -28,7 +28,7 @@ from manager.codex import home as codex_home_mod
 from .base import AccountError, AccountService, Method
 from .common import child_env, run
 from .files import atomic_write, iso_from_epoch, jwt_claims, read_json
-from .flows import FlowSpec, Scan, clean, find_url
+from .flows import FlowSpec, Scan, clean, find_url, redact
 
 _DEVICE_CODE_RE = re.compile(r"\b([A-Z0-9]{4}-[A-Z0-9]{4,6})\b")
 _PORT_RE = re.compile(r"login server on http://(?:localhost|127\.0\.0\.1):(\d+)")
@@ -152,10 +152,10 @@ class CodexAccount(AccountService):
             st.warnings.append(f"{_tilde(target)}/sessions isn't linked into context/: Codex rollouts won't sync (run the installer with --with-codex).")
         if not codex_cli():
             st.warnings.append("The codex CLI wasn't found on the server (CODEX_CLI_PATH, PATH, nvm).")
-        st.methods = self._methods(st.state == "signed_in", st.method or "", target)
+        st.methods = self._methods(st.state == "signed_in", st.method or "", target, own_login=(target / "auth.json").is_file())
         return st
 
-    def _methods(self, signed_in: bool, method: str, target: Path) -> list[Method]:
+    def _methods(self, signed_in: bool, method: str, target: Path, own_login: bool) -> list[Method]:
         return [
             Method(
                 id="device", kind="link", label="Sign in with a device code", recommended=True,
@@ -183,8 +183,12 @@ class CodexAccount(AccountService):
             ),
             Method(
                 id="signout", kind="signout", label="Sign out",
-                description="Runs `codex logout` for the home Archie uses. Archie then falls back to ~/.codex if that has a login.",
-                available=signed_in, unavailable_reason="Not signed in.",
+                description=f"Runs `codex logout` for Archie's own login in {_tilde(target)}. Archie then falls back to ~/.codex if that has a login.",
+                available=own_login,
+                unavailable_reason=(
+                    "Archie is borrowing the shared ~/.codex login, which the Codex CLI and VS Code also use; it is not signed out from here."
+                    if signed_in else "Not signed in."
+                ),
             ),
         ]
 
@@ -241,18 +245,21 @@ class CodexAccount(AccountService):
             home.mkdir(mode=0o700, parents=True, exist_ok=True)
             rc, out = await run([cli, "login", "--with-api-key"], _env(home, cli), stdin=key + "\n", timeout=30)
             if rc != 0:
-                raise AccountError(f"`codex login --with-api-key` failed: {out.strip().splitlines()[-1] if out.strip() else rc}", 502)
+                raise AccountError(redact(f"`codex login --with-api-key` failed: {out.strip().splitlines()[-1] if out.strip() else rc}"), 502)
             return "Codex now uses the API key."
         return await super().save_credentials(method, content)
 
     async def sign_out(self) -> str:
+        """Logs out Archie's own home only — never the shared ~/.codex (VS Code / the TUI use it)."""
         cli = codex_cli()
         if not cli:
             raise AccountError("The codex CLI isn't installed on the server.", 409)
-        home = codex_home_mod.codex_home()
+        home = login_home()
+        if not (home / "auth.json").is_file():
+            raise AccountError(f"Archie has no login of its own in {_tilde(home)}; the shared ~/.codex login is left alone.", 409)
         rc, out = await run([cli, "logout"], _env(home, cli), timeout=20)
         if rc != 0:
-            raise AccountError(f"`codex logout` failed: {out.strip()[-200:] or rc}", 502)
+            raise AccountError(redact(f"`codex logout` failed: {out.strip()[-200:] or rc}"), 502)
         return f"Signed out of {_tilde(home)}."
 
 
