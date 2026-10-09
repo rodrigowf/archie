@@ -208,23 +208,12 @@ Devices without DevTools (the iPad) report their console to the backend:
 - `scripts/remote-console.js` is a hand-written ES5 script inlined into `index.html` by
   `vite-plugin-html-target.ts`. It mirrors `console.*` and always sends window `error` (with the
   error's stack) and `unhandledrejection` events to **`POST /api/debug/log`**, by
-  `XMLHttpRequest` first (`sendBeacon` is the fallback, and the transport on `pagehide`).
+  `XMLHttpRequest` first (`sendBeacon` is the fallback).
   Limits: 60 messages per 10 s (then one "dropped N" line), 4 KB per message. Compat lines
   carry a `[compat]` prefix.
 - Console mirroring is **on by default on compat, off on main**; the device pref
   Settings → This device → Remote logging (`src/platform/remoteLog.ts`, localStorage key
   `archie.remoteConsole`) overrides it per device.
-- While mirroring is on the script also **traces** the page, so a device with no devtools shows
-  what it is doing even when nothing throws: `[boot]` (UA, URL, viewport; proves the logger runs),
-  `[click]` (every click, with a target descriptor and its rect), `[tap] no click followed`
-  (a touch that never became a click), `[nav]` (hash changes, including the router's `history.replaceState`), `[probe]` (1 s
-  after boot and after the latest click or nav: the element on top at 9 viewport points, which finds overlays eating taps,
-  plus every layer in `#overlay-root` with its rect and computed position/display/visibility/opacity/
-  z-index/transform/animation), `[history]` (pushState, go, popstate), `[perf]` (one line per touch gesture: input
-  delivery lateness, time to first scroll event, frame gaps, `getComputedStyle` calls and — on
-  compat — ResizeObserver-polyfill callbacks and their time, from `window.__archieRoStats`),
-  `[stall]` (main thread blocked > 2.5 s), `[unload]`. `window.__archieRemoteConsole.probe()`
-  runs a probe on demand.
 - `src/app/RootErrorBoundary.tsx` wraps the app: a render error is sent as a `[REACT]` line with
   React's component stack (always, regardless of the pref) and the screen shows a Reload button
   instead of going blank.
@@ -241,9 +230,10 @@ On a blank iPad screen: look for `[UNCAUGHT] [compat] SyntaxError: Invalid regul
 — a dependency slipped a lookbehind or named group past the gate (or a dynamic `RegExp` the
 scanner only warned about).
 
-Taps on the iPad open nothing, but `[nav]` lines show the route changing: read the `[probe]`'s
-`#overlay-root` dump. A layer with `position:fixed` and a `0x0` rect was never laid out by Safari 12
-(2026-10-09: caused by the old fixed-body scroll lock; see `src/ui/a11y/useScrollLock.ts`).
+Overlays (drawers, sheets, dialogs) open in state but never appear on the iPad: Safari 12 left
+their `position: fixed` layer at 0x0, never laid out (2026-10-09). The cause was the fixed-body
+scroll lock (`body { position: fixed }` set in the same commit as the overlay mount); never bring
+it back (see `src/ui/a11y/useScrollLock.ts`).
 
 ## Deploy
 

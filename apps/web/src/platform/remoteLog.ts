@@ -14,8 +14,6 @@ export interface RemoteConsoleApi {
   isEnabled(): boolean;
   setEnabled(on: boolean, persist?: boolean): void;
   send(level: string, msg: string): boolean;
-  /** Logs what is on top at 9 viewport points (trace; only while mirroring is on). */
-  probe?(reason?: string): void;
   stats(): { sent: number; dropped: number };
 }
 

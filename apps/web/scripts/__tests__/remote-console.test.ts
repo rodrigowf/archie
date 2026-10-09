@@ -23,11 +23,6 @@ function sandbox(target: 'main' | 'compat', stored: string | null = null, opts: 
   let now = 1_000_000;
   const sent: Sent[] = [];
   const viaXhr: Sent[] = [];
-  const printed: unknown[][] = [];
-  const listeners: Record<string, ((e: unknown) => void)[]> = {};
-  const docListeners: Record<string, ((e: unknown) => void)[]> = {};
-  let timers: { at: number; fn: () => void }[] = [];
-  let interval: (() => void) | null = null;
   class FakeXhr {
     url = '';
     open(_method: string, url: string) {
@@ -39,6 +34,8 @@ function sandbox(target: 'main' | 'compat', stored: string | null = null, opts: 
       viaXhr.push(JSON.parse(body) as Sent);
     }
   }
+  const printed: unknown[][] = [];
+  const listeners: Record<string, ((e: unknown) => void)[]> = {};
   const storage = new Map<string, string>(stored === null ? [] : [[REMOTE_CONSOLE_KEY, stored]]);
   class FakeDate extends Date {
     constructor() {
@@ -61,30 +58,9 @@ function sandbox(target: 'main' | 'compat', stored: string | null = null, opts: 
     addEventListener: (type: string, fn: (e: unknown) => void) => {
       (listeners[type] ??= []).push(fn);
     },
-    document: {
-      addEventListener: (type: string, fn: (e: unknown) => void) => {
-        (docListeners[type] ??= []).push(fn);
-      },
-    },
-    location: { hash: '#/', href: 'http://server.local/compat#/' },
-    history: {
-      replaceState: (_state: unknown, _title: string, url: string) => {
-        (win.location as { hash: string }).hash = url.slice(url.indexOf('#'));
-        return 'ok';
-      },
-    },
-    innerWidth: 768,
-    innerHeight: 1024,
-    setTimeout: (fn: () => void, ms: number) => timers.push({ at: now + ms, fn }),
-    setInterval: (fn: () => void) => {
-      interval = fn;
-    },
-    clearTimeout: () => undefined,
-    requestAnimationFrame: () => 0,
   };
   if (opts.xhr) win.XMLHttpRequest = FakeXhr;
-  vm.runInNewContext(remoteConsoleScript(target), { window: win, Date: FakeDate, JSON, String, Error, Math });
-  const boot = sent.splice(0);
+  vm.runInNewContext(remoteConsoleScript(target), { window: win, Date: FakeDate, JSON, String, Error });
   const api = win.__archieRemoteConsole as {
     isEnabled(): boolean;
     setEnabled(on: boolean, persist?: boolean): void;
@@ -94,7 +70,6 @@ function sandbox(target: 'main' | 'compat', stored: string | null = null, opts: 
   return {
     win,
     api,
-    boot,
     sent,
     viaXhr,
     printed,
@@ -103,16 +78,9 @@ function sandbox(target: 'main' | 'compat', stored: string | null = null, opts: 
     fire: (type: string, e: unknown) => {
       for (const fn of listeners[type] ?? []) fn(e);
     },
-    fireDoc: (type: string, e: unknown) => {
-      for (const fn of docListeners[type] ?? []) fn(e);
-    },
     advance: (ms: number) => {
       now += ms;
-      const due = timers.filter((t) => t.at <= now);
-      timers = timers.filter((t) => t.at > now);
-      for (const t of due) t.fn();
     },
-    tick: () => interval?.(),
   };
 }
 
@@ -155,17 +123,16 @@ describe('remote console inline script', () => {
 
   it('rate-limits to 60 messages per 10 s and reports the dropped count', () => {
     const s = sandbox('compat');
-    // The [boot] line took one slot of the first window.
     for (let i = 0; i < 75; i++) s.console.log(`m${i}`);
-    expect(s.sent).toHaveLength(59);
-    expect(s.api.stats()).toEqual({ sent: 60, dropped: 16 });
+    expect(s.sent).toHaveLength(60);
+    expect(s.api.stats()).toEqual({ sent: 60, dropped: 15 });
     s.advance(9_999);
     s.console.log('still limited');
-    expect(s.sent).toHaveLength(59);
+    expect(s.sent).toHaveLength(60);
     s.advance(1);
     s.console.log('next window');
-    expect(s.sent.slice(59).map((m) => m.msg)).toEqual([
-      '[compat] [remote-console] dropped 17 message(s) (rate limit 60/10s)',
+    expect(s.sent.slice(60).map((m) => m.msg)).toEqual([
+      '[compat] [remote-console] dropped 16 message(s) (rate limit 60/10s)',
       '[compat] next window',
     ]);
   });
@@ -189,64 +156,13 @@ describe('remote console inline script', () => {
   it('prefers XMLHttpRequest and falls back to sendBeacon', () => {
     const s = sandbox('main', '1', { xhr: true });
     s.console.log('over xhr');
-    expect(s.viaXhr.map((m) => m.msg)).toContain('over xhr');
+    expect(s.viaXhr.map((m) => m.msg)).toEqual(['over xhr']);
     expect(s.sent).toEqual([]);
   });
 
-  it('trace: [boot] line only while mirroring is on', () => {
-    expect(sandbox('compat').boot.map((m) => m.msg)).toEqual([
-      expect.stringMatching(/^\[compat\] \[boot\] .*http:\/\/server\.local\/compat#\/ \| 768x1024 dpr 1$/),
-    ]);
-    expect(sandbox('main').boot).toEqual([]);
-  });
-
-  it('trace: clicks, taps that produced no click, and main-thread stalls', () => {
-    const s = sandbox('compat');
-    const button = { tagName: 'BUTTON', className: 'rail dest', textContent: ' Memory ', getAttribute: () => null };
-    s.fireDoc('click', { target: button });
-    expect(s.sent.at(-1)).toEqual(expect.objectContaining({ level: 'trace', msg: '[compat] [click] button.rail.dest "Memory"' }));
-    // A touch followed by a click is not reported as a tap; a lone touch is.
-    s.fireDoc('touchend', { target: button });
-    s.fireDoc('click', { target: button });
-    s.advance(700);
-    s.fireDoc('touchend', { target: button });
-    s.advance(700);
-    expect(s.sent.map((m) => m.msg).filter((m) => m.includes('[tap]'))).toEqual(['[compat] [tap] no click followed: button.rail.dest "Memory"']);
-    s.tick();
-    s.advance(4_000);
-    s.tick();
-    expect(s.sent.at(-1)).toEqual(expect.objectContaining({ level: 'warn', msg: '[compat] [stall] main thread blocked ~3000 ms (#/)' }));
-  });
-
-  it('trace: silent when mirroring is off', () => {
+  it('sends the stack of an uncaught error', () => {
     const s = sandbox('main');
-    s.fireDoc('click', { target: { tagName: 'DIV', className: '', textContent: '', getAttribute: () => null } });
-    s.tick();
-    s.advance(10_000);
-    s.tick();
-    expect(s.sent).toEqual([]);
-  });
-
-  it('trace: [nav] for the router\'s history.replaceState, which fires no hashchange', () => {
-    const s = sandbox('compat');
-    const history = s.win.history as { replaceState(state: unknown, title: string, url: string): string };
-    expect(history.replaceState(null, '', '/compat#/memory')).toBe('ok');
-    history.replaceState(null, '', '/compat#/memory'); // same hash: no line
-    expect(s.sent.map((m) => m.msg)).toEqual(['[compat] [nav] #/ -> #/memory (replaceState)']);
-  });
-
-  it('perf: one [perf] line per scroll gesture, none for a tap', () => {
-    const s = sandbox('compat');
-    s.fireDoc('touchstart', {});
-    s.fireDoc('touchend', {});
-    s.advance(2_000);
-    expect(s.sent.filter((m) => m.level === 'perf')).toEqual([]);
-    s.fireDoc('touchstart', {});
-    for (let i = 0; i < 4; i++) s.fireDoc('touchmove', {});
-    s.fireDoc('scroll', { target: { tagName: 'DIV', className: 'list', textContent: '', getAttribute: () => null, scrollTop: 40 } });
-    s.advance(1_600);
-    const perf = s.sent.filter((m) => m.level === 'perf');
-    expect(perf).toHaveLength(1);
-    expect(perf[0]?.msg).toMatch(/\[perf\] gesture .* on div\.list .*moves 4 .*scroll events 1 .*getComputedStyle 0/);
+    s.fire('error', { message: 'boom', filename: 'app.js', lineno: 3, colno: 7, error: { stack: 'at f (app.js:3:7)' } });
+    expect(s.sent[0]?.msg).toBe('boom @ app.js:3:7\nat f (app.js:3:7)');
   });
 });

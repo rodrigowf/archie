@@ -5,8 +5,8 @@
  * It deliberately does NOT use the fixed-body technique (`body { position: fixed }`). On Safari 12
  * (iPad mini 2) switching <body> to `position: fixed` in the same commit that mounts an overlay
  * left the overlay's `position: fixed` layer with no layout at all: a 0x0 box, invisible and
- * untappable, so every modal sheet looked like "nothing opens" (2026-10-09, found with the remote
- * console probe). The page never scrolls anyway: `html, body { height: 100%; overflow: hidden }`
+ * untappable, so every modal sheet looked like "nothing opens" (2026-10-09, found by measuring the
+ * overlay on the device). The page never scrolls anyway: `html, body { height: 100%; overflow: hidden }`
  * and the shell is an absolutely positioned full-window box, so there is nothing to lock in the
  * body; overlay content scrolls in its own ScrollArea.
  */
