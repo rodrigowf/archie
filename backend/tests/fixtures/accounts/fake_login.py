@@ -13,6 +13,12 @@ import sys
 import time
 
 mode = sys.argv[1]
+# Like `codex login` / `claude auth login`: log the current login out the moment the login starts.
+if os.environ.get("FAKE_LOGIN_CLOBBER"):
+    try:
+        os.unlink(os.environ["FAKE_LOGIN_CLOBBER"])
+    except FileNotFoundError:
+        pass
 if mode == "tty" and not sys.stdin.isatty():
     print("stdin is not a terminal", flush=True)
     sys.exit(3)
@@ -37,6 +43,9 @@ if mode == "token":
     while True:
         time.sleep(1)
 if code == "good":
+    if os.environ.get("FAKE_LOGIN_WRITE"):
+        with open(os.environ["FAKE_LOGIN_WRITE"], "w") as fh:
+            fh.write('{"new": true}')
     if os.environ.get("FAKE_LOGIN_MARKER"):
         with open(os.environ["FAKE_LOGIN_MARKER"], "w") as fh:
             fh.write("ok")

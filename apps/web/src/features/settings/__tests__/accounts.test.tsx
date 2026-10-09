@@ -95,7 +95,7 @@ const CLAUDE = service({
   expires_at: '2099-01-01T00:00:00Z',
   warnings: ['ANTHROPIC_API_KEY is set too.'],
   methods: [
-    method({ id: 'token', kind: 'link', label: 'Sign in with a link · 1-year token', recommended: true, needs_code: true, code_label: 'Code' }),
+    method({ id: 'token', kind: 'link', label: 'Sign in with a link · 1-year token', recommended: true, needs_code: true, code_label: 'Code', warning: 'A token is already set: the new one replaces it only once the sign-in succeeds.' }),
     method({ id: 'credentials', kind: 'credentials', label: 'Paste credentials JSON', path: '/srv/.claude_config/.credentials.json', source_hint: '~/.claude/.credentials.json', warning: 'Refresh tokens rotate.' }),
     method({ id: 'keys', kind: 'env', label: 'Token or API key', fields: [field('CLAUDE_CODE_OAUTH_TOKEN', true), field('ANTHROPIC_API_KEY', false)] }),
     method({ id: 'signout', kind: 'signout', label: 'Sign out of this server\'s login', description: 'Runs claude auth logout.' }),
@@ -248,6 +248,7 @@ describe('Accounts page', () => {
     await user.click(within(card('claude')).getByRole('button', { name: 'Sign in with a link · 1-year token' }));
     const c = within(card('claude'));
     expect(await c.findByText('https://claude.com/cai/oauth/authorize?code=true&state=S')).toBeTruthy();
+    expect(c.getByText(/replaces it only once the sign-in succeeds/)).toBeTruthy();
     expect(h.fetch.calls('POST', '/api/accounts/claude/login')[0]?.body).toEqual({ method: 'token' });
     await user.click(c.getByRole('button', { name: /Open link/ }));
     expect(open).toHaveBeenCalledWith('https://claude.com/cai/oauth/authorize?code=true&state=S', '_blank', 'noopener,noreferrer');

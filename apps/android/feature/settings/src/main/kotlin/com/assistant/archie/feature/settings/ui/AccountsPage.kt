@@ -275,7 +275,8 @@ private fun FlowPanel(model: AccountsModel, s: AccountServiceDto, flow: LoginFlo
     // Secrets are never put in saved state (`remember`, not `rememberSaveable`): a pasted code,
     // credentials or key value is gone after process death / rotation instead of being persisted.
     var code by remember(flow.id) { mutableStateOf("") }
-    val label = s.methods.firstOrNull { it.id == flow.method }?.label ?: "Sign in"
+    val method = s.methods.firstOrNull { it.id == flow.method }
+    val label = method?.label ?: "Sign in"
     val icon = when (flow.status) {
         "succeeded" -> ArchieIcons.CheckCircle
         "failed", "expired" -> ArchieIcons.Error
@@ -287,6 +288,8 @@ private fun FlowPanel(model: AccountsModel, s: AccountServiceDto, flow: LoginFlo
         model.post("$what copied")
     }
     Panel("$label · ${AccountsModel.FLOW_LABEL[flow.status] ?: flow.status}", icon, Modifier.testTag("flow:${s.id}")) {
+        val warning = method?.warning.orEmpty()
+        if (flow.active && warning.isNotEmpty()) Line(ArchieIcons.Warning, warning, ArchieTheme.extended.warning.color)
         val url = flow.url
         if (url != null && flow.active) {
             PanelText(

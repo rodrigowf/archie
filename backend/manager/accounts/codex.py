@@ -17,6 +17,7 @@ import json
 import os
 import re
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlsplit
@@ -27,7 +28,7 @@ from manager.codex import home as codex_home_mod
 
 from .base import AccountError, AccountService, Method
 from .common import child_env, run
-from .files import atomic_write, iso_from_epoch, jwt_claims, read_json
+from .files import atomic_write, jwt_claims, read_json
 from .flows import FlowSpec, Scan, clean, find_url, redact
 
 _DEVICE_CODE_RE = re.compile(r"\b([A-Z0-9]{4}-[A-Z0-9]{4,6})\b")
@@ -55,6 +56,21 @@ def _env(home: Path, cli: str) -> dict[str, str]:
     return child_env(("OPENAI_API_KEY", "OPENAI_BASE_URL", "CODEX_HOME"), cli=cli, CODEX_HOME=str(home))
 
 
+def _staging_home() -> Path:
+    """A private, empty CODEX_HOME for one login (0700; removed when the flow ends)."""
+    return Path(tempfile.mkdtemp(prefix="archie-codex-login-"))
+
+
+def _promote(staging: Path, home: Path) -> None:
+    """Move the login a staged `codex login` wrote into Archie's home (atomic, 0600, backup kept)."""
+    text = (staging / "auth.json").read_text(encoding="utf-8") if (staging / "auth.json").is_file() else ""
+    if not text.strip():
+        raise AccountError("Codex reported success but wrote no auth.json.", 502)
+    check_auth_json(text)
+    home.mkdir(mode=0o700, parents=True, exist_ok=True)
+    atomic_write(home / "auth.json", text.strip() + "\n")
+
+
 def scan_device(raw: str) -> Scan:
     text = clean(raw)
     code = None
@@ -67,7 +83,6 @@ def scan_device(raw: str) -> Scan:
         url=find_url(raw, "https://auth.openai.com/"),
         user_code=code,
         error=err.group(1).strip() if err else None,
-        success="Successfully logged in" in text,
     )
 
 
@@ -77,7 +92,6 @@ def scan_browser(raw: str) -> Scan:
     return Scan(
         url=find_url(raw, "https://auth.openai.com/oauth/authorize"),
         error=err.group(1).strip() if err else None,
-        success="Successfully logged in" in text,
     )
 
 
@@ -133,11 +147,11 @@ class CodexAccount(AccountService):
             st.account = claims.get("email")
             plan = auth.get("chatgpt_plan_type")
             st.plan = f"ChatGPT {str(plan).title()}" if plan else None
+            # No expiry: the tokens refresh by themselves (the id_token's `exp` and the claim
+            # `chatgpt_subscription_active_until` are not the login's lifetime).
+            st.detail += " · refreshes automatically"
             if data.get("last_refresh"):
-                st.detail += f" · tokens refreshed {str(data['last_refresh'])[:10]}"
-            until = auth.get("chatgpt_subscription_active_until")
-            if until:
-                st.expires_at = until if isinstance(until, str) else iso_from_epoch(until)
+                st.detail += f" · last refresh {str(data['last_refresh'])[:10]}"
         elif data.get("OPENAI_API_KEY") or mode == "apikey":
             st.state = "signed_in"
             st.method = "OpenAI API key (billed per token)"
@@ -156,14 +170,19 @@ class CodexAccount(AccountService):
         return st
 
     def _methods(self, signed_in: bool, method: str, target: Path, own_login: bool) -> list[Method]:
+        replaces = (
+            f"You're signed in already: a new sign-in replaces the login in {_tilde(target)} only once it succeeds; "
+            "cancelling or a failure keeps the current one."
+            if own_login else ""
+        )
         return [
             Method(
                 id="device", kind="link", label="Sign in with a device code", recommended=True,
                 description=f"Runs `codex login --device-auth` for {_tilde(target)}. Open the link on any device, enter the code, approve; this page updates by itself.",
-                active=signed_in and method.startswith("ChatGPT"),
+                active=signed_in and method.startswith("ChatGPT"), warning=replaces,
             ),
             Method(
-                id="browser", kind="link", label="Sign in in the browser",
+                id="browser", kind="link", label="Sign in in the browser", warning=replaces,
                 description="Runs `codex login`. After you sign in, the browser lands on a 127.0.0.1:1455 address that won't load on your device — paste that address here and the server finishes the login.",
                 needs_code=True, code_label="Address the browser landed on",
                 code_help="Copy the whole address from the browser's address bar (http://127.0.0.1:1455/auth/callback?code=…).",
@@ -183,7 +202,10 @@ class CodexAccount(AccountService):
             ),
             Method(
                 id="signout", kind="signout", label="Sign out",
-                description=f"Runs `codex logout` for Archie's own login in {_tilde(target)}. Archie then falls back to ~/.codex if that has a login.",
+                description=(
+                    f"Runs `codex logout` for Archie's own login in {_tilde(target)}: the login is removed and Codex sessions "
+                    "stop working until you sign in again (Archie falls back to ~/.codex if that has a login)."
+                ),
                 available=own_login,
                 unavailable_reason=(
                     "Archie is borrowing the shared ~/.codex login, which the Codex CLI and VS Code also use; it is not signed out from here."
@@ -193,15 +215,26 @@ class CodexAccount(AccountService):
         ]
 
     def flow_spec(self, method: str) -> FlowSpec:
+        """Logins run against a throwaway CODEX_HOME and are moved into place only on success.
+
+        `codex login` logs out first — it deletes the home's auth.json the moment it starts (seen
+        on 0.161.0) — so running it on the real home would destroy a working login the user then
+        cancels. The real auth.json is also snapshotted and restored on any non-success.
+        """
         cli = codex_cli()
         if not cli:
             raise AccountError("The codex CLI isn't installed on the server.", 409)
         home = login_home()
-        home.mkdir(mode=0o700, parents=True, exist_ok=True)
-        env = _env(home, cli)
+        staging = _staging_home()
+        common = dict(
+            service=self.id, method=method, env=_env(staging, cli), noise=_NOISE,
+            success_message=f"Signed in ({_tilde(home)}).",
+            protect=(home / "auth.json",),
+            promote=lambda: _promote(staging, home),
+            on_close=lambda: shutil.rmtree(staging, ignore_errors=True),
+        )
         if method == "device":
-            return FlowSpec(service=self.id, method=method, argv=[cli, "login", "--device-auth"], env=env,
-                            scan=scan_device, noise=_NOISE, success_message=f"Signed in ({_tilde(home)}).")
+            return FlowSpec(argv=[cli, "login", "--device-auth"], scan=scan_device, **common)
         if method == "browser":
             holder: dict[str, Any] = {}
 
@@ -222,10 +255,10 @@ class CodexAccount(AccountService):
                     holder["port"] = m.group(1)
                 return scan_browser(raw)
 
-            return FlowSpec(service=self.id, method=method, argv=[cli, "login"], env=env, scan=scan, submit=submit,
-                            needs_code=True, code_label="Address the browser landed on",
-                            code_help="Copy the whole address from the browser's address bar.",
-                            noise=_NOISE, success_message=f"Signed in ({_tilde(home)}).")
+            return FlowSpec(argv=[cli, "login"], scan=scan, submit=submit, needs_code=True,
+                            code_label="Address the browser landed on",
+                            code_help="Copy the whole address from the browser's address bar.", **common)
+        shutil.rmtree(staging, ignore_errors=True)
         return super().flow_spec(method)
 
     async def save_credentials(self, method: str, content: str) -> str:
@@ -242,8 +275,13 @@ class CodexAccount(AccountService):
             cli = codex_cli()
             if not cli:
                 raise AccountError("The codex CLI isn't installed on the server.", 409)
-            home.mkdir(mode=0o700, parents=True, exist_ok=True)
-            rc, out = await run([cli, "login", "--with-api-key"], _env(home, cli), stdin=key + "\n", timeout=30)
+            staging = _staging_home()  # `codex login` logs the home out first: never run it on the real one
+            try:
+                rc, out = await run([cli, "login", "--with-api-key"], _env(staging, cli), stdin=key + "\n", timeout=30)
+                if rc == 0:
+                    _promote(staging, home)
+            finally:
+                shutil.rmtree(staging, ignore_errors=True)
             if rc != 0:
                 raise AccountError(redact(f"`codex login --with-api-key` failed: {out.strip().splitlines()[-1] if out.strip() else rc}"), 502)
             return "Codex now uses the API key."

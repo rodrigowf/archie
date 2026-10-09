@@ -34,9 +34,11 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal
 
 from .base import AccountError
+from .files import Snapshot, login_backups_dir, restore, snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +141,13 @@ class FlowSpec:
     success_message: str = "Signed in."
     # Called once when the flow's process is gone (temp dirs and the like).
     on_close: Callable[[], None] | None = None
+    # Credential files the login could touch. Snapshotted before the CLI starts and restored when
+    # the flow ends any other way than success (cancel, failure, timeout, shutdown): some CLIs log
+    # the current login out as soon as their login starts.
+    protect: tuple[Path, ...] = ()
+    # Runs before a success is reported: moves the new login from a staging home into place.
+    # Raising turns the success into a failure (and the protected files are restored).
+    promote: Callable[[], None] | None = None
     # Output lines never worth showing as the failure reason.
     noise: tuple[str, ...] = ()
 
@@ -166,6 +175,7 @@ class LoginFlow:
         self._supervisor: asyncio.Task | None = None
         self._ready = asyncio.Event()
         self._done = asyncio.Event()
+        self._snaps: list[Snapshot] = []
 
     # ── lifecycle ──
 
@@ -183,6 +193,7 @@ class LoginFlow:
         env = dict(spec.env)
         master: int | None = None
         try:
+            self._snaps = snapshot(spec.protect, login_backups_dir(spec.service))
             if spec.pty:
                 master, slave = pty.openpty()
                 try:
@@ -375,6 +386,19 @@ class LoginFlow:
     def _finish(self, status: FlowStatus, message: str) -> None:
         if self.done:
             return
+        if status == "succeeded" and self.spec.promote is not None:
+            try:
+                self.spec.promote()
+            except Exception as e:  # noqa: BLE001 — reported to the user
+                logger.exception("accounts: promoting the %s login failed", self.spec.service)
+                status, message = "failed", redact(f"The sign-in finished, but saving the login failed: {e}")
+        if status != "succeeded" and self._snaps:
+            try:
+                if restore(self._snaps):
+                    message += " Your previous login was restored."
+            except Exception:  # noqa: BLE001
+                logger.exception("accounts: restoring the %s credentials failed", self.spec.service)
+                message += " Restoring the previous login failed; see the backups in .backups/login/."
         self.status = status
         self.message = message
         self.finished_at = time.time()
@@ -398,6 +422,10 @@ class LoginFlow:
     async def _release(self) -> None:
         """Close our ends (stdin pipe, PTY master) so asyncio can close the transport."""
         proc = self._proc
+        if self.done and self.status != "succeeded" and self._snaps and (proc is None or proc.returncode is not None):
+            # Once more now that the CLI is gone: it can't write after this.
+            with contextlib.suppress(Exception):
+                restore(self._snaps)
         if self.spec.on_close is not None and (proc is None or proc.returncode is not None):
             hook, self.spec.on_close = self.spec.on_close, None
             with contextlib.suppress(Exception):

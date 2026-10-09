@@ -250,7 +250,7 @@ class TestScanners:
         assert s.url == "https://auth.openai.com/codex/device"
         assert s.user_code == "ABCD-EFG12"
         assert s.error is None and not s.success
-        assert codex_acc.scan_device(fixture("codex_device.txt") + "Successfully logged in\n").success
+        assert not codex_acc.scan_device(fixture("codex_device.txt") + "Successfully logged in\n").success  # exit 0 decides
 
     def test_codex_browser(self):
         s = codex_acc.scan_browser(fixture("codex_browser.txt"))
@@ -706,3 +706,157 @@ class TestReviewFixes:
 
     def test_redact_in_cli_errors(self):
         assert "sk-ant-oa…" in redact("failed: token sk-ant-oat01-" + "x" * 40)
+
+
+# ─────────────────────────── logins never destroy the current login ───────────────────────────
+
+
+@pytest.fixture
+def login_backups(tmp_path, monkeypatch):
+    import manager.accounts.flows as flows_mod
+
+    monkeypatch.setattr(flows_mod, "login_backups_dir", lambda service: tmp_path / "backups" / service)
+    return tmp_path / "backups"
+
+
+class TestLoginSnapshots:
+    def _spec(self, mode, cred, **kw):
+        spec = fake_spec(mode, scan=_generic_scan, service="svc", protect=(cred,), **kw)
+        spec.env["FAKE_LOGIN_CLOBBER"] = str(cred)
+        return spec
+
+    @pytest.mark.parametrize("ending", ["cancel", "fail", "timeout", "shutdown"])
+    async def test_restored_when_the_login_does_not_succeed(self, tmp_path, login_backups, ending):
+        cred = tmp_path / "auth.json"
+        cred.write_text('{"old": true}')
+        os.chmod(cred, 0o600)
+        if ending == "timeout":
+            spec = self._spec("hang", cred, timeout_s=1.5)
+        else:
+            spec = self._spec("code", cred, needs_code=True, pty=ending == "fail")
+        mgr = FlowManager()
+        flow = await mgr.start(spec)
+        assert not cred.exists()  # the CLI logged the old login out at start
+        if ending == "cancel":
+            await mgr.cancel("svc")
+        elif ending == "fail":
+            await flow.submit_code("bad")
+            await flow.wait_done(5)
+        elif ending == "timeout":
+            await flow.wait_done(6)
+        else:
+            await mgr.shutdown()
+        await flow.wait_closed()
+        assert flow.status != "succeeded"
+        assert cred.read_text() == '{"old": true}'
+        assert stat.S_IMODE(cred.stat().st_mode) == 0o600
+        assert "previous login was restored" in flow.message
+        assert list((login_backups / "svc").glob("auth.json.bak-*"))  # snapshot kept, 0600
+        await mgr.shutdown()
+
+    async def test_kept_after_success(self, tmp_path, login_backups):
+        cred = tmp_path / "auth.json"
+        cred.write_text('{"old": true}')
+        spec = self._spec("code", cred, needs_code=True)
+        spec.env["FAKE_LOGIN_WRITE"] = str(cred)
+        flow = LoginFlow(spec)
+        await flow.start()
+        await flow.wait_ready(5)
+        await flow.submit_code("good")
+        await flow.wait_done(5)
+        await flow.wait_closed()
+        assert flow.status == "succeeded"
+        assert cred.read_text() == '{"new": true}'
+        assert list((login_backups / "svc").glob("auth.json.bak-*"))
+
+    async def test_promote_failure_is_a_failure_and_restores(self, tmp_path, login_backups):
+        cred = tmp_path / "auth.json"
+        cred.write_text('{"old": true}')
+
+        def promote():
+            raise AccountError("nothing staged")
+
+        spec = self._spec("code", cred, needs_code=True, promote=promote)
+        flow = LoginFlow(spec)
+        await flow.start()
+        await flow.wait_ready(5)
+        await flow.submit_code("good")
+        await flow.wait_done(5)
+        await flow.wait_closed()
+        assert flow.status == "failed" and "saving the login failed" in flow.message
+        assert cred.read_text() == '{"old": true}'
+
+    async def test_absent_before_and_created_by_a_failed_login_is_moved_aside(self, tmp_path, login_backups):
+        cred = tmp_path / "auth.json"
+        spec = fake_spec("hang", scan=_generic_scan, service="svc", protect=(cred,))
+        flow = LoginFlow(spec)
+        await flow.start()
+        await flow.wait_ready(5)
+        cred.write_text("{}")
+        await flow.cancel()
+        assert not cred.exists() and list(tmp_path.glob("auth.json.bak-*"))
+
+
+class TestStagedLogins:
+    def test_codex_runs_against_a_staging_home_and_promotes(self, tmp_path, monkeypatch):
+        home = tmp_path / "codex-archie"
+        home.mkdir()
+        (home / "auth.json").write_text('{"auth_mode":"chatgpt","tokens":{"refresh_token":"old"}}')
+        monkeypatch.setenv("ARCHIE_CODEX_HOME", str(home))
+        monkeypatch.setattr(codex_acc, "codex_cli", lambda: "/bin/true")
+        spec = codex_acc.CodexAccount().flow_spec("device")
+        staging = Path(spec.env["CODEX_HOME"])
+        assert staging != home and staging.is_dir()
+        assert spec.protect == (home / "auth.json",)
+        with pytest.raises(AccountError):
+            spec.promote()  # nothing staged yet
+        (staging / "auth.json").write_text('{"auth_mode":"chatgpt","tokens":{"refresh_token":"new"}}')
+        spec.promote()
+        assert json.loads((home / "auth.json").read_text())["tokens"]["refresh_token"] == "new"
+        assert list(home.glob("auth.json.bak-*"))
+        spec.on_close()
+        assert not staging.exists()
+
+    def test_claude_auth_login_is_staged_and_merges_only_login_keys(self, tmp_path, monkeypatch):
+        cfg = tmp_path / "cfg"
+        cfg.mkdir()
+        (cfg / ".credentials.json").write_text('{"claudeAiOauth":{"accessToken":"old"}}')
+        (cfg / ".claude.json").write_text('{"projects":{"x":1},"oauthAccount":{"emailAddress":"old@x"}}')
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cfg))
+        monkeypatch.setattr(claude_acc, "claude_cli", lambda: "/bin/true")
+        spec = claude_acc.ClaudeAccount().flow_spec("login")
+        staging = Path(spec.env["CLAUDE_CONFIG_DIR"])
+        assert staging != cfg and spec.protect == (cfg / ".credentials.json",)
+        (staging / ".credentials.json").write_text('{"claudeAiOauth":{"accessToken":"new"}}')
+        (staging / ".claude.json").write_text('{"oauthAccount":{"emailAddress":"new@x"},"machineID":"m"}')
+        spec.promote()
+        assert json.loads((cfg / ".credentials.json").read_text())["claudeAiOauth"]["accessToken"] == "new"
+        state = json.loads((cfg / ".claude.json").read_text())
+        assert state == {"projects": {"x": 1}, "oauthAccount": {"emailAddress": "new@x"}}
+        spec.on_close()
+
+    def test_gemini_login_is_staged(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GEMINI_HOME", str(tmp_path / "real"))
+        monkeypatch.setattr(gemini_acc, "gemini_cli", lambda: "/bin/true")
+        spec = gemini_acc.GeminiAccount().flow_spec("google")
+        staging = Path(spec.env["GEMINI_CLI_HOME"])
+        assert spec.env["HOME"] == str(staging)
+        assert not spec.watch()
+        (staging / ".gemini").mkdir()
+        (staging / ".gemini" / "oauth_creds.json").write_text('{"refresh_token":"r"}')
+        assert spec.watch()
+        spec.promote()
+        assert json.loads((tmp_path / "real" / "oauth_creds.json").read_text()) == {"refresh_token": "r"}
+        spec.on_close()
+        assert not staging.exists()
+
+    async def test_codex_status_has_no_expiry_for_a_refreshing_login(self, tmp_path, monkeypatch):
+        claims = {"email": "me@x", "https://api.openai.com/auth": {"chatgpt_plan_type": "free", "chatgpt_subscription_active_until": "2025-09-10T00:00:00Z"}}
+        idt = "h." + base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=") + ".s"
+        (tmp_path / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt", "tokens": {"id_token": idt, "refresh_token": "r"}, "last_refresh": "2026-10-08T01:02:03Z"}))
+        monkeypatch.setenv("ARCHIE_CODEX_HOME", str(tmp_path))
+        st = await codex_acc.CodexAccount().status()
+        assert st.expires_at is None
+        assert "refreshes automatically" in st.detail and "last refresh 2026-10-08" in st.detail
+        device = next(m for m in st.methods if m.id == "device")
+        assert "replaces" in device.warning

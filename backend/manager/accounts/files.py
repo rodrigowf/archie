@@ -14,6 +14,8 @@ import os
 import shutil
 import tempfile
 import time
+from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -133,3 +135,60 @@ def iso_from_epoch(seconds: float | int | None) -> str | None:
     if seconds > 1e11:  # milliseconds
         seconds = seconds / 1000
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(seconds))
+
+
+# ─────────────────────────────── login snapshots ───────────────────────────────
+
+
+def login_backups_dir(service: str) -> Path:
+    """Where credential snapshots taken before a sign-in go: ``<repo>/.backups/login/<service>/``
+    (gitignored, 0700; never under ``context/``, which is synced)."""
+    from utils.paths import PROJECT_ROOT
+
+    return PROJECT_ROOT / ".backups" / "login" / service
+
+
+@dataclass(frozen=True)
+class Snapshot:
+    path: Path
+    content: bytes | None  # None: the file did not exist
+    mode: int
+
+
+def snapshot(paths: Iterable[Path], backup_dir: Path | None = None) -> list[Snapshot]:
+    """Remember *paths* (and copy existing ones to *backup_dir*, 0600) before a CLI login runs.
+
+    Some CLIs log out first: ``codex login`` deletes ``auth.json`` and ``claude auth login`` blanks
+    ``.credentials.json`` the moment they start, long before the new login succeeds.
+    """
+    out = []
+    for p in paths:
+        try:
+            data = p.read_bytes()
+            mode = p.stat().st_mode & 0o777
+        except FileNotFoundError:
+            out.append(Snapshot(p, None, 0o600))
+            continue
+        if backup_dir is not None:
+            backup_file(p, backup_dir=backup_dir)
+        out.append(Snapshot(p, data, mode))
+    return out
+
+
+def restore(snaps: Iterable[Snapshot]) -> list[Path]:
+    """Put back every snapshotted file that is now missing or different; returns those restored.
+    A file that did not exist before and appeared since is moved aside (kept as a backup)."""
+    restored = []
+    for s in snaps:
+        try:
+            now = s.path.read_bytes()
+        except FileNotFoundError:
+            now = None
+        if now == s.content:
+            continue
+        if s.content is None:
+            move_aside(s.path)
+        else:
+            atomic_write(s.path, s.content.decode("utf-8"), mode=s.mode or 0o600, backup=now is not None)
+        restored.append(s.path)
+    return restored

@@ -271,6 +271,7 @@ class SettingsUiTest {
         waitText("Claude Code")
         compose.onNodeWithTag("method:claude:token").performScrollTo().performClick()
         compose.waitUntil(10_000) { compose.onAllNodes(hasText("https://claude.com/cai/oauth/authorize?code=true&state=S")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onAllNodes(hasText("replaces CLAUDE_CODE_OAUTH_TOKEN only once the sign-in succeeds", substring = true)).fetchSemanticsNodes().let { assertTrue(it.isNotEmpty()) }
         compose.onNodeWithTag("flow-code").performScrollTo().performTextReplacement("abc#def")
         compose.onNodeWithTag("flow-submit").performScrollTo().performClick()
         eventually { h.backend.accountWrites.any { it.startsWith("POST /api/accounts/claude/login/code") && it.contains("abc#def") } }

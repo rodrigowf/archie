@@ -67,7 +67,6 @@ def scan_google(raw: str) -> Scan:
     return Scan(
         url=find_url(raw, "https://accounts.google.com/"),
         error=err.group(1).strip() if err else None,
-        success="Authentication succeeded" in text,
     )
 
 
@@ -82,11 +81,19 @@ def check_oauth_creds(content: str) -> str:
     return text + "\n"
 
 
-def _mtime(p: Path) -> float:
-    try:
-        return p.stat().st_mtime
-    except OSError:
-        return 0.0
+def _has_creds(p: Path) -> bool:
+    data = read_json(p)
+    return isinstance(data, dict) and bool(data.get("refresh_token") or data.get("access_token"))
+
+
+def promote_login(staged: Path, home: Path) -> None:
+    """Copy the login a staged Gemini CLI wrote (oauth_creds.json, google_accounts.json) into
+    the real ~/.gemini (atomic, 0600, backups kept)."""
+    if not _has_creds(staged / "oauth_creds.json"):
+        raise AccountError("The Gemini CLI reported success but saved no login.", 502)
+    for name in ("oauth_creds.json", "google_accounts.json"):
+        if (staged / name).is_file():
+            atomic_write(home / name, (staged / name).read_text(encoding="utf-8"))
 
 
 class GeminiAccount(AccountService):
@@ -156,6 +163,7 @@ class GeminiAccount(AccountService):
                 ),
                 needs_code=True, code_label="Authorization code", code_help="Google shows it after you sign in.",
                 active=kind == "oauth-personal" and has_creds,
+                warning="A Google login exists already: the new one replaces it only once the sign-in succeeds." if has_creds else "",
             ),
             Method(
                 id="oauth_creds", kind="credentials", label="Paste oauth_creds.json",
@@ -176,7 +184,7 @@ class GeminiAccount(AccountService):
             ),
             Method(
                 id="signout", kind="signout", label="Sign out of Google",
-                description="Moves oauth_creds.json aside (kept as a backup). The API key is not touched.",
+                description="The Google login (oauth_creds.json) is removed — moved aside as a backup — and has to be signed in again. The API key is not touched.",
                 available=has_creds, unavailable_reason="No Google login on the server.",
             ),
         ]
@@ -187,20 +195,24 @@ class GeminiAccount(AccountService):
         cli = gemini_cli()
         if not cli:
             raise AccountError("The gemini CLI isn't installed on the server.", 409)
-        path = creds_path()
-        baseline = _mtime(path)
-        # A fresh private directory, so the TUI starts outside any project (no workspace settings,
-        # no trust prompt); removed when the flow ends.
-        workdir = tempfile.mkdtemp(prefix="archie-gemini-login-")
+        # A fresh private home: the TUI starts outside any project (no workspace settings, no trust
+        # prompt), always asks for a new login (an existing one would just be used), and never
+        # touches the real ~/.gemini; the new login is moved into place only on success.
+        staging = Path(tempfile.mkdtemp(prefix="archie-gemini-login-"))
+        (staging / "work").mkdir()
+        staged = staging / ".gemini" / "oauth_creds.json"
         env = child_env(
             ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI"), cli=cli,
+            HOME=str(staging), GEMINI_CLI_HOME=str(staging),
             NO_BROWSER="true", GEMINI_CLI_NO_RELAUNCH="true", GEMINI_CLI_AUTH_OVERRIDE="oauth-personal",
         )
         return FlowSpec(
-            service=self.id, method=method, argv=[cli], env=env, cwd=workdir, pty=True, scan=scan_google,
-            on_close=lambda: shutil.rmtree(workdir, ignore_errors=True),
+            service=self.id, method=method, argv=[cli], env=env, cwd=str(staging / "work"), pty=True, scan=scan_google,
+            on_close=lambda: shutil.rmtree(staging, ignore_errors=True),
+            protect=(creds_path(), gemini_home() / "google_accounts.json"),
+            promote=lambda: promote_login(staging / ".gemini", gemini_home()),
             needs_code=True, code_label="Authorization code", code_help="Google shows it after you sign in.",
-            watch=lambda: _mtime(path) > baseline, exit_ok_is_success=False, timeout_s=300,
+            watch=lambda: _has_creds(staged), exit_ok_is_success=False, timeout_s=300,
             success_message=f"Signed in. Set Sign-in type to Google sign-in for Archie's sessions to use it ({ENV_AUTH_TYPE}).",
         )
 

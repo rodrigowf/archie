@@ -323,6 +323,11 @@ function FlowPanel({ service, flow, busy }: { service: AccountService; flow: Log
           {method?.label ?? 'Sign in'} · {FLOW_LABEL[flow.status]}
         </span>
       </p>
+      {active && method?.warning ? (
+        <p className={styles.caution} data-flow-warning="">
+          {method.warning}
+        </p>
+      ) : null}
       {flow.url && active ? (
         <>
           <ol className={styles.steps}>
