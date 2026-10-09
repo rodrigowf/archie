@@ -239,6 +239,10 @@ On a blank iPad screen: look for `[UNCAUGHT] [compat] SyntaxError: Invalid regul
 — a dependency slipped a lookbehind or named group past the gate (or a dynamic `RegExp` the
 scanner only warned about).
 
+Taps on the iPad open nothing, but `[nav]` lines show the route changing: read the `[probe]`'s
+`#overlay-root` dump. A layer with `position:fixed` and a `0x0` rect was never laid out by Safari 12
+(2026-10-09: caused by the old fixed-body scroll lock; see `src/ui/a11y/useScrollLock.ts`).
+
 ## Deploy
 
 The Jetson has no Node, so the dists are built on the laptop and rsynced (each with `--delete`)

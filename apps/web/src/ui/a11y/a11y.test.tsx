@@ -119,7 +119,8 @@ describe('useOverlayLayer: focus trap, return focus, Escape', () => {
     expect(container.getAttribute('aria-hidden')).toBe(null); // an ancestor of the dialog
     expect(getByText('elsewhere').getAttribute('aria-hidden')).toBe('true'); // a sibling: hidden
     expect(isScrollLocked()).toBe(true);
-    expect(document.body.style.position).toBe('fixed');
+    // Never the fixed-body technique: it left overlays with no layout on Safari 12.
+    expect(document.body.style.position).toBe('');
     await user.keyboard('{Escape}');
     expect(isScrollLocked()).toBe(false);
     expect(document.body.style.position).toBe('');
@@ -183,10 +184,10 @@ describe('hideOthers', () => {
 /* ---------------------------------------------------------------- scroll lock */
 
 describe('lockScroll', () => {
-  it('is reference-counted and restores the body', () => {
+  it('is reference-counted and never touches the body position', () => {
     const a = lockScroll();
     const b = lockScroll();
-    expect(document.body.style.position).toBe('fixed');
+    expect(document.body.style.position).toBe('');
     expect(document.documentElement.hasAttribute('data-scroll-locked')).toBe(true);
     a();
     a(); // idempotent
