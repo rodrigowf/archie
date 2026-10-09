@@ -326,12 +326,25 @@ describe('Conversation model (P-9, O-7)', () => {
     await user.click(await screen.findByRole('option', { name: /GPT-4o/ }));
     await waitFor(() => expect(srv.puts()).toEqual([{ default_model: 'gpt-4o' }]));
 
-    const audio = screen.getByRole('combobox', { name: 'Audio model' });
-    expect(audio.textContent).toContain('Server default');
+    // The audio model has its own provider select; "Server default" hides the model select.
+    const audioProvider = screen.getByRole('combobox', { name: 'Audio model provider' });
+    expect(audioProvider.textContent).toContain('Server default');
+    expect(screen.queryByRole('combobox', { name: 'Audio model' })).toBeNull();
+    await user.click(audioProvider);
+    await user.click(await screen.findByRole('option', { name: 'OpenAI' }));
+    await waitFor(() => expect(srv.puts()[1]?.default_audio_model).toMatch(/^gpt-audio/));
+
+    const audio = await screen.findByRole('combobox', { name: 'Audio model' });
     await user.click(audio);
     expect(screen.queryByRole('option', { name: /GPT-4o/ })).toBeNull();
     await user.click(await screen.findByRole('option', { name: /GPT Audio Mini/ }));
-    await waitFor(() => expect(srv.puts()[1]).toEqual({ default_audio_model: 'gpt-audio-mini' }));
+    await waitFor(() => expect(srv.puts()).toContainEqual({ default_audio_model: 'gpt-audio-mini' }));
+
+    // Back to the server default clears the setting.
+    await user.click(screen.getByRole('combobox', { name: 'Audio model provider' }));
+    await user.click(await screen.findByRole('option', { name: /Server default/ }));
+    await waitFor(() => expect(srv.puts().at(-1)).toEqual({ default_audio_model: '' }));
+    await waitFor(() => expect(screen.queryByRole('combobox', { name: 'Audio model' })).toBeNull());
   });
 });
 
