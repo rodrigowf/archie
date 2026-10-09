@@ -50,4 +50,5 @@ object SettingsKeys {
     val STAY_CONNECTED = booleanPreferencesKey("stay_connected_background")
     /** Settings → Notifications → "Agent session finished" (spec 12 §8.2). */
     val NOTIFY_AGENT_TURNS = booleanPreferencesKey("notify_agent_turns")
+    val VOICE_OVERLAY_ANCHOR = stringPreferencesKey("voice_overlay_anchor")
 }

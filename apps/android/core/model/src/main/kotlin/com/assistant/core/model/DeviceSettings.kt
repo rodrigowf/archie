@@ -40,6 +40,11 @@ data class DeviceSettings(
      * turning it on asks for POST_NOTIFICATIONS (API 33+). New key.
      */
     val notifyAgentTurns: Boolean = false,
+    /**
+     * Where the floating voice controls snap to (`top-left` … `bottom-right`, as the web app's
+     * `voiceOverlayAnchor` pref). New key; bottom-center is where the dock sits on the Archie view.
+     */
+    val voiceOverlayAnchor: String = "bottom-center",
 ) {
     val isDefaultServer: Boolean get() = serverUrl == DEFAULT_SERVER_URL
 

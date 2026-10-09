@@ -73,6 +73,10 @@ are minSdk 26 and main-app only.
 | `tools/native/` | — | `patch_vosk_weaken.py`, `verify_vosk_patch.py`, `check_elf_alignment.sh` |
 | `tools/parity/` | — | `extract_old_constants.py` + `old_constants.json` (constants pinned from the old app) |
 
+The main app's floating voice controls (over every non-Archie view during a call) are
+`:feature:chat`'s `VoiceOverlay`, hosted by `app-main`'s `ShellVoiceOverlay`
+([voice architecture](../voice/architecture.md#floating-voice-controls-web-and-android)).
+
 `VERSIONS.md` lists every pinned library version (the voice-parity pins — stream-webrtc-android
 1.1.1, vosk-android 0.3.47 — are deliberate).
 

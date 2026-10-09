@@ -1,7 +1,7 @@
 /**
  * Focus trap (spec 13 §3.5; fixes inv02 §6.2 "no focus trap"). While active and on top of the
  * overlay stack, Tab / Shift+Tab cycle inside the container and focus that escapes (a click on the
- * page behind, a programmatic focus) is pulled back. Initial focus: `initialFocus` → the first
+ * page behind, a programmatic focus) is pulled back, except into a `data-a11y-keep` region. Initial focus: `initialFocus` → the first
  * element with `data-autofocus` → the first tabbable → the container itself (give it tabIndex=-1).
  *
  * Only the topmost layer traps: a menu opened from a dialog lives in its own portal, and the
@@ -24,6 +24,11 @@ export function initialFocusTarget(container: HTMLElement, initial?: HTMLElement
   const marked = container.querySelector<HTMLElement>('[data-autofocus]');
   if (marked) return marked;
   return tabbableIn(container)[0] ?? container;
+}
+
+function isKept(node: Node): boolean {
+  const el = node.nodeType === 1 ? (node as Element) : node.parentElement;
+  return !!el && typeof el.closest === 'function' && el.closest('[data-a11y-keep]') !== null;
 }
 
 export function useFocusTrap(ref: RefObject<HTMLElement | null>, { active, initialFocus, isTop }: FocusTrapOptions): void {
@@ -61,7 +66,9 @@ export function useFocusTrap(ref: RefObject<HTMLElement | null>, { active, initi
     const onFocusIn = (e: FocusEvent): void => {
       if (!top()) return;
       const target = e.target as Node | null;
-      if (target && !container.contains(target)) {
+      // Regions marked `data-a11y-keep` stay reachable over modals (hideOthers.ts): the snackbar's
+      // action, the floating voice controls. A click there keeps its focus.
+      if (target && !container.contains(target) && !isKept(target)) {
         focusElement(tabbableIn(container)[0] ?? container);
       }
     };

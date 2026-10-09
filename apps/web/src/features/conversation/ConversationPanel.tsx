@@ -85,7 +85,8 @@ function ConversationPanelImpl({ localId, hidden, composer, onMessageAction, onS
             hidden={hidden}
             empty={<ConversationEmpty kind={kind} onStartVoice={onStartVoice} onSuggestion={suggest} />}
           />
-          <div className={styles.dock}>
+          {/* data-conversation-dock: the floating voice controls stay above it (VoiceOverlayHost) */}
+          <div className={styles.dock} data-conversation-dock="">
             <InlineCards localId={localId} />
             {composer ? <div className={styles.composerSlot}>{composer}</div> : null}
           </div>
