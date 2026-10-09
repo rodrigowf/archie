@@ -127,6 +127,20 @@
   color: var(--md-sys-color-on-surface);
 }
 
+.panelTitle {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  font-size: var(--md-sys-typescale-title-small-size);
+  font-weight: 600;
+  color: var(--md-sys-color-on-surface);
+}
+
+.panelTitle > svg {
+  flex: 0 0 auto;
+  margin-right: var(--app-space-2);
+}
+
 .lines {
   margin: var(--app-space-3) 0 0;
   padding: 0;
@@ -183,20 +197,6 @@
 
 .panel > * + * {
   margin-top: var(--app-space-3);
-}
-
-.panelTitle {
-  display: flex;
-  align-items: center;
-  margin: 0;
-  font-size: var(--md-sys-typescale-title-small-size);
-  font-weight: 600;
-  color: var(--md-sys-color-on-surface);
-}
-
-.panelTitle > svg {
-  flex: 0 0 auto;
-  margin-right: var(--app-space-2);
 }
 
 .panelText {
@@ -288,9 +288,6 @@
 }
 
 /* env rows (in cards and in the Environment keys list) */
-.envList > .envRow + .envRow {
-  margin-top: 2px;
-}
 
 .envRow {
   padding: var(--app-space-2) var(--app-space-1) var(--app-space-2) var(--app-space-3);
@@ -300,6 +297,10 @@
 
 .panel .envRow {
   background: var(--md-sys-color-surface-container-highest);
+}
+
+.envList > .envRow + .envRow {
+  margin-top: 2px;
 }
 
 .envList > .envRow:first-child {

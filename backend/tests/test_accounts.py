@@ -164,6 +164,12 @@ class TestEnvFile:
         assert 1 <= len(backups) <= envfile.ENV_BACKUPS
         assert all(stat.S_IMODE(b.stat().st_mode) == 0o600 for b in backups)
 
+    def test_restart_scoped_keys_leave_the_process_alone(self, env_file, monkeypatch):
+        monkeypatch.setenv("HOME", "/home/original")
+        envfile.set_value("HOME", "/somewhere/else")
+        assert os.environ["HOME"] == "/home/original"
+        assert envfile.get_value("HOME") == "/somewhere/else"
+
     def test_restart_scope(self):
         assert envfile.restart_scope("OPENAI_API_KEY") == "now"
         assert envfile.restart_scope("CLAUDE_CONFIG_DIR") == "backend_restart"

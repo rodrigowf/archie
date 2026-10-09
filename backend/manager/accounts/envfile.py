@@ -35,7 +35,9 @@ _BARE_SAFE = re.compile(r"^[A-Za-z0-9_@%+=:,./~^-]+$")
 ENV_BACKUPS = 10
 
 # Variables the backend copies at startup (or that change how it starts): editing them needs a
-# backend restart. Everything else is read at call time or by processes spawned later.
+# backend restart, and the running process's os.environ is left alone (changing PATH or HOME under
+# a running server would only half-apply). Everything else is read at call time or by processes
+# spawned later.
 RESTART_BACKEND = frozenset({
     "CLAUDE_CONFIG_DIR", "HEADLESS", "PYTHONPATH", "LD_PRELOAD", "PATH", "HOME", "DISPLAY",
 })
@@ -300,7 +302,8 @@ def set_value(name: str, value: str, *, create: bool | None = None) -> EnvKey:
                 lines[-1] += "\n"
             lines.append(f"{name}={quote(value)}\n")
         _write(path, "".join(lines))
-        os.environ[name] = value
+        if name not in RESTART_BACKEND:  # those only take effect on restart; don't half-apply them
+            os.environ[name] = value
     return next(k for k in list_keys() if k.name == name)
 
 
@@ -317,7 +320,8 @@ def delete(name: str) -> int:
         for a in reversed(hits):
             del lines[a.start:a.end]
         _write(path, "".join(lines))
-        os.environ.pop(name, None)
+        if name not in RESTART_BACKEND:
+            os.environ.pop(name, None)
     return len(hits)
 
 

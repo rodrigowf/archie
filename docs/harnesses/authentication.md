@@ -84,8 +84,8 @@ The running backend's `os.environ` is updated for the edited key: code that read
 call time (voice providers, catalogs, re-rank, the harness managers when they start a session)
 sees it at once; agent sessions already running keep the value they started with (Save and
 Restart them). A handful of variables are only read at startup (`CLAUDE_CONFIG_DIR`, `HEADLESS`,
-`PATH`, `HOME`, `PYTHONPATH`, `LD_PRELOAD`, `DISPLAY`): the API answers `applies:
-"backend_restart"` for those. `context/.env` syncs to the other machine within seconds, but that
+`PATH`, `HOME`, `PYTHONPATH`, `LD_PRELOAD`, `DISPLAY`): for those only the file changes (the
+running process's environment is left alone) and the API answers `applies: "backend_restart"`. `context/.env` syncs to the other machine within seconds, but that
 machine's running backend keeps its old values until restarted (its list shows `not loaded`).
 
 ## Trust model
