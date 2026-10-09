@@ -143,13 +143,15 @@ the rules, applied by two middlewares installed in `create_app()`:
 - **`RequestGuardMiddleware`** answers **403** (HTTP) or closes the handshake with **1008** before
   `accept` (the client sees HTTP 403), with one warning log line per refusal (method, path, origin,
   host, reason):
-  - every `/api/*` request, any method, whose `Host` is not trusted (DNS rebinding);
+  - every `/api/*`, `/memory`, `/uploads` and `/projects` request, any method, whose `Host` is not
+    trusted (DNS rebinding — a rebound page is same-origin with the server, so CORS cannot stop it
+    reading these);
   - every `/api/*` `POST`/`PUT`/`PATCH`/`DELETE` and **every WebSocket handshake** (any path) that
     carries `Sec-Fetch-Site: cross-site` or an `Origin` that is not trusted. `Origin: null`
     (sandboxed frames, `file://`) is never trusted.
 
-  Static content — the web apps, `context/public/` pages, `/memory`, `/uploads`, `/projects` — is
-  never looked at, so the Fire TV, phones and other browsers keep opening pages.
+  The web apps (`/`, `/compat/`, `/legacy/`, `/legacy_compat/`) and `context/public/` pages are
+  never looked at, so the Fire TV, phones and other browsers keep opening them under any name.
 - **`TrustedCORSMiddleware`** (Starlette CORS) echoes `Access-Control-Allow-Origin` only for a
   trusted origin, so a cross-site page cannot read API responses; a preflight from an untrusted
   origin gets 400. Same-origin pages (the web app at `/`, `/compat/`, `/legacy/`, `/legacy_compat/`,

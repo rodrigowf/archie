@@ -8,13 +8,14 @@ or DNS-rebind its own name to this server. Three pieces share the same rules:
 * :class:`RequestGuardMiddleware` (installed in ``api/app.py``) refuses — HTTP 403, or WebSocket
   close 1008 before ``accept`` (the server answers the handshake with 403):
 
-  - every ``/api/*`` request whose ``Host`` is not trusted (DNS rebinding);
+  - every ``/api/*``, ``/memory``, ``/uploads`` and ``/projects`` request whose ``Host`` is not
+    trusted (DNS rebinding);
   - every ``/api/*`` request with a state-changing method (POST / PUT / PATCH / DELETE) and every
     WebSocket handshake (any path) that is cross-site: ``Sec-Fetch-Site: cross-site``, or an
     ``Origin`` that is not trusted (``Origin: null`` never is).
 
-  Static content (the web apps, ``context/public/``, ``/memory``, ``/uploads``) is never looked at,
-  and API reads are protected by the CORS policy rather than refused.
+  The web apps and ``context/public/`` pages are never looked at (any device opens them by IP or
+  name), and API reads are protected by the CORS policy rather than refused.
 * :class:`TrustedCORSMiddleware` — CORS that echoes only trusted origins, so a cross-site page
   cannot read API responses (same-origin pages need no CORS at all).
 * :func:`require_trusted_origin` — the stricter per-route dependency of the credential routes
@@ -166,12 +167,19 @@ def require_trusted_origin(request: Request) -> None:
         raise HTTPException(status_code=403, detail=reason)
 
 
-def _is_api(path: str) -> bool:
-    return path == "/api" or path.startswith("/api/")
+def _under(path: str, prefixes: tuple[str, ...]) -> bool:
+    return any(path == p or path.startswith(p + "/") for p in prefixes)
+
+
+# Private static content: only the Host check (DNS rebinding), like API reads. The web apps and
+# context/public pages stay reachable under any Host.
+_API_PREFIXES = ("/api",)
+_PRIVATE_STATIC_PREFIXES = ("/memory", "/uploads", "/projects")
 
 
 class RequestGuardMiddleware:
-    """Applies :func:`rejection_reason` to ``/api/*`` (origin checks on writes) and every WebSocket."""
+    """Applies :func:`rejection_reason` to ``/api/*`` (origin checks on writes), every WebSocket, and
+    (Host only) the private static prefixes ``/memory``, ``/uploads``, ``/projects``."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -186,9 +194,11 @@ class RequestGuardMiddleware:
                 if (await receive())["type"] == "websocket.connect":
                     await send({"type": "websocket.close", "code": 1008, "reason": "cross-site request rejected"})
                 return
-        elif scope["type"] == "http" and _is_api(scope["path"]):
+        elif scope["type"] == "http" and (
+            (api := _under(scope["path"], _API_PREFIXES)) or _under(scope["path"], _PRIVATE_STATIC_PREFIXES)
+        ):
             headers = Headers(scope=scope)
-            reason = rejection_reason(headers, check_origin=scope["method"] in MUTATING_METHODS)
+            reason = rejection_reason(headers, check_origin=api and scope["method"] in MUTATING_METHODS)
             if reason is not None:
                 _log_rejection(scope["method"], scope["path"], headers, reason)
                 body = orjson.dumps({"detail": reason})

@@ -239,3 +239,53 @@ def test_browser_daemon_is_guarded():
     # The extension's own origin gets past the guard (the upload then fails on its empty body).
     r = client.post("/api/uploads", headers={"origin": "chrome-extension://abcdefghijklmnop"})
     assert r.status_code != 403
+
+
+class TestPrivateStatic:
+    """/memory, /uploads, /projects get the Host check (DNS rebinding); the apps and public pages don't."""
+
+    @pytest.fixture
+    def static_client(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("ARCHIE_TRUSTED_HOSTS", raising=False)
+        dist = tmp_path / "apps" / "web" / "dist"
+        (dist / "assets").mkdir(parents=True)
+        (dist / "index.html").write_text("<html>root-build</html>")
+        (tmp_path / "context" / "public").mkdir(parents=True)
+        (tmp_path / "context" / "public" / "viz.html").write_text("<html>viz</html>")
+        (tmp_path / "context" / "memory").mkdir(parents=True)
+        (tmp_path / "context" / "memory" / "MEMORY.md").write_text("# memory")
+        (tmp_path / "context" / "memory" / "note.md").write_text("# note")
+        (tmp_path / "context" / "uploads").mkdir(parents=True)
+        (tmp_path / "context" / "uploads" / "f.txt").write_text("upload")
+        (tmp_path / "projects").mkdir()
+        (tmp_path / "projects" / "p.txt").write_text("project")
+        monkeypatch.setattr(app_module, "PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr(app_module, "_spa_dirs", lambda: [])
+        return TestClient(app_module.create_app(), base_url=f"http://{JETSON}")
+
+    PRIVATE = ["/memory", "/memory/", "/memory/note.md", "/uploads/f.txt", "/projects/p.txt"]
+
+    @pytest.mark.parametrize("path", PRIVATE)
+    def test_rebinding_host_rejected(self, static_client, path):
+        r = static_client.get(path, headers={"host": "rebind.attacker.net"})
+        assert r.status_code == 403
+        assert "ARCHIE_TRUSTED_HOSTS" in r.json()["detail"]
+
+    @pytest.mark.parametrize("host", [JETSON, f"{JETSON}:8765", "localhost:8765", "archie.tail1234.ts.net", "jetson"])
+    @pytest.mark.parametrize("path", PRIVATE)
+    def test_trusted_hosts_served(self, static_client, path, host):
+        assert static_client.get(path, headers={"host": host}).status_code == 200
+
+    def test_cross_site_reads_not_refused(self, static_client):
+        # Only the Host matters for these reads (a link from another page still opens a note).
+        r = static_client.get("/memory/note.md", headers={"origin": EVIL, "sec-fetch-site": "cross-site"})
+        assert r.status_code == 200
+
+    @pytest.mark.parametrize("path", ["/", "/viz.html", "/assets/missing.js", "/memoryless", "/uploadsfoo"])
+    def test_apps_and_public_pages_any_host(self, static_client, path):
+        r = static_client.get(path, headers={"host": "some-device-name.example"})
+        assert r.status_code != 403
+
+    def test_env_trusted_host(self, static_client, monkeypatch):
+        monkeypatch.setenv("ARCHIE_TRUSTED_HOSTS", "archie.example.org")
+        assert static_client.get("/memory/note.md", headers={"host": "archie.example.org"}).status_code == 200
