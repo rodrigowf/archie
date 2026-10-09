@@ -79,6 +79,11 @@ class ProtocolCodecTest {
         ServerFrame.AgentSessionOpened("A1", "sdk-9", false),
         ServerFrame.AgentSessionClosed("O1", true),
         ServerFrame.OrchestratorSwitch("past-1", "Lamps", true, "O1"),
+        ServerFrame.VisualizationChanged(
+            listOf(ContentChange("dash/index.html", ContentChange.Kind.MODIFIED), ContentChange("old.html", ContentChange.Kind.DELETED)),
+            listOf(ContentChange("dash/data.json", ContentChange.Kind.MODIFIED)),
+        ),
+        ServerFrame.MemoryChanged(listOf(ContentChange("archie/specs/12-client-protocol.md", ContentChange.Kind.CREATED))),
         ServerFrame.AudioUpload("AAAA", "webm", "hi", 3),
         ServerFrame.Ping(),
         ServerFrame.VoiceEvent(tree),

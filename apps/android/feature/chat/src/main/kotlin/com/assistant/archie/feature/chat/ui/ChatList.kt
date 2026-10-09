@@ -95,7 +95,8 @@ fun ChatList(
     onLink: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val style = MarkdownStyle.fromTheme()
+    // LNK-5 (spec 12 §9.4): printed visualization / memory paths are links; the host resolves them.
+    val style = MarkdownStyle.fromTheme().copy(autoLinkPaths = true)
     val reversed = remember(items) { items.asReversed() }
     LaunchedEffect(listState) {
         snapshotFlow {

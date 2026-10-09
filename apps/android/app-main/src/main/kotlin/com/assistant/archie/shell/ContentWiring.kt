@@ -15,6 +15,7 @@ import com.assistant.archie.feature.visuals.web.WebTrust
 import com.assistant.archie.feature.visuals.web.WebViewPool
 import com.assistant.archie.graph.MainAppGraph
 import com.assistant.core.data.ConnectionStatus
+import com.assistant.core.markdown.InternalLinks
 import com.assistant.core.model.DeviceSettings
 import com.assistant.core.network.UrlScheme
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -51,6 +52,7 @@ fun visualsDepsOf(graph: MainAppGraph, context: Context): VisualsDeps = synchron
             pool = WebViewPool(app),
             trust = WebTrust(serverUrl = { graph.serverUrl() }, pinFor = graph.settings::pinFor),
             debug = (app.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0,
+            content = graph.content,
         )
     }
 }
@@ -70,6 +72,30 @@ fun rememberMemoryDeps(graph: MainAppGraph): MemoryDeps {
             repository = graph.memory,
             originOf = { UrlScheme.httpBase(graph.serverUrl()) },
             external = { url -> ExternalLinks.open(context, url) },
+            visual = { path -> graph.openSessions.openVisual(path) },
+            content = graph.content,
         )
+    }
+}
+
+/**
+ * Chat links (spec 12 §9.4): a visualization or memory file opens as a workspace item, like a
+ * memory document's links do; anything else leaves the app (a root-relative path against the
+ * current server).
+ */
+@Composable
+fun rememberChatLinkHandler(graph: MainAppGraph): (String) -> Unit {
+    val context = LocalContext.current
+    return remember<(String) -> Unit>(graph, context) {
+        { href ->
+            val origin = UrlScheme.httpBase(graph.serverUrl())
+            val listed = graph.visuals.list.value.value
+            val ctx = InternalLinks.Context(origin) { p -> listed?.any { it.path == p } == true }
+            when (val t = InternalLinks.resolve(href, ctx)) {
+                is InternalLinks.Target.Visual -> graph.openSessions.openVisual(t.path)
+                is InternalLinks.Target.Memory -> graph.openSessions.openMemory(t.path)
+                null -> ExternalLinks.open(context, if (href.startsWith("/") && !href.startsWith("//")) origin + href else href)
+            }
+        }
     }
 }

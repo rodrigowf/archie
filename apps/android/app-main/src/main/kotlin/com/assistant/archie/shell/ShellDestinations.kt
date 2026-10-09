@@ -38,6 +38,10 @@ interface ShellDestinations {
 
     /** A memory document whose links to other files open [onOpenDoc] (B-07); defaults to the link-less screen. */
     @Composable fun MemoryDocScreen(path: String, onBack: () -> Unit, onOpenDoc: (String) -> Unit) = MemoryDocScreen(path, onBack)
+
+    /** ...and whose visualization links open [onOpenVisual] (spec 12 §9.4); defaults to the screen above. */
+    @Composable fun MemoryDocScreen(path: String, onBack: () -> Unit, onOpenDoc: (String) -> Unit, onOpenVisual: (String) -> Unit) =
+        MemoryDocScreen(path, onBack, onOpenDoc)
     @Composable fun VisualsScreen(onBack: () -> Unit, onOpen: (String) -> Unit)
     @Composable fun VisualScreen(path: String, onBack: () -> Unit)
     @Composable fun SettingsScreen(onBack: () -> Unit, onOpenPage: (SettingsPageId) -> Unit)
@@ -89,6 +93,8 @@ class GraphDestinations(private val graph: MainAppGraph, private val sessions: S
             modifier = modifier,
             toolCards = CatalogToolCardRenderer,
             callbacks = ConversationCallbacks(
+                // Spec 12 §9.4: visualization / memory links (and printed paths) open in the app.
+                onLink = rememberChatLinkHandler(graph),
                 onOpenSession = { ref ->
                     val sdk = ref.sdkId
                     if (sessions != null && ref.kind == SessionKind.ORCHESTRATOR && sdk != null) sessions.requestResumeArchie(sdk)
@@ -110,6 +116,10 @@ class GraphDestinations(private val graph: MainAppGraph, private val sessions: S
     @Composable
     override fun MemoryDocScreen(path: String, onBack: () -> Unit, onOpenDoc: (String) -> Unit) =
         MemoryDocumentScreen(rememberMemoryDeps(graph), path, onBack, onOpenDoc)
+
+    @Composable
+    override fun MemoryDocScreen(path: String, onBack: () -> Unit, onOpenDoc: (String) -> Unit, onOpenVisual: (String) -> Unit) =
+        MemoryDocumentScreen(rememberMemoryDeps(graph), path, onBack, onOpenDoc, onOpenVisual = onOpenVisual)
 
     /** B-07 `:feature:visuals` (spec 14 §4.2): the list and the full-screen in-app WebView on Compact. */
     @Composable

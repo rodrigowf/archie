@@ -280,6 +280,25 @@ sealed interface ServerFrame {
         override val streamId: String? = null,
     ) : ServerFrame { override val type get() = "orchestrator_switch" }
 
+    /**
+     * Spec 12 §9.3: files under `context/public/` changed (the backend's content watcher, pushed to
+     * every orchestrator WS like the pool watcher events). [visualizations] are list paths
+     * (`GET /api/visualizations`) whose page or assets changed; [files] the raw changed paths.
+     */
+    data class VisualizationChanged(
+        val visualizations: List<ContentChange> = emptyList(),
+        val files: List<ContentChange> = emptyList(),
+        override val seq: Long? = null,
+        override val streamId: String? = null,
+    ) : ServerFrame { override val type get() = "visualization_changed" }
+
+    /** Spec 12 §9.3: markdown under the memory tree changed (paths as in `GET /api/memory/tree`). */
+    data class MemoryChanged(
+        val changes: List<ContentChange> = emptyList(),
+        override val seq: Long? = null,
+        override val streamId: String? = null,
+    ) : ServerFrame { override val type get() = "memory_changed" }
+
     /** Legacy side effect of `POST /api/orchestrator/audio`; nothing consumes it. */
     data class AudioUpload(
         val audio: String?,
@@ -360,4 +379,16 @@ sealed interface ServerFrame {
         override val seq: Long? = null,
         override val streamId: String? = null,
     ) : ServerFrame
+}
+
+/** One entry of a §9.3 change frame. [kind] is advisory (an atomic save or an rsync reads as a create). */
+data class ContentChange(val path: String, val kind: Kind) {
+    enum class Kind(val wire: String) {
+        CREATED("created"), MODIFIED("modified"), DELETED("deleted");
+
+        companion object {
+            /** Anything unknown counts as a modification. */
+            fun of(wire: String?): Kind = entries.firstOrNull { it.wire == wire } ?: MODIFIED
+        }
+    }
 }

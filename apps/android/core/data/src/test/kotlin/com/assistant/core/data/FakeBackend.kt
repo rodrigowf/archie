@@ -35,6 +35,8 @@ class FakeBackend {
 
     @Volatile var poolJson = "[]"
     @Volatile var sessionsJson = "[]"
+    @Volatile var visualizationsJson = "[]"
+    @Volatile var memoryTreeJson = "[]"
     @Volatile var messagesJson = """{"messages":[],"total_count":0,"has_more":false,"start_index":0}"""
 
     /** `POST /api/sessions/{id}/permission` answer (§6.9): code + JSON body; bodies received are recorded. */
@@ -56,6 +58,8 @@ class FakeBackend {
                     path == "/api/sessions/chat" -> MockResponse().withWebSocketUpgrade(listener("agent", agentSockets))
                     path == "/api/sessions/pool/live" -> json(poolJson)
                     path == "/api/sessions" -> json(sessionsJson)
+                    path == "/api/visualizations" -> json(visualizationsJson)
+                    path == "/api/memory/tree" -> json(memoryTreeJson)
                     path.startsWith("/api/sessions/") && path.contains("/messages") -> json(messagesJson)
                     path.endsWith("/close") -> MockResponse().setResponseCode(204)
                     path.endsWith("/permission") && request.method == "POST" -> {

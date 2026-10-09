@@ -122,6 +122,8 @@ object ProtocolCodec {
             "orchestrator_switch" -> ServerFrame.OrchestratorSwitch(
                 o.str("sdk_session_id"), o.str("title"), o.bool("voice") == true, o.str("from_session_id"), seq, sid,
             )
+            "visualization_changed" -> ServerFrame.VisualizationChanged(changes(o.arr("visualizations")), changes(o.arr("files")), seq, sid)
+            "memory_changed" -> ServerFrame.MemoryChanged(changes(o.arr("changes")), seq, sid)
             "audio_upload" -> ServerFrame.AudioUpload(o.str("audio"), o.str("format"), o.str("text"), o.long("size_bytes"), seq, sid)
             "ping" -> ServerFrame.Ping(seq, sid)
             "voice_event" -> {
@@ -138,6 +140,17 @@ object ProtocolCodec {
             else -> ServerFrame.Unknown(type, o, seq, sid)
         }
     }
+
+    /** §9.3 change entries; malformed ones (no string `path`) are dropped. */
+    private fun changes(list: JsonArray?): List<ContentChange> =
+        list?.mapNotNull { e ->
+            val c = e as? JsonObject ?: return@mapNotNull null
+            val path = c.str("path")?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            ContentChange(path, ContentChange.Kind.of(c.str("kind")))
+        } ?: emptyList()
+
+    private fun encodeChanges(list: List<ContentChange>): JsonArray =
+        JsonArray(list.map { jsonObject { put("path", it.path); put("kind", it.kind.wire) } })
 
     /**
      * Canonical JSON of a server frame (used by fakes and the round-trip tests). Fields that are
@@ -232,6 +245,10 @@ object ProtocolCodec {
                     put("sdk_session_id", frame.sdkSessionId); put("title", frame.title)
                     put("voice", frame.voice); put("from_session_id", frame.fromSessionId)
                 }
+                is ServerFrame.VisualizationChanged -> {
+                    put("visualizations", encodeChanges(frame.visualizations)); put("files", encodeChanges(frame.files))
+                }
+                is ServerFrame.MemoryChanged -> put("changes", encodeChanges(frame.changes))
                 is ServerFrame.AudioUpload -> {
                     put("audio", frame.audio); put("format", frame.format); put("text", frame.text); put("size_bytes", frame.sizeBytes)
                 }

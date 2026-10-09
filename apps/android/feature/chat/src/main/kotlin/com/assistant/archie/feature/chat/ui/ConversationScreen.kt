@@ -67,7 +67,10 @@ import java.util.Calendar
 /** Navigation and system hooks the host (the shell, B-03/B-09) provides. */
 @Immutable
 data class ConversationCallbacks(
-    /** Raw href from markdown; null = open with the platform URI handler. */
+    /**
+     * Raw href from markdown, including printed paths (spec 12 §9.4 LNK-5); the host opens internal
+     * links in the app. null = open with the platform URI handler.
+     */
     val onLink: ((String) -> Unit)? = null,
     /** A fork result to open, focused (§6.5). */
     val onOpenSession: (SessionRef) -> Unit = {},
