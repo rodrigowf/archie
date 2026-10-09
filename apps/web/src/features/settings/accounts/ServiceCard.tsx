@@ -164,6 +164,12 @@ export function ServiceCard({ service }: { service: AccountService }) {
             Test
           </Button>
         ) : null}
+        {signout && !signout.available && service.state === 'signed_in' && signout.unavailable_reason ? (
+          <span className={styles.line} data-signout-unavailable="">
+            <Icon name="info" size={16} />
+            <span>{signout.unavailable_reason}</span>
+          </span>
+        ) : null}
         {signout?.available ? (
           <Button variant="text" size="small" tone="error" icon="logout" onClick={() => setConfirmSignOut(true)}>
             {signout.label}

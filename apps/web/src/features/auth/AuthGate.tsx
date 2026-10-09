@@ -6,7 +6,7 @@
  * Changed from the old gate: the app renders while the check runs (the non-headless check can
  * take 10 s); a failed check never shows the sign-in screen (the old one did whenever the backend
  * was unreachable); "Not now" dismisses it for this browser tab, because Archie and the Qwen /
- * Gemini harnesses work without Claude credentials. Settings → Account offers the same flows.
+ * Gemini harnesses work without Claude credentials. Settings → Accounts has every service's methods.
  */
 import { useEffect, useRef, type ReactNode } from 'react';
 import { getEnv } from '@/services';
