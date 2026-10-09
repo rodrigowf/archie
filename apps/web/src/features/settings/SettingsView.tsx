@@ -20,7 +20,7 @@ import { DEFAULT_PAGE, findSettingsPage, type SettingsPageDef, type SettingsPage
 import { ScopeChip, useFieldId } from './parts';
 import { SettingsHome } from './SettingsHome';
 import { AccountPage } from './pages/AccountPage';
-import { AboutPage, AppearancePage } from './pages/DevicePages';
+import { AboutPage, AppearancePage, NotificationsPage } from './pages/DevicePages';
 import { McpServersPage } from './pages/McpServersPage';
 import { AgentSessionsPage, ConversationModelPage } from './pages/ModelPages';
 import { VoicePage, VoiceTuningPage } from './pages/VoicePages';
@@ -29,6 +29,7 @@ import styles from './settings.module.css';
 
 export const PAGE_COMPONENTS: Record<SettingsPageId, ComponentType> = {
   appearance: AppearancePage,
+  notifications: NotificationsPage,
   'conversation-model': ConversationModelPage,
   voice: VoicePage,
   'voice-tuning': VoiceTuningPage,

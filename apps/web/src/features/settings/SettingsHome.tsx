@@ -21,7 +21,7 @@ import {
 } from './logic';
 import { SETTINGS_PAGES, type SettingsPageDef, type SettingsPageId } from './pages';
 import { SettingsGroup, SettingsRow } from './parts';
-import { TEXT_SIZE_LABELS, THEME_LABELS } from './pages/DevicePages';
+import { TEXT_SIZE_LABELS, THEME_LABELS, notificationsSummary, useNotifyPermission } from './pages/DevicePages';
 import { mcpNames } from './pages/McpServersPage';
 import styles from './settings.module.css';
 
@@ -71,6 +71,8 @@ export interface SettingsHomeProps {
 export function SettingsHome({ selected, onOpen }: SettingsHomeProps) {
   const theme = usePrefs((p) => p.theme);
   const textSize = usePrefs((p) => p.textSize);
+  const notify = usePrefs((p) => p.notifyAgentTurns);
+  const [notifyPerm] = useNotifyPermission();
   const backend = useConnection((c) => c.backend);
   const summaries = useServerSummaries();
   const offline = backend === 'offline';
@@ -91,7 +93,9 @@ export function SettingsHome({ selected, onOpen }: SettingsHomeProps) {
   return (
     <nav aria-label="Settings" className={styles.home}>
       <SettingsGroup title="This device">
-        {pages('device').map((p) => row(p, `${THEME_LABELS[theme]} · ${TEXT_SIZE_LABELS[textSize]}`))}
+        {pages('device').map((p) =>
+          row(p, p.id === 'notifications' ? notificationsSummary(notify, notifyPerm) : `${THEME_LABELS[theme]} · ${TEXT_SIZE_LABELS[textSize]}`),
+        )}
       </SettingsGroup>
       <SettingsGroup
         title="Archie (server)"

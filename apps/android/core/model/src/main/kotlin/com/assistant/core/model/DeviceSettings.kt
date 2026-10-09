@@ -35,6 +35,11 @@ data class DeviceSettings(
     val listPaneCollapsed: Boolean = false,
     /** Keep the orchestrator socket in the background (spec 14 §2.5, Q7: off). New key. */
     val stayConnectedInBackground: Boolean = false,
+    /**
+     * A notification when an agent session finishes a turn (spec 12 §3.7, §8.2). Off by default;
+     * turning it on asks for POST_NOTIFICATIONS (API 33+). New key.
+     */
+    val notifyAgentTurns: Boolean = false,
 ) {
     val isDefaultServer: Boolean get() = serverUrl == DEFAULT_SERVER_URL
 

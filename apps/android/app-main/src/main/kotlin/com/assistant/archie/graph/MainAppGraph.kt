@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import com.assistant.core.data.AgentSocketPool
+import com.assistant.core.data.ConversationKey
 import com.assistant.core.data.ConnectionRepository
 import com.assistant.core.data.ConversationRepository
 import com.assistant.core.data.HistoryRepository
@@ -22,10 +23,12 @@ import com.assistant.core.network.HttpStack
 import com.assistant.core.network.NetLog
 import com.assistant.core.network.NetworkMonitor
 import com.assistant.core.network.RestCaller
+import com.assistant.core.network.SocketState
 import com.assistant.core.network.ServerDiscovery
 import com.assistant.core.network.SocketClient
 import com.assistant.core.network.TrustStore
 import com.assistant.core.network.UploadClient
+import com.assistant.core.protocol.ServerFrame
 import com.assistant.core.session.ArchiePoolApi
 import com.assistant.core.session.OrchestratorChannel
 import com.assistant.core.session.SettingsOrchestratorIdStore
@@ -35,6 +38,7 @@ import com.assistant.core.voicehost.runtime.VoiceHostRuntime
 import com.assistant.archie.feature.chat.ChatVoice
 import com.assistant.archie.feature.chat.PresenceChatVoice
 import com.assistant.archie.feature.settings.VoiceStatusSource
+import com.assistant.archie.system.AgentWork
 import com.assistant.archie.system.ApprovalCenter
 import com.assistant.archie.system.ApprovalNotifier
 import com.assistant.archie.system.HostChatVoice
@@ -44,14 +48,25 @@ import com.assistant.archie.system.MicPermissionGate
 import com.assistant.archie.system.ShareController
 import com.assistant.archie.system.ShellCommands
 import com.assistant.archie.system.SystemApprovalSink
+import com.assistant.archie.system.SystemTurnSink
+import com.assistant.archie.system.TurnNotifier
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.dropWhile
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import java.io.File
 
 /** Reached as `(application as GraphOwner).graph` (spec 14 §2.2). */
@@ -117,6 +132,20 @@ class MainAppGraph(
         },
         settingsLoaded = { withTimeoutOrNull(5_000) { settings.settings.filterNotNull().first() } },
     )
+
+    /**
+     * "Agent session finished" notifications (spec 12 §3.7, Settings → Notifications) from the
+     * watcher frames, and [agentWork], the in-flight turns behind their background hold (the voice
+     * host's FGS keeps the socket while a watched turn runs; TurnNotifier.kt has the limits).
+     */
+    val agentWork = AgentWork()
+    val turns = TurnNotifier(SystemTurnSink(app), { localId, sdkId ->
+        val sdk = sdkId ?: conversations.current(ConversationKey.agent(localId))?.ref?.sdkId
+        history.titleFor(sdk, localId, "").takeIf { it.isNotEmpty() }
+    })
+    private val lookingAtAgent = ApprovalNotifier.lookingAtFrom(openSessions, conversations, approvals.foreground, approvals.workspaceOnTop)
+        .stateIn(scope, SharingStarted.Eagerly, null)
+
     val memory = MemoryRepository(api, scope)
     val visuals = VisualsRepository(api, scope)
     val serverConfig = ServerConfigRepository(api, scope)
@@ -158,6 +187,46 @@ class MainAppGraph(
             ApprovalNotifier.pendingFrom(conversations),
             ApprovalNotifier.lookingAtFrom(openSessions, conversations, approvals.foreground, approvals.workspaceOnTop),
         )
+        // Agent turns: track what is in flight; a finished one may become a notification.
+        orchestrator.frames.onEach { f ->
+            agentWork.onFrame(f)
+            if (f is ServerFrame.AgentTurnFinished) {
+                turns.onFinished(f, settings.settings.value?.notifyAgentTurns == true, lookingAtAgent.value)
+            }
+        }.launchIn(scope)
+        history.pool.onEach { agentWork.reconcile(it) }.launchIn(scope)
+        lookingAtAgent.onEach(turns::onLooking).launchIn(scope)
+        // Hold hygiene: finishes missed while the socket was down (backend restart, drop) must not
+        // keep the service up. Re-read the pool on every orchestrator (re)connect, and every few
+        // minutes while turns are in flight (an unreachable pool still ages them out).
+        orchestrator.state.map { it.socket }.distinctUntilChanged()
+            .onEach { if (it == SocketState.Open && (agentWork.busy.value > 0 || settings.settings.value?.notifyAgentTurns == true)) resyncAgentWork() }
+            .launchIn(scope)
+        scope.launch {
+            agentWork.busy.map { it > 0 }.distinctUntilChanged().collectLatest { busy ->
+                while (busy) {
+                    delay(AgentWork.RESYNC_MS)
+                    resyncAgentWork()
+                }
+            }
+        }
+        // The background hold: switch on and a turn in flight. Nothing happens before the first hold
+        // (the voice host is built lazily; building it here would start it at process start).
+        combine(agentWork.busy, settings.settings.map { it?.notifyAgentTurns == true }) { busy, on -> if (on) busy else 0 }
+            .distinctUntilChanged()
+            .dropWhile { it == 0 }
+            .onEach { n ->
+                android.util.Log.i(TurnNotifier.TAG, "background hold ${if (n > 0) "on" else "off"} (turns in flight: $n)")
+                voiceHost?.setAgentWorkHold(n)
+            }
+            .launchIn(scope)
+    }
+
+    private suspend fun resyncAgentWork() {
+        val requestedAt = System.currentTimeMillis()
+        val rows = history.syncPool()
+        if (rows != null) agentWork.reconcile(rows, requestedAt) else agentWork.expire()
+        android.util.Log.i(TurnNotifier.TAG, "pool re-sync: ${if (rows == null) "unreachable" else "ok"} (turns in flight: ${agentWork.busy.value})")
     }
 
     /** T-14: reconnect immediately when a network becomes available. Called once by the Application. */

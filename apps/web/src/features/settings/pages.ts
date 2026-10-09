@@ -1,12 +1,13 @@
 /**
  * The IA §7 settings hierarchy on web (fixes R5). Android-only pages (Connection, Audio, Wake
  * word) are not rendered here; remote logging lives under About (IA §7, mockup (e) caption "On web,
- * This device lists only Appearance").
+ * This device lists only Appearance"; Notifications joined it for the agent-finished notices).
  */
 import type { IconName } from '@/ui/primitives';
 
 export type SettingsPageId =
   | 'appearance'
+  | 'notifications'
   | 'conversation-model'
   | 'voice'
   | 'voice-tuning'
@@ -27,6 +28,7 @@ export interface SettingsPageDef {
 
 export const SETTINGS_PAGES: readonly SettingsPageDef[] = [
   { id: 'appearance', title: 'Appearance', icon: 'palette', group: 'device' },
+  { id: 'notifications', title: 'Notifications', icon: 'notifications', group: 'device' },
   { id: 'conversation-model', title: 'Conversation model', icon: 'forum', group: 'server' },
   { id: 'voice', title: 'Voice', icon: 'record_voice_over', group: 'server' },
   { id: 'voice-tuning', title: 'Voice tuning', icon: 'tune', group: 'server' },

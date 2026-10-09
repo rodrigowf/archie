@@ -22,7 +22,7 @@ import {
   type Provider,
   type ServerFrame,
 } from '@/protocol';
-import { generateUUID } from '@/platform';
+import { Emitter, generateUUID } from '@/platform';
 import {
   activateTab,
   catalogStore,
@@ -56,7 +56,7 @@ import type { ReconnectPolicy } from '../ws/reconnect';
 import { ArchieSocket, CHAT_WS_PATH } from '../ws/socket';
 import { ArchieRuntime } from './ArchieRuntime';
 import type { RuntimeHooks } from './ConversationRuntime';
-import { OrchestratorChannel, type WatcherFrame } from './orchestratorChannel';
+import { OrchestratorChannel, type AgentTurnFrame, type WatcherFrame } from './orchestratorChannel';
 import { SessionRuntime, truncateWithRetry } from './SessionRuntime';
 
 export type AnyRuntime = SessionRuntime | ArchieRuntime;
@@ -96,8 +96,19 @@ function findBySdk(sdkId: string): AnyRuntime | undefined {
 }
 
 function getChannel(): OrchestratorChannel {
-  if (!channel) channel = new OrchestratorChannel(onWatcherEvent, policy, onOrchestratorSwitch);
+  if (!channel) channel = new OrchestratorChannel(onWatcherEvent, policy, onOrchestratorSwitch, (f) => turnEvents.emit('turn', f));
   return channel;
+}
+
+const turnEvents = new Emitter<{ turn: AgentTurnFrame }>();
+
+/**
+ * `agent_turn_started/finished` from the watcher socket (§3.7): every agent turn on the server,
+ * whichever device or the orchestrator started it. The app's notifier subscribes. Returns an
+ * unsubscribe.
+ */
+export function onAgentTurn(fn: (frame: AgentTurnFrame) => void): () => void {
+  return turnEvents.on('turn', fn);
 }
 
 // ───────────────────────── runtime hooks ─────────────────────────

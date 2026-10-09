@@ -36,7 +36,7 @@ export { Reconnector, backoffPolicy, legacyPolicy, setDefaultReconnectPolicy, ty
 export { ConversationRuntime, EMPTY_PAGE, HISTORY_PAGE_SIZE, type RuntimeHooks } from './sessions/ConversationRuntime';
 export { SessionRuntime, truncateWithRetry, type SessionRuntimeOptions } from './sessions/SessionRuntime';
 export { ArchieRuntime, type ArchieRuntimeOptions, type VoiceBridge, type VoiceHooks } from './sessions/ArchieRuntime';
-export { OrchestratorChannel } from './sessions/orchestratorChannel';
+export { OrchestratorChannel, type AgentTurnFrame } from './sessions/orchestratorChannel';
 export {
   closeSession,
   closeTab,
@@ -48,6 +48,7 @@ export {
   getOrchestratorRef,
   getSessionRuntime,
   listRuntimes,
+  onAgentTurn,
   onOrchestratorSwitch,
   onWatcherEvent,
   openArchie,

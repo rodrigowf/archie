@@ -50,6 +50,8 @@ async def lifespan(app: FastAPI):
 
     app.state.connections = ConnectionManager()
     app.state.pool = SessionPool()
+    # agent_turn_finished carries the session's title (device notifications).
+    app.state.pool.title_resolver = app.state.store.session_title
     # Background orphan reaper — last-line defense against leaked
     # bundled-claude subprocesses (per-session SIGKILL inside
     # SessionManager is the primary defense).  Cheap when nothing is

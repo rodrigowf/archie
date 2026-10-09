@@ -171,6 +171,28 @@ class SettingsUiTest {
         compose.onNodeWithText("Continue").assertDoesNotExist()
     }
 
+    /** Notifications → "Agent session finished": allowed → saves at once; not allowed → the rationale first, still off. */
+    @Test fun notifications_agentFinished_savesWhenAllowed_asksOtherwise() {
+        val h = h()
+        show(h, SettingsPageKey.NOTIFICATIONS)
+        compose.onNodeWithTag("notify-agent-turns").assertIsOff().performClick()
+        eventually { h.settings.settings.value?.notifyAgentTurns == true }
+        waitText("Saved")
+        compose.onNodeWithTag("notify-agent-turns").assertIsOn().performClick()
+        eventually { h.settings.settings.value?.notifyAgentTurns == false }
+    }
+
+    @Test fun notifications_withoutPermission_showsRationale_andStaysOff() {
+        val p = FakePlatform().apply { granted.remove(AppPermission.NOTIFICATIONS) }
+        val h = h(platform = p)
+        show(h, SettingsPageKey.NOTIFICATIONS)
+        compose.onNodeWithTag("notify-agent-turns").assertIsOff().performClick()
+        compose.onNodeWithTag("rationale:NOTIFICATIONS").assertExists()
+        compose.onNodeWithText("Not now").performClick()
+        Thread.sleep(200)
+        assertEquals(false, h.settings.settings.value?.notifyAgentTurns)
+    }
+
     @Test fun bluetoothOutput_asksForNearbyDevices() {
         val p = FakePlatform().apply {
             granted.remove(AppPermission.NEARBY_DEVICES)

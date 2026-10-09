@@ -16,6 +16,7 @@ import {
   getArchieRuntime,
   getOrchestratorRef,
   getSessionRuntime,
+  onAgentTurn,
   openArchie,
   openSession,
   replaceRunningArchie,
@@ -538,5 +539,39 @@ describe('§6.11a orchestrator_switch (agent-initiated switch)', () => {
     const fresh = getArchieRuntime() as ArchieRuntime;
     expect(getSessionRuntime('R1')).toBeUndefined();
     expect(tabsStore.getState().tabs.map((t) => t.id)).toEqual([fresh.localId]);
+  });
+});
+
+describe('§3.7 agent turn watcher events (device notifications)', () => {
+  const FINISHED = { type: 'agent_turn_finished', session_id: 'A1', sdk_session_id: 'S1', provider: 'claude', title: 'Energy', status: 'ok', preview: 'Done', error: null };
+
+  it('reach onAgentTurn from the passive watcher socket and never open or focus a view (FOCUS-1)', () => {
+    startServices({ skipInitialSync: true });
+    const seen: string[] = [];
+    const off = onAgentTurn((f) => seen.push(`${f.type}:${f.session_id}`));
+    const ws = FakeWebSocket.last(ORCH);
+    ws.open();
+    ws.emit({ type: 'agent_turn_started', session_id: 'A1', sdk_session_id: 'S1', provider: 'claude' });
+    ws.emit(FINISHED);
+    off();
+    ws.emit(FINISHED);
+    expect(seen).toEqual(['agent_turn_started:A1', 'agent_turn_finished:A1']);
+    expect(getSessionRuntime('A1')).toBeUndefined();
+    expect(tabsStore.getState().activeId).toBeNull();
+  });
+
+  it('reach onAgentTurn with Archie attached, without touching its conversation', () => {
+    startServices({ skipInitialSync: true });
+    h.fetch.on('GET', /\/messages/, { messages: [], total_count: 0, has_more: false, start_index: 0 });
+    const rt = openSession({ kind: 'archie', localId: 'O1', focus: true }) as ArchieRuntime;
+    const ws = FakeWebSocket.last(ORCH);
+    subscribe(ws, 'O1');
+    const before = rt.conv.entries.length;
+    const seen: string[] = [];
+    const off = onAgentTurn((f) => seen.push(f.type));
+    ws.emit(FINISHED);
+    off();
+    expect(seen).toEqual(['agent_turn_finished']);
+    expect(rt.conv.entries.length).toBe(before);
   });
 });

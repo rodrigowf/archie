@@ -495,11 +495,18 @@ class BackgroundAgentRunner:
                 # Interrupt the wedged SDK turn so the bundled `claude`
                 # subprocess isn't left stuck on the original query.
                 try:
-                    await self._pool.interrupt(record.session_id)
-                except Exception:  # noqa: BLE001
-                    logger.exception("Failed to interrupt abandoned turn %s", record.turn_id)
-                # Brief pause so the SDK can settle before the retry.
-                await asyncio.sleep(1.0)
+                    try:
+                        await self._pool.interrupt(record.session_id)
+                    except Exception:  # noqa: BLE001
+                        logger.exception("Failed to interrupt abandoned turn %s", record.turn_id)
+                    # Brief pause so the SDK can settle before the retry.
+                    await asyncio.sleep(1.0)
+                except BaseException as gap:
+                    # No pool.send() runs between the attempts: announce the end here.
+                    announce_gap = getattr(self._pool, "announce_turn_aborted", None)
+                    if announce_gap is not None:
+                        announce_gap(record.session_id, gap)
+                    raise
                 await _consume()
 
         # The try/except below sets a specific status; the outer finally is a
@@ -515,6 +522,8 @@ class BackgroundAgentRunner:
                 except Exception:  # noqa: BLE001
                     logger.exception("Failed to interrupt session %s after timeout", record.session_id)
                 self._finalise(record, status="timeout", error=f"turn exceeded {timeout:.0f}s")
+                # pool.send() saw a cancellation ("interrupted"); devices hear it failed.
+                self._announce_failed(record.session_id, f"Timed out after {timeout:.0f}s")
             except asyncio.CancelledError:
                 self._finalise(record, status="cancelled", error="cancelled by orchestrator")
                 raise
@@ -523,6 +532,8 @@ class BackgroundAgentRunner:
                 # also failed — give up and surface the failure.
                 logger.error("Turn %s abandoned twice (%.0fs); giving up", record.turn_id, exc.elapsed_seconds)
                 self._finalise(record, status="failed", error=f"upstream wedged after retry: {exc}")
+                # pool.send() leaves an abandoned turn unannounced (it may be retried).
+                self._announce_failed(record.session_id, "Upstream did not respond after retry")
             except Exception as exc:  # noqa: BLE001
                 logger.exception("BackgroundAgentRunner._drive failed for turn %s", record.turn_id)
                 self._finalise(record, status="failed", error=str(exc))
@@ -533,6 +544,13 @@ class BackgroundAgentRunner:
             # any other path missed _finalise), still emit a notification.
             if not record.finished:
                 self._finalise(record, status="cancelled", error="cancelled before start")
+
+    def _announce_failed(self, session_id: str, error: str) -> None:
+        """``agent_turn_finished{status: error}`` for the failures ``pool.send`` can't see."""
+        try:
+            self._pool.announce_turn_finished(session_id, status="error", error=error)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to announce the failed turn of %s", session_id)
 
     def _finalise(
         self,

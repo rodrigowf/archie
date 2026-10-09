@@ -122,6 +122,11 @@ object ProtocolCodec {
             "orchestrator_switch" -> ServerFrame.OrchestratorSwitch(
                 o.str("sdk_session_id"), o.str("title"), o.bool("voice") == true, o.str("from_session_id"), seq, sid,
             )
+            "agent_turn_started" -> ServerFrame.AgentTurnStarted(o.str("session_id"), o.str("sdk_session_id"), o.str("provider"), seq, sid)
+            "agent_turn_finished" -> ServerFrame.AgentTurnFinished(
+                o.str("session_id"), o.str("sdk_session_id"), o.str("provider"), o.str("title"),
+                o.str("status") ?: ServerFrame.AgentTurnFinished.STATUS_OK, o.str("preview"), o.str("error"), seq, sid,
+            )
             "audio_upload" -> ServerFrame.AudioUpload(o.str("audio"), o.str("format"), o.str("text"), o.long("size_bytes"), seq, sid)
             "ping" -> ServerFrame.Ping(seq, sid)
             "voice_event" -> {
@@ -231,6 +236,13 @@ object ProtocolCodec {
                 is ServerFrame.OrchestratorSwitch -> {
                     put("sdk_session_id", frame.sdkSessionId); put("title", frame.title)
                     put("voice", frame.voice); put("from_session_id", frame.fromSessionId)
+                }
+                is ServerFrame.AgentTurnStarted -> {
+                    put("session_id", frame.sessionId); put("sdk_session_id", frame.sdkSessionId); put("provider", frame.provider)
+                }
+                is ServerFrame.AgentTurnFinished -> {
+                    put("session_id", frame.sessionId); put("sdk_session_id", frame.sdkSessionId); put("provider", frame.provider)
+                    put("title", frame.title); put("status", frame.status); put("preview", frame.preview); put("error", frame.error)
                 }
                 is ServerFrame.AudioUpload -> {
                     put("audio", frame.audio); put("format", frame.format); put("text", frame.text); put("size_bytes", frame.sizeBytes)

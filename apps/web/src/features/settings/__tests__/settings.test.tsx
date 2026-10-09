@@ -141,6 +141,70 @@ describe('Appearance (device-local, spec 12 §8.2)', () => {
   });
 });
 
+describe('Notifications (device-local, spec 12 §8.2)', () => {
+  function stubNotification(permission: string, answer = 'granted') {
+    const N = Object.assign(function Notification() {}, {
+      permission,
+      requestPermission: vi.fn(() => {
+        N.permission = answer;
+        return Promise.resolve(answer);
+      }),
+    });
+    vi.stubGlobal('Notification', N);
+    Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true });
+    return N;
+  }
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setPref('notifyAgentTurns', false);
+  });
+
+  it('switching on asks the browser from the click and saves only once allowed; off saves at once', async () => {
+    srv = serveConfig(h.fetch);
+    const N = stubNotification('default');
+    const { user } = view('notifications');
+    expect(screen.getByText('Not asked yet')).toBeTruthy();
+    await user.click(screen.getByRole('switch', { name: 'Agent session finished' }));
+    expect(N.requestPermission).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(prefsStore.getState().notifyAgentTurns).toBe(true));
+    expect(lastSnack()?.message).toBe('Saved');
+    expect(screen.getByText('Allowed')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Send a test notification' })).toBeTruthy();
+    expect(within(screen.getByRole('navigation', { name: 'Settings' })).getByText('On · when an agent session finishes')).toBeTruthy();
+    await user.click(screen.getByRole('switch', { name: 'Agent session finished' }));
+    expect(prefsStore.getState().notifyAgentTurns).toBe(false);
+    expect(h.fetch.calls('PUT', '/api/config')).toHaveLength(0);
+  });
+
+  it('a refusal keeps it off and explains how to unblock', async () => {
+    srv = serveConfig(h.fetch);
+    stubNotification('default', 'denied');
+    const { user } = view('notifications');
+    await user.click(screen.getByRole('switch', { name: 'Agent session finished' }));
+    expect(await screen.findByText('Blocked for this site')).toBeTruthy();
+    expect(prefsStore.getState().notifyAgentTurns).toBe(false);
+  });
+
+  it('no Notification API (iOS 12 Safari): the switch is disabled with a note', () => {
+    srv = serveConfig(h.fetch);
+    vi.stubGlobal('Notification', undefined);
+    Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true });
+    view('notifications');
+    expect(screen.getByRole('switch', { name: 'Agent session finished' }).getAttribute('aria-disabled')).toBe('true');
+    expect(screen.getByText("This browser can't show notifications")).toBeTruthy();
+    expect(within(screen.getByRole('navigation', { name: 'Settings' })).getByText('Not available in this browser')).toBeTruthy();
+  });
+
+  it('an http origin: explains that notifications need HTTPS', () => {
+    srv = serveConfig(h.fetch);
+    stubNotification('default');
+    Object.defineProperty(window, 'isSecureContext', { value: false, configurable: true });
+    view('notifications');
+    expect(screen.getByText('Needs a secure (HTTPS) address')).toBeTruthy();
+    expect(screen.getByRole('switch', { name: 'Agent session finished' }).getAttribute('aria-disabled')).toBe('true');
+  });
+});
+
 describe('Voice tuning: sliders commit on release (fixes inv02 §6.2)', () => {
   it('dragging does not PUT; release PUTs once and the answer replaces the local copy', async () => {
     srv = serveConfig(h.fetch);

@@ -12,7 +12,8 @@ Key design:
   subscribe/unsubscribe.
 - The orchestrator session is stored separately but uses the same subscriber
   infrastructure. At most one orchestrator can be active at a time.
-- Watchers receive notifications when agent sessions are opened or closed.
+- Watchers receive notifications when agent sessions are opened or closed,
+  and when an agent session's turn starts or finishes (device notifications).
 - The provider (Claude vs Qwen) is selected per session based on
   ``ManagerConfig.provider``; pool internals stay provider-agnostic.
 """
@@ -22,9 +23,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import re
 import uuid as _uuid
 from collections import deque
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import Any, NamedTuple
 
 import orjson
@@ -34,7 +36,7 @@ from api.serializers import serialize_event
 from manager._proc import process_alive as _process_alive, looks_like
 from manager.base_session import BaseSessionManager, SessionDeadError
 from manager.config import ManagerConfig
-from manager.types import Event, TerminationReason, TurnComplete
+from manager.types import Event, TerminationReason, TextComplete, TurnComplete
 
 
 class _PendingPrompt(NamedTuple):
@@ -103,6 +105,29 @@ def _kill_tracked_pid(pid: int) -> bool:
 
 logger = logging.getLogger(__name__)
 
+# ``agent_turn_finished.preview``: one line, short enough for a notification body.
+TURN_PREVIEW_MAX = 200
+_MD_NOISE = re.compile(r"(\*\*|__|`+|^#{1,6}\s+|^>\s?|^\s*[-*+]\s+)", re.MULTILINE)
+
+
+def turn_preview(text: str | None, limit: int = TURN_PREVIEW_MAX) -> str | None:
+    """A turn's final text as a one-line notification preview (None when empty).
+
+    Drops the commonest markdown markers (bold, code ticks, headings, quotes,
+    bullets), collapses whitespace and cuts at *limit* with an ellipsis.
+    """
+    if not text:
+        return None
+    flat = " ".join(_MD_NOISE.sub("", text).split())
+    if not flat:
+        return None
+    return flat if len(flat) <= limit else flat[: limit - 1].rstrip() + "…"
+
+
+def _str_or_none(v: object) -> str | None:
+    """Session-manager attributes as wire strings (test doubles carry mocks)."""
+    return v if isinstance(v, str) and v else None
+
 
 class SessionPool:
     """Unified pool for agent and orchestrator sessions."""
@@ -133,8 +158,24 @@ class SessionPool:
         self._stopping_orchestrator: Any | None = None
         self._stopping_orchestrator_id: str | None = None
 
-        # Watchers: receive agent_session_opened / agent_session_closed events
+        # Watchers: receive agent_session_opened / agent_session_closed and
+        # agent_turn_started / agent_turn_finished events
         self._watchers: set[WebSocket] = set()
+
+        # Sessions whose current turn was interrupted (:meth:`interrupt`): the
+        # turn's end is announced as ``interrupted``, not as a finish or a
+        # failure.  Cleared when the next turn starts (:meth:`send`).
+        self._interrupted: set[str] = set()
+        # Best-effort display title for ``agent_turn_finished`` (provider
+        # session id → title or None).  Blocking; run in a thread.  Wired by
+        # ``api/app.py`` to the session store; None in tests.
+        self.title_resolver: Callable[[str], str | None] | None = None
+        # In-flight ``agent_turn_finished`` emissions (strong refs so they
+        # are not garbage-collected mid-flight).
+        self._announce_tasks: set[asyncio.Task[None]] = set()
+        # The latest ``agent_turn_started`` emission per session: its finish
+        # waits for it, so watchers always see start before end.
+        self._last_started: dict[str, asyncio.Task[None]] = {}
 
         # Belt-and-braces: PIDs of every bundled-claude subprocess we ever
         # spawned, mapped to a (session_id, first_seen_at) tuple.  The
@@ -397,6 +438,8 @@ class SessionPool:
         self._locks.pop(session_id, None)
         self._pending_prompts.pop(session_id, None)
         self._pending_locks.pop(session_id, None)
+        self._interrupted.discard(session_id)
+        self._last_started.pop(session_id, None)
 
         # Hand the pid(s) off to the closed-session shadow map so the
         # reaper has a grace window to verify the subprocess actually
@@ -436,9 +479,17 @@ class SessionPool:
             logger.exception("Error stopping SessionManager %s during close", session_id)
 
     async def interrupt(self, session_id: str) -> None:
-        """Interrupt the current response for a session."""
+        """Interrupt the current response for a session.
+
+        Every stop path (chat ``interrupt``, ``cancel_turn``, the runner's
+        cancel / timeout / abandoned-retry) goes through here, so this is
+        where the turn gets marked: its closing ``TurnComplete`` (the SDK
+        still emits one after an interrupt) is announced as
+        ``interrupted``, which clients don't notify about.
+        """
         sm = self._sessions.get(session_id)
         if sm is not None:
+            self._interrupted.add(session_id)
             await sm.interrupt()
 
     async def resolve_session_permission(
@@ -911,52 +962,192 @@ class SessionPool:
 
         ``announce=False`` skips the ``user_message`` echo — used for a
         queued prompt whose ``queued: true`` echo already went out (O-6).
+
+        Also the single emission point of the turn watcher events
+        (``agent_turn_started`` / ``agent_turn_finished``, spec 12 §3.7):
+        chat tabs (``_drive_turn``) and the orchestrator's runner both drive
+        agent turns through here, the orchestrator's own turns never do.
+        Every call announces exactly one finish, except when
+        ``TurnAbandoned`` escapes: the caller then retries (a new ``send``)
+        or gives up and calls :meth:`announce_turn_finished` itself.
         """
+        from manager.base_session import TurnAbandoned
+
         sm = self._sessions.get(session_id)
         if sm is None:
             raise ValueError(f"No session with ID {session_id}")
 
         lock = self._locks[session_id]
 
+        def ended(status: str) -> str:
+            # A turn stopped via interrupt() ends as "interrupted", whatever
+            # the SDK reports after the interrupt (often a TurnComplete).
+            return "interrupted" if session_id in self._interrupted else status
+
         async with lock:
-            if announce:
+            self._interrupted.discard(session_id)
+            final_text: str | None = None
+            finished = False
+            try:
+                # Fire-and-forget like the finish: a stalled watcher socket must
+                # never delay the turn (we hold the session lock here).
+                started = self._spawn_announce({
+                    "type": "agent_turn_started",
+                    "session_id": session_id,
+                    "sdk_session_id": _str_or_none(sm.sdk_session_id),
+                    "provider": _str_or_none(sm.provider_name),
+                }, None, None)
+                if started is not None:
+                    self._last_started[session_id] = started
+                if announce:
+                    await self._broadcast_session(
+                        session_id,
+                        {"type": "user_message", "text": text},
+                        exclude=source_ws,
+                    )
+                # Tell every subscriber the turn has been accepted and the
+                # SDK is now working on it. Without this, the UI sits on
+                # the previous "idle" / "Ready" label until the SDK emits
+                # its first typed event (text/thinking/tool_use) — on a
+                # slow first token that gap can run multiple seconds and
+                # the user thinks the message never landed. ``processing``
+                # is intentionally coarser than streaming/thinking/tool_use:
+                # we don't yet know which phase the model picked, only
+                # that we accepted the prompt and the SDK is running. The
+                # next typed event re-flips the client's status to the
+                # right phase via the existing handlers.
                 await self._broadcast_session(
                     session_id,
-                    {"type": "user_message", "text": text},
-                    exclude=source_ws,
+                    {"type": "status", "status": "processing"},
                 )
-            # Tell every subscriber the turn has been accepted and the
-            # SDK is now working on it. Without this, the UI sits on
-            # the previous "idle" / "Ready" label until the SDK emits
-            # its first typed event (text/thinking/tool_use) — on a
-            # slow first token that gap can run multiple seconds and
-            # the user thinks the message never landed. ``processing``
-            # is intentionally coarser than streaming/thinking/tool_use:
-            # we don't yet know which phase the model picked, only
-            # that we accepted the prompt and the SDK is running. The
-            # next typed event re-flips the client's status to the
-            # right phase via the existing handlers.
-            await self._broadcast_session(
-                session_id,
-                {"type": "status", "status": "processing"},
+                async for event in sm.send(text):
+                    payload = self._wrap_payload(sm, serialize_event(event))
+                    await self._broadcast_session(session_id, payload)
+                    if isinstance(event, TextComplete) and event.text.strip():
+                        final_text = event.text
+                    if isinstance(event, TurnComplete):
+                        self._pin_provider(sm)
+                        if not finished:
+                            # Before the yield: the consumer may stop iterating here.
+                            finished = True
+                            self.announce_turn_finished(
+                                session_id,
+                                status=ended("error" if event.is_error else "ok"),
+                                text=final_text or event.result,
+                                error=(event.result or "Turn failed") if event.is_error else None,
+                            )
+                    if payload.get("type") in ("permission_request", "permission_resolved"):
+                        # Mirror to the orchestrator so its UI can show a matching
+                        # banner and (for permission_request) so the orchestrator
+                        # agent can respond programmatically.  Same envelope as
+                        # nested_session_event so existing dispatch logic fits.
+                        await self.broadcast_orchestrator({
+                            "type": "nested_session_event",
+                            "session_id": session_id,
+                            "event_type": payload["type"],
+                            "event_data": payload,
+                        })
+                    yield event
+            except TurnAbandoned:
+                raise  # the caller retries, or gives up and announces the failure
+            except (asyncio.CancelledError, GeneratorExit):
+                # Stop, a superseding prompt, the runner's timeout or cancel.
+                if not finished:
+                    self.announce_turn_finished(session_id, status="interrupted", text=final_text)
+                raise
+            except Exception as exc:
+                if not finished:
+                    self.announce_turn_finished(
+                        session_id, status=ended("error"), text=final_text,
+                        error=str(exc) or type(exc).__name__,
+                    )
+                raise
+            else:
+                if not finished:  # the stream ended without a TurnComplete
+                    self.announce_turn_finished(session_id, status=ended("ok"), text=final_text)
+
+    def announce_turn_finished(
+        self,
+        session_id: str,
+        *,
+        status: str,
+        text: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        """Tell pool watchers an agent turn ended (``agent_turn_finished``).
+
+        ``status`` is ``ok`` | ``error`` | ``interrupted``.  Clients notify on
+        ``ok`` / ``error`` only; ``interrupted`` (a stop) just ends their busy
+        tracking.  ``text`` (the turn's final assistant text) becomes a short
+        one-line ``preview``; ``error`` the failure detail.
+
+        Fire-and-forget: the title lookup reads the session store in a
+        thread and must not hold up the turn (or run inside a cancelled
+        task's cleanup), so the emission runs as its own task.
+        """
+        sm = self._sessions.get(session_id)
+        sdk_id = _str_or_none(sm.sdk_session_id) if sm is not None else None
+        payload: dict[str, Any] = {
+            "type": "agent_turn_finished",
+            "session_id": session_id,
+            "sdk_session_id": sdk_id,
+            "provider": _str_or_none(sm.provider_name) if sm is not None else None,
+            "title": None,
+            "status": status,
+            "preview": turn_preview(text),
+            "error": turn_preview(error) if status == "error" else None,
+        }
+        logger.info(
+            "agent_turn_finished %s status=%s watchers=%d",
+            session_id, status, len(self._watchers),
+        )
+        self._spawn_announce(payload, sdk_id, self._last_started.pop(session_id, None))
+
+    def announce_turn_aborted(self, session_id: str, exc: BaseException) -> None:
+        """A turn ended outside send() (cancelled / failed between an abandoned
+        attempt and its retry): ``interrupted`` for a cancellation, else ``error``."""
+        if isinstance(exc, asyncio.CancelledError):
+            self.announce_turn_finished(session_id, status="interrupted")
+        else:
+            self.announce_turn_finished(session_id, status="error", error=str(exc) or type(exc).__name__)
+
+    def _spawn_announce(
+        self,
+        payload: dict[str, Any],
+        sdk_id: str | None,
+        after: asyncio.Task[None] | None,
+    ) -> asyncio.Task[None] | None:
+        """Run one turn watcher emission as its own task (None without a running loop)."""
+        try:
+            task = asyncio.get_running_loop().create_task(
+                self._emit_turn_event(payload, sdk_id, after),
+                name=f"{payload['type']}-{str(payload['session_id'])[:8]}",
             )
-            async for event in sm.send(text):
-                payload = self._wrap_payload(sm, serialize_event(event))
-                await self._broadcast_session(session_id, payload)
-                if isinstance(event, TurnComplete):
-                    self._pin_provider(sm)
-                if payload.get("type") in ("permission_request", "permission_resolved"):
-                    # Mirror to the orchestrator so its UI can show a matching
-                    # banner and (for permission_request) so the orchestrator
-                    # agent can respond programmatically.  Same envelope as
-                    # nested_session_event so existing dispatch logic fits.
-                    await self.broadcast_orchestrator({
-                        "type": "nested_session_event",
-                        "session_id": session_id,
-                        "event_type": payload["type"],
-                        "event_data": payload,
-                    })
-                yield event
+        except RuntimeError:  # no running loop (sync tests)
+            return None
+        self._announce_tasks.add(task)
+        task.add_done_callback(self._announce_tasks.discard)
+        return task
+
+    async def _emit_turn_event(
+        self,
+        payload: dict[str, Any],
+        sdk_id: str | None,
+        after: asyncio.Task[None] | None,
+    ) -> None:
+        if after is not None and not after.done():
+            # Start before end on every watcher socket.
+            await asyncio.wait([after], timeout=10.0)
+        resolver = self.title_resolver
+        if payload["type"] == "agent_turn_finished" and resolver is not None and sdk_id:
+            try:
+                payload["title"] = await asyncio.wait_for(asyncio.to_thread(resolver, sdk_id), timeout=5.0)
+            except Exception:  # noqa: BLE001 — a title is a nicety; clients fall back
+                logger.debug("title lookup failed for %s", sdk_id, exc_info=True)
+        try:
+            await self._notify_watchers(payload)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to notify watchers of %s", payload["type"])
 
     def _pin_provider(self, sm: BaseSessionManager) -> None:
         """Pin the session's harness in its per-session config (once).
@@ -1184,10 +1375,16 @@ class SessionPool:
                     "detail": f"upstream silent for {exc.elapsed_seconds:.0f}s, retrying",
                 })
                 try:
-                    await self.interrupt(session_id)
-                except Exception:
-                    logger.exception("Failed to interrupt abandoned turn for %s", session_id)
-                await asyncio.sleep(1.0)
+                    try:
+                        await self.interrupt(session_id)
+                    except Exception:
+                        logger.exception("Failed to interrupt abandoned turn for %s", session_id)
+                    await asyncio.sleep(1.0)
+                except BaseException as gap:
+                    # Between the abandoned attempt and its retry no send() is
+                    # running to announce the end: do it here, then re-raise.
+                    self.announce_turn_aborted(session_id, gap)
+                    raise
                 await _stream_once(prompt, ws, announce)
 
         try:
@@ -1213,12 +1410,15 @@ class SessionPool:
         except asyncio.CancelledError:
             raise
         except TurnAbandoned as exc:
+            detail = (
+                f"Upstream did not respond after retry "
+                f"({exc.elapsed_seconds:.0f}s). Try again in a moment."
+            )
+            # send() leaves an abandoned turn unannounced (it may be retried).
+            self.announce_turn_finished(session_id, status="error", error=detail)
             await self._broadcast_session(session_id, {
                 "type": "error", "error": "upstream_wedged",
-                "detail": (
-                    f"Upstream did not respond after retry "
-                    f"({exc.elapsed_seconds:.0f}s). Try again in a moment."
-                ),
+                "detail": detail,
             })
         except SessionDeadError as exc:
             # Session's receive loop has exited (subprocess crashed, SSH
