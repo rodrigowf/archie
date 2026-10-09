@@ -290,9 +290,164 @@
     }
   }
 
+  /* ---- [perf] one line per touch gesture: how late input reaches JS, frame gaps, forced styles ---- */
+
+  var perf = null;
+  var gcsCalls = 0;
+  if (typeof w.getComputedStyle === 'function') {
+    var originalGcs = w.getComputedStyle;
+    w.getComputedStyle = function () {
+      gcsCalls++;
+      return originalGcs.apply(w, arguments);
+    };
+  }
+
+  function hiNow() {
+    return w.performance && typeof w.performance.now === 'function' ? w.performance.now() : now();
+  }
+
+  /* Delivery delay of an input event: now - event.timeStamp, when timeStamp is on the
+   * performance clock (Safari 11.1+); epoch-based stamps are ignored. */
+  function lateness(e) {
+    var ts = e && e.timeStamp;
+    if (typeof ts !== 'number' || ts <= 0 || ts > 1e11) {
+      return -1;
+    }
+    var d = hiNow() - ts;
+    return d >= 0 && d < 60000 ? d : -1;
+  }
+
+  function perfFrame() {
+    if (!perf) {
+      return;
+    }
+    var t = hiNow();
+    if (perf.lastFrame !== null) {
+      var gap = t - perf.lastFrame;
+      perf.frames++;
+      perf.frameSum += gap;
+      if (gap > perf.maxGap) {
+        perf.maxGap = gap;
+      }
+      if (gap > 100) {
+        perf.longGaps++;
+        perf.longSum += gap;
+      }
+    }
+    perf.lastFrame = t;
+    w.requestAnimationFrame(perfFrame);
+  }
+
+  function perfStart(e) {
+    if (!enabled || perf || typeof w.requestAnimationFrame !== 'function') {
+      return;
+    }
+    perf = {
+      t0: hiNow(),
+      startLate: lateness(e),
+      moves: 0,
+      maxMoveLate: 0,
+      moveLateSum: 0,
+      firstMove: -1,
+      scrolls: 0,
+      firstScroll: -1,
+      scrollTarget: null,
+      top0: null,
+      top1: null,
+      frames: 0,
+      frameSum: 0,
+      maxGap: 0,
+      longGaps: 0,
+      longSum: 0,
+      lastFrame: null,
+      gcs0: gcsCalls,
+      ro0: w.__archieRoStats ? w.__archieRoStats.calls : 0,
+      roMs0: w.__archieRoStats ? w.__archieRoStats.ms : 0,
+      endTimer: null
+    };
+    w.requestAnimationFrame(perfFrame);
+  }
+
+  function perfIdle() {
+    if (!perf) {
+      return;
+    }
+    if (perf.endTimer !== null) {
+      w.clearTimeout(perf.endTimer);
+    }
+    perf.endTimer = w.setTimeout(perfFinish, 1500);
+  }
+
+  function r0(n) {
+    return Math.round(n);
+  }
+
+  function perfFinish() {
+    var p = perf;
+    perf = null;
+    if (!p || (p.moves < 3 && p.scrolls === 0)) {
+      return; /* a tap, not a scroll */
+    }
+    var dur = hiNow() - p.t0 - 1500;
+    var ro = w.__archieRoStats;
+    send(
+      'perf',
+      '[perf] gesture ' + r0(dur) + ' ms on ' + (p.scrollTarget ? describe(p.scrollTarget).replace(/ "[^"]*"/, '') : 'no scroller') +
+        ' | touch late start ' + r0(p.startLate) + ' ms, moves ' + p.moves + ' (first at +' + r0(p.firstMove) + ' ms, late avg ' + r0(p.moves ? p.moveLateSum / p.moves : 0) + ' max ' + r0(p.maxMoveLate) + ')' +
+        ' | scroll events ' + p.scrolls + ' (first at +' + r0(p.firstScroll) + ' ms, top ' + p.top0 + ' -> ' + p.top1 + ')' +
+        ' | frames ' + p.frames + ' avg ' + r0(p.frames ? p.frameSum / p.frames : 0) + ' ms max ' + r0(p.maxGap) + ' ms, >100ms: ' + p.longGaps + ' (' + r0(p.longSum) + ' ms)' +
+        ' | getComputedStyle ' + (gcsCalls - p.gcs0) +
+        (ro ? ' | ResizeObserver callbacks ' + (ro.calls - p.ro0) + ' (' + r0(ro.ms - p.roMs0) + ' ms)' : '') +
+        ' | nodes ' + (w.document.getElementsByTagName ? w.document.getElementsByTagName('*').length : '?')
+    );
+  }
+
   var pendingTap = null;
 
   if (w.document && typeof w.document.addEventListener === 'function') {
+    var passive = { capture: true, passive: true };
+    w.document.addEventListener('touchstart', perfStart, passive);
+    w.document.addEventListener(
+      'touchmove',
+      function (e) {
+        if (!perf) {
+          return;
+        }
+        var late = lateness(e);
+        perf.moves++;
+        if (perf.firstMove < 0) {
+          perf.firstMove = hiNow() - perf.t0;
+        }
+        if (late >= 0) {
+          perf.moveLateSum += late;
+          if (late > perf.maxMoveLate) {
+            perf.maxMoveLate = late;
+          }
+        }
+        perfIdle();
+      },
+      passive
+    );
+    w.document.addEventListener(
+      'scroll',
+      function (e) {
+        if (!perf) {
+          return;
+        }
+        var t = e && e.target;
+        perf.scrolls++;
+        if (perf.firstScroll < 0) {
+          perf.firstScroll = hiNow() - perf.t0;
+          perf.scrollTarget = t;
+          perf.top0 = t && typeof t.scrollTop === 'number' ? r0(t.scrollTop) : null;
+        }
+        if (t === perf.scrollTarget && t && typeof t.scrollTop === 'number') {
+          perf.top1 = r0(t.scrollTop);
+        }
+        perfIdle();
+      },
+      passive
+    );
     w.document.addEventListener(
       'click',
       function (e) {
@@ -307,6 +462,7 @@
     w.document.addEventListener(
       'touchend',
       function (e) {
+        perfIdle();
         if (!enabled) {
           return;
         }

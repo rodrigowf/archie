@@ -79,6 +79,8 @@ function sandbox(target: 'main' | 'compat', stored: string | null = null, opts: 
     setInterval: (fn: () => void) => {
       interval = fn;
     },
+    clearTimeout: () => undefined,
+    requestAnimationFrame: () => 0,
   };
   if (opts.xhr) win.XMLHttpRequest = FakeXhr;
   vm.runInNewContext(remoteConsoleScript(target), { window: win, Date: FakeDate, JSON, String, Error, Math });
@@ -231,5 +233,20 @@ describe('remote console inline script', () => {
     expect(history.replaceState(null, '', '/compat#/memory')).toBe('ok');
     history.replaceState(null, '', '/compat#/memory'); // same hash: no line
     expect(s.sent.map((m) => m.msg)).toEqual(['[compat] [nav] #/ -> #/memory (replaceState)']);
+  });
+
+  it('perf: one [perf] line per scroll gesture, none for a tap', () => {
+    const s = sandbox('compat');
+    s.fireDoc('touchstart', {});
+    s.fireDoc('touchend', {});
+    s.advance(2_000);
+    expect(s.sent.filter((m) => m.level === 'perf')).toEqual([]);
+    s.fireDoc('touchstart', {});
+    for (let i = 0; i < 4; i++) s.fireDoc('touchmove', {});
+    s.fireDoc('scroll', { target: { tagName: 'DIV', className: 'list', textContent: '', getAttribute: () => null, scrollTop: 40 } });
+    s.advance(1_600);
+    const perf = s.sent.filter((m) => m.level === 'perf');
+    expect(perf).toHaveLength(1);
+    expect(perf[0]?.msg).toMatch(/\[perf\] gesture .* on div\.list .*moves 4 .*scroll events 1 .*getComputedStyle 0/);
   });
 });
