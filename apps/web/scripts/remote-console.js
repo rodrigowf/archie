@@ -246,7 +246,42 @@
         lines.push('  @' + x + ',' + y + ' ' + describe(el));
       }
     }
+    overlays(lines);
     send('trace', lines.join('\n'));
+  }
+
+  /* The open overlays (children of #overlay-root, 3 levels) with the computed style that decides
+   * whether they can be seen and tapped. */
+  var STYLE_KEYS = ['position', 'display', 'visibility', 'opacity', 'zIndex', 'transform', 'animationName', 'pointerEvents'];
+  function overlays(lines) {
+    var ovr = w.document.getElementById('overlay-root');
+    var body = w.document.body;
+    lines.push('  body style="' + (body && body.getAttribute('style') || '') + '" sheets ' + (w.document.styleSheets ? w.document.styleSheets.length : '?'));
+    if (!ovr) {
+      lines.push('  #overlay-root missing');
+      return;
+    }
+    lines.push('  #overlay-root ' + ovr.children.length + ' child(ren) ' + describe(ovr).replace(/^div#overlay-root ?/, '').replace(/^"[^"]*" /, ''));
+    function walk(el, depth) {
+      for (var i = 0; i < el.children.length && i < 6; i++) {
+        var c = el.children[i];
+        var cs = null;
+        try {
+          cs = w.getComputedStyle ? w.getComputedStyle(c) : null;
+        } catch (e) {
+          /* ignore */
+        }
+        var st = [];
+        for (var k = 0; cs && k < STYLE_KEYS.length; k++) {
+          st.push(STYLE_KEYS[k] + ':' + cs[STYLE_KEYS[k]]);
+        }
+        lines.push('  ' + new Array(depth + 2).join('  ') + describe(c).replace(/ "[^"]*"/, '') + ' {' + st.join('; ') + '}');
+        if (depth < 2) {
+          walk(c, depth + 1);
+        }
+      }
+    }
+    walk(ovr, 0);
   }
 
   function later(fn, ms) {
@@ -317,6 +352,14 @@
     noteNav('hashchange');
   });
 
+  function stateText(st) {
+    try {
+      return JSON.stringify(st);
+    } catch (e) {
+      return '?';
+    }
+  }
+
   /* The app routes with history.replaceState, which fires no event: wrap both history writers. */
   var hist = w.history;
   var writers = ['pushState', 'replaceState'];
@@ -329,6 +372,9 @@
       hist[name] = function () {
         var result = original.apply(hist, arguments);
         try {
+          if (enabled && name === 'pushState') {
+            send('trace', '[history] pushState ' + stateText(arguments[0]) + ' length ' + hist.length);
+          }
           noteNav(name);
         } catch (e) {
           /* never break navigation */
@@ -337,6 +383,22 @@
       };
     })(writers[h]);
   }
+
+  if (hist && typeof hist.go === 'function') {
+    var originalGo = hist.go;
+    hist.go = function (n) {
+      if (enabled) {
+        send('trace', '[history] go(' + n + ') length ' + hist.length);
+      }
+      return originalGo.apply(hist, arguments);
+    };
+  }
+
+  w.addEventListener('popstate', function (e) {
+    if (enabled) {
+      send('trace', '[history] popstate ' + stateText(e && e.state) + ' ' + w.location.hash);
+    }
+  });
 
   w.addEventListener('pagehide', function () {
     if (enabled) {

@@ -218,7 +218,9 @@ Devices without DevTools (the iPad) report their console to the backend:
   what it is doing even when nothing throws: `[boot]` (UA, URL, viewport; proves the logger runs),
   `[click]` (every click, with a target descriptor and its rect), `[tap] no click followed`
   (a touch that never became a click), `[nav]` (hash changes, including the router's `history.replaceState`), `[probe]` (1 s
-  after boot and after the latest click or nav: the element on top at 9 viewport points, which finds overlays eating taps),
+  after boot and after the latest click or nav: the element on top at 9 viewport points, which finds overlays eating taps,
+  plus every layer in `#overlay-root` with its rect and computed position/display/visibility/opacity/
+  z-index/transform/animation), `[history]` (pushState, go, popstate),
   `[stall]` (main thread blocked > 2.5 s), `[unload]`. `window.__archieRemoteConsole.probe()`
   runs a probe on demand.
 - `src/app/RootErrorBoundary.tsx` wraps the app: a render error is sent as a `[REACT]` line with
