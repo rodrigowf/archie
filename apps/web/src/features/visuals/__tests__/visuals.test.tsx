@@ -6,10 +6,11 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { probeCast, type VisualizationInfo } from '@/services';
-import { capabilitiesStore, patchCapabilities, setCatalogItems, snackbarStore } from '@/stores';
+import { bumpContent, capabilitiesStore, patchCapabilities, resetContentChanges, setCatalogItems, snackbarStore } from '@/stores';
 import { expectNoAxeViolations } from '@/test/axe';
 import { jsonResponse, setupServices, teardownServices, type Harness } from '../../../services/__tests__/fakes';
 import { VisualCard, VisualsPane, VisualViewer, VIZ_SANDBOX, vizFolder, vizHref } from '..';
+import { LIVE_RELOAD_DEBOUNCE_MS, UPDATED_CUE_MS } from '../VisualViewer';
 
 const NOW = Date.UTC(2026, 9, 4, 13, 0, 0);
 const VIZ: VisualizationInfo[] = [
@@ -38,6 +39,72 @@ describe('helpers', () => {
     expect(vizHref('a/b.html')).toBe('http://backend.test/a/b.html');
     expect(vizFolder('charts/weekly.html')).toBe('charts');
     expect(vizFolder('root.html')).toBe('public');
+  });
+});
+
+describe('<VisualViewer> live reload (spec 12 §9.3, VZ-6)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetContentChanges();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('remounts once per burst of changes, shows the Updated cue, and ignores older and other changes', () => {
+    bumpContent('visuals', [{ path: W.path, deleted: false }]); // before mount: already in what it loads
+    const { container } = render(<VisualViewer path={W.path} url={W.url} hidden />);
+    const first = container.querySelector('iframe');
+    act(() => {
+      vi.advanceTimersByTime(LIVE_RELOAD_DEBOUNCE_MS * 2);
+    });
+    expect(container.querySelector('iframe')).toBe(first);
+
+    act(() => {
+      bumpContent('visuals', [{ path: 'root.html', deleted: false }]);
+    });
+    act(() => {
+      vi.advanceTimersByTime(LIVE_RELOAD_DEBOUNCE_MS * 2);
+    });
+    expect(container.querySelector('iframe')).toBe(first);
+
+    act(() => {
+      bumpContent('visuals', [{ path: W.path, deleted: false }]);
+    });
+    act(() => {
+      vi.advanceTimersByTime(LIVE_RELOAD_DEBOUNCE_MS / 2);
+    });
+    act(() => {
+      bumpContent('visuals', [{ path: W.path, deleted: false }]);
+    });
+    act(() => {
+      vi.advanceTimersByTime(LIVE_RELOAD_DEBOUNCE_MS / 2 + 10);
+    });
+    expect(container.querySelector('iframe')).toBe(first); // the second change restarted the wait
+    act(() => {
+      vi.advanceTimersByTime(LIVE_RELOAD_DEBOUNCE_MS);
+    });
+    const second = container.querySelector('iframe') as HTMLIFrameElement;
+    expect(second).not.toBe(first); // reloaded while hidden too
+    expect(second.getAttribute('data-reload')).toBe('1');
+    expect(screen.getByRole('status').textContent).toBe('Updated');
+    act(() => {
+      vi.advanceTimersByTime(UPDATED_CUE_MS + 10);
+    });
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('a deleted page is not reloaded and says so', () => {
+    const { container } = render(<VisualViewer path={W.path} url={W.url} hidden={false} />);
+    const first = container.querySelector('iframe');
+    act(() => {
+      bumpContent('visuals', [{ path: W.path, deleted: true }]);
+    });
+    act(() => {
+      vi.advanceTimersByTime(LIVE_RELOAD_DEBOUNCE_MS * 2);
+    });
+    expect(container.querySelector('iframe')).toBe(first);
+    expect(screen.getByText(/^Deleted · charts/)).toBeTruthy();
   });
 });
 

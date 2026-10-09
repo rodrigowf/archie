@@ -71,6 +71,8 @@ const SCHEMAS: Readonly<Record<ServerFrameType, Schema>> = {
   agent_session_opened: { session_id: STR, sdk_session_id: OPT_STR, is_orchestrator: OPT_BOOL },
   agent_session_closed: { session_id: STR, is_orchestrator: OPT_BOOL },
   orchestrator_switch: { sdk_session_id: STR, title: OPT_STR, voice: OPT_BOOL, from_session_id: OPT_STR },
+  visualization_changed: { visualizations: 'arr?', files: 'arr?' },
+  memory_changed: { changes: 'arr?' },
   audio_upload: {},
   ping: {},
   voice_event: { event: OBJ },
