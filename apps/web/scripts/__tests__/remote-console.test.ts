@@ -67,6 +67,12 @@ function sandbox(target: 'main' | 'compat', stored: string | null = null, opts: 
       },
     },
     location: { hash: '#/', href: 'http://server.local/compat#/' },
+    history: {
+      replaceState: (_state: unknown, _title: string, url: string) => {
+        (win.location as { hash: string }).hash = url.slice(url.indexOf('#'));
+        return 'ok';
+      },
+    },
     innerWidth: 768,
     innerHeight: 1024,
     setTimeout: (fn: () => void, ms: number) => timers.push({ at: now + ms, fn }),
@@ -217,5 +223,13 @@ describe('remote console inline script', () => {
     s.advance(10_000);
     s.tick();
     expect(s.sent).toEqual([]);
+  });
+
+  it('trace: [nav] for the router\'s history.replaceState, which fires no hashchange', () => {
+    const s = sandbox('compat');
+    const history = s.win.history as { replaceState(state: unknown, title: string, url: string): string };
+    expect(history.replaceState(null, '', '/compat#/memory')).toBe('ok');
+    history.replaceState(null, '', '/compat#/memory'); // same hash: no line
+    expect(s.sent.map((m) => m.msg)).toEqual(['[compat] [nav] #/ -> #/memory (replaceState)']);
   });
 });

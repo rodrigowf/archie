@@ -21,8 +21,9 @@
  *  - [boot]   once at load: user agent, URL, viewport — proves the logger runs on the device;
  *  - [click]  every click (capture phase), with a short descriptor of the target;
  *  - [tap]    a touch that produced no click within 600 ms (taps swallowed before React);
- *  - [nav]    every hash change;
- *  - [probe]  1 s after boot and after each [nav]: the element on top at 9 points of the viewport
+ *  - [nav]    every hash change (hashchange, and history.pushState/replaceState, which the app's
+ *             router uses and which fire no event);
+ *  - [probe]  1 s after boot and after the latest click / [nav]: the element on top at 9 points of the viewport
  *             (finds invisible overlays that eat taps) plus the size of #root;
  *  - [stall]  the main thread was blocked for more than 2.5 s (logged when it recovers);
  *  - [unload] the page is going away (reload / navigation), sent by beacon.
@@ -263,6 +264,7 @@
         pendingTap = null;
         if (enabled) {
           send('trace', '[click] ' + describe(e && e.target));
+          probeSoon('after click');
         }
       },
       true
@@ -286,16 +288,55 @@
     );
   }
 
-  w.addEventListener('hashchange', function (e) {
-    if (!enabled) {
+  /* One probe 1 s after the latest click or navigation (a burst gives one probe). */
+  var probeSeq = 0;
+  function probeSoon(reason) {
+    var seq = ++probeSeq;
+    later(function () {
+      if (seq === probeSeq) {
+        probe(reason);
+      }
+    }, PROBE_DELAY_MS);
+  }
+
+  var lastHash = w.location ? w.location.hash : '';
+  function noteNav(how) {
+    var hash = w.location ? w.location.hash : '';
+    if (hash === lastHash) {
       return;
     }
-    var from = e && e.oldURL ? String(e.oldURL).replace(/^[^#]*/, '') : '?';
-    send('trace', '[nav] ' + (from || '#') + ' -> ' + (w.location.hash || '#'));
-    later(function () {
-      probe('after nav');
-    }, PROBE_DELAY_MS);
+    var from = lastHash;
+    lastHash = hash;
+    if (enabled) {
+      send('trace', '[nav] ' + (from || '#') + ' -> ' + (hash || '#') + ' (' + how + ')');
+      probeSoon('after nav');
+    }
+  }
+
+  w.addEventListener('hashchange', function () {
+    noteNav('hashchange');
   });
+
+  /* The app routes with history.replaceState, which fires no event: wrap both history writers. */
+  var hist = w.history;
+  var writers = ['pushState', 'replaceState'];
+  for (var h = 0; hist && h < writers.length; h++) {
+    (function (name) {
+      var original = hist[name];
+      if (typeof original !== 'function') {
+        return;
+      }
+      hist[name] = function () {
+        var result = original.apply(hist, arguments);
+        try {
+          noteNav(name);
+        } catch (e) {
+          /* never break navigation */
+        }
+        return result;
+      };
+    })(writers[h]);
+  }
 
   w.addEventListener('pagehide', function () {
     if (enabled) {
