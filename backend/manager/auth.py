@@ -7,8 +7,6 @@ import json
 import os
 from pathlib import Path
 
-from manager.accounts.claude import claude_cli
-from manager.accounts.files import atomic_write
 
 
 def _get_auth_env() -> dict[str, str]:
@@ -55,6 +53,8 @@ class AuthManager:
     def __init__(self, cli_path: str | None = None, headless: bool = False) -> None:
         # PATH first, then the CLI bundled with claude-agent-sdk (a systemd backend may not have
         # ~/.local/bin or nvm on its PATH).
+        from manager.accounts.claude import claude_cli  # lazy: keeps `import manager.auth` light
+
         self._cli = cli_path or claude_cli() or "claude"
         self._headless = headless
         self._credentials_path = _get_credentials_path()
@@ -76,6 +76,11 @@ class AuthManager:
 
         # Fall back to credentials file check
         if self._check_credentials_file():
+            return True
+
+        # A token or key in the environment (CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`,
+        # saved to context/.env by Settings → Accounts) signs Claude Code in without a file.
+        if os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip() or os.environ.get("ANTHROPIC_API_KEY", "").strip():
             return True
 
         return False
@@ -182,6 +187,8 @@ class AuthManager:
 
             # Atomic, mode 0600, previous file kept as .credentials.json.bak-<timestamp>
             # (the same writer Settings → Accounts uses).
+            from manager.accounts.files import atomic_write
+
             atomic_write(self._credentials_path, credentials_json)
 
             return True

@@ -39,11 +39,14 @@ def _prune_backups(path: Path, keep: int, backup_dir: Path | None = None) -> Non
 
 
 def backup_file(path: Path, *, keep: int = KEEP_BACKUPS, backup_dir: Path | None = None) -> Path | None:
-    """Copy *path* to a timestamped backup (mode 0600). None when there is nothing to back up."""
+    """Copy *path* to a timestamped backup (mode 0600; a separate *backup_dir* is made 0700).
+    None when there is nothing to back up."""
     if not path.is_file():
         return None
     folder = backup_dir or path.parent
-    folder.mkdir(parents=True, exist_ok=True)
+    if backup_dir is not None:
+        folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(folder, 0o700)
     dest = folder / backup_name(path).name
     n = 1
     while dest.exists():  # two writes in the same second
@@ -62,6 +65,7 @@ def atomic_write(
     mode: int = 0o600,
     backup: bool = True,
     backup_dir: Path | None = None,
+    keep: int = KEEP_BACKUPS,
 ) -> Path | None:
     """Write *content* to *path* atomically; returns the backup path (if one was made).
 
@@ -69,7 +73,7 @@ def atomic_write(
     """
     target = Path(os.path.realpath(path))
     target.parent.mkdir(parents=True, exist_ok=True)
-    saved = backup_file(target, backup_dir=backup_dir) if backup else None
+    saved = backup_file(target, keep=keep, backup_dir=backup_dir) if backup else None
     fd, tmp = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=str(target.parent))
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:

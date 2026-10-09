@@ -128,7 +128,7 @@ class TestEnvFile:
         assert "DUP" not in env_file.read_text()
         assert "DUP" not in os.environ
 
-    @pytest.mark.parametrize("value", ["", "plain", "a b", "it's", 'say "hi"', "$HOME", "back\\slash", "multi\nline", "#hash", "ünïcode ✓"])
+    @pytest.mark.parametrize("value", ["", "plain", "a b", "it's", 'say "hi"', "$HOME", "back\\slash", "multi\nline", "#hash", "ünïcode ✓", "~/x", "a:~/b", "x=~"])
     def test_create_round_trips_through_bash(self, env_file, value):
         env_file.write_text("A=1")  # no trailing newline
         envfile.set_value("NEW_KEY", value, create=True)
@@ -148,7 +148,7 @@ class TestEnvFile:
             envfile.delete("B")
         assert e.value.status == 404
 
-    @pytest.mark.parametrize("name", ["lower", "1ABC", "A-B", "A B", "", "A=B"])
+    @pytest.mark.parametrize("name", ["1ABC", "A-B", "A B", "", "A=B", "é"])
     def test_invalid_names(self, env_file, name):
         with pytest.raises(envfile.EnvError):
             envfile.set_value(name, "x")
@@ -156,13 +156,34 @@ class TestEnvFile:
     def test_backup_mode_and_new_file(self, env_file, tmp_path):
         envfile.set_value("FIRST", "1")  # creates the file
         assert stat.S_IMODE(env_file.stat().st_mode) == 0o600
-        os.chmod(env_file, 0o640)
+        os.chmod(env_file, 0o664)
         for i in range(envfile.ENV_BACKUPS + 3):
             envfile.set_value("FIRST", str(i))
-        assert stat.S_IMODE(env_file.stat().st_mode) == 0o640  # kept
-        backups = list((tmp_path / ".env.backups").glob(".env.bak-*"))
-        assert 1 <= len(backups) <= envfile.ENV_BACKUPS
+        assert stat.S_IMODE(env_file.stat().st_mode) == 0o600  # forced: it holds every secret
+        folder = tmp_path / ".env.backups"
+        assert stat.S_IMODE(folder.stat().st_mode) == 0o700
+        backups = list(folder.glob(".env.bak-*"))
+        assert len(backups) == envfile.ENV_BACKUPS
         assert all(stat.S_IMODE(b.stat().st_mode) == 0o600 for b in backups)
+
+    def test_backups_live_outside_context(self):
+        from utils.paths import PROJECT_ROOT, get_context_dir
+
+        assert envfile.backups_dir() == PROJECT_ROOT / ".backups" / "env"
+        assert not envfile.backups_dir().is_relative_to(get_context_dir())
+
+    def test_unterminated_quote_stays_one_line(self, env_file):
+        env_file.write_text("A=1\nFOO=it's\nB=2\nC=3\n")
+        assert envfile.get_value("FOO") == "it's"
+        assert [k.name for k in envfile.list_keys()] == ["A", "FOO", "B", "C"]
+        envfile.set_value("FOO", "fixed")
+        assert env_file.read_text() == "A=1\nFOO=fixed\nB=2\nC=3\n"
+
+    def test_lowercase_names_are_usable(self, env_file):
+        env_file.write_text("lower_key=1\n")
+        assert envfile.get_value("lower_key") == "1"
+        envfile.set_value("lower_key", "2")
+        assert envfile.delete("lower_key") == 1
 
     def test_restart_scoped_keys_leave_the_process_alone(self, env_file, monkeypatch):
         monkeypatch.setenv("HOME", "/home/original")
@@ -253,7 +274,7 @@ class TestScanners:
 
     def test_terminal_helpers(self):
         assert clean("a\x1b[9Gb\r\nc\x1b[0m") == "a b\nc"
-        assert find_url("see https://x.test/a?b=1.", contains="/a") == "https://x.test/a?b=1"
+        assert find_url("see https://x.test/a?b=1.\n", contains="/a") == "https://x.test/a?b=1"
         assert redact("token sk-ant-oat01-" + "z" * 50) == "token sk-ant-oa…"
         assert "…" in redact("x" * 60)
 
@@ -581,3 +602,107 @@ class TestRoutes:
         assert r.json()["id"] != flow["id"]
         r = await client.delete("/api/accounts/fake/login")
         assert r.json()["status"] == "cancelled"
+
+
+# ─────────────────────────────── security review fixes ───────────────────────────────
+
+
+class TestGuard:
+    @pytest.mark.parametrize("host,ok", [
+        ("192.168.0.200", True), ("127.0.0.1:8765", True), ("[::1]:8765", True), ("localhost:5450", True),
+        ("server.local", True), ("jetson", True), ("archie.tail1234.ts.net", True),
+        ("evil.example.com", False), ("192.168.0.200.nip.io", False),
+    ])
+    async def test_host_allowlist(self, client, host, ok):
+        r = await client.get("/api/env", headers={"host": host})
+        assert (r.status_code == 200) is ok, r.text
+
+    @pytest.mark.parametrize("origin,host,ok", [
+        ("https://192.168.0.200", "192.168.0.200", True),          # nginx: Host $host, no port
+        ("http://192.168.0.200:8765", "192.168.0.200:8765", True),
+        ("http://192.168.0.28:5450", "192.168.0.200", True),       # vite dev server proxying
+        ("http://localhost:5451", "127.0.0.1:8765", True),
+        ("https://evil.example.com", "192.168.0.200", False),
+        ("http://192.168.0.99", "192.168.0.200", False),           # another LAN host's page
+        ("http://evil.example.com:5450", "192.168.0.200", False),  # dev port, untrusted host
+        ("null", "192.168.0.200", False),
+    ])
+    async def test_origin(self, client, origin, host, ok):
+        r = await client.post("/api/env/X/reveal", headers={"origin": origin, "host": host})
+        assert (r.status_code != 403) is ok, r.text
+
+    async def test_cross_site_fetch_metadata_and_trusted_origin_env(self, client, monkeypatch):
+        r = await client.get("/api/accounts", headers={"sec-fetch-site": "cross-site"})
+        assert r.status_code == 403
+        monkeypatch.setenv("ARCHIE_TRUSTED_ORIGINS", "https://my.dashboard.example")
+        r = await client.get("/api/accounts", headers={"origin": "https://my.dashboard.example"})
+        assert r.status_code == 200
+
+    async def test_no_origin_passes_and_auth_writes_are_guarded(self, client):
+        assert (await client.get("/api/accounts")).status_code == 200
+        r = await client.post("/api/auth/credentials", json={"credentials_json": "{}"}, headers={"origin": "https://evil.example.com"})
+        assert r.status_code == 403
+        r = await client.post("/api/auth/login", headers={"origin": "https://evil.example.com"})
+        assert r.status_code == 403
+
+
+class TestReviewFixes:
+    def test_token_needs_a_terminator(self):
+        tok = "sk-ant-oat01-" + "A" * 40
+        assert claude_acc.scan_setup_token(f"Your token: {tok}").secret is None  # may still be arriving
+        assert claude_acc.scan_setup_token(f"Your token: {tok}\r\n").secret == tok
+
+    def test_plain_url_needs_a_terminator(self):
+        assert find_url("visit https://x.test/a?b=1") is None
+        assert find_url("visit https://x.test/a?b=1\n") == "https://x.test/a?b=1"
+        assert find_url("\x1b]8;;https://x.test/link\x07text\x1b]8;;\x07") == "https://x.test/link"  # hyperlink: complete
+
+    def test_token_flow_exit_without_token_fails(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setattr(claude_acc, "claude_cli", lambda: "/bin/true")
+        assert claude_acc.ClaudeAccount().flow_spec("token").exit_ok_is_success is False
+
+    async def test_start_failure_never_leaves_a_stuck_flow(self, monkeypatch):
+        import pty as pty_mod
+
+        def boom():
+            raise OSError(24, "out of pty devices")
+
+        monkeypatch.setattr(pty_mod, "openpty", boom)
+        mgr = FlowManager()
+        flow = await mgr.start(fake_spec("hang", scan=_generic_scan, service="s", method="m", pty=True))
+        assert flow.status == "failed" and "out of pty devices" in flow.message
+        monkeypatch.undo()
+        again = await mgr.start(fake_spec("hang", scan=_generic_scan, service="s", method="other"))
+        assert again.status == "waiting"  # no 409 from the failed one
+        await mgr.shutdown()
+
+    async def test_on_close_runs_once(self):
+        calls = []
+        flow = LoginFlow(fake_spec("device", scan=_generic_scan, on_close=lambda: calls.append(1)))
+        await flow.start()
+        await flow.wait_done(5)
+        await flow.wait_closed()
+        await flow.cancel()
+        assert calls == [1]
+
+    async def test_codex_signout_never_touches_the_shared_home(self, tmp_path, monkeypatch):
+        dedicated = tmp_path / "dedicated"
+        shared = tmp_path / "shared"
+        shared.mkdir()
+        (shared / "auth.json").write_text('{"auth_mode":"chatgpt","tokens":{"refresh_token":"r"}}')
+        monkeypatch.delenv("ARCHIE_CODEX_HOME", raising=False)
+        monkeypatch.setenv("CODEX_HOME", str(shared))
+        monkeypatch.setattr(codex_acc.codex_home_mod, "dedicated_home", lambda: dedicated)
+        monkeypatch.setattr(codex_acc, "codex_cli", lambda: "/bin/true")
+        svc = codex_acc.CodexAccount()
+        st = await svc.status()
+        signout = next(m for m in st.methods if m.id == "signout")
+        assert st.state == "signed_in" and not signout.available and "borrowing" in signout.unavailable_reason
+        with pytest.raises(AccountError) as e:
+            await svc.sign_out()
+        assert e.value.status == 409
+        assert (shared / "auth.json").exists()
+
+    def test_redact_in_cli_errors(self):
+        assert "sk-ant-oa…" in redact("failed: token sk-ant-oat01-" + "x" * 40)

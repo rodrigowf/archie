@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
-from api.deps import get_auth
+from api.deps import get_accounts, get_auth
+from api.guard import require_trusted_origin
 from api.models import AuthStatusResponse, SetCredentialsRequest
 from manager.auth import AuthManager
 
@@ -26,13 +27,16 @@ async def auth_status(auth: AuthManager = Depends(get_auth)):
     )
 
 
-@router.post("/login", response_model=AuthStatusResponse)
-async def auth_login(auth: AuthManager = Depends(get_auth)):
-    """Trigger OAuth browser login flow.
+@router.post("/login", response_model=AuthStatusResponse, dependencies=[Depends(require_trusted_origin)])
+async def auth_login(auth: AuthManager = Depends(get_auth), accounts=Depends(get_accounts)):
+    """Legacy: run `claude setup-token` on the server (older clients).
 
-    This opens a browser on the server machine. For headless environments,
-    use /api/auth/credentials instead.
+    Current clients use the link sign-in (`POST /api/accounts/claude/login`), which works on a
+    headless server. Refused while such a sign-in is in progress (one Claude login at a time).
     """
+    flow = accounts.flows.get("claude")
+    if flow is not None and not flow.done:
+        raise HTTPException(status_code=409, detail="A Claude sign-in is already in progress (Settings → Accounts).")
     result = await auth.login()
     return AuthStatusResponse(
         authenticated=result,
@@ -41,7 +45,7 @@ async def auth_login(auth: AuthManager = Depends(get_auth)):
     )
 
 
-@router.post("/credentials", response_model=AuthStatusResponse)
+@router.post("/credentials", response_model=AuthStatusResponse, dependencies=[Depends(require_trusted_origin)])
 async def set_credentials(
     request: SetCredentialsRequest,
     auth: AuthManager = Depends(get_auth),
