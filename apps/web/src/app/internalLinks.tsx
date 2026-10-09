@@ -5,7 +5,7 @@
  * middle / ctrl-click still open a new tab.
  */
 import type { ReactNode } from 'react';
-import { InternalLinksProvider, memoryFileUrl, type InternalLinks, type InternalTarget } from '@/features/markdown';
+import { InternalLinksProvider, internalTargetUrl, type InternalLinks, type InternalTarget } from '@/features/links';
 import { vizHref, vizOrigin } from '@/features/visuals';
 import { httpUrl } from '@/services';
 import { catalogStore } from '@/stores';
@@ -45,7 +45,7 @@ const LINKS: InternalLinks = {
     isVisual: (path) => !!listed(path),
   },
   open: openInternalTarget,
-  hrefOf: (t) => (t.kind === 'memory' ? httpUrl(memoryFileUrl(t.path)) + (t.fragment ? `#${t.fragment}` : '') : vizHref(t.path, listed(t.path)?.url)),
+  hrefOf: (t) => (t.kind === 'memory' ? httpUrl(internalTargetUrl(t)) : vizHref(t.path, listed(t.path)?.url)),
 };
 
 export function InternalLinksHost({ children }: { children: ReactNode }) {

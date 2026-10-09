@@ -1,5 +1,5 @@
 {
-  "description": "Internal-link corpus (spec 12 §9.4 LNK-1…LNK-5). resolve(href, {origin, visuals}) must return `expect` (null = not internal). Default origin: https://192.168.0.200. Web: features/markdown/internalLinks.ts; Android: :core:markdown InternalLinks.kt.",
+  "description": "Internal-link corpus (spec 12 §9.4 LNK-1…LNK-5). resolve(href, {origin, visuals}) must return `expect` (null = not internal). Default origin: https://192.168.0.200. Web: features/links/internalLinks.ts; Android: :core:markdown InternalLinks.kt.",
   "origin": "https://192.168.0.200",
   "cases": [
     {

@@ -1700,7 +1700,7 @@ onContentFrame(f):                      // channel level, never the conversation
 In chat (agent sessions and Archie, including plans and tool output on the web) and in memory documents, a
 link to a visualization or a memory file opens the in-app view (`viz:<path>` / `memory:<path>`, the same
 navigation as the Visuals / Memory lists) instead of a browser tab. One resolver per platform
-(`apps/web/src/features/markdown/internalLinks.ts`, `:core:markdown` `InternalLinks.kt`), both checked against
+(`apps/web/src/features/links/internalLinks.ts`, `:core:markdown` `InternalLinks.kt`), both checked against
 the shared corpus `apps/protocol-fixtures/links/internal-links.json`. First match wins:
 
 - **LNK-1** Filesystem paths as agents print them: `context/public/<x>.html` → visual, `context/memory/<x>.md`

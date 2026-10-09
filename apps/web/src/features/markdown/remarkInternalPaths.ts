@@ -10,7 +10,7 @@
  * - Nothing inside an existing link, and never fenced code (only `inlineCode` / `text` nodes).
  */
 import type { Link, Parent, PhrasingContent, Root, RootContent } from 'mdast';
-import { findBarePaths, linkableCode, type InternalLinkContext } from './internalLinks';
+import { findBarePaths, linkableCode, type InternalLinkContext } from '@/features/links';
 
 function link(url: string, child: PhrasingContent): Link {
   return { type: 'link', url, title: null, children: [child] };

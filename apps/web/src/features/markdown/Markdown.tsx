@@ -8,7 +8,7 @@
  * - Links: external in a new tab with the `md-link` class; a `linkResolver` may take some
  *   links in-app (memory documents, `links.ts`). Under an `InternalLinksProvider`, links to a
  *   visualization or memory file open in the app and printed paths are auto-linked (spec 12 §9.4,
- *   `internalLinks.ts`); the explicit `linkResolver` is asked first.
+ *   `@/features/links`); the explicit `linkResolver` is asked first.
  * - Every fence becomes a <CodeBlock> (with or without a language). Tables scroll sideways.
  * - Memoized by props: a host must keep `linkResolver` stable (useMemo/useCallback).
  */
@@ -17,7 +17,8 @@ import { memo, useMemo, type MouseEvent } from 'react';
 import ReactMarkdown, { type Components, type Options } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CodeBlock } from './CodeBlock';
-import { chainResolvers, createInternalLinkResolver, useInternalLinks } from './internalLinksContext';
+import { useInternalLinks } from '@/features/links';
+import { chainResolvers, createInternalLinkResolver } from './internalLinksContext';
 import { EXTERNAL_LINK_PROPS, MD_LINK_CLASS, type LinkResolver } from './links';
 import { remarkInternalPaths } from './remarkInternalPaths';
 import styles from './Markdown.module.css';

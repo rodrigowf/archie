@@ -3,7 +3,7 @@ package com.assistant.core.markdown
 /**
  * Internal links (spec 12 §9.4, LNK-1…LNK-6): which links point at a visualization or a memory
  * file, so the host opens them in its own viewer instead of a Custom Tab. Pure; web twin
- * `apps/web/src/features/markdown/internalLinks.ts`, and both pass the shared corpus
+ * `apps/web/src/features/links/internalLinks.ts`, and both pass the shared corpus
  * `apps/protocol-fixtures/links/internal-links.json` (`InternalLinksTest`).
  *
  * - LNK-1 filesystem paths: `context/public/<x>.html` → visual, `context/memory/<x>.md` → memory

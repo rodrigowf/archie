@@ -5,7 +5,8 @@
  */
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { InternalLinksProvider, internalTargetUrl, Markdown, StreamingMarkdown, type InternalLinks } from '.';
+import { InternalLinksProvider, internalTargetUrl, type InternalLinks } from '@/features/links';
+import { Markdown, StreamingMarkdown } from '.';
 
 function links(open = vi.fn()): InternalLinks {
   return { context: { origin: 'https://192.168.0.200' }, open, hrefOf: (t) => `https://192.168.0.200${internalTargetUrl(t)}` };
