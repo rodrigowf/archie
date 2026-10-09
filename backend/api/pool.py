@@ -895,6 +895,12 @@ class SessionPool:
     def unwatch(self, ws: WebSocket) -> None:
         self._watchers.discard(ws)
 
+    async def notify_watchers(self, payload: dict[str, Any]) -> None:
+        """Push *payload* to every watcher socket (every orchestrator WS,
+        spec 12 §3.7). Used for pool-independent events such as the content
+        watcher's ``visualization_changed`` / ``memory_changed`` (§9.3)."""
+        await self._notify_watchers(payload)
+
     # ------------------------------------------------------------------
     # Sending messages (agent sessions, with lock + broadcast)
     # ------------------------------------------------------------------

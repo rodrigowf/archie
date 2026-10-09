@@ -1,6 +1,7 @@
 """Background indexers for memory and history.
 
-- MemoryWatcher: Watches memory folder, indexes on file changes
+- MemoryWatcher: Re-indexes memory when the content watcher (api/content_watcher.py)
+  reports markdown changes under the memory tree
 - HistoryIndexer: Periodically indexes conversation history (every 5 min if any session
   JSONL of any harness changed — context/*.jsonl, context/chats/*.jsonl, Codex rollouts).
   The run is incremental (index/history.sqlite3 keeps per-session state), so
@@ -14,7 +15,7 @@ import hashlib
 import logging
 from pathlib import Path
 
-from utils.paths import get_chats_dir, get_memory_dir, get_memory_link_targets, get_sessions_dir, get_project_dir
+from utils.paths import get_chats_dir, get_memory_dir, get_sessions_dir
 
 logger = logging.getLogger(__name__)
 
@@ -49,79 +50,56 @@ async def _run_index_script(project_dir: Path, *args: str) -> bool:
 
 
 class MemoryWatcher:
-    """Watches the memory folder and indexes on file changes.
+    """Re-indexes memory when markdown under the memory tree changes.
 
-    Uses watchfiles for efficient filesystem monitoring.
+    The file watching itself is :class:`api.content_watcher.ContentWatcher`'s
+    (one ``watchfiles`` loop for the memory tree and ``context/public/``, which
+    also pushes ``memory_changed`` to the clients); it calls :meth:`notify` for
+    every batch with markdown changes. Runs are single-flight: changes that
+    arrive while the index script runs trigger exactly one more run, so a burst
+    never queues a run per batch and the watcher is never blocked by indexing.
     """
 
-    def __init__(self, project_dir: Path, debounce_ms: int = 1000):
+    def __init__(self, project_dir: Path):
         self._project_dir = project_dir.resolve()
-        self._debounce_ms = debounce_ms
         self._running = True
-        # Eager Event so stop() before run() reaches awatch is race-free.
+        # Eager Events so notify()/stop() before run() are race-free.
         self._stop_event = asyncio.Event()
+        self._dirty = asyncio.Event()
 
     def _get_memory_dir(self) -> Path:
         """Get the memory directory (uses context/memory/ directly)."""
         return get_memory_dir()
 
+    def notify(self) -> None:
+        """Markdown changed: index once the current run (if any) finishes."""
+        self._dirty.set()
+
     async def run(self) -> None:
-        """Watch memory directory and index on changes."""
-        memory_dir = self._get_memory_dir()
-
-        if not memory_dir.exists():
-            logger.info(f"Memory directory not found: {memory_dir}")
-            # Wait for it to be created
-            while self._running and not memory_dir.exists():
-                await asyncio.sleep(5)
-            if not self._running:
-                return
-
-        logger.info(f"Memory watcher started: {memory_dir}")
-
+        """Index after each :meth:`notify` until :meth:`stop`."""
+        logger.info(f"Memory indexer started: {self._get_memory_dir()}")
+        stop = asyncio.ensure_future(self._stop_event.wait())
         try:
-            from watchfiles import awatch
-        except ImportError:
-            logger.error("watchfiles not installed, memory watcher disabled")
-            return
-
-        # awatch wraps a blocking Rust call in anyio.to_thread; that thread
-        # only honors stop_event, not asyncio cancellation. If we don't set
-        # the event in the cancel path, anyio's CancelScope retries
-        # cancellation forever and burns 100% CPU. Set it in finally so it
-        # fires for both CancelledError and any other exit.
-        # The memory tree links into docs/ (context/memory/archie); inotify doesn't follow the
-        # symlink, so watch the linked directories too.
-        watched = [memory_dir, *(d for d in get_memory_link_targets() if d.is_dir())]
-        try:
-            async for changes in awatch(
-                *watched,
-                debounce=self._debounce_ms,
-                stop_event=self._stop_event,
-            ):
-                if not self._running:
+            while self._running:
+                dirty = asyncio.ensure_future(self._dirty.wait())
+                await asyncio.wait({dirty, stop}, return_when=asyncio.FIRST_COMPLETED)
+                if not self._running or not self._dirty.is_set():
+                    dirty.cancel()
                     break
-
-                md_changes = [
-                    (change, path) for change, path in changes
-                    if path.endswith(".md")
-                ]
-
-                if md_changes:
-                    logger.info(f"Memory files changed: {len(md_changes)} file(s)")
+                self._dirty.clear()
+                try:
                     if await _run_index_script(self._project_dir, "--memory-only"):
                         logger.info("Memory indexed successfully")
-        except Exception as e:
-            if self._running:
-                logger.error(f"Memory watcher error: {e}")
+                except Exception as e:
+                    logger.error(f"Memory indexer error: {e}")
         finally:
-            self._stop_event.set()
+            stop.cancel()
 
     def stop(self) -> None:
-        """Signal the watcher to stop."""
+        """Signal the indexer to stop."""
         self._running = False
         self._stop_event.set()
-        logger.info("Memory watcher stopping")
+        logger.info("Memory indexer stopping")
 
 
 class HistoryIndexer:

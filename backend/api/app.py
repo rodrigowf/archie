@@ -9,10 +9,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from utils.paths import PROJECT_ROOT, is_within_memory
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 
 from manager.auth import AuthManager
 from manager.config import ManagerConfig
@@ -20,6 +20,7 @@ from manager.loop_watchdog import start_loop_watchdog
 from manager.store import SessionStore
 
 from .connections import ConnectionManager
+from .content_watcher import ContentWatcher
 from .indexer import HistoryIndexer, MemoryWatcher
 from .pool import SessionPool
 from .routes import agents, auth, browser, chat, config, debug, mcp, memory, orchestrator, sessions, skills, uploads, visualizations, voice
@@ -66,6 +67,13 @@ async def lifespan(app: FastAPI):
     memory_watcher = MemoryWatcher(project_path)
     memory_task = asyncio.create_task(memory_watcher.run())
     app.state.memory_watcher = memory_watcher
+
+    # One watcher over context/public/ and the memory tree: pushes
+    # visualization_changed / memory_changed to every orchestrator socket
+    # (spec 12 §9.3) and wakes the memory indexer on markdown changes.
+    content_watcher = ContentWatcher(app.state.pool.notify_watchers, on_memory_markdown=memory_watcher.notify)
+    content_task = asyncio.create_task(content_watcher.run())
+    app.state.content_watcher = content_watcher
 
     history_indexer = HistoryIndexer(project_path, interval_seconds=300)
     history_task = asyncio.create_task(history_indexer.run())
@@ -130,17 +138,35 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Error shutting down search server")
 
+        content_watcher.stop()
         memory_watcher.stop()
         history_indexer.stop()
+        content_task.cancel()
         memory_task.cancel()
         history_task.cancel()
         prewarm_task.cancel()
         search_prewarm_task.cancel()
-        for task in [memory_task, history_task, prewarm_task, search_prewarm_task]:
+        for task in [content_task, memory_task, history_task, prewarm_task, search_prewarm_task]:
             try:
                 await task
             except asyncio.CancelledError:
                 pass
+
+
+def revalidated_file(request: Request, path: Path) -> Response:
+    """A file that changes in place (visualizations, memory files: spec 12 §9.3).
+
+    ``no-cache`` makes the browser revalidate on every load, so a reloaded
+    visualization never comes from a heuristic cache; an unchanged file costs
+    a 304 (Starlette's ``FileResponse`` sets the ETag but never answers
+    ``If-None-Match`` itself).
+    """
+    headers = {"Cache-Control": "no-cache"}
+    response = FileResponse(path, stat_result=path.stat(), headers=headers)
+    etag = response.headers.get("etag")
+    if etag and etag in request.headers.get("if-none-match", ""):
+        return Response(status_code=304, headers={**headers, "ETag": etag})
+    return response
 
 
 def _spa_dirs() -> list[tuple[str, Path]]:
@@ -325,13 +351,13 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404)
 
         @app.get("/memory/{full_path:path}")
-        async def serve_memory(full_path: str):
+        async def serve_memory(full_path: str, request: Request):
             if not full_path:
                 raise HTTPException(status_code=404)
             candidate = context_memory / full_path
             # Symlinks may point into docs/ (context/memory/archie), never elsewhere.
             if is_within_memory(candidate, context_memory) and candidate.is_file():
-                return FileResponse(candidate.resolve())
+                return revalidated_file(request, candidate.resolve())
             # Directory listing not supported — return 404. Use the index
             # at /memory/ or fetch specific files.
             raise HTTPException(status_code=404)
@@ -347,17 +373,22 @@ def create_app() -> FastAPI:
             return FileResponse(frontend_dist / "index.html", headers=_no_cache)
 
         @app.get("/{full_path:path}")
-        async def serve_spa(full_path: str):
+        async def serve_spa(full_path: str, request: Request):
             # 1) Check context/public/ first — runtime-served public files
             #    (visualizations, photo-server, downloads, etc.) without rebuild.
+            #    They change in place (live visualizations), so they revalidate.
             if context_public_resolved is not None and full_path:
                 candidate = (context_public / full_path).resolve()
                 # Path traversal guard: candidate must stay under context/public/.
-                if (
-                    candidate.is_relative_to(context_public_resolved)
-                    and candidate.is_file()
-                ):
-                    return FileResponse(candidate)
+                if candidate.is_relative_to(context_public_resolved):
+                    if candidate.is_file():
+                        return revalidated_file(request, candidate)
+                    # A folder visualization: /<dir>/ serves its index.html;
+                    # /<dir> redirects first so its relative asset URLs resolve.
+                    if candidate.is_dir() and (candidate / "index.html").is_file():
+                        if full_path.endswith("/"):
+                            return revalidated_file(request, candidate / "index.html")
+                        return RedirectResponse(f"/{full_path}/", status_code=307)
 
             # 2) Then check the built frontend dist for static assets.
             file_path = frontend_dist / full_path
