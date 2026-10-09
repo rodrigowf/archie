@@ -19,6 +19,8 @@ export interface Prefs {
   readonly lastRailDestination: RailDestination;
   readonly remoteLogging: boolean;
   readonly toolStepGrouping: boolean;
+  /** System notification when an agent session finishes a turn (needs the browser's permission). */
+  readonly notifyAgentTurns: boolean;
 }
 
 export const PREFS_STORAGE_KEY = 'prefs:v1';
@@ -32,6 +34,7 @@ export const DEFAULT_PREFS: Prefs = {
   lastRailDestination: 'chats',
   remoteLogging: false,
   toolStepGrouping: true,
+  notifyAgentTurns: false,
 };
 
 const THEMES: readonly ThemePref[] = ['system', 'dark', 'light'];
@@ -61,6 +64,7 @@ export function sanitizePrefs(raw: unknown): Prefs {
     lastRailDestination: pick('lastRailDestination', RAIL),
     remoteLogging: remoteLoggingNow(),
     toolStepGrouping: bool('toolStepGrouping'),
+    notifyAgentTurns: bool('notifyAgentTurns'),
   };
 }
 

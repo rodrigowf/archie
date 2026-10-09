@@ -13,8 +13,17 @@
  *   frames come back as `watcher` effects, and WATCH-1 applies to the conversation itself).
  * - `orchestrator_switch` (§6.11a SW-1) never goes to the attached conversation: it arrives after
  *   WATCH-1 already stopped that view, so the channel hands it to `onSwitch` attached or not.
+ * - `agent_turn_started/finished` (§3.7, device notifications) are app-level too: `onTurn`,
+ *   attached or not.
  */
-import type { AgentSessionClosedFrame, AgentSessionOpenedFrame, OrchestratorSwitchFrame, ServerFrame } from '@/protocol';
+import type {
+  AgentSessionClosedFrame,
+  AgentSessionOpenedFrame,
+  AgentTurnFinishedFrame,
+  AgentTurnStartedFrame,
+  OrchestratorSwitchFrame,
+  ServerFrame,
+} from '@/protocol';
 import { Reconnector, type ReconnectPolicy } from '../ws/reconnect';
 import { ArchieSocket, ORCHESTRATOR_WS_PATH } from '../ws/socket';
 
@@ -28,6 +37,7 @@ export interface ChannelClient {
 }
 
 export type WatcherFrame = AgentSessionOpenedFrame | AgentSessionClosedFrame;
+export type AgentTurnFrame = AgentTurnStartedFrame | AgentTurnFinishedFrame;
 
 export class OrchestratorChannel {
   private readonly socket: ArchieSocket;
@@ -39,6 +49,7 @@ export class OrchestratorChannel {
     private readonly onWatcher: (frame: WatcherFrame) => void,
     policy?: ReconnectPolicy,
     private readonly onSwitch: (frame: OrchestratorSwitchFrame) => void = () => undefined,
+    private readonly onTurn: (frame: AgentTurnFrame) => void = () => undefined,
   ) {
     this.socket = new ArchieSocket(ORCHESTRATOR_WS_PATH, {
       onOpen: () => {
@@ -104,6 +115,10 @@ export class OrchestratorChannel {
     if (f.type === 'ping') return; // T-4: server pings are ignored
     if (f.type === 'orchestrator_switch') {
       this.onSwitch(f); // SW-1: socket level, attached or not
+      return;
+    }
+    if (f.type === 'agent_turn_started' || f.type === 'agent_turn_finished') {
+      this.onTurn(f); // device notifications: app level, attached or not
       return;
     }
     if (this.client) {

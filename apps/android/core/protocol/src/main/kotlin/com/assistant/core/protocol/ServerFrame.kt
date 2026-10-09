@@ -266,6 +266,45 @@ sealed interface ServerFrame {
     ) : ServerFrame { override val type get() = "agent_session_closed" }
 
     /**
+     * Turn watcher event (spec 12 §3.7): an agent session (any harness, never the orchestrator)
+     * started a turn, from any device or delegated by the orchestrator. Pool watchers only (every
+     * orchestrator WS); handled at the app level (device notifications), never by a reducer.
+     */
+    data class AgentTurnStarted(
+        /** `localId`. */
+        val sessionId: String?,
+        val sdkSessionId: String? = null,
+        val provider: String? = null,
+        override val seq: Long? = null,
+        override val streamId: String? = null,
+    ) : ServerFrame { override val type get() = "agent_turn_started" }
+
+    /** The matching end of [AgentTurnStarted]: [status] `ok` | `error` | `interrupted` (a Stop: never notified). */
+    data class AgentTurnFinished(
+        /** `localId`. */
+        val sessionId: String?,
+        val sdkSessionId: String? = null,
+        val provider: String? = null,
+        /** The session's title when the server knows it. */
+        val title: String? = null,
+        val status: String = STATUS_OK,
+        /** One line of the turn's final assistant text (≤ 200 chars). */
+        val preview: String? = null,
+        /** Failure detail when [status] is `error`. */
+        val error: String? = null,
+        override val seq: Long? = null,
+        override val streamId: String? = null,
+    ) : ServerFrame {
+        override val type get() = "agent_turn_finished"
+
+        companion object {
+            const val STATUS_OK = "ok"
+            const val STATUS_ERROR = "error"
+            const val STATUS_INTERRUPTED = "interrupted"
+        }
+    }
+
+    /**
      * Spec 12 §6.11a: the orchestrator's `switch_conversation` stopped the live orchestrator
      * ([fromSessionId], its old `localId`) and asks THIS socket to resume [sdkSessionId] (a past
      * orchestrator jsonl id) and, when [voice], to start voice on it. Sent to one socket only;

@@ -214,6 +214,37 @@ export interface AgentSessionClosedFrame extends Sequenced {
 }
 
 /**
+ * §3.7 turn watcher events: an agent session (any harness, never the orchestrator) started or
+ * ended a turn, from any device or delegated by the orchestrator. Pool watchers only (every
+ * orchestrator socket); handled at the channel level (device notifications), never by a reducer.
+ */
+export interface AgentTurnStartedFrame extends Sequenced {
+  type: 'agent_turn_started';
+  /** The agent's `localId`. */
+  session_id: string;
+  sdk_session_id?: string | null;
+  provider?: string | null;
+}
+
+export type AgentTurnStatus = 'ok' | 'error' | 'interrupted';
+
+export interface AgentTurnFinishedFrame extends Sequenced {
+  type: 'agent_turn_finished';
+  /** The agent's `localId`. */
+  session_id: string;
+  sdk_session_id?: string | null;
+  provider?: string | null;
+  /** The session's title when the server knows it (custom title or first prompt). */
+  title?: string | null;
+  /** `interrupted` = stopped by someone: no notification. Unknown values read as `ok`. */
+  status: string;
+  /** One line from the turn's final assistant text (≤ 200 chars). */
+  preview?: string | null;
+  /** Failure detail when `status == "error"`. */
+  error?: string | null;
+}
+
+/**
  * §6.11a: the orchestrator's `switch_conversation` tool moved the user into a past orchestrator
  * conversation. Sent to ONE socket (the voice owner, else the last text sender) after the server
  * ended voice and stopped the old orchestrator; handled at the channel level (SW-1).
@@ -313,6 +344,8 @@ export type ServerFrame =
   | AgentSessionOpenedFrame
   | AgentSessionClosedFrame
   | OrchestratorSwitchFrame
+  | AgentTurnStartedFrame
+  | AgentTurnFinishedFrame
   | AudioUploadFrame
   | PingFrame
   | VoiceEventFrame

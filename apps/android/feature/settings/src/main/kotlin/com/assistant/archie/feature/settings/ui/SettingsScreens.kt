@@ -40,6 +40,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.assistant.archie.feature.settings.AppPermission
 import com.assistant.archie.feature.settings.Format
+import com.assistant.archie.feature.settings.NotifyLogic
 import com.assistant.archie.feature.settings.McpLogic
 import com.assistant.archie.feature.settings.ModelLogic
 import com.assistant.archie.feature.settings.SettingsFeature
@@ -67,6 +68,7 @@ enum class SettingsPageKey(val title: String, val group: Group) {
     AUDIO("Audio", Group.DEVICE),
     WAKE_WORD("Wake word & triggers", Group.DEVICE),
     APPEARANCE("Appearance", Group.DEVICE),
+    NOTIFICATIONS("Notifications", Group.DEVICE),
     PERMISSIONS("Permissions", Group.DEVICE),
     CONVERSATION_MODEL("Conversation model", Group.SERVER),
     VOICE("Voice", Group.SERVER),
@@ -89,6 +91,7 @@ enum class SettingsPageKey(val title: String, val group: Group) {
             AUDIO -> ArchieIcons.VolumeUp
             WAKE_WORD -> ArchieIcons.Hearing
             APPEARANCE -> ArchieIcons.Palette
+            NOTIFICATIONS -> SettingsIcons.Notifications
             PERMISSIONS -> ArchieIcons.Shield
             CONVERSATION_MODEL -> ArchieIcons.Forum
             VOICE -> ArchieIcons.RecordVoiceOver
@@ -178,6 +181,7 @@ internal fun SettingsPage(feature: SettingsFeature, page: SettingsPageKey, onBac
         SettingsPageKey.AUDIO -> AudioPage(feature, onBack)
         SettingsPageKey.WAKE_WORD -> WakeWordPage(feature, onBack, open)
         SettingsPageKey.APPEARANCE -> AppearancePage(feature, onBack)
+        SettingsPageKey.NOTIFICATIONS -> NotificationsPage(feature, onBack, open)
         SettingsPageKey.PERMISSIONS -> PermissionsPage(feature, onBack, open)
         SettingsPageKey.BACKGROUND -> BackgroundReliabilityPage(feature, onBack)
         SettingsPageKey.CONVERSATION_MODEL -> ConversationModelPage(feature, onBack)
@@ -244,6 +248,8 @@ internal fun SettingsHomeList(feature: SettingsFeature, onBack: (() -> Unit)?, s
             if (perms.defaultAssistant == true) "assist gesture" else null,
         ).joinToString(" · ")
         summaries[SettingsPageKey.APPEARANCE] = "${themeLabel(s.themeMode)} · ${appearance.textSize.summary}"
+        summaries[SettingsPageKey.NOTIFICATIONS] =
+            NotifyLogic.summary(s.notifyAgentTurns, perms.granted(AppPermission.NOTIFICATIONS), perms.notificationsEnabled)
     }
     summaries[SettingsPageKey.PERMISSIONS] = perms.summary
     val cfg = server.config.value

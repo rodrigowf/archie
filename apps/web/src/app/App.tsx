@@ -11,6 +11,7 @@ import { usePrefs } from '@/stores';
 import { applyTheme } from '@/styles';
 import { AppShell } from './AppShell';
 import { installHashSync } from './navigation/route';
+import { installTurnNotifications } from './notifications/turnNotifier';
 import { AuthGate } from './slots';
 
 export interface AppProps {
@@ -27,6 +28,8 @@ export function App({ services = true }: AppProps) {
   useEffect(() => {
     if (services) startServices(); // also loads the session and visuals lists (titles)
   }, [services]);
+  // "Agent session finished" notices (Settings → Notifications) and their clicks
+  useEffect(() => (services ? installTurnNotifications() : undefined), [services]);
   return (
     <AuthGate>
       <AppShell />

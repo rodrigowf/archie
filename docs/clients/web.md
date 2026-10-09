@@ -3,7 +3,7 @@ name: web
 category: archie/clients
 tags: [web, react, vite, zustand, safari-12, ipad, compat-build, remote-console, low-end, deploy]
 created: 2026-04-14
-modified: 2026-10-07
+modified: 2026-10-09
 summary: apps/web — React 18 + Vite web client; one source tree, main build at / and Safari 12 build at /compat/.
 source: curated (consolidated from memory notes assistant/devices/frontend-compat.md, assistant/infrastructure/repo_layout_cutover_2026_10.md, assistant/infrastructure/features_and_integrations_summary.md §3–4, auto-memory feedback_always_build_both_frontends.md, feedback_stale_web_build_voice_symptom.md, project_frontend_refactor_2026_10_03.md; verified against code 2026-10-06)
 references:
@@ -200,6 +200,29 @@ build**, and whenever the device pref "Reduce motion" is set. Effects: no CSS an
 transitions (also under `prefers-reduced-motion`), no backdrop blur, stream flushes to React
 every 100 ms instead of every frame, 80 instead of 200 mounted messages per panel, deferred
 highlighting skipped for blocks over 8 KB, 10 fps meters. Details: spec 13 §2.7.
+
+## Notifications ("agent session finished")
+
+Settings → This device → Notifications → "Agent session finished" (pref `notifyAgentTurns`,
+off by default) posts a system notification when any agent session finishes a turn (spec 12
+TURN-1/TURN-2): the orchestrator socket delivers `agent_turn_finished`, `OrchestratorChannel`
+hands it to `onAgentTurn` (services), and `src/app/notifications/turnNotifier.ts` decides
+(`turnNotices.ts`: switch, permission, Stop, "looking at it" = page visible + focused + workspace
+on top + that tab active) and posts through `src/platform/notifications.ts`.
+
+- **Permission** is asked from the switch's click (`Notification.requestPermission`, callback
+  form too). The page shows the browser's state; no Notification API (iOS 12 Safari, the compat
+  build's target) or an http origin ("Needs HTTPS") disables the switch with a note.
+- **Posting**: the main build's service worker (`public-main/sw.js`, `registration.showNotification`)
+  first, the only path on Android Chrome; otherwise `new Notification`. Tag `archie-turn:<localId>`
+  replaces the previous one for that session.
+- **Click**: the SW focuses an open Archie page and posts `archie:notification-click`; with no page
+  left it opens `/?open_session=<localId>&open_sdk=<sdkId>`, read once at startup. Either way
+  `openFromNotification` (shell actions) focuses that session (a user action, FOCUS-1).
+- **Limits**: delivery needs the page open (a background tab works while the browser keeps it
+  alive; a closed tab or a frozen mobile tab gets nothing, there is no push server).
+- **Checking it**: every decision logs `[notify] posted|suppressed <localId> status=… reason=…`
+  (also in `remote_console.log` when remote logging is on); the page has "Send a test notification".
 
 ## Remote console logging
 

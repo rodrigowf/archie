@@ -187,6 +187,9 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
     @Volatile private var switchHold = false
     private var switchHoldJob: Job? = null
 
+    /** Main app: agent work this device will notify about is in flight ([setAgentWorkHold]). */
+    @Volatile private var agentWorkHold = false
+
     private val orchestratorContext = object : OrchestratorContext {
         override val isOrchestratorSession: Boolean get() = true
         override val localId: String get() = channel.state.value.orchestrator?.localId ?: pendingNewLocalId.orEmpty()
@@ -468,13 +471,31 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
         }
     }
 
-    /** Whether the FGS should run (spec 14 §2.5): always (lite) or wake / voice / "stay connected" (main). */
+    /**
+     * Whether the FGS should run (spec 14 §2.5): always (lite) or wake / voice / "stay connected" /
+     * agent work being watched for a notification (main).
+     */
     fun serviceWanted(): Boolean {
         if (deps.config.serviceRunsAlways) return true
+        if (agentWorkHold) return true
         val s = settingsFlow.value ?: return false
         val p = session.state.value.phase
         val voiceLive = p != SessionPhase.OFF && p != SessionPhase.ERROR
         return s.enableWakeWord || voiceLive || switchHold || s.stayConnectedInBackground
+    }
+
+    /**
+     * Main app (Settings → Notifications → "Agent session finished" on, an agent turn running): keep
+     * the service, and with it the process and the orchestrator socket, until the turn ends, so the
+     * "finished" notification still arrives with the phone in a pocket. Like every other reason the
+     * service only *starts* from a foreground context (Android 12+), so this works for turns that are
+     * running while the app is in front or brought to front; the hold drops with the last turn.
+     */
+    fun setAgentWorkHold(active: Boolean) {
+        if (agentWorkHold == active) return
+        agentWorkHold = active
+        log.d(TAG, "agent work hold ${if (active) "on" else "off"}")
+        if (active) ensureServiceIfForeground() else if (!serviceWanted()) deps.service.stop()
     }
 
     /** The last applied settings (null until loaded). */

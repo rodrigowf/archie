@@ -3,7 +3,7 @@ name: android
 category: archie/clients
 tags: [android, kotlin, compose, navigation3, views, app-main, app-lite, a300m, poco, gradle, adb, signing, vosk]
 created: 2026-04-14
-modified: 2026-10-08
+modified: 2026-10-09
 summary: apps/android — Gradle multi-module project with the main app (com.assistant.archie) and the A300M lite app (com.assistant.peripheral).
 source: curated (consolidated from memory notes assistant/android/android_peripheral_project.md, assistant/infrastructure/repo_layout_cutover_2026_10.md, assistant/devices/peripheral_devices.md, auto-memory feedback_android_ws_keepalive_silent_drop.md, feedback_use_adb_input_for_device_tests.md, feedback_hands_on_checks_over_suites.md, feedback_run_test_before_speculating.md, project_frontend_refactor_2026_10_03.md; verified against code 2026-10-06)
 references:
@@ -187,6 +187,26 @@ request.
 | Model packaging | `androidResources.noCompress += "vosk-model-small-en-us-0.15"` must be set in `app-lite/build.gradle.kts` itself — the library module's setting does not reach the APK |
 | 16 KB pages | Not relevant on the 32-bit A300M. For the main app, WebRTC 1.1.1 and Vosk 0.3.47 are still 4 KB-aligned (the POCO uses 4 KB pages); newer versions are aligned but need a voice retest |
 
+## Agent notifications (main app)
+
+Settings → This device → Notifications → "Agent session finished" (DataStore
+`notify_agent_turns`, off by default; turning it on asks for POST_NOTIFICATIONS through the
+usual rationale) posts a notification on the "Agent sessions" channel when any agent session
+finishes a turn (spec 12 TURN-1/TURN-2). `app-main/.../system/TurnNotifier.kt` holds the decision
+(`TurnAttention`: switch, Stop, "looking at it" = the approvals' `lookingAtFrom`), the notifier and
+`SystemTurnSink`; the graph feeds it `orchestrator.frames`. A tap reuses the approval tap path
+(`EXTRA_OPEN_AGENT`, plus `EXTRA_OPEN_AGENT_SDK` to reopen a session that left the pool).
+
+**Background delivery.** Frames only arrive while the process runs and is not frozen.
+`AgentWork` tracks in-flight agent turns (`agent_turn_started/finished`, reconciled with
+`pool/live`); while the switch is on and one is in flight, the graph holds the voice host's
+foreground service (`VoiceHostRuntime.setAgentWorkHold`, the "Archie · Connected" notification),
+released with the last turn. Android 12+ only starts that service from the foreground, so the hold
+covers a turn that was running while Archie was open (send, pocket the phone). A turn started on
+another device while Archie sat in the background reaches the phone only with "Stay connected in
+background", the wake word or a live voice call (all of which run the same service). No push
+server is involved.
+
 ## Debugging
 
 Order of operations: **build → install → drive the real app on the device → only then the
@@ -210,7 +230,8 @@ adb -s 06e4f224 logcat -v time LiteMain:* LiteGraph:* ArchieLite:* AssistantServ
 ```
 
 Tags by module: `app-main` `ArchieVoice`, `ArchieVIS`, `ArchieTile`, `ArchieShare`,
-`ArchieApprovals`, network `Archie/ws`, `Archie/orch`; `app-lite` `LiteMain`, `LiteGraph`,
+`ArchieApprovals`, `ArchieNotify` ("agent session finished" notifications: `posted` /
+`suppressed … reason=` / `cleared` / `background hold on|off`), network `Archie/ws`, `Archie/orch`; `app-lite` `LiteMain`, `LiteGraph`,
 `ArchieLite`, `AssistantVIS`; `core/voice-host` `AssistantService`, `VoiceHost`,
 `TriggerRouter`, `PushToTalk`, `VoiceCues`, `ButtonAccessibility`; `core/wakeword`
 `WakeWordDetector`, `VoskRecogEngine`, `VoskModelLoader`, `WhisperConfirmer`,

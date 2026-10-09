@@ -3,7 +3,7 @@ name: agent-sessions
 category: archie/architecture
 tags: [agent-sessions, session-pool, session-manager, claude-agent-sdk, local-id, lifecycle, permissions, stall-watchdog, session-config, resume]
 created: 2026-02-23
-modified: 2026-10-07
+modified: 2026-10-09
 summary: How agent (chat) sessions run — SessionPool, session managers, dual IDs, lifecycle hardening, permissions, stall watchdog, per-session config.
 source: curated (consolidated from memory notes assistant/architecture/project-overview.md, assistant/architecture/permissions_branch_architecture.md, assistant/architecture/orchestrator-vision.md, auto-memory project_session_config.md, project_sdk_upgrade_path_2026_06_18.md, feedback_diagnose_via_direct_ws_probe.md; verified against code 2026-10-06)
 references:
@@ -63,7 +63,7 @@ stable `local_id` removed the re-keying.
 State per agent session, all keyed by `local_id`: `_sessions` (the manager), `_subscribers` (set of
 WebSockets), `_locks` (one `asyncio.Lock` serializing `send()`), `_turn_tasks` (the in-flight turn),
 `_pending_prompts` + `_pending_locks` (queued messages). Plus `_watchers` (sockets that get
-`agent_session_opened` / `agent_session_closed`), the single orchestrator slot (`_orchestrator`,
+`agent_session_opened` / `agent_session_closed` and `agent_turn_started` / `agent_turn_finished`), the single orchestrator slot (`_orchestrator`,
 `_orchestrator_id`, `_orchestrator_subs`), and PID tracking for the orphan reaper.
 
 - **`create()`** — dedupes on `resume_sdk_id` (returns the existing `local_id` if that session is
@@ -74,7 +74,13 @@ WebSockets), `_locks` (one `asyncio.Lock` serializing `send()`), `_turn_tasks` (
 - **`send()`** — under the per-session lock: broadcast `user_message` (except to the sender) and
   `status: processing`, iterate `sm.send()`, broadcast each serialized event with `seq`/`stream_id`
   attached, and mirror `permission_request` / `permission_resolved` to the orchestrator as
-  `nested_session_event`.
+  `nested_session_event`. It is also the single emission point of the turn watcher events
+  (spec 12 TURN-1) behind the "agent session finished" device notifications: `agent_turn_started`
+  first, then exactly one `agent_turn_finished{status: ok|error|interrupted, title, preview, error}`
+  (fire-and-forget task; the title comes from `SessionStore.session_title` in a thread).
+  `interrupt()` marks the turn so the SDK's closing `TurnComplete` reads as `interrupted`; an
+  abandoned turn is announced by whoever gives up (`_drive_turn`, the runner), and the runner's
+  timeout adds an `error`.
 - **Session-owned turns** — the chat WS never drives a turn itself. `send_or_queue()` spawns
   `_drive_turn()` as a pool-owned task if the session is idle, or queues the prompt (broadcast as
   `user_message` with `queued: true`) behind the running turn; `_drive_turn` drains the queue after

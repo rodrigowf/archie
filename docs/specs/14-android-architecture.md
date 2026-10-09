@@ -509,7 +509,12 @@ interface TranscriptSink { fun userTranscript(t: String, final: Boolean); fun as
 | `AgentSocketPool` | process | agent sockets | `ConversationRepository` |
 
 **When the service runs (main app):** whenever wake word is enabled, **or** a voice session is active, **or** the
-optional "Stay connected in background" setting is on (needed for permission-request notifications, §2.7). Otherwise
+optional "Stay connected in background" setting is on (needed for permission-request notifications, §2.7), **or**
+"Agent session finished" notifications are on and an agent turn is in flight (`VoiceHostRuntime.setAgentWorkHold`,
+driven by `AgentWork` in `app-main/system/TurnNotifier.kt` from the `agent_turn_started/finished` watcher frames,
+spec 12 TURN-1). That last hold lets a turn started while the app was open notify with the phone in a pocket; like
+every reason it only *starts* the service from a foreground context, so turns started elsewhere while the app sits in
+the background need "Stay connected". Otherwise
 the service stops itself, and the runtime keeps the socket only while the UI is started
 (`ProcessLifecycleOwner` ON_START/ON_STOP). The runtime disconnects 60 s after ON_STOP when the service is not
 running.
@@ -543,6 +548,7 @@ renders the new state. This is inv04 §8 design rule 3. Re-validating the timing
 | `voice` | DEFAULT, silent, ongoing, chronometer | a voice session is active (owner) | "Archie · Listening/Speaking/Thinking/Using tools" | **Mute/Unmute**, **End** (direct `PendingIntent.getService` to the running service; allowed because the service is already in the foreground) |
 | `attention` | HIGH | only while the app is not visible: an agent `permission_request` (e.g. `ExitPlanMode`), `session_stalled` for >2 min, `session_terminated` | Session title + one line | **Approve**, **Reject** (with `RemoteInput` "Reply with feedback" → deny with reason, the web's semantics, inv02 F-14), **Open** |
 | `background` | LOW | `BackgroundRestricted` | "Archie can't listen in the background" | **Fix** → `BackgroundReliabilityPage` |
+| `agent_turns` ("Agent sessions") | DEFAULT | an agent turn finished (`agent_turn_finished`, spec 12 TURN-2), Settings → Notifications on, the user not looking at that session | Session title + the reply's first line, or "Failed: …"; id 1004, tag `turn:<localId>` (one per session, replaced) | tap → focus that session (`EXTRA_OPEN_AGENT` + `EXTRA_OPEN_AGENT_SDK`); cleared when the session is opened |
 
 The FGS notification id is 1001 (inv04 §4.5). The `host` and `voice` notifications are the same notification id
 updated in place, so only one ongoing notification is shown.
@@ -566,7 +572,7 @@ updated in place, so only one ongoing notification is shown.
 | Permission | Asked when | Denied state shown |
 |---|---|---|
 | `RECORD_AUDIO` | first tap on Voice, PTT or wake-word enable, with a one-screen rationale | The voice dock shows "Microphone permission needed · Grant". Wake-word rows are disabled with the reason. Permanently denied → "Open app settings" (`ACTION_APPLICATION_DETAILS_SETTINGS`). |
-| `POST_NOTIFICATIONS` (33+) | when wake word or "Stay connected" is enabled | A card on Settings → This device. Without it the FGS still runs, but its notification is hidden. |
+| `POST_NOTIFICATIONS` (33+) | when wake word, "Stay connected" or "Agent session finished" is enabled | A card on Settings → This device. Without it the FGS still runs, but its notification is hidden. |
 | `BLUETOOTH_CONNECT` (31+) | when the user picks the BT output | The BT output option is disabled with "Allow Nearby devices". A `SecurityException` is caught (inv04 RS-28). |
 | Battery / autostart | from `BackgroundReliabilityPage` | §2.6 |
 | Full-screen intent (34+) | when "Show over lock screen on wake" is enabled | §2.6 |

@@ -24,10 +24,13 @@ import com.assistant.archie.graph.MainAppGraph
 import com.assistant.archie.system.ShellCommand
 import com.assistant.archie.system.SystemApprovalSink
 import com.assistant.archie.system.SystemIntents
+import com.assistant.archie.system.SystemTurnSink
 import com.assistant.archie.system.SystemOverlays
 import com.assistant.archie.system.applyAppNightMode
 import com.assistant.core.data.ConversationEvent
 import com.assistant.core.data.SharePayload
+import com.assistant.core.model.SessionKind
+import com.assistant.core.model.SessionRef
 import com.assistant.core.design.theme.ArchieTheme
 import com.assistant.archie.feature.settings.ui.AuthGate
 import com.assistant.archie.feature.settings.ui.ProvideTextSize
@@ -64,10 +67,12 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIntent(intent: Intent?) {
         ShellIntents.parseShare(intent)?.let { graph.share.offer(it) }
-        // OI-6: a tap on an approval notification focuses that agent session.
+        // OI-6: a tap on an approval or "agent finished" notification focuses that agent session.
         intent?.getStringExtra(SystemApprovalSink.EXTRA_OPEN_AGENT)?.let { localId ->
+            val sdkId = intent.getStringExtra(SystemTurnSink.EXTRA_OPEN_AGENT_SDK)
             intent.removeExtra(SystemApprovalSink.EXTRA_OPEN_AGENT)
-            graph.approvals.requestOpen(localId)
+            intent.removeExtra(SystemTurnSink.EXTRA_OPEN_AGENT_SDK)
+            graph.approvals.requestOpen(localId, sdkId)
         }
         // B-09: launcher shortcuts, and a voice start deferred until the mic is allowed (tile /
         // assist / shortcut without RECORD_AUDIO land here; spec 14 §2.8-§2.9).
@@ -99,9 +104,12 @@ fun ArchieApp(graph: MainAppGraph) {
     }
     val openRequest by graph.approvals.openRequest.collectAsStateWithLifecycle()
     LaunchedEffect(openRequest) {
-        val localId = graph.approvals.takeOpenRequest() ?: return@LaunchedEffect
+        val req = graph.approvals.takeOpenRequest() ?: return@LaunchedEffect
         while (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
-        graph.openSessions.openAgentByLocalId(localId)
+        if (!graph.openSessions.openAgentByLocalId(req.localId) && req.sdkId != null) {
+            // It left the pool (closed, backend restart): reopen it from history (`start{resume_sdk_id}`).
+            graph.openSessions.openRef(SessionRef(req.localId, req.sdkId, SessionKind.AGENT, provider = null))
+        }
     }
     // §6.11a: Archie switched to a past conversation at the user's request; the Archie view is
     // focused by OpenSessionsRepository, and a screen on top of the workspace (Settings, …) goes.
