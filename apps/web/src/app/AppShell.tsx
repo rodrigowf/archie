@@ -125,7 +125,7 @@ export function AppShell() {
       {wc === 'medium' ? <ListPaneOverlay /> : false}
       {wc === 'compact' ? <AppDrawer /> : false}
       <ScreenLayer wc={wc} screens={screens} />
-      <VoiceOverlayHost wc={wc} covered={covered} workspaceRef={workspaceRef} />
+      <VoiceOverlayHost wc={wc} covered={covered} screenKey={screens.map((s) => s.key).join(',')} workspaceRef={workspaceRef} />
       {wc === 'compact' ? <SessionSwitcherSheet /> : false}
       <ShellDialogs />
       <AppSnackbars />

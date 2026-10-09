@@ -7,7 +7,7 @@
 import { act, fireEvent, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openSession, startServices } from '@/services';
-import { activateTab, setFrameScheduler, tabsStore } from '@/stores';
+import { activateTab, prefsStore, setFrameScheduler, tabsStore } from '@/stores';
 import { renderUi } from '@/test/render';
 import { getVoiceController } from '@/voice';
 import { App } from '../App';
@@ -64,7 +64,7 @@ describe('VoiceOverlayHost', () => {
     teardownApp();
   });
 
-  it('floats over another tab and over screens, never on the Archie view; its state text goes back to Archie', () => {
+  it('floats over another tab and over screens, never on the Archie view; its state text goes back to Archie', async () => {
     liveArchie();
     openSession({ kind: 'agent', localId: 'A1', focus: false, titleHint: 'Agent' });
     renderUi(<App services={false} />);
@@ -80,8 +80,9 @@ describe('VoiceOverlayHost', () => {
     act(() => {
       activateTab('A1');
     });
+    // a lazy chunk: preloaded when the call started, mounted on the first other view
+    expect(await screen.findByRole('region', { name: 'Voice call' })).toBeTruthy();
     expect(overlay()).toBeTruthy();
-    expect(screen.getByRole('region', { name: 'Voice call' })).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Open the Archie conversation' }));
     expect(tabsStore.getState().activeId).toBe('O1');
@@ -90,7 +91,7 @@ describe('VoiceOverlayHost', () => {
     act(() => {
       navigate({ name: 'settings', page: null });
     });
-    expect(overlay()).toBeTruthy();
+    expect(await screen.findByRole('region', { name: 'Voice call' })).toBeTruthy();
 
     // Ending… still floats on the other views (End's progress stays visible)
     act(() => {
@@ -99,6 +100,25 @@ describe('VoiceOverlayHost', () => {
       getVoiceController('O1')?.stop();
     });
     expect(overlay()?.querySelector('[data-voice="ending"]')).toBeTruthy();
+  });
+
+  it('a drag snaps the controls to a corner and saves it as the device pref', async () => {
+    liveArchie();
+    openSession({ kind: 'agent', localId: 'A1', focus: false, titleHint: 'Agent' });
+    renderUi(<App services={false} />);
+    act(() => {
+      getVoiceController('O1')?.start();
+      activateTab('A1');
+    });
+    const frame = await screen.findByRole('region', { name: 'Voice call' });
+    const main = document.querySelector('main') as HTMLElement;
+    main.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 800, right: 1000, bottom: 800, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    expect(prefsStore.getState().voiceOverlayAnchor).toBe('bottom-center');
+    fireEvent.mouseDown(frame, { button: 0, clientX: 500, clientY: 760 });
+    fireEvent.mouseMove(document, { clientX: 450, clientY: 700 });
+    fireEvent.mouseMove(document, { clientX: 120, clientY: 90 });
+    fireEvent.mouseUp(document, { clientX: 120, clientY: 90 });
+    expect(prefsStore.getState().voiceOverlayAnchor).toBe('top-left');
   });
 
   it('voice on another device does not float', () => {

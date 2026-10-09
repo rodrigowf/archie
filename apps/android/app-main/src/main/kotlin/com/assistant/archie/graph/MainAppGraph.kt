@@ -37,6 +37,7 @@ import com.assistant.core.settings.SettingsStore
 import com.assistant.core.voicehost.runtime.VoiceHostRuntime
 import com.assistant.archie.feature.chat.ChatVoice
 import com.assistant.archie.feature.chat.PresenceChatVoice
+import com.assistant.archie.feature.chat.VoiceDockModel
 import com.assistant.archie.feature.settings.VoiceStatusSource
 import com.assistant.archie.system.AgentWork
 import com.assistant.archie.system.ApprovalCenter
@@ -171,6 +172,12 @@ class MainAppGraph(
 
     /** The Archie conversation's voice dock / composer (replaces B-04's state-only stand-in). */
     val chatVoice: ChatVoice by lazy { voiceHost?.let { HostChatVoice(it, mic, scope) } ?: PresenceChatVoice() }
+
+    /**
+     * The voice controls' one state + reconnect timeline, shared by the Archie conversation's dock
+     * and the floating controls (ending from one clears the outcome on both; survives rotation).
+     */
+    val voiceDock: VoiceDockModel by lazy { VoiceDockModel(chatVoice, scope, System::currentTimeMillis).also { it.start() } }
 
     /** Settings → Wake word health line. */
     val voiceStatus: VoiceStatusSource by lazy {

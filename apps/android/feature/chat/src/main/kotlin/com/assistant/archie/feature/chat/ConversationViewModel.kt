@@ -100,6 +100,8 @@ class ConversationViewModel(
     private val clock: () -> Long = System::currentTimeMillis,
     externalScope: CoroutineScope? = null,
     private val title: () -> String? = { null },
+    /** The process-wide voice dock model (shared with the floating controls); null: a local one. */
+    voiceDock: VoiceDockModel? = null,
 ) : ViewModel() {
     private val scope: CoroutineScope = externalScope ?: viewModelScope
 
@@ -123,7 +125,7 @@ class ConversationViewModel(
     private var olderGuard: String? = null
 
     /** The voice dock's state and actions, with the reconnect timeline (shared with the floating controls). */
-    private val dock = VoiceDockModel(voice, scope, clock)
+    private val dock = voiceDock ?: VoiceDockModel(voice, scope, clock)
 
     private val effects = Channel<ChatEffect>(Channel.BUFFERED)
     val effectFlow: Flow<ChatEffect> = effects.receiveAsFlow()
@@ -430,6 +432,7 @@ fun conversationViewModelFactory(
     voice: ChatVoice,
     toolCards: com.assistant.archie.feature.chat.ui.ToolCardRenderer = com.assistant.archie.feature.chat.ui.DefaultToolCardRenderer,
     title: () -> String? = { null },
+    voiceDock: VoiceDockModel? = null,
 ): androidx.lifecycle.ViewModelProvider.Factory = androidx.lifecycle.viewmodel.viewModelFactory {
     initializer {
         ConversationViewModel(
@@ -438,6 +441,7 @@ fun conversationViewModelFactory(
             describe = toolCards::describe,
             saved = createSavedStateHandle(),
             title = title,
+            voiceDock = voiceDock,
         )
     }
 }

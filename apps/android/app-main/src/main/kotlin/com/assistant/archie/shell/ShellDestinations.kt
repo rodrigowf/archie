@@ -80,6 +80,7 @@ class GraphDestinations(private val graph: MainAppGraph, private val sessions: S
             factory = conversationViewModelFactory(
                 backend = { RepositoryChatBackend(key, graph.conversations, graph.uploads) },
                 voice = graph.chatVoice, // B-09: the real voice host (HostChatVoice)
+                voiceDock = graph.voiceDock, // one dock state, shared with the floating controls
                 toolCards = CatalogToolCardRenderer,
                 title = { graph.openSessions.items.value.firstOrNull { it.key == item }?.title },
             ),

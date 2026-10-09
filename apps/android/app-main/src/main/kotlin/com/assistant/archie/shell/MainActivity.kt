@@ -128,7 +128,7 @@ fun ArchieApp(graph: MainAppGraph) {
     }
     // The floating voice controls (over every view but the Archie conversation while a call runs).
     val overlayScope = rememberCoroutineScope()
-    val overlayModel = remember(graph) { VoiceOverlayModel(graph.chatVoice, overlayScope) }
+    val overlayModel = remember(graph) { VoiceOverlayModel(graph.voiceDock, overlayScope) }
     val overlayActivity = remember { VoiceOverlayActivity() }
     val composerBounds = remember { ComposerBounds() }
     val anchorKey = graph.settings.settings.collectAsStateWithLifecycle().value?.voiceOverlayAnchor

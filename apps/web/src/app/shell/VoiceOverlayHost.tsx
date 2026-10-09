@@ -9,9 +9,9 @@
  * (`[data-conversation-dock]`) when one is visible. Its state text focuses the Archie tab.
  * "Active elsewhere" (voice on another device) never floats: it is not this device's microphone.
  */
-import { useCallback, useMemo, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, type RefObject } from 'react';
 import { useTabs } from '@/stores';
-import { useLiveVoiceId, VoiceOverlay } from '../slots';
+import { preloadVoiceOverlay, useLiveVoiceId, VoiceOverlay } from '../slots';
 import type { WindowClass } from '../useWindowClass';
 import { focusTab } from './actions';
 
@@ -31,7 +31,16 @@ export function visibleConversationDock(workspace: HTMLElement | null): Element 
   return null;
 }
 
-export function VoiceOverlayHost({ wc, covered, workspaceRef }: { wc: WindowClass; covered: boolean; workspaceRef: RefObject<HTMLElement | null> }) {
+export interface VoiceOverlayHostProps {
+  readonly wc: WindowClass;
+  /** A screen is over the workspace. */
+  readonly covered: boolean;
+  /** The open screens (keys), so a new screen's iframe is watched at once. */
+  readonly screenKey: string;
+  readonly workspaceRef: RefObject<HTMLElement | null>;
+}
+
+export function VoiceOverlayHost({ wc, covered, screenKey, workspaceRef }: VoiceOverlayHostProps) {
   const tabs = useTabs((s) => s.tabs);
   const activeId = useTabs((s) => s.activeId);
   const archieIds = useMemo(() => tabs.filter((t) => t.kind === 'archie' && !t.readOnly).map((t) => t.id), [tabs]);
@@ -40,13 +49,17 @@ export function VoiceOverlayHost({ wc, covered, workspaceRef }: { wc: WindowClas
   const open = useCallback(() => {
     if (liveId) focusTab(liveId);
   }, [liveId]);
+  // The overlay is a lazy chunk: fetch it as soon as a call starts here.
+  useEffect(() => {
+    if (liveId) preloadVoiceOverlay();
+  }, [liveId]);
   if (!voiceOverlayVisible(liveId, activeId, covered) || !liveId) return null;
   return (
     <VoiceOverlay
       localId={liveId}
       regionRef={workspaceRef}
       {...(covered ? null : { getAvoid })}
-      layoutKey={`${activeId ?? ''}|${covered ? 'covered' : 'workspace'}|${wc}`}
+      layoutKey={`${activeId ?? ''}|${screenKey}|${wc}`}
       compact={wc === 'compact'}
       onOpenConversation={open}
     />
