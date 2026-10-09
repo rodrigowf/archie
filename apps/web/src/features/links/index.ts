@@ -7,14 +7,6 @@
  *   linkableCode(code) / findBarePaths(text)     LNK-5 auto-linking
  *   <InternalLinksProvider value={{context, open, hrefOf}}>
  */
-export {
-  findBarePaths,
-  internalTargetUrl,
-  isPrivateHost,
-  linkableCode,
-  resolveInternalLink,
-  type BarePath,
-  type InternalLinkContext,
-  type InternalTarget,
-} from './internalLinks';
+export { findBarePaths, isPrivateHost, linkableCode, resolveInternalLink, type BarePath, type InternalLinkContext } from './internalLinks';
+export { internalTargetUrl, type InternalTarget } from './targetUrl';
 export { InternalLinksProvider, useInternalLinks, type InternalLinks } from './context';

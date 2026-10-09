@@ -27,7 +27,8 @@ export {
 export { VoiceSlot, VoiceAction } from './VoiceSlot';
 export { VoiceOverlay, preloadVoiceOverlay } from './lazyOverlay';
 export type { VoiceOverlayProps } from './VoiceOverlay';
-export { needsAttention, VOICE_OVERLAY_SELECTOR, overlayBox, snapAnchor, IDLE_AFTER_MS, WAKE_GUARD_MS, type OverlayAnchor, type OverlayBox } from './overlay';
+export { needsAttention, overlayBox, snapAnchor, IDLE_AFTER_MS, WAKE_GUARD_MS, type OverlayAnchor, type OverlayBox } from './overlay';
+export { VOICE_OVERLAY_SELECTOR } from './overlaySelector';
 export { LevelOrb, type OrbTone, type LevelOrbProps } from './LevelOrb';
 export { useVoiceUi, useTicker, useLiveVoiceId, type VoiceUi } from './useVoiceUi';
 export { dockText, statusWord, formatElapsed, vadSeconds, bannerText, VAD_COUNTER_AFTER_MS } from './copy';

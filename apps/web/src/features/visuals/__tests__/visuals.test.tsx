@@ -9,8 +9,8 @@ import { probeCast, type VisualizationInfo } from '@/services';
 import { bumpContent, capabilitiesStore, patchCapabilities, resetContentChanges, setCatalogItems, snackbarStore } from '@/stores';
 import { expectNoAxeViolations } from '@/test/axe';
 import { jsonResponse, setupServices, teardownServices, type Harness } from '../../../services/__tests__/fakes';
-import { VisualCard, VisualsPane, VisualViewer, VIZ_SANDBOX, vizFolder, vizHref } from '..';
-import { LIVE_RELOAD_DEBOUNCE_MS, UPDATED_CUE_MS } from '../VisualViewer';
+import { VisualCard, VisualsPane, vizFolder, vizHref } from '..';
+import { LIVE_RELOAD_DEBOUNCE_MS, UPDATED_CUE_MS, VisualViewer, VIZ_SANDBOX } from '../VisualViewer';
 
 const NOW = Date.UTC(2026, 9, 4, 13, 0, 0);
 const VIZ: VisualizationInfo[] = [

@@ -223,7 +223,9 @@ off by default) posts a system notification when any agent session finishes a tu
 TURN-1/TURN-2): the orchestrator socket delivers `agent_turn_finished`, `OrchestratorChannel`
 hands it to `onAgentTurn` (services), and `src/app/notifications/turnNotifier.ts` decides
 (`turnNotices.ts`: switch, permission, Stop, "looking at it" = page visible + focused + workspace
-on top + that tab active) and posts through `src/platform/notifications.ts`.
+on top + that tab active) and posts through `src/platform/notifications.ts`. The notifier is a
+lazy chunk (initial-JS budget): `app/notifications/start.ts` fetches it at startup and keeps the
+`agent_turn_finished` frames that arrive before it loads, then hands them over.
 
 - **Permission** is asked from the switch's click (`Notification.requestPermission`, callback
   form too). The page shows the browser's state; no Notification API (iOS 12 Safari, the compat
@@ -313,16 +315,32 @@ context-sync never carries dists.
 
 - `visualization_changed` / `memory_changed` (spec 12 §9.3) are handled at the channel level
   (`services/sessions/orchestratorChannel.ts` → `services/contentChanges.ts`) and bump per-path
-  counters in `stores/contentChanges.ts`. `features/visuals/VisualViewer.tsx` remounts its iframe
+  counters in `stores/contentChanges.ts`. `features/visuals/VisualViewer.tsx` (a lazy chunk,
+  `features/visuals/lazy.tsx`, preloaded by the Visuals pane) remounts its iframe
   once per burst (scroll restored for same-origin pages, "Updated" cue); `MemoryDocument.tsx`
   refetches in place. On a reopened socket the list's `modified` is compared instead (VZ-6).
 - Links (spec 12 §9.4): `features/links/` holds the resolver (`internalLinks.ts`, shared corpus
   `apps/protocol-fixtures/links/internal-links.json`) and `InternalLinksProvider`; it is kept apart
   from `features/markdown` so the app root can import it without pulling the markdown renderer into
-  the initial bundle. `features/markdown/remarkInternalPaths.ts` auto-links printed paths, and
+  the initial bundle. The app root only builds hrefs (`targetUrl.ts`), so the resolver itself
+  stays in the markdown chunk. `features/markdown/remarkInternalPaths.ts` auto-links printed paths, and
   `app/internalLinks.tsx` provides the links at the app root, so every
   `Markdown` (chat, plans, tool output, memory documents) opens viz / memory links with
   `openDocument`. Modified clicks keep the browser default.
+
+## Initial bundle (budget)
+
+The main build's initial JS is capped at 190 kB gzip (spec 13 §5.4, `gate:budgets`). Code the
+first paint does not need is a lazy chunk: markdown, rich tool cards, Settings, the session
+settings sheet, the memory document, the visual viewer, the floating voice controls, the sign-in
+screen (`features/auth/lazy.tsx`; its flows are `authActions.ts`, apart from the gate's
+`authStore.ts`) and the turn notifier. To see what is in the initial chunks, build and map the
+`dist/assets/*.js.map` sources of the entry and its static imports (the manifest lists them).
+Gotchas with the Rolldown bundler: a module whose exports the startup graph uses lands in an
+initial chunk whole (split a small helper into its own module, as `features/links/targetUrl.ts`
+and `features/voice/overlaySelector.ts`); a barrel `index.ts` that re-exports a component with a
+CSS import (a side effect), or a module the lazy code imports through a non-pure barrel, can pull
+it into the initial graph too, so re-export the lazy wrapper instead.
 
 ## Backend routes
 

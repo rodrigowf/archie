@@ -20,9 +20,9 @@
  *   slash) is not internal.
  */
 
-export type InternalTarget =
-  | { readonly kind: 'visual'; readonly path: string }
-  | { readonly kind: 'memory'; readonly path: string; readonly fragment: string | null };
+import type { InternalTarget } from './targetUrl';
+
+export type { InternalTarget } from './targetUrl';
 
 export interface InternalLinkContext {
   /** The backend origin (`https://192.168.0.200`), for LNK-3. */
@@ -168,11 +168,8 @@ export function resolveInternalLink(href: string, ctx: InternalLinkContext = {})
   return null;
 }
 
-/** The app URL of a target, root-relative (the `href` for middle-click and "copy link"). */
-export function internalTargetUrl(t: InternalTarget): string {
-  const enc = (p: string): string => p.split('/').map(encodeURIComponent).join('/');
-  return t.kind === 'memory' ? `/memory/${enc(t.path)}${t.fragment ? `#${t.fragment}` : ''}` : `/${enc(t.path)}`;
-}
+/** The app URL of a target (kept in its own module: the app root needs only this, spec 13 §5.4). */
+export { internalTargetUrl } from './targetUrl';
 
 // ───────────────────────── LNK-5: auto-linking ─────────────────────────
 

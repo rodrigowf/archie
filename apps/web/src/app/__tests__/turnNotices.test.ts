@@ -10,6 +10,8 @@ import { prefsStore, setCatalogItems, setPref, tabsStore } from '@/stores';
 import { FakeWebSocket, setupServices, teardownServices } from '../../services/__tests__/fakes';
 import { navigate, resetRoute } from '../navigation/route';
 import { FALLBACK_TITLE, decideTurnNotice, isViewing, noticeBody, noticeTitle, type ViewState } from '../notifications/turnNotices';
+import { startTurnNotifications } from '../notifications/start';
+import * as notifier from '../notifications/turnNotifier';
 import { installTurnNotifications } from '../notifications/turnNotifier';
 import { VIEWING_KEY, VIEWING_REFRESH_MS, VIEWING_TTL_MS, ViewPresence } from '../notifications/viewPresence';
 
@@ -176,5 +178,82 @@ describe('turn notifier wiring', () => {
     await settle();
     expect(made).toHaveLength(0);
     expect(console.info).toHaveBeenCalledWith('[notify] suppressed A1 status=ok reason=viewing (another tab)');
+  });
+});
+
+describe('startTurnNotifications (the notifier is a lazy chunk)', () => {
+  beforeEach(() => {
+    setupServices();
+    startServices({ skipInitialSync: true });
+  });
+  afterEach(() => {
+    teardownServices();
+    vi.restoreAllMocks();
+  });
+
+  function watcher(): FakeWebSocket {
+    const ws = FakeWebSocket.last('/api/orchestrator/chat');
+    if (ws.readyState !== 1) ws.open();
+    return ws;
+  }
+
+  function deferredNotifier() {
+    const handled: string[] = [];
+    let installed = 0;
+    let uninstalled = 0;
+    let resolve: () => void = () => undefined;
+    const fake = {
+      installTurnNotifications: () => {
+        installed += 1;
+        return () => {
+          uninstalled += 1;
+        };
+      },
+      handleAgentTurn: (f: AgentTurnFinishedFrame) => {
+        handled.push(f.session_id);
+      },
+    } as unknown as typeof notifier;
+    const load = () =>
+      new Promise<typeof notifier>((r) => {
+        resolve = () => r(fake);
+      });
+    return { load, handled, counts: () => ({ installed, uninstalled }), finish: () => resolve() };
+  }
+
+  it('frames that arrive before the chunk loads are handed over once it is installed', async () => {
+    const d = deferredNotifier();
+    const stop = startTurnNotifications(d.load);
+    watcher().emit({ type: 'agent_turn_started', session_id: 'A1', sdk_session_id: 'S1', provider: 'claude' });
+    watcher().emit({ ...F({ session_id: 'A1' }) });
+    watcher().emit({ ...F({ session_id: 'B2' }) });
+    expect(d.handled).toEqual([]);
+    d.finish();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(d.counts()).toEqual({ installed: 1, uninstalled: 0 });
+    expect(d.handled).toEqual(['A1', 'B2']);
+    watcher().emit({ ...F({ session_id: 'C3' }) }); // the installed notifier's own listener takes it now
+    expect(d.handled).toEqual(['A1', 'B2']);
+    stop();
+    expect(d.counts()).toEqual({ installed: 1, uninstalled: 1 });
+  });
+
+  it('stopped before the chunk loads: never installs, drops the kept frames', async () => {
+    const d = deferredNotifier();
+    const stop = startTurnNotifications(d.load);
+    watcher().emit({ ...F() });
+    stop();
+    d.finish();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(d.counts()).toEqual({ installed: 0, uninstalled: 0 });
+    expect(d.handled).toEqual([]);
+  });
+
+  it('the real chunk installs and posts a turn that finished while it loaded', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const handle = vi.spyOn(notifier, 'handleAgentTurn');
+    const stop = startTurnNotifications();
+    watcher().emit({ ...F({ session_id: 'D4' }) });
+    await vi.waitFor(() => expect(handle).toHaveBeenCalledWith(expect.objectContaining({ session_id: 'D4' })));
+    stop();
   });
 });

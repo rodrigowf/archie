@@ -12,7 +12,7 @@ import { applyTheme } from '@/styles';
 import { AppShell } from './AppShell';
 import { InternalLinksHost } from './internalLinks';
 import { installHashSync } from './navigation/route';
-import { installTurnNotifications } from './notifications/turnNotifier';
+import { startTurnNotifications } from './notifications/start';
 import { AuthGate } from './slots';
 
 export interface AppProps {
@@ -29,8 +29,9 @@ export function App({ services = true }: AppProps) {
   useEffect(() => {
     if (services) startServices(); // also loads the session and visuals lists (titles)
   }, [services]);
-  // "Agent session finished" notices (Settings → Notifications) and their clicks
-  useEffect(() => (services ? installTurnNotifications() : undefined), [services]);
+  // "Agent session finished" notices (Settings → Notifications) and their clicks (a lazy chunk
+  // fetched now; frames that arrive before it loads are handed over once it is in)
+  useEffect(() => (services ? startTurnNotifications() : undefined), [services]);
   return (
     <AuthGate>
       <InternalLinksHost>

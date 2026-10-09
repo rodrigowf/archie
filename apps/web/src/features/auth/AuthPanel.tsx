@@ -15,16 +15,8 @@ import { copyText } from '@/platform';
 import { showSnackbar } from '@/stores';
 import { Button, TextField } from '@/ui/controls';
 import { Icon } from '@/ui/primitives';
-import {
-  cancelLinkSignIn,
-  clearAuthError,
-  linkFlowActive,
-  pollLinkSignIn,
-  startLinkSignIn,
-  submitCredentials,
-  submitLinkCode,
-  useAuth,
-} from './authStore';
+import { cancelLinkSignIn, clearAuthError, linkFlowActive, pollLinkSignIn, startLinkSignIn, submitCredentials, submitLinkCode } from './authActions';
+import { useAuth } from './authStore';
 import styles from './auth.module.css';
 
 export interface AuthPanelProps {

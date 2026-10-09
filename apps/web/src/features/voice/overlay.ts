@@ -12,11 +12,7 @@ import type { VoiceSnapshot } from '@/voice';
  */
 export type OverlayAnchor = VoiceOverlayAnchor;
 
-/**
- * The overlay's root. A compact screen (a modal full-screen layer) leaves it exposed and focusable
- * (`useOverlayLayer({keepExposed})`); dialogs, sheets and menus hide it like everything else.
- */
-export const VOICE_OVERLAY_SELECTOR = '[data-voice-overlay]';
+export { VOICE_OVERLAY_SELECTOR } from './overlaySelector';
 
 /** No pointer, touch, wheel or key activity for this long → the controls shrink to the faded pill. */
 export const IDLE_AFTER_MS = 4_000;

@@ -9,7 +9,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { sessionStore } from '@/platform';
 import { expectNoAxeViolations } from '@/test/axe';
 import { jsonResponse, setupServices, teardownServices, type Harness, type RecordedRequest } from '../../../services/__tests__/fakes';
-import { AuthGate, authStore, checkCredentialsText, GATE_DISMISSED_KEY, resetAuth } from '..';
+import { AuthGate, authStore, GATE_DISMISSED_KEY, resetAuth } from '..';
+import { checkCredentialsText } from '../authActions';
 
 let h: Harness;
 
