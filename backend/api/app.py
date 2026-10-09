@@ -340,6 +340,7 @@ def create_app() -> FastAPI:
     frontend_dist = project_root / "apps" / "web" / "dist"
     if frontend_dist.exists():
         app.mount("/assets", StaticFiles(directory=frontend_dist / "assets"), name="assets")
+        frontend_dist_resolved = frontend_dist.resolve()
 
         # Same no-cache policy as the compat index — see comment above.
         @app.get("/")
@@ -360,8 +361,11 @@ def create_app() -> FastAPI:
                     return FileResponse(candidate)
 
             # 2) Then check the built frontend dist for static assets.
-            file_path = frontend_dist / full_path
-            if file_path.exists() and file_path.is_file():
+            #    Same traversal guard: an absolute full_path ("//etc/x") makes
+            #    pathlib drop frontend_dist, and dot segments reach here
+            #    unnormalised (curl --path-as-is).
+            file_path = (frontend_dist / full_path).resolve()
+            if file_path.is_relative_to(frontend_dist_resolved) and file_path.is_file():
                 return FileResponse(file_path)
 
             # 3) SPA fallback — serve index.html for client-side routing.
