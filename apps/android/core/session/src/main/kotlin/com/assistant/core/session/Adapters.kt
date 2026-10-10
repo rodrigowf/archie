@@ -1,5 +1,6 @@
 package com.assistant.core.session
 
+import com.assistant.core.model.LivePoolSnapshot
 import com.assistant.core.model.PoolSession
 import com.assistant.core.network.ApiResult
 import com.assistant.core.network.ArchieApi
@@ -14,12 +15,16 @@ interface PoolApi {
     /** `GET /api/sessions/pool/live`; `null` = the call failed. */
     suspend fun livePool(): List<PoolSession>?
 
+    /** [livePool] with the server process id (spec 12 SRV-1); `null` = the call failed. */
+    suspend fun livePoolSnapshot(): LivePoolSnapshot? = livePool()?.let { LivePoolSnapshot(it, null) }
+
     /** `POST /api/sessions/{localId}/close`. Explicit user close only. */
     suspend fun close(localId: String): Boolean
 }
 
 class ArchiePoolApi(private val api: ArchieApi) : PoolApi {
     override suspend fun livePool(): List<PoolSession>? = api.livePool().getOrNull()
+    override suspend fun livePoolSnapshot(): LivePoolSnapshot? = api.livePoolSnapshot().getOrNull()
     override suspend fun close(localId: String): Boolean = api.closePoolSession(localId) is ApiResult.Ok
 }
 

@@ -180,6 +180,14 @@ sealed interface ConversationInput {
     /** The socket closed. Entries are untouched (A-4.3 b). */
     data object SocketClosed : ConversationInput
 
+    /**
+     * Spec 12 POOL-2: the socket is open, but `pool/live` shows this conversation ([localId]) was
+     * closed elsewhere while this device was away. The socket counts as open, no `start` is sent, held
+     * frames are released, then the view stops exactly as on the live `agent_session_closed` (WATCH-1).
+     * Ignored when [localId] is not this conversation's.
+     */
+    data class ClosedWhileAway(val localId: String) : ConversationInput
+
     /** `sdkId` learned from `pool/live` or `agent_session_opened` (ID-2). */
     data class SdkIdLearned(val sdkId: String) : ConversationInput
 

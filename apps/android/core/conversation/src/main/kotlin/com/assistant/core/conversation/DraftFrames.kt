@@ -50,6 +50,9 @@ internal fun Draft.reduceFrame(f: ServerFrame) {
             if (f.sessionId == ref.localId && f.isOrchestrator == isOrchestrator) {
                 if (status != SessionStatus.TERMINATED) status = SessionStatus.STOPPED
                 endTurn("stopped"); endVoice()
+                // POOL-2: found closed on a reconnect, the view had a "disconnected" banner; there is
+                // nothing left to reconnect to (no `start` follows).
+                if (connectionBanner?.code == "disconnected") connectionBanner = null
             }
         }
         is ServerFrame.ModelChanged -> f.modelInfo?.modelInfo?.contextWindow?.let { counters = counters.copy(contextWindow = it) }

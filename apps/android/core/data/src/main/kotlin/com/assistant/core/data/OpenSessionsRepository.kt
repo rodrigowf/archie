@@ -104,7 +104,14 @@ class OpenSessionsRepository(
         }.launchIn(scope)
         // §6.11a SW-2: Archie moved this device to a past conversation because the user asked it to
         // (by voice or text), so it is a user action: focus the resumed view.
-        conversations.events.onEach { if (it is ConversationEvent.ArchieSwitched) focus(ItemKey.Archie) }.launchIn(scope)
+        conversations.events.onEach {
+            when (it) {
+                is ConversationEvent.ArchieSwitched -> focus(ItemKey.Archie)
+                // Spec 12 POOL-2: closed elsewhere while this device was away = the live watcher close.
+                is ConversationEvent.ClosedElsewhere -> onAgentClosed(it.localId)
+                else -> Unit
+            }
+        }.launchIn(scope)
         // Watcher events (T-7): a session opened elsewhere becomes a background item (P-6).
         val frames = orchestrator.subscribeFrames()
         scope.launch {

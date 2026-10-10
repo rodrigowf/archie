@@ -36,6 +36,7 @@ internal fun Draft.apply(input: ConversationInput) {
         ConversationInput.VoiceLocalEnd -> endVoice()
         ConversationInput.SocketOpened -> { connection = ConnectionState.OPEN; sendStart() }
         ConversationInput.Resync -> if (connection == ConnectionState.OPEN || connection == ConnectionState.SUBSCRIBED) sendStart()
+        is ConversationInput.ClosedWhileAway -> if (input.localId == ref.localId) closedWhileAway()
         ConversationInput.SocketClosed -> {
             connection = ConnectionState.OFFLINE
             connectionBanner = ConnectionBanner("disconnected")                // banner only (A-8.2)
@@ -53,6 +54,18 @@ internal fun Draft.apply(input: ConversationInput) {
 }
 
 // ───────────────────────── connection manager (§3.6, §5.2) ─────────────────────────
+
+/** POOL-2: the live `agent_session_closed` this device missed, on an open socket, with no `start`. */
+private fun Draft.closedWhileAway() {
+    connection = ConnectionState.OPEN
+    if (awaitingSessionStarted) {                                            // no session_started will come (L-2)
+        awaitingSessionStarted = false
+        val held = preStart.toList()
+        preStart.clear()
+        for (g in held) dispatch(g)
+    }
+    dispatch(ServerFrame.AgentSessionClosed(ref.localId, isOrchestrator = isOrchestrator))
+}
 
 internal fun Draft.onFrame(f: ServerFrame) {
     if (f is ServerFrame.VoiceAudioOut) return                               // L-3: the audio engine's
@@ -159,8 +172,8 @@ private fun Draft.poolStatus(s: LiveStatus) {
             if (!inTurn) { inTurn = true; promptSinceTurnEnd = false }
             status = SessionStatus.fromWire(s.wire)!!
         }
-        LiveStatus.IDLE -> if (inTurn) endTurn("unknown")
-        else -> Unit
+        // idle, interrupted (Codex/Gemini/Qwen keep it after a stop), disconnected: no turn runs
+        LiveStatus.IDLE, LiveStatus.INTERRUPTED, LiveStatus.DISCONNECTED -> if (inTurn) endTurn("unknown")
     }
 }
 

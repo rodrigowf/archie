@@ -3,7 +3,7 @@ name: android
 category: archie/clients
 tags: [android, kotlin, compose, navigation3, views, app-main, app-lite, a300m, poco, gradle, adb, signing, vosk]
 created: 2026-04-14
-modified: 2026-10-09
+modified: 2026-10-10
 summary: apps/android — Gradle multi-module project with the main app (com.assistant.archie) and the A300M lite app (com.assistant.peripheral).
 source: curated (consolidated from memory notes assistant/android/android_peripheral_project.md, assistant/infrastructure/repo_layout_cutover_2026_10.md, assistant/devices/peripheral_devices.md, auto-memory feedback_android_ws_keepalive_silent_drop.md, feedback_use_adb_input_for_device_tests.md, feedback_hands_on_checks_over_suites.md, feedback_run_test_before_speculating.md, project_frontend_refactor_2026_10_03.md; verified against code 2026-10-06)
 references:
@@ -192,6 +192,42 @@ request.
 | Patched `libvosk.so` | Below API 23 Vosk needs `stderr`/`stdin`/`stdout` weakened in `libvosk.so` (`tools/native/patch_vosk_weaken.py`; the copy in `app-lite/src/main/jniLibs/`). `verifyPatchedVosk` runs after every lite assemble and fails if an unpatched library reaches the APK |
 | Model packaging | `androidResources.noCompress += "vosk-model-small-en-us-0.15"` must be set in `app-lite/build.gradle.kts` itself — the library module's setting does not reach the APK |
 | 16 KB pages | Not relevant on the 32-bit A300M. For the main app, WebRTC 1.1.1 and Vosk 0.3.47 are still 4 KB-aligned (the POCO uses 4 KB pages); newer versions are aligned but need a voice retest |
+
+## The orchestrator conversation across devices
+
+`core/session/OrchestratorChannel` owns the one orchestrator socket and follows the server's pool
+(spec 12 §3.7 POOL-2, SRV-1). A backgrounded phone is not a pool watcher while its socket is down
+(no "Stay connected", no wake word, no voice: the socket goes 60 s after ON_STOP, or the OS
+freezes the process), so it misses `agent_session_closed` when another device closes Archie. So:
+
+- **Every socket open** probes `pool/live` (as before) and also reads its `X-Archie-Server-Id`
+  header (`ArchieApi.livePoolSnapshot`). The channel remembers on which socket generation and
+  server id the conversation last got `session_started`.
+- **Every foreground with the socket still open** re-reads `pool/live` before the `Resync`
+  (`start`). `Resync` is never emitted without an adopted orchestrator: the stopped view of a
+  conversation closed live used to re-send `start` on the next foreground and re-open it.
+- **Missing from the pool, same server id** ⇒ closed elsewhere: the channel publishes a
+  synthesized `agent_session_closed{is_orchestrator}` frame and `OrchestratorClosed`, so the
+  conversation (WATCH-1: "This session was stopped"), the lite face and every frame consumer react
+  exactly as to the live frame; nothing is re-started. **Missing with a new or unknown server id**
+  (a backend restart) ⇒ resumed with `start`, as before. **Another orchestrator in the pool** ⇒
+  adopted, as on `agent_session_opened`. A failed read keeps T-9 (`Resync`).
+- Both apps get this through the shared channel (the lite app via the voice host's channel,
+  `autoStart`). Tests: `OrchestratorChannelTest` (`pool2_*`), `ClosedWhileAwayTest`.
+
+**Agent sessions follow the same rule** (`core/data/ConversationRepository` `AgentHandle`). Right
+after each `session_started` the view reads `pool/live` once (`HistoryRepository.syncPoolSnapshot`:
+the ST-2 turn status and the server id in one request). Before an automatic re-`start` (socket
+reopen, foreground with the socket open) a view that was live here, or already ended
+(stopped/terminated), re-reads the pool: in it → `start`; gone with the same server id, or already
+ended → the reducer's `ClosedWhileAway` input (socket counts as open, no `start`, WATCH-1 stop) and
+`ConversationEvent.ClosedElsewhere`, which `OpenSessionsRepository` treats like the live watcher
+close (an unseen sync-opened tab goes away); gone with a new or unknown id → `start` (backend
+restart). A view opened from History that was never live here just starts. Typing into a stopped
+view (Archie or agent) is the explicit resume the "Send a message to start it again" card offers:
+`Handle.sendUserFrame` posts `Resync` and sends the message after `session_started` (Archie also
+marks user intent). The Archie view gets `ClosedWhileAway` on every `OrchestratorClosed`. Tests:
+`AgentClosedElsewhereTest` (MockWebServer `FakeBackend`, which can send the server id header).
 
 ## Agent notifications (main app)
 

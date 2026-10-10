@@ -50,6 +50,13 @@ export class SessionRuntime extends ConversationRuntime {
   private readonly socket: ArchieSocket;
   private readonly reconnector: Reconnector | null;
   private coldOpenPending = false;
+  /** POOL-2 / SRV-1: subscribed on this socket's server at least once, and that server's id. */
+  private subscribedHere = false;
+  private liveServerId: string | null = null;
+  /** +1 on every socket open / close: a pool read answers only the open it was made for. */
+  private gen = 0;
+  /** Save and Restart closed the pool entry itself: the next open starts with no reconcile. */
+  private forceNextStart = false;
   readonly readOnly: boolean;
 
   constructor(opts: SessionRuntimeOptions, hooks: RuntimeHooks) {
@@ -64,7 +71,13 @@ export class SessionRuntime extends ConversationRuntime {
     super(conv, handle, hooks);
     this.readOnly = opts.readOnly === true;
     this.socket = new ArchieSocket(CHAT_WS_PATH, {
-      onOpen: () => this.step({ type: 'socket_open' }),
+      onOpen: () => {
+        this.gen += 1;
+        if (this.forceNextStart) {
+          this.forceNextStart = false;
+          this.step({ type: 'socket_open' });
+        } else this.whenInPool(() => this.step({ type: 'socket_open' }));
+      },
       onFrame: (f) => this.onFrame(f),
       onClose: () => this.onClose(),
     });
@@ -77,7 +90,7 @@ export class SessionRuntime extends ConversationRuntime {
             connect: () => this.socket.connect(),
             resync: () => {
               this.needsPoolStatus = true;
-              this.resendStart();
+              this.whenInPool(() => this.resendStart());
             },
           },
           opts.reconnectPolicy,
@@ -112,6 +125,7 @@ export class SessionRuntime extends ConversationRuntime {
   }
 
   private onClose(): void {
+    this.gen += 1;
     this.step({ type: 'socket_closed' });
     if (this.coldOpenPending) this.startColdFetch(); // show history even when the socket cannot connect
     this.needsPoolStatus = true;
@@ -124,6 +138,56 @@ export class SessionRuntime extends ConversationRuntime {
 
   protected onSubscribed(): void {
     this.reconnector?.markHealthy(); // T-13
+    // POOL-2 / SRV-1: where this session is live (the ST-2 read right after joins this request)
+    this.subscribedHere = true;
+    this.liveServerId = null;
+    const gen = this.gen;
+    this.hooks
+      .poolSnapshot?.()
+      .then((snap) => {
+        if (gen === this.gen) this.liveServerId = snap.serverId;
+      })
+      .catch(() => undefined);
+  }
+
+  private ended(): boolean {
+    return this.conv.status === 'stopped' || this.conv.status === 'terminated';
+  }
+
+  /**
+   * Spec 12 POOL-2: before an automatic re-`start` (socket reopen, visible again) of a view that was
+   * live here, re-read `pool/live`. In the pool, gone after a backend restart (a new or unknown server
+   * id), or the read failed: `go`. Gone from the same server process, or already closed live: closed
+   * elsewhere, no `start` (it would re-open the session on the server). A view never subscribed
+   * here (opened from History, new) just starts.
+   */
+  private whenInPool(go: () => void): void {
+    const probe = this.hooks.poolSnapshot;
+    if (!probe || (!this.subscribedHere && !this.ended())) {
+      go();
+      return;
+    }
+    const gen = this.gen;
+    probe
+      .call(this.hooks)
+      .then(
+        (snap) => snap,
+        () => null,
+      )
+      .then((snap) => {
+        if (this.disposed || gen !== this.gen) return; // the socket moved on
+        const inPool = !!snap && snap.rows.some((r) => r.is_orchestrator !== true && r.local_id === this.localId);
+        const sameServer = !!snap && !!snap.serverId && snap.serverId === this.liveServerId;
+        if (!inPool && (this.ended() || sameServer)) this.closedWhileAway();
+        else go();
+      });
+  }
+
+  private closedWhileAway(): void {
+    this.subscribedHere = false;
+    this.liveServerId = null;
+    this.step({ type: 'closed_while_away' }); // WATCH-1 effects, incl. the watcher hook (tabs, list)
+    if (this.coldOpenPending) this.startColdFetch();
   }
 
   protected closeTransport(): void {
@@ -200,7 +264,10 @@ export class SessionRuntime extends ConversationRuntime {
     }
     if (this.disposed) return;
     if (this.socket.isOpen) this.resendStart();
-    else this.reconnector?.reconnectNow();
+    else {
+      this.forceNextStart = true; // we closed it ourselves: no POOL-2 reconcile
+      this.reconnector?.reconnectNow();
+    }
   }
 
   /**

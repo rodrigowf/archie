@@ -223,7 +223,12 @@ class TrustedCORSMiddleware(CORSMiddleware):
     """
 
     def __init__(self, app: ASGIApp) -> None:
-        super().__init__(app, allow_origins=(), allow_methods=["*"], allow_headers=["*"])
+        # expose_headers: a trusted dev server (cross-origin) must read pool/live's server id
+        # (spec 12 SRV-1); same-origin pages read it anyway.
+        super().__init__(
+            app, allow_origins=(), allow_methods=["*"], allow_headers=["*"],
+            expose_headers=["X-Archie-Server-Id"],
+        )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":

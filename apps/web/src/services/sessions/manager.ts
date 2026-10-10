@@ -48,6 +48,7 @@ import {
 } from '@/stores';
 import { getEnv } from '../env';
 import { api } from '../http/endpoints';
+import type { PoolSnapshot } from '../http/endpoints/sessions';
 import { isApiError } from '../http/errors';
 import type { PoolSession } from '../http/types';
 import { probeBackendCapabilities, probeCast } from '../capabilitiesProbe';
@@ -102,6 +103,7 @@ function getChannel(): OrchestratorChannel {
       onTurn: (f) => turnEvents.emit('turn', f),
       onContent: onContentFrame,
       onReopen: () => void resyncContent(),
+      probePool: () => fetchPoolSnapshot(true), // POOL-2: the pool is re-read on every reopen / visible
     });
   return channel;
 }
@@ -119,21 +121,31 @@ export function onAgentTurn(fn: (frame: AgentTurnFrame) => void): () => void {
 
 // ───────────────────────── runtime hooks ─────────────────────────
 
-let poolFetch: Promise<PoolSession[]> | null = null;
+let poolFetch: Promise<PoolSnapshot> | null = null;
+
+/**
+ * `GET /api/sessions/pool/live` with the server process id (SRV-1), shared by concurrent callers.
+ * `fresh` starts a new request instead of joining one in flight (the orchestrator channel's
+ * reconcile must see the pool as it is now, POOL-2).
+ */
+export function fetchPoolSnapshot(fresh = false): Promise<PoolSnapshot> {
+  if (poolFetch && !fresh) return poolFetch;
+  const p: Promise<PoolSnapshot> = api.sessions
+    .poolLiveSnapshot()
+    .then((snap) => {
+      setCatalogItems('pool', snap.rows);
+      return snap;
+    })
+    .finally(() => {
+      if (poolFetch === p) poolFetch = null;
+    });
+  poolFetch = p;
+  return p;
+}
 
 /** `GET /api/sessions/pool/live`, shared by concurrent callers. */
 export function fetchPool(): Promise<PoolSession[]> {
-  if (!poolFetch)
-    poolFetch = api.sessions
-      .poolLive()
-      .then((rows) => {
-        setCatalogItems('pool', rows);
-        return rows;
-      })
-      .finally(() => {
-        poolFetch = null;
-      });
-  return poolFetch;
+  return fetchPoolSnapshot().then((snap) => snap.rows);
 }
 
 let routingWatcher = false;
@@ -170,6 +182,7 @@ export const runtimeHooks: RuntimeHooks = {
       return null;
     }
   },
+  poolSnapshot: () => fetchPoolSnapshot(true), // POOL-2 / SRV-1
   onResubscribed(rt) {
     if (rt.kind !== 'agent') return; // the orchestrator row always says idle (ST-2, G-15)
     fetchPool()

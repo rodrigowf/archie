@@ -43,7 +43,7 @@ import type { MessagePreview, MessagesPage, ServerFrame, SessionStartedFrame } f
 import { Draft, type Loc, type Mutable } from './draft';
 import type { ConversationInput, Effect, HistoryMode, StepResult } from './io';
 
-const TURN_FAILURE_AGENT = ['send_failed', 'upstream_wedged', 'command_failed', 'compact_failed'];
+const TURN_FAILURE_AGENT = ['send_failed', 'upstream_wedged', 'turn_timeout', 'command_failed', 'compact_failed'];
 const TURN_FAILURE_ORCH = [
   'api_error',
   'provider_error',
@@ -226,6 +226,8 @@ class Machine extends Draft {
         return this.sendStart(x.start);
       case 'socket_closed':
         return this.onSocketClosed();
+      case 'closed_while_away':
+        return this.closedWhileAway();
       case 'resend_start':
         if (this.s.conn === 'open' || this.s.conn === 'subscribed') this.sendStart(x.start);
         return;
@@ -270,6 +272,20 @@ class Machine extends Draft {
     this.s.awaitingSessionStarted = true;
     this.s.preStart = [];
     this.effects.push({ type: 'send', message: msg });
+  }
+
+  /** POOL-2: the live `agent_session_closed` this client missed, on an open socket with no `start`. */
+  private closedWhileAway(): void {
+    this.s.conn = 'open';
+    if (this.s.awaitingSessionStarted) {
+      // no session_started will come: keep what was held (lossless, L-2)
+      this.s.awaitingSessionStarted = false;
+      const held = this.s.preStart;
+      this.s.preStart = [];
+      for (const g of held) this.dispatch(g);
+    }
+    const ref = this.s.ref;
+    this.dispatch({ type: 'agent_session_closed', session_id: ref.localId, is_orchestrator: ref.kind === 'orchestrator' } as ServerFrame);
   }
 
   private onSocketClosed(): void {
@@ -375,7 +391,8 @@ class Machine extends Draft {
         this.s.promptSinceTurnEnd = false;
       }
       this.s.status = status as SessionStatus;
-    } else if (status === 'idle' && this.s.inTurn) {
+    } else if (this.s.inTurn) {
+      // idle, interrupted (Codex/Gemini/Qwen keep it after a stop), disconnected: no turn runs
       this.endTurn();
     }
   }
@@ -990,8 +1007,11 @@ class Machine extends Draft {
       case 'agent_session_closed':
         this.effects.push({ type: 'watcher', frame: f });
         // D3 (§3.7, FOCUS-2): this conversation itself left the pool.
-        if (f.session_id === ref.localId && (f.is_orchestrator === true) === (ref.kind === 'orchestrator'))
+        if (f.session_id === ref.localId && (f.is_orchestrator === true) === (ref.kind === 'orchestrator')) {
           this.stoppedByServer();
+          // POOL-2: nothing left to reconnect to (no `start` follows a close found on a reconnect)
+          if (this.s.connectionBanner?.code === 'disconnected') this.s.connectionBanner = null;
+        }
         return;
       default:
         // voice_ending, voice_command, voice_audio_out, voice_connection_error, models_list,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi import Request
 
 from manager.accounts import AccountsManager
@@ -11,6 +13,13 @@ from manager.store import SessionStore
 
 from .connections import ConnectionManager
 from .pool import SessionPool
+
+
+# Identifies this server process (spec 12 SRV-1). Sent as the ``X-Archie-Server-Id`` header of
+# ``GET /api/sessions/pool/live``: a client that finds its orchestrator conversation missing from
+# the pool tells "closed while I was away" (same id) from "the backend restarted" (new id).
+SERVER_INSTANCE_ID = uuid.uuid4().hex
+SERVER_ID_HEADER = "X-Archie-Server-Id"
 
 
 def get_config(request: Request) -> ManagerConfig:

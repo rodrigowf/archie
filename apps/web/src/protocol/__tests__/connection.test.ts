@@ -237,6 +237,24 @@ describe('identity (ID-2, ST-2) and pool events', () => {
     expect(feed(o, { type: 'pool_status', status: 'streaming' }).conv).toBe(o);
   });
 
+  it('ST-2: interrupted (Codex/Gemini/Qwen after a stop) and disconnected also end a stale turn', () => {
+    for (const settled of ['interrupted', 'disconnected'] as const) {
+      const busy = feed(agent(), { type: 'pool_status', status: 'tool_use' }).conv;
+      const conv = feed(busy, { type: 'tool_use', tool_use_id: 't', tool_name: 'Bash', tool_input: {} }, { type: 'pool_status', status: settled }).conv;
+      expect(conv.inTurn).toBe(false);
+      expect(texts(conv)).toEqual(['A[tool:t:no_result]']);
+    }
+  });
+
+  it('error{turn_timeout} (the orchestrator stopped the turn) is a turn failure notice', () => {
+    const busy = feed(agent(), { type: 'pool_status', status: 'tool_use' }).conv;
+    const conv = feed(busy, { type: 'error', error: 'turn_timeout', detail: 'The orchestrator stopped this turn: no progress for 1800s.' }, { type: 'status', status: 'interrupted' }).conv;
+    expect(conv.inTurn).toBe(false);
+    expect(conv.entries.filter((e) => e.kind === 'notice').map((e) => (e as { text: string }).text)).toEqual([
+      'The orchestrator stopped this turn: no progress for 1800s.',
+    ]);
+  });
+
   it('watcher events become effects; closing this conversation stops it (FOCUS-2 kind check)', () => {
     const opened = { type: 'agent_session_opened', session_id: 'L5', sdk_session_id: 's5', is_orchestrator: false };
     const r = feed(orch(), opened, { type: 'agent_session_closed', session_id: 'L5', is_orchestrator: false });

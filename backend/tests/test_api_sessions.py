@@ -306,3 +306,23 @@ class TestResolvePermission:
             headers={"content-type": "application/json"},
         )
         assert resp.status_code == 400
+
+
+class TestPoolLiveServerId:
+    """Spec 12 SRV-1: pool/live names the server process so clients can tell a close from a restart."""
+
+    async def test_header_is_this_process_id(self, client):
+        from api.deps import SERVER_ID_HEADER, SERVER_INSTANCE_ID
+
+        r1 = await client.get("/api/sessions/pool/live")
+        r2 = await client.get("/api/sessions/pool/live")
+        assert r1.status_code == 200
+        assert r1.json() == []
+        assert r1.headers[SERVER_ID_HEADER] == SERVER_INSTANCE_ID
+        assert r2.headers[SERVER_ID_HEADER] == SERVER_INSTANCE_ID
+        assert len(SERVER_INSTANCE_ID) == 32
+
+    async def test_trusted_cross_origin_page_can_read_it(self, client):
+        r = await client.get("/api/sessions/pool/live", headers={"Origin": "http://test:5450"})
+        assert r.status_code == 200
+        assert "x-archie-server-id" in r.headers.get("access-control-expose-headers", "").lower()

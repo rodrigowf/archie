@@ -247,6 +247,12 @@ class ConnectionManagerTest {
         val idle = busy.on(toolUse("t")).input(ConversationInput.PoolStatus(LiveStatus.IDLE))
         assertFalse(idle.inTurn)
         assertShape("A[X(t:no_result)]", idle)
+        // interrupted (Codex/Gemini/Qwen keep it after a stop) and disconnected: no turn runs either
+        for (settled in listOf(LiveStatus.INTERRUPTED, LiveStatus.DISCONNECTED)) {
+            val ended = busy.on(toolUse("t")).input(ConversationInput.PoolStatus(settled))
+            assertFalse(ended.inTurn)
+            assertShape("A[X(t:no_result)]", ended)
+        }
         // the orchestrator row always says idle (G-15): ignored
         val o = orchestrator().send("x").on(ServerFrame.Status("streaming"))
         assertEquals(o, o.input(ConversationInput.PoolStatus(LiveStatus.IDLE)))

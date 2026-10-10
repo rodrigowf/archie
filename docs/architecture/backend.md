@@ -3,7 +3,7 @@ name: backend
 category: archie/architecture
 tags: [backend, fastapi, routes, static-serving, spa, config, paths, startup, testing]
 created: 2026-02-23
-modified: 2026-10-09
+modified: 2026-10-10
 summary: The FastAPI backend — app factory, startup tasks, every route module, static/SPA serving, config files, how to run and test.
 source: curated (consolidated from memory notes assistant/architecture/project-overview.md, assistant/infrastructure/repo_layout_cutover_2026_10.md, assistant/infrastructure/features_and_integrations_summary.md, docs/projects/frontend-refactor/inventory/01-backend-api.md; verified against code 2026-10-06)
 references:
@@ -86,7 +86,7 @@ browser-origin guard and a CORS policy that echoes only trusted origins (no cred
 
 | Module (`backend/api/routes/`) | Prefix / paths | Purpose |
 |---|---|---|
-| `sessions.py` | `/api/sessions` | History list (`GET ""`), live pool (`GET /pool/live`), detail, paginated `/messages`, `/preview`, `PATCH /rename`, `DELETE` (soft delete to `context/trash/`), `/duplicate`, `/truncate`, `/fork`, `POST /inject` (push a user message into a live session), `POST /{local_id}/close`, `POST /{local_id}/permission` (REST twin of `permission_response`), `GET/PUT /{session_id}/config` |
+| `sessions.py` | `/api/sessions` | History list (`GET ""`), live pool (`GET /pool/live`, with the `X-Archie-Server-Id` header naming this server process, spec 12 SRV-1), detail, paginated `/messages`, `/preview`, `PATCH /rename`, `DELETE` (soft delete to `context/trash/`), `/duplicate`, `/truncate`, `/fork`, `POST /inject` (push a user message into a live session), `POST /{local_id}/close`, `POST /{local_id}/permission` (REST twin of `permission_response`), `GET/PUT /{session_id}/config` |
 | `chat.py` | `WS /api/sessions/chat` | Agent-session socket: `start`, `send`, `command`, `interrupt`, `compact`, `permission_response`, `stop` |
 | `orchestrator.py` | `WS /api/orchestrator/chat` | Orchestrator socket: text turns, voice signaling/relay, wake callback ([orchestrator.md](orchestrator.md)) |
 | `voice.py` | `/api/orchestrator/voice/session`, `/voice/models`, `/audio`, `/models`, `/models/audio` | Ephemeral voice credentials / connection info, voice model list, audio upload for voice messages, orchestrator model lists ([voice architecture](../voice/architecture.md)) |

@@ -186,7 +186,7 @@ describe('P-6 / FOCUS-1: background opens never steal focus', () => {
 });
 
 describe('Archie on the single orchestrator socket (T-6, T-7)', () => {
-  it('attaches to the open watcher socket, then subscribes on it; voice bridge sends on the same socket', () => {
+  it('attaches to the open watcher socket, then subscribes on it; voice bridge sends on the same socket', async () => {
     startServices({ skipInitialSync: true });
     const watcher = FakeWebSocket.last(ORCH);
     watcher.open();
@@ -208,6 +208,7 @@ describe('Archie on the single orchestrator socket (T-6, T-7)', () => {
     vi.advanceTimersByTime(1000);
     const again = FakeWebSocket.last(ORCH);
     again.open();
+    await flushPromises(); // POOL-2: the pool is re-read first (no server id here: resumed as before)
     expect(again.messages()).toEqual([{ type: 'voice_start', local_id: 'O1' }]);
   });
 
@@ -219,6 +220,189 @@ describe('Archie on the single orchestrator socket (T-6, T-7)', () => {
     ws.emit({ type: 'agent_session_closed', session_id: 'O1', is_orchestrator: true });
     expect(rt.conv.status).toBe('stopped');
     expect(tabsStore.getState().tabs.map((t) => t.id)).toEqual(['O1']);
+  });
+
+  describe('POOL-2: the server pool is the truth on every reopen and visible-again resync', () => {
+    const livePool = (serverId: string | null, rows: Record<string, unknown>[]) =>
+      h.fetch.on('GET', '/api/sessions/pool/live', () => jsonResponse(pool(rows), 200, serverId ? { 'X-Archie-Server-Id': serverId } : {}));
+    const ORCH_ROW = { local_id: 'O1', sdk_session_id: 'O1', is_orchestrator: true };
+
+    async function liveArchie(serverId: string | null): Promise<{ rt: ArchieRuntime; ws: FakeWebSocket }> {
+      startServices({ skipInitialSync: true });
+      livePool(serverId, [ORCH_ROW]);
+      const rt = openSession({ kind: 'archie', localId: 'O1', focus: true }) as ArchieRuntime;
+      const ws = FakeWebSocket.last(ORCH);
+      subscribe(ws, 'O1');
+      await flushPromises(); // the socket's server id (SRV-1)
+      return { rt, ws };
+    }
+
+    async function reopen(): Promise<FakeWebSocket> {
+      const before = FakeWebSocket.last(ORCH);
+      before.drop();
+      vi.advanceTimersByTime(5_000); // past the backoff (no session_started resets it here)
+      const again = FakeWebSocket.last(ORCH);
+      expect(again).not.toBe(before);
+      again.open();
+      await flushPromises();
+      return again;
+    }
+
+    it('closed elsewhere while the socket was down: no start on the reopen, the view stops like WATCH-1', async () => {
+      const { rt } = await liveArchie('BOOT1');
+      livePool('BOOT1', []); // device A closed it meanwhile; this socket was gone, so no live frame
+      const again = await reopen();
+      expect(again.messages()).toEqual([]); // a start would re-open it on the server for every device
+      expect(rt.conv.status).toBe('stopped');
+      expect(rt.conv.conn).toBe('open');
+      expect(rt.conv.connectionBanner).toBeNull();
+      expect(getOrchestratorRef()).toBeNull();
+      expect(tabsStore.getState().tabs.map((t) => t.id)).toEqual(['O1']); // FOCUS-3: the looked-at view stays
+      // visible again, and later reopens: still nothing is re-started
+      h.visibility.set(true);
+      h.visibility.set(false);
+      await flushPromises();
+      const third = await reopen();
+      expect(again.messages()).toEqual([]);
+      expect(third.messages()).toEqual([]);
+      // typing into it is the explicit resume: start first, the message after its session_started
+      rt.send('carry on');
+      expect(third.types()).toEqual(['start']);
+      third.emit({ type: 'session_started', session_id: 'O1', jsonl_id: 'O1' });
+      expect(third.types()).toEqual(['start', 'send']);
+      expect(rt.conv.status).not.toBe('stopped');
+    });
+
+    it('a backend restart (new server id) resumes the conversation, as before', async () => {
+      await liveArchie('BOOT1');
+      livePool('BOOT2', []);
+      const again = await reopen();
+      expect(again.messages()).toEqual([{ type: 'start', local_id: 'O1' }]);
+    });
+
+    it('still in the pool: the reopen re-sends start', async () => {
+      await liveArchie('BOOT1');
+      const again = await reopen();
+      expect(again.messages()).toEqual([{ type: 'start', local_id: 'O1' }]);
+    });
+
+    it('closed live while open: visible again sends no start; the same conversation opened again re-subscribes', async () => {
+      const { rt, ws } = await liveArchie('BOOT1');
+      ws.emit({ type: 'agent_session_closed', session_id: 'O1', is_orchestrator: true });
+      livePool('BOOT1', []);
+      h.visibility.set(true);
+      h.visibility.set(false);
+      await flushPromises();
+      expect(ws.types()).toEqual(['start']);
+      expect(rt.conv.status).toBe('stopped');
+      // e.g. a voice rebuild on another device re-creates it with the same local id
+      ws.emit({ type: 'agent_session_opened', session_id: 'O1', sdk_session_id: 'O1', is_orchestrator: true });
+      expect(ws.types()).toEqual(['start', 'start']);
+    });
+
+    it('a pool read that fails keeps T-9 for a live conversation', async () => {
+      await liveArchie('BOOT1');
+      h.fetch.on('GET', '/api/sessions/pool/live', () => jsonResponse({ detail: 'boom' }, 500));
+      const again = await reopen();
+      expect(again.messages()).toEqual([{ type: 'start', local_id: 'O1' }]);
+    });
+  });
+
+  describe('POOL-2 for agent sessions', () => {
+    const livePool = (serverId: string | null, rows: Record<string, unknown>[]) =>
+      h.fetch.on('GET', '/api/sessions/pool/live', () => jsonResponse(pool(rows), 200, serverId ? { 'X-Archie-Server-Id': serverId } : {}));
+    const ROW = { local_id: 'A1', sdk_session_id: null };
+
+    async function liveAgent(serverId: string | null): Promise<SessionRuntime> {
+      startServices({ skipInitialSync: true });
+      livePool(serverId, [ROW]);
+      const rt = openSession({ kind: 'agent', localId: 'A1', focus: true }) as SessionRuntime;
+      subscribe(FakeWebSocket.last(CHAT), 'A1');
+      await flushPromises(); // the post-subscribe read records the server id (SRV-1)
+      return rt;
+    }
+
+    async function reopen(): Promise<FakeWebSocket> {
+      const before = FakeWebSocket.last(CHAT);
+      before.drop();
+      vi.advanceTimersByTime(5_000); // past the backoff
+      const again = FakeWebSocket.last(CHAT);
+      expect(again).not.toBe(before);
+      again.open();
+      await flushPromises();
+      return again;
+    }
+
+    it('closed elsewhere while away: no start on the reopen or when visible again; typing resumes it explicitly', async () => {
+      const rt = await liveAgent('BOOT1');
+      livePool('BOOT1', []);
+      const again = await reopen();
+      expect(again.messages()).toEqual([]); // a start would re-open it on the server for every device
+      expect(rt.conv.status).toBe('stopped');
+      expect(rt.conv.conn).toBe('open');
+      expect(rt.conv.connectionBanner).toBeNull();
+      expect(tabsStore.getState().tabs.map((t) => t.id)).toEqual(['A1']); // FOCUS-3: the looked-at view stays
+      h.visibility.set(true);
+      h.visibility.set(false);
+      await flushPromises();
+      expect(again.messages()).toEqual([]);
+      // the user types: start first, the message after its session_started
+      rt.send('carry on');
+      expect(again.types()).toEqual(['start']);
+      again.emit({ type: 'session_started', session_id: 'A1' });
+      expect(again.types()).toEqual(['start', 'send']);
+    });
+
+    it('an unseen view opened by pool sync goes away, as on the live watcher close', async () => {
+      startServices({ skipInitialSync: true });
+      livePool('BOOT1', [ROW]);
+      openSession({ kind: 'agent', localId: 'MINE', focus: true });
+      await syncPool();
+      subscribe(FakeWebSocket.all(CHAT).find((w) => w !== FakeWebSocket.all(CHAT)[0]) ?? FakeWebSocket.last(CHAT), 'A1');
+      await flushPromises();
+      const bg = getSessionRuntime('A1') as SessionRuntime;
+      expect(bg).toBeDefined();
+      livePool('BOOT1', []);
+      const ws = FakeWebSocket.all(CHAT).filter((w) => w.messages().some((m) => m.local_id === 'A1'))[0] as FakeWebSocket;
+      ws.drop();
+      vi.advanceTimersByTime(1000);
+      FakeWebSocket.last(CHAT).open();
+      await flushPromises();
+      expect(getSessionRuntime('A1')).toBeUndefined();
+      expect(tabsStore.getState().tabs.map((t) => t.id)).toEqual(['MINE']);
+    });
+
+    it('a backend restart (new server id) resumes; still in the pool resumes', async () => {
+      await liveAgent('BOOT1');
+      const same = await reopen();
+      expect(same.types()).toEqual(['start']);
+      same.emit({ type: 'session_started', session_id: 'A1' });
+      await flushPromises();
+      livePool('BOOT2', []);
+      const restarted = await reopen();
+      expect(restarted.types()).toEqual(['start']);
+    });
+
+    it('a view opened from history (never live here) starts at once', () => {
+      startServices({ skipInitialSync: true });
+      livePool('BOOT1', []);
+      h.fetch.on('GET', /\/messages/, { messages: [], total_count: 0, has_more: false, start_index: 0 });
+      openSession({ kind: 'agent', localId: 'H1', sdkId: 'past', focus: true });
+      const ws = FakeWebSocket.last(CHAT);
+      ws.open();
+      expect(ws.types()).toEqual(['start']);
+    });
+
+    it('Save and Restart with the socket down still starts (it closed the entry itself)', async () => {
+      const rt = await liveAgent('BOOT1');
+      FakeWebSocket.last(CHAT).drop();
+      livePool('BOOT1', []);
+      await rt.restart();
+      const again = FakeWebSocket.last(CHAT);
+      again.open();
+      await flushPromises();
+      expect(again.types()).toEqual(['start']);
+    });
   });
 
   it('openArchie attaches to the running orchestrator from pool/live (G-15); a different resume is a conflict', async () => {
@@ -453,6 +637,7 @@ describe('startServices', () => {
     // background, the turn ends meanwhile; on visible: pool sync + start re-sent; idle ends the turn (ST-2)
     h.visibility.set(true);
     h.visibility.set(false);
+    await flushPromises(); // POOL-2: the pool is re-read before the re-start (Q1 is still in it)
     expect(ws.types().filter((t) => t === 'start')).toHaveLength(2);
     ws.emit({ type: 'session_started', session_id: 'Q1' });
     await flushPromises();

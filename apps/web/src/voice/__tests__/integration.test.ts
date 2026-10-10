@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Conversation } from '@/protocol';
 import { ArchieRuntime, openSession, startServices } from '@/services';
-import { FakeWebSocket, setupServices, teardownServices } from '../../services/__tests__/fakes';
+import { FakeWebSocket, flushPromises, setupServices, teardownServices } from '../../services/__tests__/fakes';
 import { VoiceController } from '../core/VoiceController';
 import type { ConnectionType, TransportOptions } from '../core/types';
 import { portFor } from '../registry';
@@ -152,7 +152,7 @@ describe('voice on the Archie runtime', () => {
     expect(s.ws.types().filter((t) => t.startsWith('voice_'))).toEqual([]);
   });
 
-  it('P-2 on the runtime: a dropped socket reconnects and re-arms with voice_start (V-8), never a plain start', () => {
+  it('P-2 on the runtime: a dropped socket reconnects and re-arms with voice_start (V-8), never a plain start', async () => {
     const s = setup();
     ownerLive(s);
     s.ws.drop();
@@ -160,6 +160,7 @@ describe('voice on the Archie runtime', () => {
     vi.advanceTimersByTime(1_000);
     const again = FakeWebSocket.last(ORCH);
     again.open();
+    await flushPromises(); // spec 12 POOL-2: the pool is re-read before the re-arm
     expect(again.messages()).toEqual([{ type: 'voice_start', local_id: 'O1', resume_sdk_id: 'O1' }]);
   });
 });

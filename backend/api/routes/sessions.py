@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
-from api.deps import get_pool, get_store
+from api.deps import SERVER_ID_HEADER, SERVER_INSTANCE_ID, get_pool, get_store
 from api.models import (
     ContentBlockResponse,
     MessagePreviewResponse,
@@ -116,6 +116,7 @@ def list_sessions(
 
 @router.get("/pool/live", response_model=list[PoolSessionResponse])
 def list_pool_sessions(
+    response: Response,
     pool: SessionPool = Depends(get_pool),
     store: SessionStore = Depends(get_store),
 ):
@@ -123,7 +124,14 @@ def list_pool_sessions(
 
     Used by the frontend on startup to re-attach to sessions that are still
     running after a browser close/refresh.
+
+    The ``X-Archie-Server-Id`` header names this server process (spec 12 SRV-1):
+    a client whose orchestrator conversation is missing from the pool after a
+    reconnect compares it with the id it saw when it subscribed — the same id
+    means the conversation was closed elsewhere, a new one that the backend
+    restarted.
     """
+    response.headers[SERVER_ID_HEADER] = SERVER_INSTANCE_ID
     result: list[PoolSessionResponse] = []
 
     # Orchestrator session (at most one)

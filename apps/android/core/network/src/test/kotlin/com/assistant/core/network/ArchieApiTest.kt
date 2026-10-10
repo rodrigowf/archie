@@ -39,6 +39,15 @@ class ArchieApiTest {
         assertEquals("/api/sessions/pool/live", server.takeRequest().path)
     }
 
+    @Test fun livePoolSnapshotCarriesTheServerId_SRV1() = runBlocking {
+        server.enqueue(json("[]").setHeader("X-Archie-Server-Id", "boot-1"))
+        server.enqueue(json("[]"))
+        val api = ArchieApi(stack) { base }
+        assertEquals("boot-1", (api.livePoolSnapshot() as ApiResult.Ok).value.serverId)
+        val old = (api.livePoolSnapshot() as ApiResult.Ok).value          // a server without the header
+        assertEquals(null, old.serverId); assertTrue(old.sessions.isEmpty())
+    }
+
     @Test fun errorsAreValuesWithTheBackendDetail() = runBlocking {
         server.enqueue(json("""{"detail":"voice_vad_threshold must be in [0.15, 0.50]"}""", 400))
         val r = ArchieApi(stack) { base }.updateConfig(ConfigPatch(voiceVadThreshold = 0.9))

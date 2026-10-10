@@ -23,6 +23,7 @@ import {
 } from '@/protocol';
 import { markTabUnseen, publishLiveStatus, showSnackbar, type RuntimeHandle, type SessionStoreHandle } from '@/stores';
 import { getEnv } from '../env';
+import type { PoolSnapshot } from '../http/endpoints/sessions';
 import { api } from '../http/endpoints';
 import { errorMessage, isApiError } from '../http/errors';
 
@@ -47,6 +48,8 @@ export interface RuntimeHooks {
   lookupSdkId(localId: string): Promise<string | null>;
   /** The conversation (re)subscribed after a gap: apply `pool/live` status (ST-2). */
   onResubscribed(runtime: ConversationRuntime): void;
+  /** POOL-2: a fresh `pool/live` with its server id (SRV-1). Without it agent views never reconcile. */
+  poolSnapshot?(): Promise<PoolSnapshot>;
 }
 
 export abstract class ConversationRuntime implements RuntimeHandle {
@@ -121,8 +124,22 @@ export abstract class ConversationRuntime implements RuntimeHandle {
     }
   }
 
-  /** Send a user-level message now if subscribed, else after the next `session_started`. */
+  /**
+   * Send a user-level message now if subscribed, else after the next `session_started`. A view whose
+   * session ended on the server (stopped: closed live or while away, POOL-2) has no subscription:
+   * the message is the user's explicit resume, so `start` is re-sent first and the message follows
+   * its `session_started` (it used to be refused with `not_started` and lost).
+   */
   protected sendWhenSubscribed(msg: ClientMessage): void {
+    const c = this.conv;
+    const ended = !c.awaitingSessionStarted && (c.conn === 'open' || (c.conn === 'subscribed' && c.status === 'stopped'));
+    if (ended) {
+      this.outbox.push(msg);
+      if (this.outbox.length > OUTBOX_CAP) this.outbox.shift();
+      this.onExplicitResume();
+      this.resendStart();
+      return;
+    }
     if (this.conv.conn === 'subscribed' && this.transportSend(msg)) return;
     this.outbox.push(msg);
     if (this.outbox.length > OUTBOX_CAP) this.outbox.shift();
@@ -172,6 +189,11 @@ export abstract class ConversationRuntime implements RuntimeHandle {
 
   /** Re-send `start` (or the voice owner's `voice_start`) on an open socket (T-9, T-11). */
   abstract resendStart(): void;
+
+  /** The user is resuming an ended conversation by typing into it (POOL-2). */
+  protected onExplicitResume(): void {
+    // agent views: nothing extra
+  }
 
   /**
    * The user's Retry on an open socket: after a start error the conversation is `failed` and a

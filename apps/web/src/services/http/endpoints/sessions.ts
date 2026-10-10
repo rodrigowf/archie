@@ -8,9 +8,27 @@ import type { PoolSession, SessionConfig, SessionInfo } from '../types';
 
 const id = (s: string): string => encodeURIComponent(s);
 
+/** `GET /api/sessions/pool/live` response header naming the server process (spec 12 SRV-1). */
+export const SERVER_ID_HEADER = 'X-Archie-Server-Id';
+
+export interface PoolSnapshot {
+  rows: PoolSession[];
+  serverId: string | null;
+}
+
 export const sessions = {
   list: () => http.get<SessionInfo[]>('/api/sessions'),
   poolLive: () => http.get<PoolSession[]>('/api/sessions/pool/live'),
+  /** `pool/live` with the server process id (`X-Archie-Server-Id`, spec 12 SRV-1; `null` from a server without it). */
+  poolLiveSnapshot: async (): Promise<PoolSnapshot> => {
+    let serverId: string | null = null;
+    const rows = await http.get<PoolSession[]>('/api/sessions/pool/live', {
+      onHeaders: (h) => {
+        serverId = h.get(SERVER_ID_HEADER) || null;
+      },
+    });
+    return { rows: Array.isArray(rows) ? rows : [], serverId };
+  },
   /** `limit` 1–200 (default 50); `before` = the oldest `start_index` held (§5.3). */
   messages: (sdkId: string, opts: { limit?: number; before?: number } = {}) =>
     http.get<MessagesPage>(`/api/sessions/${id(sdkId)}/messages`, { query: { limit: opts.limit ?? 50, before: opts.before } }),

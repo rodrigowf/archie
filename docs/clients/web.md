@@ -3,7 +3,7 @@ name: web
 category: archie/clients
 tags: [web, react, vite, zustand, safari-12, ipad, compat-build, remote-console, low-end, deploy]
 created: 2026-04-14
-modified: 2026-10-09
+modified: 2026-10-10
 summary: apps/web — React 18 + Vite web client; one source tree, main build at / and Safari 12 build at /compat/.
 source: curated (consolidated from memory notes assistant/devices/frontend-compat.md, assistant/infrastructure/repo_layout_cutover_2026_10.md, assistant/infrastructure/features_and_integrations_summary.md §3–4, auto-memory feedback_always_build_both_frontends.md, feedback_stale_web_build_voice_symptom.md, project_frontend_refactor_2026_10_03.md; verified against code 2026-10-06)
 references:
@@ -215,6 +215,39 @@ build**, and whenever the device pref "Reduce motion" is set. Effects: no CSS an
 transitions (also under `prefers-reduced-motion`), no backdrop blur, stream flushes to React
 every 100 ms instead of every frame, 80 instead of 200 mounted messages per panel, deferred
 highlighting skipped for blocks over 8 KB, 10 fps meters. Details: spec 13 §2.7.
+
+## The orchestrator conversation across devices
+
+`services/sessions/orchestratorChannel.ts` follows the server's pool (spec 12 §3.7 POOL-2,
+SRV-1). A hidden tab whose socket dropped is not a pool watcher, so it can miss
+`agent_session_closed` when another device closes Archie. The channel reads `pool/live` (with its
+`X-Archie-Server-Id` header, `api.sessions.poolLiveSnapshot`) in the background on every socket
+open and remembers on which server id the Archie view last subscribed (`markSubscribed`). When
+that view would re-send `start` (a reopen, or visible again with the socket open) it re-reads the
+pool first (`fetchPoolSnapshot(true)`):
+
+- still there ⇒ `start` / `voice_start` as before;
+- gone and already closed live, or gone with the same server id ⇒ `onClosedWhileAway`: the
+  reducer's `closed_while_away` input (socket counts as open, no `start`, then the WATCH-1 effects
+  of a synthesized `agent_session_closed`, which also reach the session directory: `orchestratorRef`
+  cleared, a sync-opened unseen view removed);
+- gone with a new or unknown server id (a backend restart) ⇒ resumed as before.
+
+A view that was never live here (new, just attached) starts with no read; an
+`agent_session_opened` for the same `localId` re-subscribes a stopped view.
+
+**Agent sessions** (`SessionRuntime`) follow the same rule: on each `session_started` the view reads
+`pool/live` (`RuntimeHooks.poolSnapshot`; the ST-2 status read joins that request) and keeps the
+server id. Before a reopen `start` or a visible-again resync, a view that was live here or already
+ended (`stopped`/`terminated`) re-reads the pool; gone with the same id, or already ended →
+`closed_while_away` (whose watcher effect reaches `onWatcherEvent`, so an unseen sync-opened tab goes
+away, as on the live close); gone with a new or unknown id → `start`. Save and Restart, which closes
+the entry itself, starts the next open with no read. A view opened from History starts at once.
+
+**Typing into a stopped view** (either kind) is the user's explicit resume:
+`ConversationRuntime.sendWhenSubscribed` re-sends `start` and sends the message after its
+`session_started` (Archie: `channel.resumeExplicitly` first). Tests:
+`services/__tests__/manager.test.ts` ("POOL-2 …").
 
 ## Notifications ("agent session finished")
 

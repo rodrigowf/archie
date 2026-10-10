@@ -226,7 +226,7 @@ Mapping to the requested concept list:
 ```
 
 - **ST-1.** Unknown `status` values from the server MUST map to the current status unchanged, never to "Ready" (W-6.2, A-1.4). `retrying` MUST be shown as a distinct state.
-- **ST-2.** On (re)subscribe the client MUST take `pool/live[].status` as authoritative for agent sessions whose turn state it does not know: `streaming|tool_use|thinking` ⇒ `inTurn = true` and that status; `idle` while `inTurn` ⇒ `endTurn("unknown")`. The orchestrator row always says `idle` (G-15) and MUST NOT be used this way.
+- **ST-2.** On every (re)subscribe (each `session_started` of an agent socket) the client MUST fetch `pool/live` and take its row's `status` as authoritative: `streaming|tool_use|thinking` ⇒ `inTurn = true` and that status; any other status (`idle`, `interrupted` — Codex, Gemini and Qwen keep it after a stopped turn — or `disconnected`) while `inTurn` ⇒ `endTurn("unknown")`. A turn that ended while the socket was away, or ended without a terminal frame, otherwise stays "running" forever. The orchestrator row always says `idle` (G-15) and MUST NOT be used this way.
 - **ST-3.** Tab/page indicators MUST distinguish: connecting, subscribed-idle, busy, stopped, terminated, connection failed (W-6.1).
 
 ---
@@ -277,7 +277,7 @@ sendStart(conv):
   send(msg)
 ```
 
-- **T-9.** `start` MUST be (re-)sent on every socket open and on every visibility/foreground resume while the socket is open (§3.5). Re-sending `start` on a subscribed socket is safe: subscription is a set (`api/pool.py:488-491`).
+- **T-9.** `start` MUST be (re-)sent on every socket open and on every visibility/foreground resume while the socket is open (§3.5). Re-sending `start` on a subscribed socket is safe: subscription is a set (`api/pool.py:488-491`). For the orchestrator, POOL-2 (§3.7) comes first: a `start` for a conversation that was closed elsewhere would re-open it on the server.
 - **T-10.** `resume_from` MUST only be sent when the conversation's entries were built in this process from the same stream (in-memory checkpoint). A client that rebuilt the conversation from REST (cold open, process death, page reload) MUST NOT send a persisted checkpoint (fixes W-7). Checkpoints MUST NOT be written to persistent storage per event (A-2.2/A-8.14). Android MAY persist `{localId, checkpoint}` **together with a full snapshot of the entries** on `onStop`; restoring both is equivalent to "in memory".
 - **T-11.** For the orchestrator, `voice_start` replaces `start` while this client owns voice (§7.3). A plain `start` from the owner's own socket is still safe: the server answers it with `voice_initiator: true` and voice metadata only (no `voice_session_update`, no `voice_connection_info`). Android's conversation layer sends one on every foreground.
 - **T-12.** Responses to `start`:
@@ -299,7 +299,7 @@ sendStart(conv):
 ```
 onVisible():                                    // web visibilitychange→visible; Android onStart/onResume
   for conv in openConversations:
-     if socket(conv).isOpen: sendStart(conv)    // resync: replay what we missed
+     if socket(conv).isOpen: sendStart(conv)    // resync: replay what we missed (orchestrator: after POOL-2)
      else: reconnectNow(conv)
   sessionDirectory.syncPool()                   // §3.7
   sessionDirectory.refreshList()
@@ -402,6 +402,14 @@ onWatcherEvent(e):               // only arrives on the orchestrator WS, even un
 - **FOCUS-1.** No server-originated event (pool sync, `agent_session_opened`, `user_message`, a background turn, a voice transcript) may change which view is active or navigate the UI. Only a direct user action may change focus. Clients MAY open a **background** view for a session started elsewhere (web parity), shown with an unread/live badge, but it MUST NOT become active (fixes W-6.1 focus stealing, A-1.1 auto-navigation).
 - **FOCUS-2.** `agent_session_closed` MUST check `is_orchestrator` before acting on a view (G-39).
 - **WATCH-1.** A conversation that itself receives `agent_session_closed` with its own `localId` and the matching `is_orchestrator` flag (FOCUS-2) MUST treat it as a server `session_stopped`: `status = stopped` (a `terminated` status is kept), `endTurn`, `endVoice`. The view stays open (FOCUS-3). In practice this is the orchestrator conversation, whose socket receives the watcher events. *Rationale:* `pool.stop_orchestrator()` clears the orchestrator's subscribers without sending them any frame and only notifies watchers (`api/pool.py:591-602`). Every orchestrator socket is a watcher (`api/routes/orchestrator.py:127-128`), so this frame is the orchestrator view's only signal that its session ended elsewhere. Fixture `orchestrator_closed_by_pool`.
+- **POOL-2.** The server's pool is the source of truth for which conversations are open, orchestrator and agent alike. A device that was away (backgrounded, socket dropped, process frozen) misses what happened meanwhile: its orchestrator socket is not a pool watcher while down (no `agent_session_closed`), and a dropped chat socket gets no `session_stopped`. Before a conversation **automatically** re-sends `start` (a socket reopen, or a visibility/foreground resume with the socket open, T-9), the client MUST re-read `GET /api/sessions/pool/live` when that conversation was live on this device (it got `session_started` here, or it already ended: `stopped`/`terminated`), and then:
+  - its row is there (orchestrator: the `is_orchestrator` row with its `localId`; agent: the row with its `localId`) ⇒ `start` as usual;
+  - its row is missing and the conversation already ended live, or the pool's server id (SRV-1) equals the one read when it last subscribed ⇒ it was **closed elsewhere**: the client applies exactly the effects of the live close (`agent_session_closed{session_id: localId, is_orchestrator}`: WATCH-1, FOCUS-3, the §3.7 `onWatcherEvent` close branch: orchestrator `orchestratorRef = null`; a sync-opened view nobody looked at goes away; list refresh) and sends **no** `start`; the socket counts as open (no "disconnected" banner, nothing to reconnect to). Later reopens and resumes send no `start` for it either;
+  - its row is missing with a different or unknown server id (a backend restart, an old server, a failed read) ⇒ `start` resumes it (2026-10-04 RT-4: the conversation still exists on disk and nobody closed it);
+  - orchestrator only: another orchestrator row is there ⇒ Android follows it as on `agent_session_opened` (adopt, a new view); the web records it as `orchestratorRef` (same as live).
+
+  A conversation that was never live on this device in this server process (opened from History, a new one whose `session_started` has not arrived, a view just attached) is started with no read: opening a past session is how it is resumed. **Explicit resume:** a user message (`send`) typed into a view whose session ended (`stopped`, closed live or while away) is the user's request to continue it (Android's card reads "Send a message to start it again"): the client re-sends `start` (orchestrator: as user intent, so `orchestrator_active` is the §6.11 conflict) and sends the message after that `start`'s `session_started` (before, it was refused with `not_started` and lost). An `agent_session_opened` for the same orchestrator `localId` re-subscribes a stopped Archie view; the web's Save and Restart (§6.14), which closes the pool entry itself, starts with no read. *Rationale:* without this a returning device re-sent `start{local_id, resume_sdk_id}` for the closed conversation (Android: the orchestrator reconnect probe took the empty pool for a backend restart; both clients: a stopped view re-sent `start` on the next resume or reopen), and `_handle_start` (`api/routes/orchestrator.py`) / the chat `start` re-created it for every device (2026-10-10).
+- **SRV-1.** `GET /api/sessions/pool/live` carries `X-Archie-Server-Id`: an opaque id of the server process, new on every backend start (`api/deps.py` `SERVER_INSTANCE_ID`; exposed to trusted cross-origin pages through CORS). Clients read it on every orchestrator socket open (one background read when no adoption probe runs) and bind it to the orchestrator conversation when that conversation subscribes; an agent view binds the id of the `pool/live` read it makes right after each `session_started` (the ST-2 read, one request for both). A client MUST treat a missing header as "unknown".
 - **FOCUS-3.** A view the user has interacted with MUST NOT be closed by a server event. It shows `stopped` with a "Session ended" state and a Resume action (`start` with a new `localId` and `resume_sdk_id`).
 - **MC-1.** Mutations are not broadcast (G-27). After rename, delete, duplicate, rewind, fork, close and config writes, the acting client refreshes its own stores. Other clients see changes on their next `refreshList()` (visible, watcher event, or any `turn_complete`).
 - **TURN-1.** Turn watcher events (added 2026-10-09 for device notifications). `pool.send()` (`backend/api/pool.py`), the path of every agent turn (chat tabs and the orchestrator's runner; never the orchestrator's own turns), tells every pool watcher:
@@ -844,7 +852,7 @@ function onStatus(s) {
   }
 }
 
-const TURN_FAILURE_AGENT = ["send_failed", "upstream_wedged", "command_failed", "compact_failed"]
+const TURN_FAILURE_AGENT = ["send_failed", "upstream_wedged", "turn_timeout", "command_failed", "compact_failed"]
 const TURN_FAILURE_ORCH  = ["api_error", "provider_error", "send_failed", "send_audio_failed",
                             "invalid_audio", "inject_text_failed", "compact_failed"]
 const ORCH_NO_IDLE_AFTER = ["send_failed", "send_audio_failed", "compact_failed"]  // exception paths
@@ -935,7 +943,7 @@ Before backend O-3 the orchestrator did not echo typed prompts to other devices 
 
 | Class | Codes | Effect |
 |---|---|---|
-| Turn failure | agent: `send_failed`, `upstream_wedged`, `command_failed`, `compact_failed`; orchestrator: `api_error`, `provider_error`, `send_failed`, `send_audio_failed`, `invalid_audio`, `inject_text_failed`, `compact_failed` | `notice{error}` entry + turn end |
+| Turn failure | agent: `send_failed`, `upstream_wedged`, `turn_timeout`, `command_failed`, `compact_failed`; orchestrator: `api_error`, `provider_error`, `send_failed`, `send_audio_failed`, `invalid_audio`, `inject_text_failed`, `compact_failed` | `notice{error}` entry + turn end |
 | Interrupt | orchestrator `interrupted` | `notice{interrupted}` (deduped with `status{interrupted}`) |
 | Start / connection | `start_timeout`, `start_failed`, `orchestrator_active`, `orchestrator_stopping`, client-side socket errors | `connectionBanner` (§3.3); never an entry |
 | Voice | `voice_event_failed`, `voice_audio_failed`, `voice_restart_failed`, `voice_config_busy`, `not_voice_session`, `cannot_switch_voice` | voice controller banner (§7) |
@@ -1895,6 +1903,7 @@ Only fixes that a client cannot reasonably work around. Everything else in 01 §
 - **Fix.** When `pool.cancel_turn()` returns `True`, broadcast the same frame to all subscribers of the session (keep the direct reply when it returns `False`).
 - **Why the client cannot fix it.** The only alternative is polling `GET /api/sessions/pool/live` while busy.
 - **Size / risk.** ≈ 5 lines. Low risk: clients already handle the frame; the sender receives it once.
+- **Also the orchestrator's runner (2026-10-10).** Turns the runner ends (timeout, `interrupt_agent_session`, failure) never pass through `chat.py`, so the runner broadcasts the frames itself: `error{turn_timeout}` then `status{interrupted}` on timeout, `status{interrupted}` on cancel, `error{upstream_wedged|send_failed}` on failure (`backend/orchestrator/runner.py` `_tell_tabs`). These are unsequenced (not in the replay ring), so a socket that was away still relies on ST-2.
 
 ### BF-3 — nginx request-body limit (required, infrastructure)
 

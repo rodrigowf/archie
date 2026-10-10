@@ -292,8 +292,11 @@ class OrchestratorChannelTest {
 
     @Test fun armNewSessionSkipsTheProbe() = runTest {
         val r = Rig(this, autoStart = true)
+        r.pool.script += listOf(orch("OTHER", "J"))
         r.channel.armNewSession("NEW"); r.channel.connect(url); r.socket.open(); r.settle()
-        assertTrue(r.pool.calls.isEmpty())
+        advanceTimeBy(SessionTuning.POOL_PROBE_RETRY_MS); runCurrent()
+        assertEquals("one read, only for the server id (SRV-1), never retried", 1, r.pool.calls.size)
+        assertEquals("NEW", r.channel.state.value.orchestrator?.localId)
         assertEquals(listOf<ChannelEvent>(ChannelEvent.NewSessionArmed(OrchestratorRef("NEW", "NEW"))), r.events.drain())
         assertEquals(listOf<ClientFrame>(ClientFrame.Start("NEW", "NEW")), r.socket.sent)
         assertEquals("NEW", r.ids.value)
@@ -319,6 +322,148 @@ class OrchestratorChannelTest {
         r.channel.attachNetwork(network); runCurrent()
         network.tryEmit(Unit); network.tryEmit(Unit); runCurrent()
         assertEquals("T-14 network callback", 4, r.socket.reconnectNows)
+    }
+
+    // ───────────── POOL-2 / SRV-1: the server's pool is the truth on every reopen and foreground ─────────────
+
+    /** Connect, adopt ORCH from the pool of server process [boot] and subscribe; clears the logs. */
+    private fun Rig.subscribedTo(boot: String?) {
+        pool.serverId = boot
+        pool.script += listOf(listOf(orch()))
+        channel.connect(url); socket.open(); settle()
+        socket.frame(started()); settle()
+        events.drain(); frames.drain(); socket.sent.clear()
+    }
+
+    @Test fun pool2_closedWhileAwayOnTheSameServer_isDroppedLikeTheLiveClose_neverRestarted() = runTest {
+        // 2026-10-10: device B was backgrounded (its socket gone, so not a pool watcher) while
+        // device A closed the conversation. B came back, found no orchestrator and re-sent `start`
+        // with the old ids, which re-opened the closed conversation on the server.
+        val r = Rig(this, autoStart = true)
+        r.subscribedTo("BOOT1")
+        r.socket.drop(); r.settle()
+        r.pool.script.clear(); r.pool.script += listOf(emptyList())   // closed elsewhere meanwhile
+        r.socket.open(); r.settle()
+        advanceTimeBy(SessionTuning.POOL_PROBE_RETRY_MS); runCurrent()
+
+        assertEquals(
+            listOf(ChannelEvent.Disconnected(true), ChannelEvent.OrchestratorClosed("ORCH")),
+            r.events.drain(),
+        )
+        assertEquals("no start: it would re-open the closed conversation for everyone", emptyList<ClientFrame>(), r.socket.sent)
+        assertEquals(null, r.channel.state.value.orchestrator)
+        assertTrue(r.channel.state.value.noOrchestrator)
+        assertEquals(null, r.ids.value)
+        assertEquals(
+            "the conversation and every frame consumer see the same frame as a live close (WATCH-1)",
+            listOf<ServerFrame>(ServerFrame.AgentSessionClosed("ORCH", isOrchestrator = true)),
+            r.frames.drain(),
+        )
+
+        // Later reopens and foregrounds stay quiet: nothing is re-started.
+        r.socket.drop(); r.settle(); r.socket.open(); r.settle()
+        advanceTimeBy(SessionTuning.POOL_PROBE_RETRY_MS); runCurrent()
+        r.channel.onForeground(); r.settle()
+        assertTrue(r.socket.sent.isEmpty())
+        assertTrue(r.events.drain().none { it is ChannelEvent.Resync || it is ChannelEvent.Adopted })
+    }
+
+    @Test fun pool2_aBackendRestart_newServerId_stillResumesTheConversation() = runTest {
+        val r = Rig(this, autoStart = true)
+        r.subscribedTo("BOOT1")
+        r.socket.drop(); r.settle()
+        r.pool.serverId = "BOOT2"                                    // the backend restarted: empty pool, new id
+        r.pool.script.clear(); r.pool.script += listOf(emptyList())
+        r.socket.open(); r.settle()
+        advanceTimeBy(SessionTuning.POOL_PROBE_RETRY_MS); runCurrent()
+        val ref = OrchestratorRef("ORCH", "JSONL")
+        assertEquals(
+            listOf(ChannelEvent.Disconnected(true), ChannelEvent.Adopted(ref, true), ChannelEvent.Reconnected(ref)),
+            r.events.drain(),
+        )
+        assertEquals(listOf<ClientFrame>(ClientFrame.Start("ORCH", "JSONL")), r.socket.sent)
+
+        // Subscribed again on BOOT2: a close while away on BOOT2 is now recognised.
+        r.socket.frame(started()); r.settle(); r.socket.sent.clear(); r.events.drain()
+        r.socket.drop(); r.settle(); r.socket.open(); r.settle()
+        advanceTimeBy(SessionTuning.POOL_PROBE_RETRY_MS); runCurrent()
+        assertEquals(listOf(ChannelEvent.Disconnected(true), ChannelEvent.OrchestratorClosed("ORCH")), r.events.drain())
+        assertTrue(r.socket.sent.isEmpty())
+    }
+
+    @Test fun pool2_aServerWithoutTheIdHeader_keepsTheOldResume() = runTest {
+        val r = Rig(this, autoStart = true)
+        r.subscribedTo(null)
+        r.socket.drop(); r.settle()
+        r.pool.script.clear(); r.pool.script += listOf(emptyList())
+        r.socket.open(); r.settle()
+        advanceTimeBy(SessionTuning.POOL_PROBE_RETRY_MS); runCurrent()
+        assertEquals(listOf<ClientFrame>(ClientFrame.Start("ORCH", "JSONL")), r.socket.sent)
+    }
+
+    @Test fun pool2_aNewConversationNeverSubscribed_isNotTakenForClosed() = runTest {
+        // Armed, but the socket dropped before `session_started`: the pool never had it, so it is
+        // resumed (started), not dropped.
+        val r = Rig(this, autoStart = true)
+        r.pool.serverId = "BOOT1"; r.pool.script += listOf(emptyList())
+        r.channel.armNewSession("NEW"); r.channel.connect(url); r.socket.open(); r.settle()
+        r.socket.drop(); r.settle(); r.socket.sent.clear(); r.events.drain()
+        r.socket.open(); r.settle()
+        advanceTimeBy(SessionTuning.POOL_PROBE_RETRY_MS); runCurrent()
+        assertEquals(listOf<ClientFrame>(ClientFrame.Start("NEW", "NEW")), r.socket.sent)
+        assertTrue(r.events.drain().none { it is ChannelEvent.OrchestratorClosed })
+    }
+
+    @Test fun pool2_aNewConversationSubscribedThenClosedWhileAway_isDropped() = runTest {
+        // The armed path runs no adoption probe but still learns the server id (SRV-1).
+        val r = Rig(this, autoStart = true)
+        r.pool.serverId = "BOOT1"; r.pool.script += listOf(emptyList())
+        r.channel.armNewSession("NEW"); r.channel.connect(url); r.socket.open()
+        r.socket.frame(started("NEW", "NEW")); r.settle()            // session_started before the id read
+        r.socket.drop(); r.settle(); r.socket.sent.clear(); r.events.drain()
+        r.socket.open(); r.settle()
+        advanceTimeBy(SessionTuning.POOL_PROBE_RETRY_MS); runCurrent()
+        assertEquals(listOf<ChannelEvent>(ChannelEvent.OrchestratorClosed("NEW")), r.events.drain())
+        assertTrue(r.socket.sent.isEmpty())
+    }
+
+    @Test fun pool2_foregroundAfterALiveClose_sendsNoStart() = runTest {
+        // The live close arrived; the stopped view used to re-send `start` on the next foreground
+        // (Resync), re-opening the conversation on the server.
+        val r = Rig(this, autoStart = true)
+        r.subscribedTo("BOOT1")
+        r.socket.frame(ServerFrame.AgentSessionClosed("ORCH", isOrchestrator = true)); r.settle()
+        r.events.drain(); r.pool.script.clear(); r.pool.script += listOf(emptyList())
+        r.channel.onForeground(); r.settle()
+        assertTrue(r.events.drain().isEmpty())
+        assertTrue(r.socket.sent.isEmpty())
+    }
+
+    @Test fun pool2_foregroundWithTheSocketStillOpen_reReadsThePool() = runTest {
+        val r = Rig(this, autoStart = true)
+        r.subscribedTo("BOOT1")
+        // The close never reached this socket (e.g. a frozen process the server had dropped as a watcher).
+        r.pool.script.clear(); r.pool.script += listOf(listOf(agent()))
+        r.channel.onForeground(); r.settle()
+        assertEquals(listOf<ChannelEvent>(ChannelEvent.OrchestratorClosed("ORCH")), r.events.drain())
+        assertEquals(listOf<ServerFrame>(ServerFrame.AgentSessionClosed("ORCH", isOrchestrator = true)), r.frames.drain())
+        assertTrue(r.socket.sent.isEmpty())
+        assertEquals(null, r.ids.value)
+
+        // Another device opened a new one meanwhile: the next foreground follows it (§3.7 opened).
+        r.pool.script.clear(); r.pool.script += listOf(listOf(orch("OTHER", "J2")))
+        r.channel.onForeground(); r.settle()
+        assertEquals(listOf<ChannelEvent>(ChannelEvent.Adopted(OrchestratorRef("OTHER", "J2"), reconnect = false)), r.events.drain())
+        assertEquals(listOf<ClientFrame>(ClientFrame.Start("OTHER", "J2")), r.socket.sent)
+    }
+
+    @Test fun pool2_foregroundWhenThePoolCannotBeRead_keepsT9() = runTest {
+        val r = Rig(this, autoStart = true)
+        r.subscribedTo("BOOT1")
+        r.pool.script.clear(); r.pool.script += listOf(null)       // REST failed
+        r.channel.onForeground(); r.settle()
+        assertEquals(listOf<ChannelEvent>(ChannelEvent.Resync), r.events.drain())
+        assertEquals(listOf<ClientFrame>(ClientFrame.Start("ORCH", "JSONL")), r.socket.sent)
     }
 
     /** Decision P-1: app close / background / disconnect / server change never send stop/close. */

@@ -1,5 +1,6 @@
 package com.assistant.core.data
 
+import com.assistant.core.model.LivePoolSnapshot
 import com.assistant.core.model.PoolSession
 import com.assistant.core.model.SessionSummary
 import com.assistant.core.network.ApiResult
@@ -52,10 +53,13 @@ class HistoryRepository(
     }
 
     /** `syncPool()` of §3.7: on app start, on visible, after any session mutation. */
-    suspend fun syncPool(): List<PoolSession>? = poolMutex.withLock {
-        val rows = api.livePool().getOrNull() ?: return null
-        _pool.value = rows
-        rows
+    suspend fun syncPool(): List<PoolSession>? = syncPoolSnapshot()?.sessions
+
+    /** [syncPool] with the server process id (`X-Archie-Server-Id`, spec 12 SRV-1); `null` = the call failed. */
+    suspend fun syncPoolSnapshot(): LivePoolSnapshot? = poolMutex.withLock {
+        val snap = api.livePoolSnapshot().getOrNull() ?: return null
+        _pool.value = snap.sessions
+        snap
     }
 
     /** Both stores (start, foreground, watcher events). */

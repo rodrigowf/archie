@@ -34,6 +34,8 @@ class FakeBackend {
     val agentSockets = CopyOnWriteArrayList<WebSocket>()
 
     @Volatile var poolJson = "[]"
+    /** `X-Archie-Server-Id` of `pool/live` (spec 12 SRV-1); `null` = a server without it. */
+    @Volatile var serverId: String? = null
     @Volatile var sessionsJson = "[]"
     @Volatile var visualizationsJson = "[]"
     @Volatile var memoryTreeJson = "[]"
@@ -56,7 +58,7 @@ class FakeBackend {
                 return when {
                     path == "/api/orchestrator/chat" -> MockResponse().withWebSocketUpgrade(listener("orch", orchestratorSockets))
                     path == "/api/sessions/chat" -> MockResponse().withWebSocketUpgrade(listener("agent", agentSockets))
-                    path == "/api/sessions/pool/live" -> json(poolJson)
+                    path == "/api/sessions/pool/live" -> json(poolJson).apply { serverId?.let { setHeader("X-Archie-Server-Id", it) } }
                     path == "/api/sessions" -> json(sessionsJson)
                     path == "/api/visualizations" -> json(visualizationsJson)
                     path == "/api/memory/tree" -> json(memoryTreeJson)

@@ -134,6 +134,16 @@ export class ArchieRuntime extends ConversationRuntime implements ChannelClient,
     this.resendStart();
   }
 
+  /** POOL-2: closed elsewhere while this client was away. Same effects as the live WATCH-1 frame, no `start`. */
+  onClosedWhileAway(): void {
+    this.step({ type: 'closed_while_away' });
+    if (this.coldOpenPending) {
+      this.coldOpenPending = false; // no session_started will come
+      void this.runReload();
+    }
+    this.voice?.onFrame({ type: 'agent_session_closed', session_id: this.localId, is_orchestrator: true } as ServerFrame);
+  }
+
   resendStart(): void {
     const start = this.voice?.startMessage() ?? undefined;
     this.step(start ? { type: 'resend_start', start } : { type: 'resend_start' });
@@ -143,8 +153,13 @@ export class ArchieRuntime extends ConversationRuntime implements ChannelClient,
     return this.channel.send(msg);
   }
 
+  /** Typing into an Archie view closed elsewhere resumes it: re-attach on the channel (POOL-2). */
+  protected override onExplicitResume(): void {
+    this.channel.resumeExplicitly(this.localId);
+  }
+
   protected onSubscribed(): void {
-    this.channel.markHealthy(); // T-13
+    this.channel.markSubscribed(this.localId); // T-13 + POOL-2
   }
 
   protected closeTransport(): void {

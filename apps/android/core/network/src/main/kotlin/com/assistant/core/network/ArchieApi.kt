@@ -2,6 +2,7 @@ package com.assistant.core.network
 
 import com.assistant.core.model.AuthStatus
 import com.assistant.core.model.HarnessInfo
+import com.assistant.core.model.LivePoolSnapshot
 import com.assistant.core.model.ConfigPatch
 import com.assistant.core.model.MemoryNode
 import com.assistant.core.model.PoolSession
@@ -132,8 +133,14 @@ class ArchieApi(private val rest: RestCaller) {
     suspend fun listSessions(): ApiResult<List<SessionSummary>> =
         rest.getJson<List<SessionInfoDto>>(rest.url("/api/sessions")).map { l -> l.map { it.toModel() } }
 
-    suspend fun livePool(): ApiResult<List<PoolSession>> =
-        rest.getJson<List<PoolSessionDto>>(rest.url("/api/sessions/pool/live")).map { l -> l.map { it.toModel() } }
+    suspend fun livePool(): ApiResult<List<PoolSession>> = livePoolSnapshot().map { it.sessions }
+
+    /** [livePool] plus the server process id (spec 12 SRV-1), for the orchestrator reconcile. */
+    suspend fun livePoolSnapshot(): ApiResult<LivePoolSnapshot> =
+        rest.call(Request.Builder().url(rest.url("/api/sessions/pool/live")).get().build()) { resp ->
+            val rows = RestJson.decodeFromString<List<PoolSessionDto>>(resp.body!!.string()).map { it.toModel() }
+            LivePoolSnapshot(rows, resp.header(SERVER_ID_HEADER)?.takeIf { it.isNotBlank() })
+        }
 
     suspend fun messages(sdkId: String, limit: Int = 50, before: Int? = null): ApiResult<PaginatedMessagesDto> =
         rest.getJson(rest.url("/api/sessions") {
@@ -255,4 +262,9 @@ class ArchieApi(private val rest: RestCaller) {
     }
 
     private inline fun <reified T> json(value: T): JsonElement = RestJson.encodeToJsonElement(value)
+
+    companion object {
+        /** `GET /api/sessions/pool/live` response header naming the server process (spec 12 SRV-1). */
+        const val SERVER_ID_HEADER = "X-Archie-Server-Id"
+    }
 }
