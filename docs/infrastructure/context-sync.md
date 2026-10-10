@@ -131,7 +131,8 @@ watch" messages for deleted directories) goes to the journal as `inotifywait: â€
 watch-limit failure is visible in `journalctl -t context-sync`. A reconcile with nothing to do logs
 nothing.
 
-**Testing.** Every behaviour above was checked with two instances syncing two local folders through
+**Testing.** `infra/sync/test/run-suite.sh` (â‰ˆ5 min, exit status = failures; run it after any change
+to the script, on the laptop and on the Jetson). Every behaviour above was checked with two instances syncing two local folders through
 a fake `ssh` (which runs the remote command locally and can simulate the remote being offline), on
 the laptop and on the Jetson (mawk 1.3.3, bash 4.4, rsync 3.1.2): live create/delete, delete and
 create while offline, delete while the service is stopped, edit beats delete, brake + approve, brake
