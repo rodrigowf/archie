@@ -319,7 +319,7 @@ internal fun SettingsHomeList(feature: SettingsFeature, onBack: (() -> Unit)?, s
                     actions = { com.assistant.core.design.components.InlineCardAction("Review", { onOpen(SettingsPageKey.PERMISSIONS) }, primary = true) },
                 )
             }
-            HomeGroup("This device", null, listOf(SettingsPageKey.CONNECTION, SettingsPageKey.AUDIO, SettingsPageKey.WAKE_WORD, SettingsPageKey.APPEARANCE, SettingsPageKey.PERMISSIONS).filter(::visible), summaries, selected, false, onOpen, topPad = 4)
+            HomeGroup("This device", null, listOf(SettingsPageKey.CONNECTION, SettingsPageKey.AUDIO, SettingsPageKey.WAKE_WORD, SettingsPageKey.APPEARANCE, SettingsPageKey.NOTIFICATIONS, SettingsPageKey.PERMISSIONS).filter(::visible), summaries, selected, false, onOpen, topPad = 4)
             HomeGroup(
                 "Archie (server)",
                 {

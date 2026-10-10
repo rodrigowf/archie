@@ -240,6 +240,20 @@ class SettingsUiTest {
         compose.onNodeWithText("jetson · offline").assertExists()
     }
 
+    @Test fun home_listsEveryDevicePage_includingNotifications() {
+        val h = h()
+        var opened: SettingsPageKey? = null
+        compose.setContent { ArchieTheme { SettingsScreen(h.feature, onBack = {}, onOpenPage = { opened = it }) } }
+        compose.waitForIdle()
+        // Every page of the device group must be reachable from the home (Notifications was not, 2026-10-10).
+        SettingsPageKey.entries.filter { it.group == SettingsPageKey.Group.DEVICE }.forEach {
+            compose.onNodeWithTag("settings-row:${it.name}").assertExists()
+        }
+        compose.onNodeWithTag("settings-row:NOTIFICATIONS").performClick()
+        compose.waitForIdle()
+        assert(opened == SettingsPageKey.NOTIFICATIONS) { "opened $opened" }
+    }
+
     @Test fun authGate_pasteFlow_validatesThenSignsIn() {
         val h = h { it.auth = """{"authenticated":false,"auth_url":null,"headless":true}""" }
         compose.setContent { ArchieTheme { com.assistant.archie.feature.settings.ui.AuthGate(h.feature) { } } }

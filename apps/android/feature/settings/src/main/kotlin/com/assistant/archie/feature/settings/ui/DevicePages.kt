@@ -560,7 +560,7 @@ internal fun NotificationsPage(feature: SettingsFeature, onBack: (() -> Unit)?, 
             )
         }
         HelpLine(
-            "While a turn is running, Archie keeps its connection (the “Connected” notification) until it ends, " +
+            "While a turn is running, Archie keeps its connection (the “Waiting for N agent sessions” notification) until it ends, " +
                 "so the phone can be in your pocket.",
             info = "Android only lets Archie hold the connection if the turn was already running while Archie was open. " +
                 "Turns started elsewhere while Archie is closed or long in the background reach this phone only with " +

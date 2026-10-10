@@ -236,7 +236,13 @@ Settings → This device → Notifications → "Agent session finished" (DataSto
 usual rationale) posts a heads-up notification on the "Agent sessions" channel when any agent session
 finishes a turn (spec 12 TURN-1/TURN-2). `app-main/.../system/TurnNotifier.kt` holds the decision
 (`TurnAttention`: switch, Stop, "looking at it" = the approvals' `lookingAtFrom`), the notifier and
-`SystemTurnSink`; the graph feeds it `orchestrator.frames`. A tap reuses the approval tap path
+`SystemTurnSink`; the graph feeds it `orchestrator.frames`. "Looking at it" needs `MainActivity` to be
+**resumed** (`approvals.foreground`, set in `onResume`/`onPause`), so it ends the moment Home is
+pressed, the shade is pulled or the screen locks; it used the process lifecycle before, whose
+`ON_STOP` arrives ~1 s late, and a turn finishing in that gap was wrongly treated as seen
+(2026-10-10). The Settings home lists the page between Appearance and Permissions
+(`SettingsUiTest.home_listsEveryDevicePage_includingNotifications` keeps every device page reachable;
+it was missing from the home until 2026-10-10). A tap reuses the approval tap path
 (`EXTRA_OPEN_AGENT`, plus `EXTRA_OPEN_AGENT_SDK` to reopen a session that left the pool).
 
 **Background delivery.** Frames only arrive while the process runs and is not frozen.

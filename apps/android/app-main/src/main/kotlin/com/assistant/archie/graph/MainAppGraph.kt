@@ -253,7 +253,6 @@ class MainAppGraph(
      */
     val processLifecycle = object : DefaultLifecycleObserver {
         override fun onStart(owner: LifecycleOwner) {
-            approvals.foreground.value = true
             conversations.onForeground()
             history.refreshAll()
             // A foreground context: the host may start / promote its FGS now (spec 14 §2.6).
@@ -261,7 +260,6 @@ class MainAppGraph(
         }
 
         override fun onStop(owner: LifecycleOwner) {
-            approvals.foreground.value = false
             // The orchestrator socket stays while the voice host's service needs it (wake word,
             // live voice, "Stay connected"): a headless wake must find it open (spec 14 §2.5).
             val keepAlive = settings.settings.value?.stayConnectedInBackground == true || voiceHost?.serviceWanted() == true

@@ -68,6 +68,20 @@ class MainActivity : ComponentActivity() {
         setContent { ArchieApp(graph) }
     }
 
+    // "Looking at it" (AN-1, agent-finished and approval notifications) follows the activity being
+    // resumed: it ends the moment Home is pressed, the shade is pulled or the screen locks. The
+    // process lifecycle's ON_STOP arrives ~1 s later, and a turn finishing in that gap was wrongly
+    // treated as seen (2026-10-10).
+    override fun onResume() {
+        super.onResume()
+        graph.approvals.foreground.value = true
+    }
+
+    override fun onPause() {
+        graph.approvals.foreground.value = false
+        super.onPause()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleIntent(intent)
