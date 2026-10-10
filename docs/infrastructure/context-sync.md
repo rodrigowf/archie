@@ -46,7 +46,7 @@ changes to the other. Code is not synced this way — see [topology.md](topology
 | `RETRY_INTERVAL` | Default `30` — wait between reachability checks at startup |
 | `TOMBSTONE_SECONDS` | Default `120` — how long a deleted path stays tombstoned (see step 5) |
 | `RECONCILE_SECONDS`, `TICK_SECONDS` | Default `600` / `30` — periodic reconcile; how often decisions are checked |
-| `MAX_DELETES`, `MAX_DELETE_PERCENT` | Default `25` / `10` — the brake: more deletions than this wait for approval |
+| `MAX_DELETES`, `MAX_DELETE_PERCENT` | Default `50` / `25` — the brake: more deletions than this wait for approval |
 | `TRASH_DAYS` | Default `30` — `.sync-trash/<date>/` folders older than this are purged |
 | `REMOTE_SCRIPT` | Default `assistant/infra/sync/context-sync.sh` (relative to the remote `$HOME`) |
 | `WATCH_FAIL_DELAY` | Default `30` — pause before exiting when a directory can't be watched |
@@ -107,7 +107,7 @@ changes to the other. Code is not synced this way — see [topology.md](topology
 
    Then both directions are copied (`rsync --update`, no `--delete`) and the manifest is rewritten.
    With no manifest yet (first run) nothing is deleted, only copied both ways.
-   **Brake:** if the inferred deletions exceed `MAX_DELETES` (25) or `MAX_DELETE_PERCENT` (10 %) of
+   **Brake:** if the inferred deletions exceed `MAX_DELETES` (50) or `MAX_DELETE_PERCENT` (25 %) of
    the manifest, none is applied. They are written to `pending-deletes`, logged once as an `ERROR`
    ("holding N deletion(s) for approval"), sent to the other machine (`remote-held`) so neither side's
    pushes undo the hold, and left alone (not copied either way) until a decision:

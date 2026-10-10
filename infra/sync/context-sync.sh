@@ -90,8 +90,8 @@ RECONCILE_SECONDS="${RECONCILE_SECONDS:-600}"
 TICK_SECONDS="${TICK_SECONDS:-30}"
 # Deletions a reconcile infers are held for approval when there are more than
 # MAX_DELETES of them, or more than MAX_DELETE_PERCENT of the synced files.
-MAX_DELETES="${MAX_DELETES:-25}"
-MAX_DELETE_PERCENT="${MAX_DELETE_PERCENT:-10}"
+MAX_DELETES="${MAX_DELETES:-50}"
+MAX_DELETE_PERCENT="${MAX_DELETE_PERCENT:-25}"
 # Trash folders (.sync-trash/<date>/) older than this are purged.
 TRASH_DAYS="${TRASH_DAYS:-30}"
 # Pause before exiting when inotifywait can't watch a directory, so a host that

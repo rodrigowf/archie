@@ -10,7 +10,7 @@ Bidirectional real-time sync for the assistant `context/` folder between two Lin
 - If the remote is offline, the change is skipped and replayed by the reconcile when it's back (startup never runs `rsync --delete`)
 - Deletes are replicated per path into the other machine's trash (`context/.sync-trash/<date>/`, kept 30 days), and *tombstoned* on both sides for 2 minutes so a deleted file isn't sent back by an in-flight push
 - A *reconcile* (at startup, after an outage, every 10 min) compares both sides with the last agreed state, so deletes made while the machines were apart are replayed; if a file was deleted on one side but edited on the other, the edit wins
-- More than 25 deletions at once are held for approval: `./context-sync.sh --status`, `--approve-deletes`, `--reject-deletes`
+- More than 50 deletions at once (or 25% of the files) are held for approval: `./context-sync.sh --status`, `--approve-deletes`, `--reject-deletes`
 - If `inotifywait` can't watch a directory (out of inotify watches), the service exits and systemd restarts it with a full set of watches
 - Last-write-wins conflict resolution (no locks, no versioning — simple and predictable)
 
