@@ -704,6 +704,8 @@ async def _handle_start(
     context: dict = {
         "store": ws.app.state.store,
         "pool": pool,
+        # Agent turns belong to the conversation, not to this session object.
+        "agent_runtimes": getattr(pool, "agent_runtimes", None),
         "project_dir": project_dir,
         "index_dir": str(Path(project_dir) / "index"),
     }
@@ -779,7 +781,12 @@ async def _handle_start(
                 )
             return _wake
 
-        session.notifications.set_wake_callback(_make_wake(pool, session))
+        wake = _make_wake(pool, session)
+        session.notifications.set_wake_callback(wake, owner=session)
+        # Agent turns finished while this conversation had no session (closed,
+        # switched away, rebuilt): report them now instead of on the next prompt.
+        if session.notifications.has_pending():
+            asyncio.create_task(wake(), name="orchestrator-wake-pending")
 
     # Background history-summary refresh on session reopen. The chat WS
     # `start` arrives whenever the user opens a session from history (or

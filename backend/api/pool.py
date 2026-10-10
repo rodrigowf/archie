@@ -37,6 +37,7 @@ from manager._proc import process_alive as _process_alive, looks_like
 from manager.base_session import BaseSessionManager, SessionDeadError
 from manager.config import ManagerConfig
 from manager.types import Event, TerminationReason, TextComplete, TurnComplete
+from orchestrator.runner import AgentRuntimes
 
 
 class _PendingPrompt(NamedTuple):
@@ -166,6 +167,10 @@ class SessionPool:
         # turn's end is announced as ``interrupted``, not as a finish or a
         # failure.  Cleared when the next turn starts (:meth:`send`).
         self._interrupted: set[str] = set()
+        # Background-agent runners per orchestrator conversation (by jsonl_id).
+        # Here, not on OrchestratorSession, so ending an orchestrator session
+        # never stops the agent turns it delegated (orchestrator.runner.AgentRuntimes).
+        self.agent_runtimes = AgentRuntimes()
         # Best-effort display title for ``agent_turn_finished`` (provider
         # session id → title or None).  Blocking; run in a thread.  Wired by
         # ``api/app.py`` to the session store; None in tests.
