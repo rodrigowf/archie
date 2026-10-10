@@ -103,6 +103,17 @@ WebSockets), `_locks` (one `asyncio.Lock` serializing `send()`), `_turn_tasks` (
   the pool, after verifying `/proc/<pid>/comm` still matches the harness's prefix (PIDs get
   recycled). The dead-session reaper (every 5 s) closes sessions whose receive loop has exited
   (`_receive_loop_done`), broadcasting `subprocess_crashed` / `subprocess_lost`.
+- **The open set** (spec 12 OPEN-1) — the pool is what every device shows as open, and it
+  survives restarts. `_open_agents` (local_id → sdk id, in open order) holds every open agent
+  session, live (in `_sessions`) or restored and not spawned yet; `_restored_orchestrator` the
+  Archie conversation restored and not started yet. `backend/api/open_sessions.py` writes the set to
+  `state/open_sessions.json` (machine-local, gitignored; `ARCHIE_STATE_DIR` overrides) on every
+  create, close, orchestrator start/stop and turn end (a no-op when unchanged), and `lifespan()`
+  restores it before serving. A restored session is listed in `pool/live` as `idle` and spawns on
+  first use under its old `local_id`: a client's `reattach` start (chat route) or the orchestrator's
+  runner (`ensure_live()`). `close_all()` freezes the set first, so a shutdown never empties it.
+  `stop_orchestrator(replacing=True)` (voice drift, ENDING drop) rebuilds the conversation in place:
+  no close event, and it stays open as if restored until `set_orchestrator()`.
 - **Orchestrator slot** — at most one orchestrator. `stop_orchestrator()` parks the dying session in
   `_stopping_orchestrator` so a concurrent `voice_start` for the same `local_id` can
   `await_orchestrator_stop()` instead of reconnecting into the husk. Broadcasts use a snapshot of
@@ -112,7 +123,10 @@ WebSockets), `_locks` (one `asyncio.Lock` serializing `send()`), `_turn_tasks` (
 
 Client → server: `start` (`local_id`, `resume_sdk_id`, `fork`, `mcp_servers`, `resume_from`),
 `send`, `command` (slash command, single-socket output), `interrupt`, `compact`,
-`permission_response`, `stop` (unsubscribe only — the agent keeps working). `start` either
+`permission_response`, `stop` (unsubscribe only — the agent keeps working). A `start` with
+`reattach: true` (every automatic start, spec 12 OPEN-2) only re-attaches: for a session that is
+not open it answers `error{session_closed}` and creates nothing; for a restored one it resumes
+its sdk id under the same `local_id`. Otherwise `start` either
 re-subscribes to a pool session with that `local_id` or builds a config with
 `build_session_config()` and calls `pool.create()` with a 30 s timeout (`start_timeout` error
 usually means the CLI is not authenticated). The reply is `session_started` (`session_id` =

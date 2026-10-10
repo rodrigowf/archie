@@ -22,6 +22,9 @@ apps/web/node_modules/
 
 # Local logs
 logs/
+
+# Machine-local backend state (backend/api/open_sessions.py)
+state/
 remote_console.log
 
 # Context is an independent repo, ignored here

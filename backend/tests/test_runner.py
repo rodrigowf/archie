@@ -59,6 +59,9 @@ class FakePool:
     def has(self, sid: str) -> bool:
         return sid in self.sessions
 
+    async def ensure_live(self, sid: str) -> bool:
+        return sid in self.sessions
+
     def get(self, sid: str) -> Any:
         return self.sessions.get(sid)
 
@@ -274,6 +277,7 @@ async def test_cancel_propagates_when_task_blocks_through_interrupt(
             self.sessions = {"a": MagicMock(sdk_session_id="sdk-a", pending_permission_ids=lambda: [])}
             self.interrupts: list[str] = []
         def has(self, sid): return sid in self.sessions
+        async def ensure_live(self, sid): return sid in self.sessions
         def get(self, sid): return self.sessions.get(sid)
         async def interrupt(self, sid): self.interrupts.append(sid)
         async def send(self, sid, message, *, source_ws=None):

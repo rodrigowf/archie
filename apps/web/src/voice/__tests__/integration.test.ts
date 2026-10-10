@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Conversation } from '@/protocol';
 import { ArchieRuntime, openSession, startServices } from '@/services';
-import { FakeWebSocket, flushPromises, setupServices, teardownServices } from '../../services/__tests__/fakes';
+import { FakeWebSocket, setupServices, teardownServices } from '../../services/__tests__/fakes';
 import { VoiceController } from '../core/VoiceController';
 import type { ConnectionType, TransportOptions } from '../core/types';
 import { portFor } from '../registry';
@@ -96,7 +96,7 @@ describe('voice on the Archie runtime', () => {
     const s = setup();
     s.c.start();
     expect(s.ws.types()).toEqual(['start', 'voice_start']);
-    expect(s.ws.messages()[1]).toEqual({ type: 'voice_start', local_id: 'O1', resume_sdk_id: 'O1' });
+    expect(s.ws.messages()[1]).toEqual({ type: 'voice_start', local_id: 'O1', resume_sdk_id: 'O1', reattach: true }); // subscribed: it exists (OPEN-2)
     expect(FakeWebSocket.all(ORCH)).toHaveLength(1);
   });
 
@@ -152,7 +152,7 @@ describe('voice on the Archie runtime', () => {
     expect(s.ws.types().filter((t) => t.startsWith('voice_'))).toEqual([]);
   });
 
-  it('P-2 on the runtime: a dropped socket reconnects and re-arms with voice_start (V-8), never a plain start', async () => {
+  it('P-2 on the runtime: a dropped socket reconnects and re-arms with voice_start (V-8), never a plain start', () => {
     const s = setup();
     ownerLive(s);
     s.ws.drop();
@@ -160,7 +160,6 @@ describe('voice on the Archie runtime', () => {
     vi.advanceTimersByTime(1_000);
     const again = FakeWebSocket.last(ORCH);
     again.open();
-    await flushPromises(); // spec 12 POOL-2: the pool is re-read before the re-arm
-    expect(again.messages()).toEqual([{ type: 'voice_start', local_id: 'O1', resume_sdk_id: 'O1' }]);
+    expect(again.messages()).toEqual([{ type: 'voice_start', local_id: 'O1', resume_sdk_id: 'O1', reattach: true }]); // OPEN-2
   });
 });

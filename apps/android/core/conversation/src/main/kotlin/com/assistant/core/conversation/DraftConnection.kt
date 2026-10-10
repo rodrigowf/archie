@@ -36,7 +36,6 @@ internal fun Draft.apply(input: ConversationInput) {
         ConversationInput.VoiceLocalEnd -> endVoice()
         ConversationInput.SocketOpened -> { connection = ConnectionState.OPEN; sendStart() }
         ConversationInput.Resync -> if (connection == ConnectionState.OPEN || connection == ConnectionState.SUBSCRIBED) sendStart()
-        is ConversationInput.ClosedWhileAway -> if (input.localId == ref.localId) closedWhileAway()
         ConversationInput.SocketClosed -> {
             connection = ConnectionState.OFFLINE
             connectionBanner = ConnectionBanner("disconnected")                // banner only (A-8.2)
@@ -54,18 +53,6 @@ internal fun Draft.apply(input: ConversationInput) {
 }
 
 // ───────────────────────── connection manager (§3.6, §5.2) ─────────────────────────
-
-/** POOL-2: the live `agent_session_closed` this device missed, on an open socket, with no `start`. */
-private fun Draft.closedWhileAway() {
-    connection = ConnectionState.OPEN
-    if (awaitingSessionStarted) {                                            // no session_started will come (L-2)
-        awaitingSessionStarted = false
-        val held = preStart.toList()
-        preStart.clear()
-        for (g in held) dispatch(g)
-    }
-    dispatch(ServerFrame.AgentSessionClosed(ref.localId, isOrchestrator = isOrchestrator))
-}
 
 internal fun Draft.onFrame(f: ServerFrame) {
     if (f is ServerFrame.VoiceAudioOut) return                               // L-3: the audio engine's
@@ -93,6 +80,7 @@ internal fun Draft.dispatch(f: ServerFrame) {
 private fun Draft.onSessionStarted(f: ServerFrame.SessionStarted) {
     awaitingSessionStarted = false
     stoppingRetried = false
+    userStart = false                                                        // OPEN-2: from now on, reattach
     // T-12
     connection = ConnectionState.SUBSCRIBED
     connectionBanner = null
@@ -153,11 +141,11 @@ private fun Draft.finishReload() {
     for (f in buffered) onFrame(f)                                           // §3.6 rules apply now
 }
 
-/** §3.3 `sendStart`: every socket open and every resync. */
+/** §3.3 `sendStart`: every socket open and every resync; `reattach` unless the user asked for this one (OPEN-2). */
 internal fun Draft.sendStart() {
     val cp = checkpoint
     val resumeFrom = if (ref.seqCapable && cp != null && history.loaded) ResumeCursor(cp.streamId, cp.seq) else null   // T-10
-    val msg = ClientFrame.Start(localId = ref.localId, resumeSdkId = ref.sdkId, resumeFrom = resumeFrom)
+    val msg = ClientFrame.Start(localId = ref.localId, resumeSdkId = ref.sdkId, resumeFrom = resumeFrom, reattach = true.takeUnless { userStart })
     startRequest = msg
     awaitingSessionStarted = true
     preStart.clear()

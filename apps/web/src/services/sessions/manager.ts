@@ -6,12 +6,17 @@
  *   `POST /api/sessions/{local_id}/close`. Teardown (`stopServices`), page unload, backgrounding
  *   and lost connections never send `close` or `stop`: no `pagehide` / `beforeunload` /
  *   `unload` handler is installed at all, and `dispose()` only closes sockets.
- * - **P-6 / FOCUS-1**: sessions opened by pool sync or watcher events become background tabs
- *   (unseen badge) and never take focus. Only direct user actions pass `focus: true`.
- * - **FOCUS-2/3**: `agent_session_closed` checks `is_orchestrator`; a view the user has looked
- *   at is never closed by a server event.
- * - **inv02 F-23 / §7 #10** (frontend/src/hooks/useReconnectPoolSessions.ts:30-64): pool sync
- *   on start and on every visibility → visible; live sessions come back as tabs after a reload.
+ * - **OPEN-1 / P-6 / FOCUS-1**: the server's pool is the open set. Every pool row is a tab; rows
+ *   opened by pool sync or watcher events become background tabs (unseen badge) and never take
+ *   focus. Only direct user actions pass `focus: true`.
+ * - **OPEN-2**: views opened from the pool, and every view once subscribed, only reattach
+ *   (`start{reattach}`, the reducer's `conv.reattach`): a device that missed a close cannot revive
+ *   the conversation.
+ * - **OPEN-3 / FOCUS-2**: a conversation that left the pool (`agent_session_closed`, checked
+ *   against `is_orchestrator`; `error{session_closed}`; a pool read without its row) closes its
+ *   view at once, active or not, without a `close` request.
+ * - **OPEN-4**: the pool is re-read on start, on every orchestrator socket open, on every
+ *   visibility → visible and after an agent view re-subscribes (the ST-2 read).
  */
 import {
   busy,
@@ -20,7 +25,6 @@ import {
   type LiveStatus,
   type OrchestratorSwitchFrame,
   type Provider,
-  type ServerFrame,
 } from '@/protocol';
 import { Emitter, generateUUID } from '@/platform';
 import {
@@ -48,7 +52,6 @@ import {
 } from '@/stores';
 import { getEnv } from '../env';
 import { api } from '../http/endpoints';
-import type { PoolSnapshot } from '../http/endpoints/sessions';
 import { isApiError } from '../http/errors';
 import type { PoolSession } from '../http/types';
 import { probeBackendCapabilities, probeCast } from '../capabilitiesProbe';
@@ -102,8 +105,8 @@ function getChannel(): OrchestratorChannel {
     channel = new OrchestratorChannel(onWatcherEvent, policy, onOrchestratorSwitch, {
       onTurn: (f) => turnEvents.emit('turn', f),
       onContent: onContentFrame,
+      onOpen: () => void syncPool().catch(() => undefined), // OPEN-4
       onReopen: () => void resyncContent(),
-      probePool: () => fetchPoolSnapshot(true), // POOL-2: the pool is re-read on every reopen / visible
     });
   return channel;
 }
@@ -121,34 +124,36 @@ export function onAgentTurn(fn: (frame: AgentTurnFrame) => void): () => void {
 
 // ───────────────────────── runtime hooks ─────────────────────────
 
-let poolFetch: Promise<PoolSnapshot> | null = null;
+/** A `GET /api/sessions/pool/live` answer and the views the server had to have when it was sent. */
+interface PoolRead {
+  rows: PoolSession[];
+  /** Only these may be closed for a missing row: a view whose start is answered meanwhile may be missing. */
+  known: AnyRuntime[];
+}
 
-/**
- * `GET /api/sessions/pool/live` with the server process id (SRV-1), shared by concurrent callers.
- * `fresh` starts a new request instead of joining one in flight (the orchestrator channel's
- * reconcile must see the pool as it is now, POOL-2).
- */
-export function fetchPoolSnapshot(fresh = false): Promise<PoolSnapshot> {
-  if (poolFetch && !fresh) return poolFetch;
-  const p: Promise<PoolSnapshot> = api.sessions
-    .poolLiveSnapshot()
-    .then((snap) => {
-      setCatalogItems('pool', snap.rows);
-      return snap;
-    })
-    .finally(() => {
-      if (poolFetch === p) poolFetch = null;
-    });
-  poolFetch = p;
-  return p;
+let poolRead: Promise<PoolRead> | null = null;
+
+/** One pool read, shared by concurrent callers. */
+function readPool(): Promise<PoolRead> {
+  if (!poolRead) {
+    const known = listRuntimes().filter((r) => !r.readOnly && r.conv.reattach);
+    poolRead = api.sessions
+      .poolLive()
+      .then((rows) => {
+        setCatalogItems('pool', rows);
+        return { rows, known };
+      })
+      .finally(() => {
+        poolRead = null;
+      });
+  }
+  return poolRead;
 }
 
 /** `GET /api/sessions/pool/live`, shared by concurrent callers. */
 export function fetchPool(): Promise<PoolSession[]> {
-  return fetchPoolSnapshot().then((snap) => snap.rows);
+  return readPool().then((r) => r.rows);
 }
-
-let routingWatcher = false;
 
 export const runtimeHooks: RuntimeHooks = {
   onRekey(_rt, oldId, newId) {
@@ -167,9 +172,7 @@ export const runtimeHooks: RuntimeHooks = {
     if (rt instanceof ArchieRuntime) rt.afterTurnEnded();
     else if (archie) archie.clearAgentApprovals(rt.localId);
   },
-  onWatcher(frame) {
-    if (!routingWatcher) onWatcherEvent(frame);
-  },
+  onWatcher: (frame) => onWatcherEvent(frame),
   onNested(localId, event) {
     const rt = getSessionRuntime(localId);
     if (rt instanceof SessionRuntime && !rt.readOnly) rt.step({ type: 'frame', frame: event }); // I-11 makes double delivery harmless
@@ -182,10 +185,9 @@ export const runtimeHooks: RuntimeHooks = {
       return null;
     }
   },
-  poolSnapshot: () => fetchPoolSnapshot(true), // POOL-2 / SRV-1
   onResubscribed(rt) {
     if (rt.kind !== 'agent') return; // the orchestrator row always says idle (ST-2, G-15)
-    fetchPool()
+    syncPool() // ST-2 and OPEN-4 in one read
       .then((rows) => {
         const row = rows.find((r) => r.local_id === rt.localId);
         if (row && !rt.isDisposed) rt.step({ type: 'pool_status', status: row.status as LiveStatus });
@@ -205,7 +207,8 @@ export interface OpenSessionOptions {
   liveStatus?: LiveStatus | null;
   /** true only for direct user actions (FOCUS-1). */
   focus: boolean;
-  openedBySync?: boolean;
+  /** Opened from the server's pool (sync or a watcher event), not by a user action: reattach only (OPEN-2). */
+  fromPool?: boolean;
   /** H-3: REST only. */
   readOnly?: boolean;
   titleHint?: string;
@@ -240,7 +243,7 @@ export function openSession(o: OpenSessionOptions): AnyRuntime {
   let rt: AnyRuntime;
   if (o.kind === 'archie') {
     rt = new ArchieRuntime(
-      { localId, sdkId: o.sdkId ?? null, voiceActive: o.voiceActive, hidden, readOnly: o.readOnly },
+      { localId, sdkId: o.sdkId ?? null, reattach: o.fromPool, voiceActive: o.voiceActive, hidden, readOnly: o.readOnly },
       runtimeHooks,
       getChannel(),
     );
@@ -251,6 +254,7 @@ export function openSession(o: OpenSessionOptions): AnyRuntime {
         sdkId: o.sdkId ?? null,
         provider: o.provider ?? providerFor(o.sdkId) ?? 'claude',
         liveStatus: o.liveStatus ?? null,
+        reattach: o.fromPool,
         readOnly: o.readOnly,
         hidden,
         reconnectPolicy: policy,
@@ -266,7 +270,6 @@ export function openSession(o: OpenSessionOptions): AnyRuntime {
       localId,
       sdkId: o.sdkId ?? null,
       provider: o.kind === 'agent' ? (o.provider ?? providerFor(o.sdkId)) : null,
-      openedBySync: o.openedBySync === true,
       readOnly: o.readOnly === true,
       ...(o.titleHint ? { titleHint: o.titleHint } : {}),
     },
@@ -318,30 +321,30 @@ export async function replaceRunningArchie(resumeSdkId: string | null, focus = t
 
 // ───────────────────────── pool sync and watcher (§3.7) ─────────────────────────
 
-/** `GET /api/sessions/pool/live`: re-derive live tabs (background, FOCUS-1) and the orchestrator ref. */
+/**
+ * OPEN-4: `GET /api/sessions/pool/live` is the open set. Views it no longer has close (OPEN-3),
+ * rows with no view here open as background tabs (OPEN-1, FOCUS-1), the orchestrator ref follows.
+ */
 export async function syncPool(): Promise<PoolSession[]> {
-  const rows = await fetchPool();
+  const { rows, known } = await readPool();
+  for (const rt of known)
+    if (!rows.some((r) => r.local_id === rt.localId && (r.is_orchestrator === true) === (rt.kind === 'orchestrator'))) closedByServer(rt);
   let orch: OrchestratorRef | null = null;
   for (const row of rows) {
     if (row.is_orchestrator) {
       orch = { localId: row.local_id, sdkId: row.sdk_session_id };
-      if (!getSessionRuntime(row.local_id) && !getArchieRuntime())
-        openSession({ kind: 'archie', localId: row.local_id, sdkId: row.sdk_session_id, focus: false, openedBySync: true });
-      continue;
-    }
-    if (getSessionRuntime(row.local_id)) continue;
-    openSession({
-      kind: 'agent',
-      localId: row.local_id,
-      sdkId: row.sdk_session_id,
-      liveStatus: row.status as LiveStatus,
-      focus: false,
-      openedBySync: true,
-      ...(row.title ? { titleHint: row.title } : {}),
-    });
+      openFromPool(row.local_id, row.sdk_session_id, true);
+    } else openFromPool(row.local_id, row.sdk_session_id, false, { liveStatus: row.status as LiveStatus, ...(row.title ? { titleHint: row.title } : {}) });
   }
   orchestratorRef = orch;
   return rows;
+}
+
+/** OPEN-1: a pool conversation with no view here opens in the background (one Archie per app). */
+function openFromPool(localId: string, sdkId: string | null, isOrch: boolean, extra: Partial<OpenSessionOptions> = {}): boolean {
+  if (getSessionRuntime(localId) || (isOrch && getArchieRuntime())) return false;
+  openSession({ ...extra, kind: isOrch ? 'archie' : 'agent', localId, sdkId, focus: false, fromPool: true });
+  return true;
 }
 
 function placeholderTitle(localId: string): string {
@@ -356,14 +359,15 @@ export function onWatcherEvent(f: WatcherFrame): void {
 }
 
 function onOpened(f: AgentSessionOpenedFrame): void {
+  const sdkId = f.sdk_session_id ?? null;
   if (f.is_orchestrator === true) {
-    orchestratorRef = { localId: f.session_id, sdkId: f.sdk_session_id ?? null };
+    orchestratorRef = { localId: f.session_id, sdkId };
+    openFromPool(f.session_id, sdkId, true);
     return;
   }
-  if (getSessionRuntime(f.session_id)) return;
-  const known = f.sdk_session_id ? catalogStore.getState().sessions.items.find((s) => s.session_id === f.sdk_session_id)?.title : undefined;
+  const known = sdkId ? catalogStore.getState().sessions.items.find((s) => s.session_id === sdkId)?.title : undefined;
   const title = known ?? placeholderTitle(f.session_id);
-  openSession({ kind: 'agent', localId: f.session_id, sdkId: f.sdk_session_id ?? null, focus: false, openedBySync: true, titleHint: title });
+  if (!openFromPool(f.session_id, sdkId, false, { titleHint: title })) return;
   const id = f.session_id;
   // P-6: a badge plus a snackbar; never a focus change (fixes inv02 §6.1)
   showSnackbar(`Archie opened ${title}`, { action: { label: 'Open', run: () => activateTab(id) } });
@@ -371,23 +375,24 @@ function onOpened(f: AgentSessionOpenedFrame): void {
 
 function onClosed(f: AgentSessionClosedFrame): void {
   const isOrch = f.is_orchestrator === true;
-  if (isOrch) orchestratorRef = null;
+  if (isOrch && orchestratorRef?.localId === f.session_id) orchestratorRef = null;
   const rt = getSessionRuntime(f.session_id);
-  if (!rt || (rt.kind === 'orchestrator') !== isOrch) return; // FOCUS-2
-  if (rt instanceof SessionRuntime && !rt.readOnly) {
-    routingWatcher = true;
-    try {
-      rt.step({ type: 'frame', frame: f as ServerFrame }); // stopped, endTurn (WATCH-1 semantics)
-    } finally {
-      routingWatcher = false;
-    }
-  }
-  const tab = findTab(f.session_id);
-  if (tab && tab.openedBySync && !tab.everFocused && tabsStore.getState().activeId !== f.session_id) {
-    // a background view nobody looked at goes away with its session (FOCUS-3 keeps the others)
-    removeSession(f.session_id, true);
-    removeTab(f.session_id);
-  }
+  if (rt && (rt.kind === 'orchestrator') === isOrch) closedByServer(rt); // FOCUS-2
+}
+
+/**
+ * OPEN-3: the conversation left the server's pool, so its view closes now, active or not, with no
+ * `close` request; focus moves as after an explicit close. Not a view whose own `start` is still
+ * creating it, or that this client is closing or replacing itself (`conv.reattach` is false then).
+ */
+function closedByServer(rt: AnyRuntime): void {
+  if (getSessionRuntime(rt.localId) !== rt || rt.readOnly || !rt.conv.reattach) return;
+  const active = tabsStore.getState().activeId === rt.localId;
+  const title = titleOf(rt.localId);
+  const why = rt.conv.termination?.detail;
+  dropView(rt.localId);
+  // Archie: no notice, a switch (§6.11a) announces itself right after
+  if (active && rt.kind === 'agent') showSnackbar(why ? `${title} ended: ${why}` : `${title} was closed elsewhere`);
 }
 
 // ───────────────────────── agent-initiated switch (§6.11a) ─────────────────────────
@@ -417,7 +422,7 @@ function dropView(localId: string): void {
 
 /**
  * §6.11a `orchestrator_switch`, from the channel (SW-1). The server already ended voice and
- * stopped the old orchestrator (WATCH-1 stopped its view), so: drop the old view locally (no
+ * stopped the old orchestrator (OPEN-3 closed its view), so: drop the old view locally (no
  * REST close, it is gone), resume the past conversation focused with a new `local_id` (no
  * conflict dialog, nothing runs any more), and start voice on it when voice was live (SW-2).
  */
@@ -532,7 +537,7 @@ export function replaceInPlace(localId: string, sdkId: string): AnyRuntime {
   const newId = generateUUID();
   if (old) removeSession(localId, false);
   rekeyTab(localId, newId);
-  patchTab(newId, { sdkId, openedBySync: false });
+  patchTab(newId, { sdkId });
   const rt = openSession({ kind, localId: newId, sdkId, provider, focus: wasActive });
   return rt;
 }
@@ -682,7 +687,7 @@ export function stopServices(): void {
   channel?.stop();
   channel = null;
   orchestratorRef = null;
-  poolFetch = null;
+  poolRead = null;
   switchesDone.clear();
   cancelScheduledRefreshes();
   cancelContentRefreshes();

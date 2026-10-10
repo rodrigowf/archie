@@ -39,6 +39,8 @@ from manager.config import ManagerConfig
 from manager.types import Event, TerminationReason, TextComplete, TurnComplete
 from orchestrator.runner import AgentRuntimes
 
+from .open_sessions import OpenSessionsStore, OpenSet
+
 
 class _PendingPrompt(NamedTuple):
     """A user message queued behind the in-flight turn.
@@ -151,6 +153,15 @@ class SessionPool:
         self._orchestrator: Any | None = None  # OrchestratorSession
         self._orchestrator_id: str | None = None
         self._orchestrator_subs: set[WebSocket] = set()
+
+        # The open set (spec 12 OPEN-1): every open agent session, live (in
+        # ``_sessions``) or restored after a restart and not spawned yet, in
+        # open order → its sdk session id; and the restored-but-not-started
+        # Archie conversation (local_id, jsonl_id).  Persisted on every change.
+        self._open_agents: dict[str, str | None] = {}
+        self._restored_orchestrator: tuple[str, str] | None = None
+        self._open_store: OpenSessionsStore | None = None
+        self._open_set_frozen = False  # shutdown: closing everything must not empty the file
 
         # Orchestrator session currently being torn down. Parked here for
         # the duration of stop_orchestrator() so a concurrent voice_start
@@ -294,6 +305,7 @@ class SessionPool:
                 # Existing session is dead — clean it up and fall through
                 # to create a fresh one.
                 logger.info("Replacing dead session %s (status=%s)", existing, sm.status.value)
+                self._open_agents.pop(existing, None)
                 self._sessions.pop(existing, None)
                 self._subscribers.pop(existing, None)
                 self._locks.pop(existing, None)
@@ -372,6 +384,8 @@ class SessionPool:
 
         sm.set_pid_callbacks(_on_pid_spawn, _on_pid_exit)
 
+        self._open_agents[lid] = sm.sdk_session_id
+        self._save_open_set()
         await self._notify_watchers({
             "type": "agent_session_opened",
             "session_id": lid,
@@ -408,8 +422,18 @@ class SessionPool:
         warranted.  In practice every internal caller now passes one.
         """
         sm = self._sessions.pop(session_id, None)
+        was_open = session_id in self._open_agents
+        self._open_agents.pop(session_id, None)
         if sm is None:
+            if was_open:  # restored after a restart, never spawned
+                self._save_open_set()
+                await self._notify_watchers({
+                    "type": "agent_session_closed",
+                    "session_id": session_id,
+                    "is_orchestrator": False,
+                })
             return
+        self._save_open_set()
 
         # Cancel any in-flight session-owned turn before tearing down the SDK
         # client — otherwise the driver task continues iterating sm.send()
@@ -532,17 +556,68 @@ class SessionPool:
         return session_id in self._sessions
 
     def list_sessions(self) -> list[dict[str, Any]]:
-        return [
-            {
+        """Every open agent session in open order; a restored one (not spawned yet) reads ``idle``."""
+        rows = []
+        for lid, sdk_id in self._open_agents.items():
+            sm = self._sessions.get(lid)
+            rows.append({
                 "session_id": lid,
-                "sdk_session_id": sm.sdk_session_id,
-                "status": sm.status.value,
-                "cost": sm.cost,
-                "turns": sm.turns,
-                "provider": sm.provider_name,
-            }
-            for lid, sm in self._sessions.items()
-        ]
+                "sdk_session_id": sm.sdk_session_id if sm else sdk_id,
+                "status": sm.status.value if sm else "idle",
+                "cost": sm.cost if sm else 0.0,
+                "turns": sm.turns if sm else 0,
+                "provider": sm.provider_name if sm else None,
+            })
+        return rows
+
+    def is_open(self, session_id: str) -> bool:
+        """Open on this server (live, or restored after a restart and not spawned yet)."""
+        return session_id in self._open_agents
+
+    def restored_sdk_id(self, session_id: str) -> str | None:
+        """The sdk session id of a restored, not yet spawned session (``None`` otherwise)."""
+        return None if session_id in self._sessions else self._open_agents.get(session_id)
+
+    async def ensure_live(self, session_id: str) -> bool:
+        """Spawn a restored session (same local id, resumed from its JSONL). False = not open."""
+        if session_id in self._sessions:
+            return True
+        if session_id not in self._open_agents:
+            return False
+        from api.session_factory import build_session_config
+
+        sdk_id = self._open_agents[session_id]
+        config, mcps, _ = build_session_config(resume_sdk_id=sdk_id, mcp_override=None)
+        await self.create(config, local_id=session_id, resume_sdk_id=sdk_id, mcp_servers=mcps)
+        return True
+
+    # ------------------------------------------------------------------
+    # The open set: persisted, restored at startup (spec 12 OPEN-1)
+    # ------------------------------------------------------------------
+
+    def restore_open_set(self, store: OpenSessionsStore) -> None:
+        """At startup, before serving: what was open before the restart is open again."""
+        self._open_store = store
+        saved = store.load()
+        self._open_agents = dict(saved.agents)
+        self._restored_orchestrator = saved.orchestrator
+        if saved.agents or saved.orchestrator:
+            logger.info(
+                "Restored open set: %d agent session(s), orchestrator=%s",
+                len(saved.agents), saved.orchestrator[0] if saved.orchestrator else None,
+            )
+
+    def _save_open_set(self) -> None:
+        if self._open_store is None or self._open_set_frozen:
+            return
+        agents = tuple(
+            (lid, self._sessions[lid].sdk_session_id if lid in self._sessions else sdk)
+            for lid, sdk in self._open_agents.items()
+        )
+        orch = self._restored_orchestrator
+        if self._orchestrator is not None and self._orchestrator_id:
+            orch = (self._orchestrator_id, getattr(self._orchestrator, "jsonl_id", self._orchestrator_id))
+        self._open_store.save(OpenSet(agents, orch))
 
     # ------------------------------------------------------------------
     # Agent session subscribers
@@ -570,6 +645,17 @@ class SessionPool:
         return self._orchestrator is not None
 
     @property
+    def restored_orchestrator(self) -> tuple[str, str] | None:
+        """``(local_id, jsonl_id)`` of the Archie conversation restored after a restart, not started yet."""
+        return self._restored_orchestrator
+
+    def orchestrator_open(self, local_id: str) -> bool:
+        """Is ``local_id`` the open Archie conversation (live, or restored and not started)?"""
+        return local_id == self._orchestrator_id or (
+            self._restored_orchestrator is not None and self._restored_orchestrator[0] == local_id
+        )
+
+    @property
     def orchestrator_id(self) -> str | None:
         return self._orchestrator_id
 
@@ -590,6 +676,8 @@ class SessionPool:
         self._orchestrator = session
         self._orchestrator_id = session_id
         self._orchestrator_subs = set()
+        self._restored_orchestrator = None
+        self._save_open_set()
         await self._notify_watchers({
             "type": "agent_session_opened",
             "session_id": session_id,
@@ -635,7 +723,7 @@ class SessionPool:
         for ws in dead:
             self._orchestrator_subs.discard(ws)
 
-    async def stop_orchestrator(self) -> None:
+    async def stop_orchestrator(self, *, replacing: bool = False) -> None:
         """Stop and clear the active orchestrator session.
 
         Moves the session into ``_stopping_orchestrator`` for the
@@ -643,22 +731,34 @@ class SessionPool:
         for the same ``local_id`` can await the stop instead of racing
         a dying session (see :meth:`await_orchestrator_stop`). After
         ``session.stop()`` returns, the stopping slot is cleared.
+
+        ``replacing``: the caller rebuilds the same conversation right away
+        (voice drift, ENDING drop). It stays open, as if restored: no close
+        event, and a reattach (or a failed rebuild's next start) resumes it.
+        Without it the conversation is closed — also a restored one that
+        was never started.
         """
         session = self._orchestrator
         local_id = self._orchestrator_id
+        if local_id is None and self._restored_orchestrator is not None and not replacing:
+            local_id = self._restored_orchestrator[0]
         self._orchestrator = None
         self._orchestrator_id = None
         self._orchestrator_subs.clear()
-        # Tell pool watchers the orchestrator left the pool so their live list
-        # drops it immediately (mirrors the agent_session_closed regular
-        # sessions already emit). Guarded on local_id — a redundant stop with
-        # nothing registered shouldn't emit a phantom close.
-        if local_id is not None:
-            await self._notify_watchers({
-                "type": "agent_session_closed",
-                "session_id": local_id,
-                "is_orchestrator": True,
-            })
+        if replacing and session is not None and local_id is not None:
+            self._restored_orchestrator = (local_id, getattr(session, "jsonl_id", local_id))
+        else:
+            self._restored_orchestrator = None
+            self._save_open_set()
+            # Tell pool watchers the orchestrator left the pool so every device
+            # closes it (OPEN-3). Guarded on local_id — a redundant stop with
+            # nothing registered shouldn't emit a phantom close.
+            if local_id is not None:
+                await self._notify_watchers({
+                    "type": "agent_session_closed",
+                    "session_id": local_id,
+                    "is_orchestrator": True,
+                })
         if session is None or not hasattr(session, "stop"):
             return
         # Park the session in the stopping slot so a concurrent start
@@ -724,7 +824,9 @@ class SessionPool:
     async def close_all(self) -> None:
         """Stop every active session in the pool. Used at app shutdown so
         SDK subprocesses (and the remote ssh+claude they spawn) don't leak
-        across backend restarts."""
+        across backend restarts.  The open set is frozen first: what is open
+        now is restored at the next start."""
+        self._open_set_frozen = True
         for sid in list(self._sessions.keys()):
             try:
                 await self.close(sid)
@@ -1038,6 +1140,7 @@ class SessionPool:
                         final_text = event.text
                     if isinstance(event, TurnComplete):
                         self._pin_provider(sm)
+                        self._save_open_set()  # a fresh session learns its sdk id here
                         if not finished:
                             # Before the yield: the consumer may stop iterating here.
                             finished = True

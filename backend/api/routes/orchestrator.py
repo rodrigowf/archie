@@ -437,6 +437,8 @@ async def _handle_start(
     """
     local_id: str | None = msg.get("local_id")
     resume_id: str | None = msg.get("resume_sdk_id") or msg.get("session_id")
+    # Spec 12 OPEN-2: an automatic (re)start only re-attaches, never re-creates.
+    reattach = bool(msg.get("reattach"))
     voice_provider_req: str | None = msg.get("voice_provider") if voice else None
     voice_model_req: str | None = msg.get("voice_model") if voice else None
     voice_name_req: str | None = msg.get("voice_name") if voice else None
@@ -472,6 +474,13 @@ async def _handle_start(
             return None, False
 
     # --- Reconnect: an orchestrator with this local_id is already running ---
+    if reattach and not (local_id and pool.orchestrator_open(local_id)):
+        await _safe_send_bytes(ws, orjson.dumps({
+            "type": "error", "error": "session_closed",
+            "detail": "This conversation is no longer open.",
+        }))
+        return None, False
+
     if pool.has_orchestrator() and local_id and pool.orchestrator_id == local_id:
         session = pool.get_orchestrator()
         current_voice = getattr(session, "is_voice", False)
@@ -488,7 +497,7 @@ async def _handle_start(
                 local_id,
             )
             try:
-                await pool.stop_orchestrator()
+                await pool.stop_orchestrator(replacing=True)
             except Exception:  # noqa: BLE001
                 logger.exception("stop_orchestrator during ENDING-drop failed")
             await pool.await_orchestrator_stop(local_id, timeout=_VOICE_TIMEOUTS.await_orchestrator_stop_s)
@@ -619,7 +628,7 @@ async def _handle_start(
                         "voice config drift on reconnect (%s) — tearing down to rebuild",
                         drift,
                     )
-                    await pool.stop_orchestrator()
+                    await pool.stop_orchestrator(replacing=True)
                     await pool.await_orchestrator_stop(local_id, timeout=_VOICE_TIMEOUTS.await_orchestrator_stop_s)
                     # Fall through to the new-session creation path below.
                 else:
@@ -654,7 +663,10 @@ async def _handle_start(
                 return session, True
 
     # --- A different orchestrator is already active ---
-    if pool.has_orchestrator():
+    restored = pool.restored_orchestrator
+    if restored is not None and local_id == restored[0]:
+        resume_id = restored[1]  # open across a restart or an in-place rebuild: resume it
+    if pool.has_orchestrator() or (restored is not None and local_id != restored[0]):
         await _safe_send_bytes(ws, orjson.dumps({
             "type": "error", "error": "orchestrator_active",
             "detail": "An orchestrator session is already active. Stop it first.",

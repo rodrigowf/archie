@@ -159,7 +159,6 @@ private fun ShellHistoryScreen(state: ShellUiState, onAction: (ShellAction) -> U
         state = HistoryListState(
             items = state.items,
             active = state.active,
-            liveElsewhere = state.liveElsewhere,
             groups = state.history,
             loading = state.historyLoading,
             error = state.historyError,
@@ -167,7 +166,6 @@ private fun ShellHistoryScreen(state: ShellUiState, onAction: (ShellAction) -> U
         ),
         onQuery = { onAction(ShellAction.Search(it)) },
         onSelect = { onAction(ShellAction.Select(it)) },
-        onOpenLive = { onAction(ShellAction.OpenLive(it)) },
         onIntent = { onAction(ShellAction.Sessions(it)) },
         onRefresh = { onAction(ShellAction.RefreshHistory) },
         onBack = onBack,
@@ -244,9 +242,7 @@ private fun CompactShell(
             SessionSwitcherContent(
                 items = state.items,
                 active = state.active,
-                liveElsewhere = state.liveElsewhere,
                 onSelect = { onAction(ShellAction.Select(it)) },
-                onOpenLive = { onAction(ShellAction.OpenLive(it)) },
                 onRequestClose = requestClose(onAction),
                 onNewArchie = { onAction(ShellAction.NewArchie) },
                 onNewAgent = { onAction(ShellAction.NewAgent) },

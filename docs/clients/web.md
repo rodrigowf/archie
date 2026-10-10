@@ -216,38 +216,33 @@ transitions (also under `prefers-reduced-motion`), no backdrop blur, stream flus
 every 100 ms instead of every frame, 80 instead of 200 mounted messages per panel, deferred
 highlighting skipped for blocks over 8 KB, 10 fps meters. Details: spec 13 §2.7.
 
-## The orchestrator conversation across devices
+## Open sessions follow the server
 
-`services/sessions/orchestratorChannel.ts` follows the server's pool (spec 12 §3.7 POOL-2,
-SRV-1). A hidden tab whose socket dropped is not a pool watcher, so it can miss
-`agent_session_closed` when another device closes Archie. The channel reads `pool/live` (with its
-`X-Archie-Server-Id` header, `api.sessions.poolLiveSnapshot`) in the background on every socket
-open and remembers on which server id the Archie view last subscribed (`markSubscribed`). When
-that view would re-send `start` (a reopen, or visible again with the socket open) it re-reads the
-pool first (`fetchPoolSnapshot(true)`):
+The server's pool is the open set (spec 12 §3.7 OPEN-1..4), for Archie and agent sessions alike;
+`services/sessions/manager.ts` makes the tabs follow it:
 
-- still there ⇒ `start` / `voice_start` as before;
-- gone and already closed live, or gone with the same server id ⇒ `onClosedWhileAway`: the
-  reducer's `closed_while_away` input (socket counts as open, no `start`, then the WATCH-1 effects
-  of a synthesized `agent_session_closed`, which also reach the session directory: `orchestratorRef`
-  cleared, a sync-opened unseen view removed);
-- gone with a new or unknown server id (a backend restart) ⇒ resumed as before.
+- **Every pool row is a tab** (`syncPool`, `agent_session_opened`): a row with no view here opens
+  as a background tab (unseen badge, never focused, FOCUS-1). Read on start, on every orchestrator
+  socket open (`ChannelHooks.onOpen`), on every visible-again and after an agent view
+  re-subscribes (the ST-2 status read, one request).
+- **Automatic starts only reattach** (OPEN-2). The reducer keeps `conv.reattach`: true for a view
+  opened from the pool (`openSession({fromPool})`) and once `session_started` arrived; every
+  `start` / `voice_start` then carries `reattach: true`, so a device that missed a close cannot
+  re-create the conversation. A user action's first start (new conversation, History, fork,
+  rewind, continue, the §6.11 take-over) carries none; `local_stop` clears it, so Save and Restart
+  starts afresh. A voice start pressed on an already-subscribed Archie view reattaches too: it is
+  in the pool, and if it was just closed the view closes instead of reviving it.
+- **Closed = gone** (OPEN-3, `closedByServer`): `agent_session_closed` (kind checked, FOCUS-2),
+  `error{session_closed}` (the reducer stops the conversation and emits that close as a `watcher`
+  effect) and a pool read without the row (only for views that were `reattach` when the read was
+  sent) remove the view at once, active or not, with no `POST …/close`; focus moves as after an
+  explicit close. An Archie view's runtime is disposed, which disposes its voice controller; the
+  workspace shows its empty state. A closed active agent tab shows one snackbar ("… was closed
+  elsewhere", or the termination detail). A view whose `reattach` is false (its own start is still
+  creating it, or this client is closing / restarting / rewinding it) ignores these signals.
 
-A view that was never live here (new, just attached) starts with no read; an
-`agent_session_opened` for the same `localId` re-subscribes a stopped view.
-
-**Agent sessions** (`SessionRuntime`) follow the same rule: on each `session_started` the view reads
-`pool/live` (`RuntimeHooks.poolSnapshot`; the ST-2 status read joins that request) and keeps the
-server id. Before a reopen `start` or a visible-again resync, a view that was live here or already
-ended (`stopped`/`terminated`) re-reads the pool; gone with the same id, or already ended →
-`closed_while_away` (whose watcher effect reaches `onWatcherEvent`, so an unseen sync-opened tab goes
-away, as on the live close); gone with a new or unknown id → `start`. Save and Restart, which closes
-the entry itself, starts the next open with no read. A view opened from History starts at once.
-
-**Typing into a stopped view** (either kind) is the user's explicit resume:
-`ConversationRuntime.sendWhenSubscribed` re-sends `start` and sends the message after its
-`session_started` (Archie: `channel.resumeExplicitly` first). Tests:
-`services/__tests__/manager.test.ts` ("POOL-2 …").
+Tests: `services/__tests__/manager.test.ts` ("OPEN-…"), `protocol/__tests__/connection.test.ts`,
+`voice/__tests__/switch.test.ts` (Archie closed during a call).
 
 ## Notifications ("agent session finished")
 

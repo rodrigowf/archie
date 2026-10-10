@@ -395,7 +395,7 @@ class DefaultVoiceSessionController(
                 }
                 if (cfg != null) {
                     log.i(TAG, "WS reconnect during live voice — re-arming via voice_start")
-                    sendVoiceStart(request(signal.localId, signal.sdkSessionId, cfg))
+                    sendVoiceStart(request(signal.localId, signal.sdkSessionId, cfg).copy(reattach = true))
                     publishLink(null)
                 } else {
                     // Resume protocol: the start carries the persisted checkpoint.

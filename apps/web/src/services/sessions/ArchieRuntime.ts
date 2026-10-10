@@ -52,13 +52,14 @@ const VOICE_FRAMES: readonly string[] = [
   'voice_ended',
   'voice_stopped',
   'error',
-  'agent_session_closed',
 ];
 
 export interface ArchieRuntimeOptions {
   localId: string;
   /** The JSONL id when resuming (G-14); `null` for a brand-new orchestrator. */
   sdkId?: string | null;
+  /** Opened from the server's pool, not by a user action: every `start` reattaches (OPEN-2). */
+  reattach?: boolean;
   voiceActive?: boolean;
   hidden?: boolean;
   readOnly?: boolean;
@@ -79,6 +80,7 @@ export class ArchieRuntime extends ConversationRuntime implements ChannelClient,
       localId: opts.localId,
       kind: 'orchestrator',
       sdkId: opts.sdkId ?? null,
+      reattach: opts.reattach,
       voiceActive: opts.voiceActive === true,
     });
     super(conv, createSessionStore({ localId: opts.localId, conv, readOnly: opts.readOnly, hidden: opts.hidden }), hooks);
@@ -114,7 +116,7 @@ export class ArchieRuntime extends ConversationRuntime implements ChannelClient,
     }
     this.step({ type: 'frame', frame: f });
     this.trackModel(f);
-    if (this.coldOpenPending && (f.type === 'session_started' || f.type === 'error')) {
+    if (this.coldOpenPending && !this.disposed && (f.type === 'session_started' || f.type === 'error')) {
       this.coldOpenPending = false;
       void this.runReload();
     }
@@ -134,16 +136,6 @@ export class ArchieRuntime extends ConversationRuntime implements ChannelClient,
     this.resendStart();
   }
 
-  /** POOL-2: closed elsewhere while this client was away. Same effects as the live WATCH-1 frame, no `start`. */
-  onClosedWhileAway(): void {
-    this.step({ type: 'closed_while_away' });
-    if (this.coldOpenPending) {
-      this.coldOpenPending = false; // no session_started will come
-      void this.runReload();
-    }
-    this.voice?.onFrame({ type: 'agent_session_closed', session_id: this.localId, is_orchestrator: true } as ServerFrame);
-  }
-
   resendStart(): void {
     const start = this.voice?.startMessage() ?? undefined;
     this.step(start ? { type: 'resend_start', start } : { type: 'resend_start' });
@@ -153,13 +145,8 @@ export class ArchieRuntime extends ConversationRuntime implements ChannelClient,
     return this.channel.send(msg);
   }
 
-  /** Typing into an Archie view closed elsewhere resumes it: re-attach on the channel (POOL-2). */
-  protected override onExplicitResume(): void {
-    this.channel.resumeExplicitly(this.localId);
-  }
-
   protected onSubscribed(): void {
-    this.channel.markSubscribed(this.localId); // T-13 + POOL-2
+    this.channel.markHealthy(); // T-13
   }
 
   protected closeTransport(): void {

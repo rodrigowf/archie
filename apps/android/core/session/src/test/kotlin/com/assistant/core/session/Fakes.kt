@@ -1,6 +1,5 @@
 package com.assistant.core.session
 
-import com.assistant.core.model.LivePoolSnapshot
 import com.assistant.core.model.PoolSession
 import com.assistant.core.network.FrameSocket
 import com.assistant.core.network.SendResult
@@ -53,10 +52,6 @@ class FakePool(private val now: () -> Long) : PoolApi {
         return if (script.size > 1) script.removeFirst() else script.firstOrNull()
     }
     override suspend fun close(localId: String): Boolean { closes += localId; return true }
-
-    /** `X-Archie-Server-Id` of every answer (SRV-1); `null` = a server that does not send it. */
-    var serverId: String? = null
-    override suspend fun livePoolSnapshot(): LivePoolSnapshot? = livePool()?.let { LivePoolSnapshot(it, serverId) }
 }
 
 class FakeIds : OrchestratorIdStore {

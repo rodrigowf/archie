@@ -25,7 +25,7 @@ export type ConversationInput =
   | { readonly type: 'local_inject'; readonly text: string }
   | { readonly type: 'local_interrupt' }
   | { readonly type: 'local_compact' }
-  /** Before sending `stop` or `POST …/close`: the next `session_stopped` is our own ack. */
+  /** Before sending `stop` or `POST …/close`: the next `session_stopped` is our own ack, the next `start` is ours (OPEN-2). */
   | { readonly type: 'local_stop' }
   /** The voice controller tore voice down locally (timeout, fatal error, §7.6). */
   | { readonly type: 'voice_local_end' }
@@ -33,12 +33,6 @@ export type ConversationInput =
   /** The socket opened: emits the `start` (or the given `voice_start`, T-11) to send. */
   | { readonly type: 'socket_open'; readonly start?: VoiceStartMessage }
   | { readonly type: 'socket_closed' }
-  /**
-   * POOL-2: the socket is open but this conversation is gone from the server's pool (closed
-   * elsewhere while this client was away): the socket counts as open, no `start` is sent, and the
-   * view stops exactly as on the live `agent_session_closed` (WATCH-1).
-   */
-  | { readonly type: 'closed_while_away' }
   /** Re-send `start` (or the given `voice_start`) on an open socket (visibility resume, T-9). */
   | { readonly type: 'resend_start'; readonly start?: VoiceStartMessage }
   /** Hold every frame until the next `history_page{replace}` (cold open §5.2, user Reload). */

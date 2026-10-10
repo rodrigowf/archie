@@ -26,8 +26,6 @@ export interface RequestOptions {
    * `ApiError(404)` (G-38).
    */
   probe?: boolean;
-  /** Read the headers of a 2xx answer (e.g. `pool/live`'s `X-Archie-Server-Id`, spec 12 SRV-1). */
-  onHeaders?: (headers: Headers) => void;
 }
 
 export const DEFAULT_TIMEOUT_MS = 15_000;
@@ -121,7 +119,6 @@ export async function request<T>(method: string, path: string, opts: RequestOpti
     throw errorFromResponse(res.status, contentType, text);
   }
   if (opts.probe && /text\/html/i.test(contentType)) throw new ApiError(404, 'Not available on this server', null);
-  opts.onHeaders?.(res.headers);
   if (res.status === 204 || opts.as === 'none') return undefined as T;
   if (opts.as === 'text') return (await res.text()) as T;
   const text = await res.text();

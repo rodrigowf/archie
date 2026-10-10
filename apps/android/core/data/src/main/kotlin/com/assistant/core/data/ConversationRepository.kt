@@ -7,8 +7,6 @@ import com.assistant.core.conversation.ConversationState
 import com.assistant.core.conversation.PageMode
 import com.assistant.core.conversation.RewindIndex
 import com.assistant.core.model.ConnectionState
-import com.assistant.core.model.LivePoolSnapshot
-import com.assistant.core.model.SessionStatus
 import com.assistant.core.model.SessionKind
 import com.assistant.core.model.SessionRef
 import com.assistant.core.network.ApiResult
@@ -62,11 +60,11 @@ sealed interface ConversationEvent {
     data class TurnEnded(override val key: ConversationKey) : ConversationEvent
 
     /**
-     * Spec 12 POOL-2: the agent session [localId] was found closed elsewhere on a reconnect /
-     * foreground (it left the pool of the server it was live on). The view already stopped; the
-     * workspace treats it like the live `agent_session_closed{is_orchestrator:false}`.
+     * Spec 12 OPEN-3: the conversation [ref] left the server's pool (closed on another device, or
+     * found missing on a read). Its view is already gone; the workspace moves focus as after a close.
+     * [detail]: why it ended, when it was terminated rather than closed.
      */
-    data class ClosedElsewhere(override val key: ConversationKey, val localId: String) : ConversationEvent
+    data class Closed(override val key: ConversationKey, val ref: SessionRef, val detail: String?) : ConversationEvent
 
     /** `error{orchestrator_active}` while the user asked to start/attach (§6.11 conflict dialog, B-06). */
     data class OrchestratorConflict(val detail: String?) : ConversationEvent {
@@ -144,8 +142,43 @@ class ConversationRepository(
     init {
         val frames = orchestrator.subscribeFrames()
         val channelEvents = orchestrator.subscribeEvents()
-        scope.launch { frames.consumeEach { f -> archieHandle()?.post(ConversationInput.Frame(f)) } }
+        scope.launch {
+            frames.consumeEach { f ->
+                // OPEN-3/4: a session closed anywhere leaves the open set and its view closes here
+                // (FOCUS-2: an agent view only for an agent close; the Archie view sees the frame).
+                if (f is ServerFrame.AgentSessionClosed) f.sessionId?.let { id ->
+                    history.dropFromPool(id)
+                    if (!f.isOrchestrator) closeAgentView(id)
+                }
+                archieHandle()?.post(ConversationInput.Frame(f))
+            }
+        }
         scope.launch { channelEvents.consumeEach { onChannelEvent(it) } }
+        scope.launch { history.poolReads.collect { reconcile(it) } }
+    }
+
+    /**
+     * OPEN-4: an agent view whose session is missing from a pool read closes. Only views subscribed
+     * before that read was made: a view the user just opened is not in the pool until it starts.
+     */
+    private fun reconcile(read: HistoryRepository.PoolRead) {
+        val live = read.rows.mapTo(HashSet()) { it.localId }
+        agentHandles().filter { it.subscribedBefore(read.requestedAt) && it.state.value.ref.localId !in live }
+            .forEach { closedByServer(it.key, detail = null) }
+    }
+
+    private fun closeAgentView(localId: String) {
+        agentHandles().firstOrNull { it.state.value.ref.localId == localId }?.let { closedByServer(it.key, detail = it.state.value.termination?.detail) }
+    }
+
+    /** OPEN-3: the session is gone from the server; its view closes here, with no close request. */
+    private fun closedByServer(key: ConversationKey, detail: String?) {
+        val h = handle(key) ?: return
+        val ref = h.state.value.ref
+        history.dropFromPool(ref.localId)
+        remove(key)
+        history.refreshListSoon()
+        _events.tryEmit(ConversationEvent.Closed(key, ref, detail))
     }
 
     // ───────────────────────── observation ─────────────────────────
@@ -160,9 +193,10 @@ class ConversationRepository(
     /**
      * Opens (or returns) the agent conversation for [ref]: cold open per §5.2 (hold frames, connect,
      * fetch the last page when `sdkId` is known, then apply the held frames). Never re-opens an
-     * already open session.
+     * already open session. [userStart] (OPEN-2): the first `start` may create / resume the session —
+     * the user's own open (History, new, fork, continue); a session from the pool (`ref.live`) reattaches.
      */
-    fun openAgent(ref: SessionRef): ConversationKey {
+    fun openAgent(ref: SessionRef, userStart: Boolean = !ref.live): ConversationKey {
         require(ref.kind == SessionKind.AGENT)
         synchronized(lock) {
             handles.entries.firstOrNull { (_, h) ->
@@ -171,7 +205,7 @@ class ConversationRepository(
             }?.let { return it.key }
         }
         val key = ConversationKey.agent(ref.localId)
-        install(key, AgentHandle(key, ConversationState.initial(ref)))
+        install(key, AgentHandle(key, ConversationState.initial(ref, userStart)))
         return key
     }
 
@@ -200,7 +234,7 @@ class ConversationRepository(
     /** §6.1 / §6.2. While a permission is pending the server turns the text into "deny with feedback" (§6.9). */
     fun send(key: ConversationKey, text: String) = handle(key)?.let { h ->
         h.post(ConversationInput.LocalSend(text))
-        h.sendUserFrame(ClientFrame.Send(text))
+        h.sendFrame(ClientFrame.Send(text))
     }
 
     /** §6.3. In voice mode the Stop control is `voice_stop` (the voice host's job), not this. */
@@ -313,6 +347,9 @@ class ConversationRepository(
         return ok
     }
 
+    /** Explicit close of a pool session with no view here (§6.7, P-1: the user asked). */
+    suspend fun closePoolSession(localId: String): Boolean = api.closePoolSession(localId) is ApiResult.Ok
+
     /** Drops a view without touching the server (a read-only view, or after a delete). */
     fun forget(key: ConversationKey) = remove(key)
 
@@ -337,28 +374,11 @@ class ConversationRepository(
         }
         if (result !is ApiResult.Ok) return CutResult.Failed(result.errorMessage() ?: "Rewind failed")
         val ref = st.ref.copy(localId = newId(), live = false, liveStatus = null)
-        val fresh = if (st.kind == SessionKind.ORCHESTRATOR) OrchestratorHandle(key, ConversationState.initial(ref)) else AgentHandle(key, ConversationState.initial(ref))
+        val init = ConversationState.initial(ref, userStart = true)
+        val fresh = if (st.kind == SessionKind.ORCHESTRATOR) OrchestratorHandle(key, init) else AgentHandle(key, init)
         install(key, fresh)
         history.refreshListSoon()
         return CutResult.Done(ref)
-    }
-
-    /**
-     * §6.13 "Continue in a new view" after `session_terminated` (B-04): replaces the view **in place**
-     * (same key, same kind, A-8.5) with a new `localId` resuming [sdkId], canonical cold open. An
-     * Archie view resumes through the orchestrator socket ([resumeArchie]), never the agent endpoint
-     * (fixes inv03 §8 bug 5).
-     */
-    fun continueInNewView(key: ConversationKey, sdkId: String): SessionRef? {
-        val h = handle(key) ?: return null
-        if (h.kind == SessionKind.ORCHESTRATOR) {
-            resumeArchie(sdkId)
-            return current(ConversationKey.ARCHIE)?.ref
-        }
-        val ref = h.state.value.ref.copy(localId = newId(), sdkId = sdkId, live = false, liveStatus = null)
-        install(key, AgentHandle(key, ConversationState.initial(ref)))
-        history.refreshListSoon()
-        return ref
     }
 
     /** §6.5 fork: a new session; the caller opens it (focused: user-initiated). */
@@ -448,9 +468,8 @@ class ConversationRepository(
             is ChannelEvent.Conflict -> _events.tryEmit(ConversationEvent.OrchestratorConflict(e.detail))
             ChannelEvent.NoOrchestrator, ChannelEvent.GaveUp -> _events.tryEmit(ConversationEvent.NoOrchestrator)
             is ChannelEvent.SwitchRequested -> switchArchie(e)
-            // POOL-2: closed live or while away; the socket is open and no `start` follows.
-            is ChannelEvent.OrchestratorClosed -> archieHandle()?.post(ConversationInput.ClosedWhileAway(e.localId))
-            is ChannelEvent.Reconnected, is ChannelEvent.Recovered -> Unit
+            // The Archie view closes on the `agent_session_closed` frame the channel publishes (OPEN-3).
+            is ChannelEvent.OrchestratorClosed, is ChannelEvent.Reconnected, is ChannelEvent.Recovered -> Unit
         }
     }
 
@@ -471,7 +490,7 @@ class ConversationRepository(
     /** Replaces the Archie view with [localId] resuming [sdkId]; `start` once the socket is open. */
     private fun openArchie(localId: String, sdkId: String) {
         val ref = SessionRef(localId = localId, sdkId = sdkId, kind = SessionKind.ORCHESTRATOR, provider = null)
-        val h = OrchestratorHandle(ConversationKey.ARCHIE, ConversationState.initial(ref))
+        val h = OrchestratorHandle(ConversationKey.ARCHIE, ConversationState.initial(ref, userStart = true))
         install(ConversationKey.ARCHIE, h)
         if (orchestrator.state.value.socket == SocketState.Open) h.post(ConversationInput.SocketOpened)
     }
@@ -486,7 +505,7 @@ class ConversationRepository(
             return
         }
         val sref = SessionRef(localId = ref.localId, sdkId = ref.sdkId, kind = SessionKind.ORCHESTRATOR, provider = null)
-        val nh = OrchestratorHandle(ConversationKey.ARCHIE, ConversationState.initial(sref), coldOpen = !fresh)
+        val nh = OrchestratorHandle(ConversationKey.ARCHIE, ConversationState.initial(sref, userStart = fresh), coldOpen = !fresh)
         install(ConversationKey.ARCHIE, nh)
         nh.post(ConversationInput.SocketOpened)
     }
@@ -523,44 +542,12 @@ class ConversationRepository(
             if (!disposed) inputs.trySend(input)
         }
 
-        /** User frames waiting for the `session_started` of an explicit resume ([sendUserFrame]). */
-        private val heldForStart = ArrayList<ClientFrame>()
-
-        /**
-         * A user frame. A view whose session ended on the server (STOPPED: closed live or while away,
-         * spec 12 POOL-2) has no subscription: typing into it is the explicit resume its "Send a
-         * message to start it again" card offers. `start` goes first and the frame after its
-         * `session_started` (it used to be refused with `not_started` and lost).
-         */
-        fun sendUserFrame(frame: ClientFrame): SendResult {
-            val st = state.value
-            val open = st.connection == ConnectionState.OPEN || st.connection == ConnectionState.SUBSCRIBED
-            if (st.status == SessionStatus.STOPPED && open && !st.awaitingSessionStarted) {
-                synchronized(heldForStart) { heldForStart += frame }
-                onExplicitResume()
-                post(ConversationInput.Resync)
-                return SendResult.SENT
-            }
-            return sendFrame(frame)
-        }
-
-        protected open fun onExplicitResume() = Unit
-
-        private fun flushHeld(subscribed: Boolean) {
-            val held = synchronized(heldForStart) { heldForStart.toList().also { heldForStart.clear() } }
-            if (subscribed) held.forEach { sendFrame(it) }
-        }
-
         open fun begin() {
             publish(state.value)
             jobs += scope.launch(confined) {
                 for (input in inputs) {
-                    val before = state.value
                     val r = ConversationReducer.step(state.value, input)
                     state.value = r.state
-                    if (before.awaitingSessionStarted && !r.state.awaitingSessionStarted) {
-                        flushHeld(r.state.connection == ConnectionState.SUBSCRIBED)
-                    }
                     publish(r.state)
                     r.effects.forEach { onEffect(it) }
                 }
@@ -644,6 +631,8 @@ class ConversationRepository(
                     delay(e.delayMillis); post(ConversationInput.Resync)
                 }
                 is ConversationEffect.SideError -> _events.tryEmit(ConversationEvent.SideError(key, e.code, e.detail))
+                // OPEN-3; launched so the close does not cancel this consumer mid-step.
+                is ConversationEffect.Closed -> scope.launch { if (handle(key) === this@Handle) closedByServer(key, e.detail) }
             }
         }
     }
@@ -658,18 +647,16 @@ class ConversationRepository(
 
         override fun sendFrame(frame: ClientFrame): SendResult = orchestrator.send(frame)
         override fun reconnectNow() = orchestrator.onNetworkAvailable()
-        override fun onExplicitResume() = orchestrator.markUserIntent()    // a conflict is the §6.11 dialog
     }
 
     /** An agent conversation with its own chat socket (T-5). */
     private inner class AgentHandle(key: ConversationKey, initial: ConversationState) : Handle(key, initial) {
         private lateinit var socket: FrameSocket
 
-        /** POOL-2 / SRV-1: `pool/live` server id read right after this view's last `session_started` here. */
-        @Volatile private var liveServerId: String? = null
-        @Volatile private var subscribedHere = false
-        /** Bumped on every socket open / close: a pool read answers only the open it was made for. */
-        @Volatile private var openGen = 0
+        /** `System.nanoTime()` of the last `session_started` (0: never subscribed), for OPEN-4. */
+        @Volatile private var subscribedAt = 0L
+
+        fun subscribedBefore(t: Long) = subscribedAt in 1 until t
 
         override fun begin() {
             socket = agentSockets.acquire(key)
@@ -677,19 +664,16 @@ class ConversationRepository(
             jobs += scope.launch {
                 socket.events.collect { ev ->
                     when (ev) {
-                        SocketEvent.Opened -> {
-                            val gen = ++openGen
-                            whenInPool(gen) { post(ConversationInput.SocketOpened) }
-                        }
+                        SocketEvent.Opened -> post(ConversationInput.SocketOpened)
                         is SocketEvent.Frame -> {
-                            if (ev.frame is ServerFrame.SessionStarted) socket.resetBackoff()   // T-13
                             post(ConversationInput.Frame(ev.frame))
-                            if (ev.frame is ServerFrame.SessionStarted) syncTurnWithPool()
+                            if (ev.frame is ServerFrame.SessionStarted) {
+                                socket.resetBackoff()                                     // T-13
+                                subscribedAt = System.nanoTime()
+                                syncTurnWithPool()
+                            }
                         }
-                        is SocketEvent.Closed -> {
-                            openGen++
-                            post(ConversationInput.SocketClosed)
-                        }
+                        is SocketEvent.Closed -> post(ConversationInput.SocketClosed)
                     }
                 }
             }
@@ -697,49 +681,15 @@ class ConversationRepository(
             connect()
         }
 
-        /** The session ended on the server as far as this view knows (closed live: `session_stopped`, WATCH-1). */
-        private fun endedHere(): Boolean = state.value.status.let { it == SessionStatus.STOPPED || it == SessionStatus.TERMINATED }
-
         /**
-         * Spec 12 POOL-2: before an automatic re-`start` (socket reopen, foreground) of a view that was
-         * live here, re-read `pool/live`. In the pool, or gone after a backend restart (a new or unknown
-         * server id), or the read failed: [go]. Gone from the same server process, or already closed
-         * live: closed elsewhere, no `start` (it would re-open the session on the server). A view never
-         * subscribed here (e.g. opened from History) just starts.
-         */
-        private fun whenInPool(gen: Int, go: () -> Unit) {
-            if (!subscribedHere && !endedHere()) { go(); return }
-            jobs += scope.launch {
-                val snap = history.syncPoolSnapshot()
-                if (gen != openGen) return@launch                               // the socket moved on
-                val localId = state.value.ref.localId
-                val inPool = snap?.sessions?.any { !it.isOrchestrator && it.localId == localId } == true
-                val sameServer = snap?.serverId != null && snap.serverId == liveServerId
-                if (!inPool && (endedHere() || (snap != null && sameServer))) closedElsewhere(localId) else go()
-            }
-        }
-
-        private fun closedElsewhere(localId: String) {
-            subscribedHere = false
-            liveServerId = null
-            post(ConversationInput.ClosedWhileAway(localId))
-            _events.tryEmit(ConversationEvent.ClosedElsewhere(key, localId))
-            history.refreshListSoon()
-        }
-
-        /**
-         * ST-2: after every (re)subscribe, `pool/live` says whether a turn is really
-         * running. A turn that ended while this socket was away (or ended without a
-         * terminal frame) would otherwise stay "running" here forever.
+         * ST-2 + OPEN-4, one read after every (re)subscribe: the row's status is authoritative (a turn
+         * that ended while this socket was away would otherwise stay "running"), and a missing row
+         * closes the view ([reconcile], fed by this read).
          */
         private fun syncTurnWithPool() {
-            val gen = openGen
-            subscribedHere = true
             jobs += scope.launch {
                 val localId = state.value.ref.localId
-                val snap: LivePoolSnapshot? = history.syncPoolSnapshot()
-                if (gen == openGen) liveServerId = snap?.serverId                // POOL-2 / SRV-1: the same read
-                snap?.sessions?.firstOrNull { it.localId == localId }?.status
+                history.syncPool()?.firstOrNull { it.localId == localId }?.status
                     ?.let { post(ConversationInput.PoolStatus(it)) }
             }
         }
@@ -760,7 +710,7 @@ class ConversationRepository(
         fun onForeground() {
             socket.setReconnectAllowed(true)
             if (state.value.connection == ConnectionState.OPEN || state.value.connection == ConnectionState.SUBSCRIBED) {
-                whenInPool(openGen) { post(ConversationInput.Resync) }       // POOL-2
+                post(ConversationInput.Resync)
             } else if (!agentSockets.isParked(key)) {
                 socket.reconnectNow()
             }

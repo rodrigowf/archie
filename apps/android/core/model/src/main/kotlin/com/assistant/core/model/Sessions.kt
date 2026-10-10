@@ -139,15 +139,6 @@ data class PoolSession(
     val isOrchestrator: Boolean,
 )
 
-/**
- * `GET /api/sessions/pool/live` with its `X-Archie-Server-Id` header (spec 12 SRV-1): [serverId]
- * names the server process, `null` from a server that does not send it.
- */
-data class LivePoolSnapshot(
-    val sessions: List<PoolSession>,
-    val serverId: String?,
-)
-
 /** One row of `GET /api/sessions` (`SessionInfoResponse`). Timestamps are ISO-8601 with offset. */
 data class SessionSummary(
     val sdkId: String,

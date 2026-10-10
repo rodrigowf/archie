@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from api.deps import SERVER_ID_HEADER, SERVER_INSTANCE_ID, get_pool, get_store
+from api.deps import get_pool, get_store
 from api.models import (
     ContentBlockResponse,
     MessagePreviewResponse,
@@ -116,30 +116,26 @@ def list_sessions(
 
 @router.get("/pool/live", response_model=list[PoolSessionResponse])
 def list_pool_sessions(
-    response: Response,
     pool: SessionPool = Depends(get_pool),
     store: SessionStore = Depends(get_store),
 ):
-    """List sessions currently live in the backend pool.
+    """The open set — what every device lists as open (spec 12 OPEN-1).
 
-    Used by the frontend on startup to re-attach to sessions that are still
-    running after a browser close/refresh.
-
-    The ``X-Archie-Server-Id`` header names this server process (spec 12 SRV-1):
-    a client whose orchestrator conversation is missing from the pool after a
-    reconnect compares it with the id it saw when it subscribed — the same id
-    means the conversation was closed elsewhere, a new one that the backend
-    restarted.
+    A conversation restored after a restart and not started yet is listed as
+    ``idle``; it starts when a client reattaches to it.
     """
-    response.headers[SERVER_ID_HEADER] = SERVER_INSTANCE_ID
     result: list[PoolSessionResponse] = []
 
     # Orchestrator session (at most one)
+    oid, jsonl_id = None, None
     if pool.has_orchestrator():
         oid = pool.orchestrator_id
         session = pool.get_orchestrator()
         # The JSONL is keyed by jsonl_id (== resume_id when resuming, else local_id)
         jsonl_id = getattr(session, "jsonl_id", oid) if session else oid
+    elif pool.restored_orchestrator is not None:
+        oid, jsonl_id = pool.restored_orchestrator
+    if oid is not None:
         info = store.get_session_info(jsonl_id) if jsonl_id else None
         result.append(PoolSessionResponse(
             local_id=oid,
@@ -463,8 +459,8 @@ async def close_pool_session(
     files from accumulating on disk. Resumed sessions are never deleted
     here — they have existing history that must be preserved.
     """
-    # Handle orchestrator session close
-    if pool.has_orchestrator() and pool.orchestrator_id == local_id:
+    # Handle orchestrator session close (live, or restored and not started yet)
+    if pool.orchestrator_open(local_id):
         await pool.stop_orchestrator()
         return
 
@@ -476,7 +472,7 @@ async def close_pool_session(
         and not getattr(sm, "is_resumed", False)
     )
 
-    if pool.has(local_id):
+    if pool.is_open(local_id):
         await pool.close(local_id)
 
     # Clean up JSONL only for genuinely new sessions that were never used

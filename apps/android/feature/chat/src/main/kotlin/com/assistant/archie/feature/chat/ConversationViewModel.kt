@@ -61,7 +61,6 @@ sealed interface ChatAction {
     data class AgentApproval(val localId: String, val requestId: String, val allow: Boolean) : ChatAction
     data class DismissCard(val id: String) : ChatAction
     data class Retry(val kind: RetryKind, val cardId: String) : ChatAction
-    data object ContinueInNewView : ChatAction
     data class Rewind(val entryId: String) : ChatAction
     data class Fork(val entryId: String) : ChatAction
     data class Upload(val source: UploadSource, val subject: String? = null) : ChatAction
@@ -220,7 +219,6 @@ class ConversationViewModel(
                 if (a.id.startsWith("banner:")) backend.dismissBanner()
             }
             is ChatAction.Retry -> retry(a.kind, a.cardId)
-            ChatAction.ContinueInNewView -> backend.state.value?.let { s -> ContinueTarget.of(s)?.let(backend::continueTerminated) }
             is ChatAction.Rewind -> cut(a.entryId, rewind = true)
             is ChatAction.Fork -> cut(a.entryId, rewind = false)
             is ChatAction.Upload -> upload(a.source, a.subject)
@@ -335,9 +333,6 @@ class ConversationViewModel(
         }
         // A new stall instance (different elapsed) re-shows a card the user dismissed with Keep waiting.
         if (s.stall == null) dismissed.update { it - "stall" }
-        if (s.termination == null && dismissed.value.contains("stopped") && s.status != com.assistant.core.model.SessionStatus.STOPPED) {
-            dismissed.update { it - "stopped" }
-        }
     }
 
     private fun onEvent(e: ConversationEvent) {

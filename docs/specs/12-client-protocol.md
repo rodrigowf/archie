@@ -266,9 +266,10 @@ connect(conv):
      if conv.kind == "orchestrator" and conv.inTurn: conv.gapPossible = true
      scheduleReconnect(conv)
 
-sendStart(conv):
+sendStart(conv, userAction = false):
   msg = { type: "start", local_id: conv.ref.localId }
   if conv.ref.sdkId: msg.resume_sdk_id = conv.ref.sdkId
+  if not userAction: msg.reattach = true      // OPEN-2: subscribe only, never create
   if seqCapable(conv.ref) and conv.checkpoint != null and conv.history.loaded:
        msg.resume_from = { stream_id: conv.checkpoint.stream_id, seq: conv.checkpoint.seq }
   conv.startRequest = msg
@@ -277,7 +278,7 @@ sendStart(conv):
   send(msg)
 ```
 
-- **T-9.** `start` MUST be (re-)sent on every socket open and on every visibility/foreground resume while the socket is open (§3.5). Re-sending `start` on a subscribed socket is safe: subscription is a set (`api/pool.py:488-491`). For the orchestrator, POOL-2 (§3.7) comes first: a `start` for a conversation that was closed elsewhere would re-open it on the server.
+- **T-9.** `start` MUST be (re-)sent on every socket open and on every visibility/foreground resume while the socket is open (§3.5). Re-sending `start` on a subscribed socket is safe: subscription is a set (`api/pool.py:488-491`). Every such automatic `start` of an existing view carries `reattach: true` (OPEN-2), so it can never re-create a conversation that was closed.
 - **T-10.** `resume_from` MUST only be sent when the conversation's entries were built in this process from the same stream (in-memory checkpoint). A client that rebuilt the conversation from REST (cold open, process death, page reload) MUST NOT send a persisted checkpoint (fixes W-7). Checkpoints MUST NOT be written to persistent storage per event (A-2.2/A-8.14). Android MAY persist `{localId, checkpoint}` **together with a full snapshot of the entries** on `onStop`; restoring both is equivalent to "in memory".
 - **T-11.** For the orchestrator, `voice_start` replaces `start` while this client owns voice (§7.3). A plain `start` from the owner's own socket is still safe: the server answers it with `voice_initiator: true` and voice metadata only (no `voice_session_update`, no `voice_connection_info`). Android's conversation layer sends one on every foreground.
 - **T-12.** Responses to `start`:
@@ -285,7 +286,8 @@ sendStart(conv):
   - `session_started` → `connState = subscribed`; clear `connectionBanner`; adopt `localId` (ID-1); set `counters.contextWindow` from `context_window` (chat) or `model_info.model_info.context_window` (orchestrator), fallback 200 000; then §3.6.
   - `error{start_timeout|start_failed}` → `connState = failed`, `connectionBanner = {code, detail}`, offer Retry. No automatic retry loop. Every start error also ends the wait for `session_started` (SEQ-8).
   - `error{orchestrator_active}` → §6.12 (conflict). `error{orchestrator_stopping}` → retry `start` once after 1 s, then fail.
-  - `error{not_started}` received at any time → re-send `start` once.
+  - `error{not_started}` received at any time → re-send `start` once (with `reattach`).
+  - `error{session_closed}` (answer to a `reattach` start: the conversation is not open) → OPEN-3: the view closes.
 
 ### 3.4 Reconnect and backoff
 
@@ -299,9 +301,9 @@ sendStart(conv):
 ```
 onVisible():                                    // web visibilitychange→visible; Android onStart/onResume
   for conv in openConversations:
-     if socket(conv).isOpen: sendStart(conv)    // resync: replay what we missed (orchestrator: after POOL-2)
+     if socket(conv).isOpen: sendStart(conv)    // resync with reattach (OPEN-2): replay what we missed
      else: reconnectNow(conv)
-  sessionDirectory.syncPool()                   // §3.7
+  sessionDirectory.syncPool()                   // §3.7: OPEN-4 reconcile
   sessionDirectory.refreshList()
 ```
 
@@ -376,11 +378,11 @@ SessionDirectory:
   list: SessionInfo[]            // GET /api/sessions
   pool: PoolSession[]            // GET /api/sessions/pool/live
 
-syncPool():                      // on app start, on visible, after any session mutation
+syncPool():                      // OPEN-4: every orchestrator socket open, every visible/foreground, after any mutation
   pool = GET /api/sessions/pool/live
-  for row in pool:
-     if row.is_orchestrator: orchestratorRef = {localId: row.local_id, sdkId: row.sdk_session_id}
-     else if no open view has row.local_id: markLive(row)      // badge in the switcher
+  orchestratorRef = pool.find(is_orchestrator) ?? null           // null: the Archie view closes (OPEN-3)
+  for view in openConversationViews: if no row has view.localId: closeView(view)   // OPEN-3
+  openNow = pool                                                  // OPEN-1: the list IS the pool
 
 onWatcherEvent(e):               // only arrives on the orchestrator WS, even unsubscribed (T-7)
   agent_session_opened{session_id, sdk_session_id, is_orchestrator}:
@@ -389,28 +391,20 @@ onWatcherEvent(e):               // only arrives on the orchestrator WS, even un
        refreshList() ; refreshVisualizations()
   agent_turn_started{session_id, ...} / agent_turn_finished{session_id, status, preview, ...}:
        device notifications only, at the channel level (TURN-1, TURN-2); no view changes
-  agent_session_closed{session_id, is_orchestrator}:
-       v = openViewByLocalId(session_id)
-       if v: v.status = (v.status == terminated) ? terminated : stopped ; endTurn(v,"stopped")
-             if v.openedBySync and not v.everFocused and not v.isActive: closeView(v)
+  agent_session_closed{session_id, is_orchestrator}:            // OPEN-3
+       closeView(openViewByLocalId(session_id))                 // active or not; no close request
        if is_orchestrator: orchestratorRef = null ; voice teardown if any (§7)
-       refreshList()
+       openNow.remove(session_id) ; refreshList()
   visualization_changed / memory_changed:   // same fan-out, handled at the channel level (§9.3)
        onContentFrame(e)
 ```
 
 - **FOCUS-1.** No server-originated event (pool sync, `agent_session_opened`, `user_message`, a background turn, a voice transcript) may change which view is active or navigate the UI. Only a direct user action may change focus. Clients MAY open a **background** view for a session started elsewhere (web parity), shown with an unread/live badge, but it MUST NOT become active (fixes W-6.1 focus stealing, A-1.1 auto-navigation).
 - **FOCUS-2.** `agent_session_closed` MUST check `is_orchestrator` before acting on a view (G-39).
-- **WATCH-1.** A conversation that itself receives `agent_session_closed` with its own `localId` and the matching `is_orchestrator` flag (FOCUS-2) MUST treat it as a server `session_stopped`: `status = stopped` (a `terminated` status is kept), `endTurn`, `endVoice`. The view stays open (FOCUS-3). In practice this is the orchestrator conversation, whose socket receives the watcher events. *Rationale:* `pool.stop_orchestrator()` clears the orchestrator's subscribers without sending them any frame and only notifies watchers (`api/pool.py:591-602`). Every orchestrator socket is a watcher (`api/routes/orchestrator.py:127-128`), so this frame is the orchestrator view's only signal that its session ended elsewhere. Fixture `orchestrator_closed_by_pool`.
-- **POOL-2.** The server's pool is the source of truth for which conversations are open, orchestrator and agent alike. A device that was away (backgrounded, socket dropped, process frozen) misses what happened meanwhile: its orchestrator socket is not a pool watcher while down (no `agent_session_closed`), and a dropped chat socket gets no `session_stopped`. Before a conversation **automatically** re-sends `start` (a socket reopen, or a visibility/foreground resume with the socket open, T-9), the client MUST re-read `GET /api/sessions/pool/live` when that conversation was live on this device (it got `session_started` here, or it already ended: `stopped`/`terminated`), and then:
-  - its row is there (orchestrator: the `is_orchestrator` row with its `localId`; agent: the row with its `localId`) ⇒ `start` as usual;
-  - its row is missing and the conversation already ended live, or the pool's server id (SRV-1) equals the one read when it last subscribed ⇒ it was **closed elsewhere**: the client applies exactly the effects of the live close (`agent_session_closed{session_id: localId, is_orchestrator}`: WATCH-1, FOCUS-3, the §3.7 `onWatcherEvent` close branch: orchestrator `orchestratorRef = null`; a sync-opened view nobody looked at goes away; list refresh) and sends **no** `start`; the socket counts as open (no "disconnected" banner, nothing to reconnect to). Later reopens and resumes send no `start` for it either;
-  - its row is missing with a different or unknown server id (a backend restart, an old server, a failed read) ⇒ `start` resumes it (2026-10-04 RT-4: the conversation still exists on disk and nobody closed it);
-  - orchestrator only: another orchestrator row is there ⇒ Android follows it as on `agent_session_opened` (adopt, a new view); the web records it as `orchestratorRef` (same as live).
-
-  A conversation that was never live on this device in this server process (opened from History, a new one whose `session_started` has not arrived, a view just attached) is started with no read: opening a past session is how it is resumed. **Explicit resume:** a user message (`send`) typed into a view whose session ended (`stopped`, closed live or while away) is the user's request to continue it (Android's card reads "Send a message to start it again"): the client re-sends `start` (orchestrator: as user intent, so `orchestrator_active` is the §6.11 conflict) and sends the message after that `start`'s `session_started` (before, it was refused with `not_started` and lost). An `agent_session_opened` for the same orchestrator `localId` re-subscribes a stopped Archie view; the web's Save and Restart (§6.14), which closes the pool entry itself, starts with no read. *Rationale:* without this a returning device re-sent `start{local_id, resume_sdk_id}` for the closed conversation (Android: the orchestrator reconnect probe took the empty pool for a backend restart; both clients: a stopped view re-sent `start` on the next resume or reopen), and `_handle_start` (`api/routes/orchestrator.py`) / the chat `start` re-created it for every device (2026-10-10).
-- **SRV-1.** `GET /api/sessions/pool/live` carries `X-Archie-Server-Id`: an opaque id of the server process, new on every backend start (`api/deps.py` `SERVER_INSTANCE_ID`; exposed to trusted cross-origin pages through CORS). Clients read it on every orchestrator socket open (one background read when no adoption probe runs) and bind it to the orchestrator conversation when that conversation subscribes; an agent view binds the id of the `pool/live` read it makes right after each `session_started` (the ST-2 read, one request for both). A client MUST treat a missing header as "unknown".
-- **FOCUS-3.** A view the user has interacted with MUST NOT be closed by a server event. It shows `stopped` with a "Session ended" state and a Resume action (`start` with a new `localId` and `resume_sdk_id`).
+- **OPEN-1. The server owns the open set.** A conversation (Archie or agent) is open exactly when `GET /api/sessions/pool/live` has its row. "Open now" on every device **is** that list — the same conversations on every device, each with its live status, whether or not this device has a view of it (the order may be the user's, e.g. dragged tabs; membership is the pool's). A client MUST NOT list, keep or re-create a conversation that is not in the pool. The pool survives backend restarts: the server persists it and restores it at startup, a restored conversation listed as `idle` until something uses it (`backend/api/open_sessions.py`). So there is no "backend restarted" case for clients to guess at (it replaced RT-4 and the 2026-10-10 server-id heuristic).
+- **OPEN-2. Reattach, never re-create.** Every automatic `start` (socket open, reconnect, visible/foreground resync, `not_started` recovery; Android's voice-owner `voice_start` on reconnect) carries `reattach: true`. The server then subscribes the socket if the conversation is in its pool (spawning a restored one) and otherwise answers `error{session_closed}` without creating anything. Only a direct user action that **creates** or resumes a conversation sends `start` without `reattach`: a new conversation, opening one from History, fork / duplicate / continue / rewind, Save and Restart, the §6.11 take-over. (A voice start pressed on a view that is already subscribed may keep `reattach`: while the conversation is open the result is the same.) The server is the one place that decides, so a device that missed a close cannot revive the conversation, whatever its timing.
+- **OPEN-3. Closed = gone, everywhere, at once.** When a conversation leaves the pool — `agent_session_closed{session_id, is_orchestrator}` (check the flag, FOCUS-2), `error{session_closed}`, or a `pool/live` read without its row (OPEN-4) — every client closes its view immediately, whether it is active or not, without a `close` request (the server already closed it). If it was active, focus moves to its neighbouring view, as after an explicit close. Orchestrator: `orchestratorRef = null`, voice ends (§7), the Archie slot shows the empty "New conversation" state. A client MAY show a one-line notice ("Closed on another device"; for `session_terminated{reason}` the reason). *Rationale:* until 2026-10-10 a view the user had looked at stayed as a "Stopped" tab (FOCUS-3, now removed), listed under "Open now" with no session behind it, and its next automatic `start` re-opened the session on the server for every device.
+- **OPEN-4. Reconcile on every read.** Clients read `pool/live` on every orchestrator socket open and every visible/foreground (§3.5), and after each `session_started` of an agent view (ST-2, one read for both): views whose row is missing close (OPEN-3), the others take the row's status (ST-2), rows with no view here are listed (OPEN-1). Watcher events keep it current in between: `agent_session_opened` adds the row on every device, `agent_session_closed` removes it.
 - **MC-1.** Mutations are not broadcast (G-27). After rename, delete, duplicate, rewind, fork, close and config writes, the acting client refreshes its own stores. Other clients see changes on their next `refreshList()` (visible, watcher event, or any `turn_complete`).
 - **TURN-1.** Turn watcher events (added 2026-10-09 for device notifications). `pool.send()` (`backend/api/pool.py`), the path of every agent turn (chat tabs and the orchestrator's runner; never the orchestrator's own turns), tells every pool watcher:
   - `agent_turn_started{session_id, sdk_session_id, provider}` when a turn begins;
@@ -779,7 +773,7 @@ function reduce(f) {
     if (expectStopAck) { expectStopAck = false; return }         // reply to our own stop / close
     if (status != "terminated") status = "stopped"
     endTurn("stopped"); endVoice()
-    return                                                     // the view is NOT closed (fixes W-9)
+    effects.push({type: "closed", reason: termination})        // OPEN-3: the session directory closes the view
 
   case "voice_event":       return onVoiceEvent(f.event)
   case "voice_owner_active": if (f.active) voiceActive = true; else endVoice(); return
@@ -798,7 +792,7 @@ function reduce(f) {
       agentApprovals = agentApprovals.filter(a => !(a.localId == f.session_id && a.request_id == rid))
     return
   }
-  case "agent_session_closed":                                 // WATCH-1: this conversation itself left the pool
+  case "agent_session_closed":                                 // OPEN-3: this conversation itself left the pool (the view closes)
     if (f.session_id == ref.localId && (f.is_orchestrator === true) == (ref.kind == "orchestrator")) {
       if (status != "terminated") status = "stopped"
       endTurn("stopped"); endVoice()
@@ -1409,7 +1403,7 @@ The orchestrator's `switch_conversation` tool (`backend/orchestrator/tools/agent
 
 ```
 server: [voice] end_voice("switch") ⇒ voice_ending/voice_ended{reason:"switch"} to all subscribers
-        pool.stop_orchestrator()     ⇒ agent_session_closed{session_id: old localId, is_orchestrator:true} to all watchers (WATCH-1)
+        pool.stop_orchestrator()     ⇒ agent_session_closed{session_id: old localId, is_orchestrator:true} to all watchers (OPEN-3)
         ⇒ orchestrator_switch{sdk_session_id, title, voice, from_session_id} to ONE socket only:
            the voice owner (voice:true), else the socket that sent the latest send/send_audio/inject_text
 acting client: drop the old (stopped) Archie view locally (no REST close needed, it is already gone);
@@ -1418,7 +1412,7 @@ acting client: drop the old (stopped) Archie view locally (no REST close needed,
                      voice_start{local_id: <the new id>, resume_sdk_id: sdk_session_id, …}   (§7.3)
 other clients: nothing new; they follow the watcher frames as for any replace from another device.
 ```
-- **SW-1.** `orchestrator_switch` is handled at the **socket/channel level**, not by the Archie view's reducer: it arrives after WATCH-1 already ended that view. Each client MUST act on it at most once (dedupe on `sdk_session_id` + `from_session_id`).
+- **SW-1.** `orchestrator_switch` is handled at the **socket/channel level**, not by the Archie view's reducer: it arrives after OPEN-3 already closed that view. Each client MUST act on it at most once (dedupe on `sdk_session_id` + `from_session_id`).
 - **SW-2.** The switch is the user's request made by voice or text, so it counts as user intent: focus the resumed view (main apps) and auto-start voice without a gesture when `voice` is true. A client that cannot start voice without a gesture (web autoplay rules) opens the view and shows its normal voice button.
 - **SW-3.** `voice_ended{reason:"switch"}` is a quiet end: no closing cue or "call ended" notice, because the call continues in the resumed conversation.
 - **SW-4.** Clients without conversation history views (app-lite) apply the same sequence through their voice host: resume `sdk_session_id`, start voice when `voice` is true.
@@ -1432,7 +1426,7 @@ Shown while `stall != null` and the view is busy: "<tool> has been running for <
 - **Turn errors** are `notice{error}` entries (§4.4.4). No action needed.
 - **Connection banner**: Retry = reconnect now (resets backoff). Start failures show the backend `detail`.
 - **Retry after a failed start** (`start_failed` / SEQ-8): the user's Retry closes and reopens the socket (a fresh `socket_open` → `start`), never re-sends `start` on the failed socket; the reducer stays in `failed` until the new `session_started`. Both clients implement it this way.
-- **Termination** (`session_terminated` then `session_stopped`): the view stays open (W-9) with a banner whose headline depends on `reason` (`subprocess_crashed` "This session crashed", `subprocess_lost` "The session ended unexpectedly", `unreachable` "The host is unreachable", `replaced` "This session was replaced", `closed_by_user` "This session was closed") plus `detail`. "Continue in a new view" (enabled when `sdk_session_id` is present) replaces the view in place with a new view: new `localId`, `sdkId = sdk_session_id`, **the same kind** (A-8.5), canonical cold open. `session_terminated` is only sent on the chat WS; an orchestrator that died shows as `agent_session_closed{is_orchestrator:true}` or a socket close and recovers through §6.11.
+- **Termination** (`session_terminated` then `session_stopped`): the pool closed the session, so its view closes on every device like any other close (OPEN-3, 2026-10-10; it used to stay with a "Continue in a new view" banner, W-9). If it was the active view, a one-line notice names the session and the reason (`<title> ended: <detail>`; `subprocess_crashed`, `subprocess_lost`, `unreachable`, `replaced`, `closed_by_user`). Recovery is reopening it from History (a user `start` with its `resume_sdk_id`). `session_terminated` is only sent on the chat WS; an orchestrator that died shows as `agent_session_closed{is_orchestrator:true}` or a socket close.
 
 ### 6.14 Session config: Save and Restart
 
@@ -1776,7 +1770,7 @@ IDs: **W-n** = item n of 02 §6.3; **W-6.1 / W-6.2** = the lists in 02 §6.1 / �
 | W-6 `dropLastN` mismatches the backend | §6.5: prompt-anchored cut resolved against a fresh REST listing, with verification and abort. |
 | W-7 Reload mid-turn duplicates content | T-10 (no persisted checkpoint after a rebuild) + §5.4 overlap dedupe. Fixture `history_live_overlap_dedupe`. |
 | W-8 Deleting an open session leaves its tab | §6.8: close every view with that `sdkId`/`localId` and the pool session, then `DELETE`. |
-| W-9 Terminated tab closes immediately | `session_stopped` never closes a view (§4.3); the termination banner stays. Fixture `termination_banner`. |
+| W-9 Terminated tab closes immediately | Superseded 2026-10-10 by OPEN-3: a closed session's view closes on every device, with a notice carrying the termination reason (§6.13). |
 | W-10 Voice start sends `stop` on the text WS | T-6: one orchestrator socket; `voice_start` on it; never `stop` to start voice. |
 | W-11 Past orchestrator conversations cannot be viewed | H-3 read-only views; §6.11 resume through the conflict dialog. |
 | W-12 Compat GFM shim strips inline formatting | UI/markdown spec (13-…): the compat table shim must keep inline markdown in non-table paragraphs. Not a protocol rule. |
@@ -1864,7 +1858,7 @@ IDs: **W-n** = item n of 02 §6.3; **W-6.1 / W-6.2** = the lists in 02 §6.1 / �
 | `orchestrator_voice_message_sender_and_history` | VM-1 (sender: one local bubble, no echo), §5.1 `[audio:<fmt>]` lines |
 | `history_prepend_queued_prompt_dispatch` | H-6 (prepend keeps `promptSinceTurnEnd`), I-12 |
 | `history_prepend_voice_anchor_shift` | H-6 (anchor shift, open transcript survives a prepend), I-9 |
-| `orchestrator_closed_by_pool` | WATCH-1, FOCUS-2 |
+| `orchestrator_closed_by_pool` | OPEN-3, FOCUS-2 |
 | `start_failed_releases_held_frames` | SEQ-5 exception, SEQ-8, I-15 |
 | `orchestrator_agent_approvals_and_jsonl_id` | ID-4, PM-5 |
 | `voice_transcript_coalescing_gemini` | §4.7 fragments |
@@ -1872,7 +1866,7 @@ IDs: **W-n** = item n of 02 §6.3; **W-6.1 / W-6.2** = the lists in 02 §6.1 / �
 | `queued_prompt_echoed_twice` | G-5, I-12 (observer) |
 | `queued_prompt_sender` | I-12 (sender) |
 | `queued_prompt_observer_no_reecho` | I-12 (observer, backend O-6: no re-echo) |
-| `termination_banner` | W-9, R-6 |
+| `termination_banner` | §6.13 (reducer state; the view then closes, OPEN-3), R-6 |
 | `tool_result_after_interleaved_user_message` | R-1 across an inject entry |
 | `tool_result_after_voice_transcript` | R-1 across a transcript |
 | `tool_result_after_turn_ended` | R-6 `no_result` → `done` |

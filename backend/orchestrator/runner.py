@@ -275,10 +275,11 @@ class BackgroundAgentRunner:
     ) -> AgentTurnHandle:
         """Validate, generate a ``turn_id``, spawn the driver task, return a handle.
 
-        Raises ``ValueError`` if the pool has no live session with that ID.
-        Returns within microseconds — does not await the agent's response.
+        Raises ``ValueError`` if the pool has no open session with that ID.
+        A session restored after a restart is spawned first; otherwise this
+        returns at once — it does not await the agent's response.
         """
-        if not self._pool.has(session_id):
+        if not await self._pool.ensure_live(session_id):
             raise ValueError(f"No active session with ID {session_id}")
 
         title = self._resolve_title(session_id)

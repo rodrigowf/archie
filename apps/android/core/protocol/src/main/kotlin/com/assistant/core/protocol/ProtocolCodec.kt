@@ -294,6 +294,7 @@ object ProtocolCodec {
                 }
                 put("fork", frame.fork)
                 put("mcp_servers", frame.mcpServers)
+                put("reattach", frame.reattach)
             }
             is ClientFrame.VoiceStart -> {
                 put("local_id", frame.localId)
@@ -303,6 +304,7 @@ object ProtocolCodec {
                 put("voice_name", frame.voice.voice)
                 put("voice_transcription_language", frame.voice.transcriptionLanguage)
                 put("voice_endpoint", frame.voice.endpoint)
+                put("reattach", frame.reattach)
             }
             is ClientFrame.Send -> put("text", frame.text)
             is ClientFrame.InjectText -> put("text", frame.text)
@@ -338,6 +340,7 @@ object ProtocolCodec {
                 },
                 fork = o.bool("fork"),
                 mcpServers = o.obj("mcp_servers"),
+                reattach = o.bool("reattach"),
             )
             "voice_start" -> ClientFrame.VoiceStart(
                 localId = o.str("local_id") ?: return null,
@@ -349,6 +352,7 @@ object ProtocolCodec {
                     transcriptionLanguage = o.str("voice_transcription_language"),
                     endpoint = o.str("voice_endpoint"),
                 ),
+                reattach = o.bool("reattach"),
             )
             "send" -> ClientFrame.Send(o.str("text") ?: "")
             "inject_text" -> ClientFrame.InjectText(o.str("text") ?: "")

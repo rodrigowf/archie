@@ -299,6 +299,12 @@ class ProtocolCodecTest {
         )
         // no resume fields at all for a brand-new session
         assertEquals(obj("""{"type":"start","local_id":"L1"}"""), ProtocolCodec.encodeClientJson(ClientFrame.Start("L1")))
+        // OPEN-2: automatic starts and the voice re-arm reattach
+        assertEquals(obj("""{"type":"start","local_id":"L1","reattach":true}"""), ProtocolCodec.encodeClientJson(ClientFrame.Start("L1", reattach = true)))
+        assertEquals(
+            obj("""{"type":"voice_start","local_id":"O1","reattach":true}"""),
+            ProtocolCodec.encodeClientJson(ClientFrame.VoiceStart("O1", reattach = true)),
+        )
     }
 
     @Test

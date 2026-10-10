@@ -34,7 +34,7 @@ const started = (ws: FakeWebSocket, sessionId: string, extra: Record<string, unk
   ws.emit({ type: 'session_started', session_id: sessionId, context_window: 200000, ...extra });
 
 describe('start handshake', () => {
-  it('sends start on open, on every reconnect, and re-sends it on visibility when open (inv02 F-01 #2)', async () => {
+  it('sends start on open, on every reconnect, and re-sends it on visibility when open (inv02 F-01 #2); the automatic ones reattach (OPEN-2)', async () => {
     const rt = open({ localId: 'L1' });
     const ws1 = FakeWebSocket.last(CHAT);
     expect(ws1.url).toBe('ws://backend.test/api/sessions/chat');
@@ -46,8 +46,10 @@ describe('start handshake', () => {
 
     h.visibility.set(true);
     h.visibility.set(false); // visible again with an OPEN socket: re-send start (T-9)
-    await flushPromises(); // after the POOL-2 pool read (the session was live here)
-    expect(ws1.types()).toEqual(['start', 'start']);
+    expect(ws1.messages()).toEqual([
+      { type: 'start', local_id: 'L1' },
+      { type: 'start', local_id: 'L1', reattach: true },
+    ]);
 
     ws1.drop();
     expect(rt.conv.connectionBanner).toEqual({ code: 'disconnected', detail: null });
@@ -55,8 +57,7 @@ describe('start handshake', () => {
     const ws2 = FakeWebSocket.last(CHAT);
     expect(ws2).not.toBe(ws1);
     ws2.open();
-    await flushPromises();
-    expect(ws2.types()).toEqual(['start']);
+    expect(ws2.messages()).toEqual([{ type: 'start', local_id: 'L1', reattach: true }]);
   });
 
   it('adopts session_started.session_id (ID-1) and re-keys the registry and the tab', () => {
@@ -237,7 +238,7 @@ describe('in-memory checkpoint replay (T-10) and replay_overflow (SEQ-6)', () =>
     return { rt, ws };
   }
 
-  it('after an in-page reconnect, start carries resume_from = the in-memory checkpoint; replayed duplicates are dropped', async () => {
+  it('after an in-page reconnect, start carries resume_from = the in-memory checkpoint; replayed duplicates are dropped', () => {
     const { rt, ws } = subscribedNew();
     rt.send('hello');
     ws.emit({ type: 'status', status: 'processing' });
@@ -247,8 +248,7 @@ describe('in-memory checkpoint replay (T-10) and replay_overflow (SEQ-6)', () =>
     vi.advanceTimersByTime(1000);
     const ws2 = FakeWebSocket.last(CHAT);
     ws2.open();
-    await flushPromises(); // POOL-2 pool read first
-    expect(ws2.messages()[0]).toEqual({ type: 'start', local_id: 'L1', resume_from: { stream_id: 's1', seq: 2 } });
+    expect(ws2.messages()[0]).toEqual({ type: 'start', local_id: 'L1', resume_from: { stream_id: 's1', seq: 2 }, reattach: true });
     started(ws2, 'L1', { resume_state: { stream_id: 's1', next_seq: 4 } });
     ws2.emit({ type: 'text_delta', text: 'lo', seq: 2, stream_id: 's1' }); // duplicate (SEQ-1)
     ws2.emit({ type: 'text_delta', text: '!', seq: 3, stream_id: 's1' });
@@ -281,7 +281,6 @@ describe('in-memory checkpoint replay (T-10) and replay_overflow (SEQ-6)', () =>
     vi.advanceTimersByTime(1000);
     const ws2 = FakeWebSocket.last(CHAT);
     ws2.open();
-    await flushPromises(); // POOL-2 pool read first
     expect(ws2.messages()[0]).toMatchObject({ resume_from: { stream_id: 's1', seq: 1 } });
     started(ws2, 'L1', { replay_overflow: true, resume_state: { stream_id: 's2', next_seq: 10 } });
     ws2.emit({ type: 'user_message', text: 'after overflow' });

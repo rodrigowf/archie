@@ -209,11 +209,12 @@ class MainAppGraph(
         }.launchIn(scope)
         history.pool.onEach { agentWork.reconcile(it) }.launchIn(scope)
         lookingAtAgent.onEach(turns::onLooking).launchIn(scope)
-        // Hold hygiene: finishes missed while the socket was down (backend restart, drop) must not
-        // keep the service up. Re-read the pool on every orchestrator (re)connect, and every few
-        // minutes while turns are in flight (an unreachable pool still ages them out).
+        // Re-read the pool on every orchestrator (re)connect: spec 12 OPEN-4 (open views and "Open now"
+        // follow the server; the read feeds the conversation repository's reconcile) and hold hygiene
+        // (finishes missed while the socket was down must not keep the service up). Every few minutes
+        // while turns are in flight too (an unreachable pool still ages them out).
         orchestrator.state.map { it.socket }.distinctUntilChanged()
-            .onEach { if (it == SocketState.Open && (agentWork.busy.value > 0 || settings.settings.value?.notifyAgentTurns == true)) resyncAgentWork() }
+            .onEach { if (it == SocketState.Open) resyncAgentWork() }
             .launchIn(scope)
         scope.launch {
             agentWork.busy.map { it > 0 }.distinctUntilChanged().collectLatest { busy ->

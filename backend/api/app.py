@@ -8,7 +8,7 @@ import os
 from urllib.parse import quote
 from contextlib import asynccontextmanager
 from pathlib import Path
-from utils.paths import PROJECT_ROOT, is_within_memory
+from utils.paths import PROJECT_ROOT, get_state_dir, is_within_memory
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
@@ -24,6 +24,7 @@ from .connections import ConnectionManager
 from .guard import RequestGuardMiddleware, TrustedCORSMiddleware
 from .content_watcher import ContentWatcher
 from .indexer import HistoryIndexer, MemoryWatcher
+from .open_sessions import OpenSessionsStore
 from .pool import SessionPool
 from .routes import accounts, agents, auth, browser, chat, config, debug, mcp, memory, orchestrator, sessions, skills, uploads, visualizations, voice
 
@@ -54,6 +55,8 @@ async def lifespan(app: FastAPI):
 
     app.state.connections = ConnectionManager()
     app.state.pool = SessionPool()
+    # What was open before the restart is open again (spec 12 OPEN-1), before any client connects.
+    app.state.pool.restore_open_set(OpenSessionsStore(get_state_dir() / "open_sessions.json"))
     # agent_turn_finished carries the session's title (device notifications).
     app.state.pool.title_resolver = app.state.store.session_title
     # Background orphan reaper — last-line defense against leaked

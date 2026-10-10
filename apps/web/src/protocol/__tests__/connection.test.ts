@@ -11,20 +11,51 @@ describe('start (T-9, T-10, T-11)', () => {
     const first = feed(agent(), { type: 'socket_open' });
     const effects = first.effects;
     let conv: Conversation = first.conv;
-    expect(effects).toEqual([{ type: 'send', message: { type: 'start', local_id: 'L1', resume_sdk_id: 'sdk-1' } }]);
+    expect(effects).toEqual([{ type: 'send', message: { type: 'start', local_id: 'L1', resume_sdk_id: 'sdk-1', reattach: true } }]);
     expect(conv.conn).toBe('open');
     expect(conv.awaitingSessionStarted).toBe(true);
     // a checkpoint exists, but history.loaded is false (cold-open rebuild): no resume_from (T-10)
     conv = { ...conv, checkpoint: { stream_id: S, seq: 4 } };
     expect(feed(conv, { type: 'socket_open' }).effects[0]).toEqual({
       type: 'send',
-      message: { type: 'start', local_id: 'L1', resume_sdk_id: 'sdk-1' },
+      message: { type: 'start', local_id: 'L1', resume_sdk_id: 'sdk-1', reattach: true },
     });
     conv = { ...conv, history: { ...conv.history, loaded: true } };
     expect(feed(conv, { type: 'resend_start' }).effects[0]).toEqual({
       type: 'send',
-      message: { type: 'start', local_id: 'L1', resume_sdk_id: 'sdk-1', resume_from: { stream_id: S, seq: 4 } },
+      message: { type: 'start', local_id: 'L1', resume_sdk_id: 'sdk-1', resume_from: { stream_id: S, seq: 4 }, reattach: true },
     });
+  });
+
+  it('OPEN-2: only a user action creates; once subscribed (or opened from the pool) every start reattaches', () => {
+    const start = (c: Conversation, input: Parameters<typeof feed>[1] = { type: 'resend_start' }) => feed(c, input).effects[0];
+    const mine = initialConversation({ localId: 'N1', kind: 'agent', provider: 'claude' }); // a user action (new, History, fork)
+    let conv = feed(mine, { type: 'socket_open' }).conv;
+    expect(conv.startRequest).toEqual({ type: 'start', local_id: 'N1' });
+    conv = feed(conv, { type: 'session_started', session_id: 'N1' }).conv;
+    expect(conv.reattach).toBe(true);
+    expect(start(conv)).toEqual({ type: 'send', message: { type: 'start', local_id: 'N1', reattach: true } }); // visible resync, reconnect
+    expect(feed(conv, { type: 'error', error: 'not_started' }).conv.startRequest).toEqual({ type: 'start', local_id: 'N1', reattach: true });
+    // Save and Restart / rewind close it themselves: the next start is the user's again
+    const restarting = feed(conv, { type: 'local_stop' }).conv;
+    expect(restarting.reattach).toBe(false);
+    expect(start(restarting)).toEqual({ type: 'send', message: { type: 'start', local_id: 'N1' } });
+    // a view opened from the pool never creates, voice owner's voice_start included
+    const pooled = initialConversation({ localId: 'O1', kind: 'orchestrator', sdkId: 'O1', reattach: true });
+    expect(start(pooled, { type: 'socket_open', start: { type: 'voice_start', local_id: 'O1' } })).toEqual({
+      type: 'send',
+      message: { type: 'voice_start', local_id: 'O1', reattach: true },
+    });
+  });
+
+  it('OPEN-3: error{session_closed} ends the wait (held frames kept), stops the conversation and reports its close', () => {
+    const waiting = feed(agent(), { type: 'socket_open' }, { type: 'user_message', text: 'held' }).conv;
+    expect(waiting.preStart).toHaveLength(1);
+    const r = feed(waiting, { type: 'frame', frame: { type: 'error', error: 'session_closed', detail: 'not open' } });
+    expect(r.conv.awaitingSessionStarted).toBe(false);
+    expect(r.conv.status).toBe('stopped');
+    expect(texts(r.conv)).toEqual(['U(echo):held']);
+    expect(r.effects).toEqual([{ type: 'watcher', frame: { type: 'agent_session_closed', session_id: 'L1', is_orchestrator: false } }]);
   });
 
   it('never sends resume_from for Qwen/Gemini or the orchestrator (no seq), nor resume_sdk_id without an sdkId', () => {

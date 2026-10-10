@@ -93,6 +93,11 @@ data class ConversationState(
     val turnNeedsReconcile: Boolean = false,
 
     val connection: ConnectionState = ConnectionState.OFFLINE,
+    /**
+     * Spec 12 OPEN-2: the next `start` is the user's own request (new, History, fork, continue), so it
+     * may create the session. Cleared by the first `session_started`; every other start reattaches.
+     */
+    val userStart: Boolean = false,
     val awaitingSessionStarted: Boolean = false,
     /** `orchestrator_stopping` already retried once for this start (T-12, SEQ-8). */
     val stoppingRetried: Boolean = false,
@@ -128,13 +133,13 @@ data class ConversationState(
          * A new view (spec 12 §2.3 initial values). For an agent session that `pool/live` reports busy,
          * ST-2 applies: `inTurn = true` with that status.
          */
-        fun initial(ref: SessionRef): ConversationState {
+        fun initial(ref: SessionRef, userStart: Boolean = false): ConversationState {
             val busy = ref.kind == SessionKind.AGENT && ref.live &&
                 ref.liveStatus in setOf(LiveStatus.STREAMING, LiveStatus.TOOL_USE, LiveStatus.THINKING)
             return if (busy) {
-                ConversationState(ref = ref, inTurn = true, status = SessionStatus.fromWire(ref.liveStatus!!.wire)!!)
+                ConversationState(ref = ref, userStart = userStart, inTurn = true, status = SessionStatus.fromWire(ref.liveStatus!!.wire)!!)
             } else {
-                ConversationState(ref = ref)
+                ConversationState(ref = ref, userStart = userStart)
             }
         }
     }
@@ -180,14 +185,6 @@ sealed interface ConversationInput {
     /** The socket closed. Entries are untouched (A-4.3 b). */
     data object SocketClosed : ConversationInput
 
-    /**
-     * Spec 12 POOL-2: the socket is open, but `pool/live` shows this conversation ([localId]) was
-     * closed elsewhere while this device was away. The socket counts as open, no `start` is sent, held
-     * frames are released, then the view stops exactly as on the live `agent_session_closed` (WATCH-1).
-     * Ignored when [localId] is not this conversation's.
-     */
-    data class ClosedWhileAway(val localId: String) : ConversationInput
-
     /** `sdkId` learned from `pool/live` or `agent_session_opened` (ID-2). */
     data class SdkIdLearned(val sdkId: String) : ConversationInput
 
@@ -224,6 +221,13 @@ sealed interface ConversationEffect {
 
     /** Protocol or voice error codes: logged / toast / voice banner, never an entry (§4.4.4). */
     data class SideError(val code: String, val detail: String?) : ConversationEffect
+
+    /**
+     * Spec 12 OPEN-3: the session left the server's pool (`session_stopped` not ours,
+     * `agent_session_closed` for this view, `error{session_closed}`): the view closes, no close request.
+     * [detail]: the `session_terminated` detail when the session ended (crash, lost host) rather than closed.
+     */
+    data class Closed(val detail: String?) : ConversationEffect
 }
 
 data class ReduceResult(val state: ConversationState, val effects: List<ConversationEffect>)

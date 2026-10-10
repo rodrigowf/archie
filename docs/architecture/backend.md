@@ -66,7 +66,9 @@ In order:
    process if the event loop stops servicing callbacks (see [agent-sessions.md](agent-sessions.md#loop-watchdog)).
 3. `ManagerConfig.load()` → `app.state.config`; `SessionStore(config.project_dir)` → `app.state.store`.
 4. `AuthManager(headless=...)` — headless when `HEADLESS=1|true|yes` or there is no `DISPLAY`.
-5. `SessionPool()`, then `start_orphan_reaper()` (every 30 s) and `start_dead_session_reaper()` (every 5 s).
+5. `SessionPool()`, `restore_open_set()` (what was open before the restart is open again,
+   [agent-sessions.md](agent-sessions.md#sessionpool-backendapipoolpy)), then `start_orphan_reaper()`
+   (every 30 s) and `start_dead_session_reaper()` (every 5 s).
 6. `ContentWatcher` task (file changes under `context/public/` and the memory tree → change frames to the clients, memory re-index via the `MemoryWatcher` task) and `HistoryIndexer` task
    (`interval_seconds=300`).
 7. `_prewarm_sessions` — fills the `SessionStore` cache off the loop (cold listing can take 30–60 s
@@ -75,7 +77,7 @@ In order:
    so the first search does not pay the model load.
 
 On shutdown: stop both reapers, `pool.close_all()` (so local and SSH `claude` children get a clean
-SIGTERM instead of being orphaned), `shutdown_server()` for the search server, then cancel the
+SIGTERM instead of being orphaned; the open set is kept for the next start), `shutdown_server()` for the search server, then cancel the
 watcher/indexer/prewarm tasks.
 
 ## Routes
@@ -86,7 +88,7 @@ browser-origin guard and a CORS policy that echoes only trusted origins (no cred
 
 | Module (`backend/api/routes/`) | Prefix / paths | Purpose |
 |---|---|---|
-| `sessions.py` | `/api/sessions` | History list (`GET ""`), live pool (`GET /pool/live`, with the `X-Archie-Server-Id` header naming this server process, spec 12 SRV-1), detail, paginated `/messages`, `/preview`, `PATCH /rename`, `DELETE` (soft delete to `context/trash/`), `/duplicate`, `/truncate`, `/fork`, `POST /inject` (push a user message into a live session), `POST /{local_id}/close`, `POST /{local_id}/permission` (REST twin of `permission_response`), `GET/PUT /{session_id}/config` |
+| `sessions.py` | `/api/sessions` | History list (`GET ""`), the open set (`GET /pool/live`: live and restored sessions, spec 12 OPEN-1), detail, paginated `/messages`, `/preview`, `PATCH /rename`, `DELETE` (soft delete to `context/trash/`), `/duplicate`, `/truncate`, `/fork`, `POST /inject` (push a user message into a live session), `POST /{local_id}/close`, `POST /{local_id}/permission` (REST twin of `permission_response`), `GET/PUT /{session_id}/config` |
 | `chat.py` | `WS /api/sessions/chat` | Agent-session socket: `start`, `send`, `command`, `interrupt`, `compact`, `permission_response`, `stop` |
 | `orchestrator.py` | `WS /api/orchestrator/chat` | Orchestrator socket: text turns, voice signaling/relay, wake callback ([orchestrator.md](orchestrator.md)) |
 | `voice.py` | `/api/orchestrator/voice/session`, `/voice/models`, `/audio`, `/models`, `/models/audio` | Ephemeral voice credentials / connection info, voice model list, audio upload for voice messages, orchestrator model lists ([voice architecture](../voice/architecture.md)) |
@@ -211,6 +213,7 @@ paths from it — never from `__file__` or the cwd.
 | `get_uploads_dir()` | `context/uploads/` |
 | `get_trash_dir()` | `context/trash/` (soft-deleted sessions) |
 | `get_index_dir()` | `index/` (search indexes) |
+| `get_state_dir()` | `state/` (machine-local backend state: the open set; `ARCHIE_STATE_DIR` overrides) |
 | `get_titles_path()` | `context/.titles.json` |
 | `get_session_path(id)` | `context/<id>.jsonl` |
 

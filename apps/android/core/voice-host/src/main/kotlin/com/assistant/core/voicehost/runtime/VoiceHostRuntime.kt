@@ -209,6 +209,7 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
                     transcriptionLanguage = request.transcriptionLanguage,
                     endpoint = request.endpoint,
                 ),
+                reattach = request.reattach.takeIf { it },
             )
             sendOrLog(frame)
         }

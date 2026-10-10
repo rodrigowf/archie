@@ -193,41 +193,38 @@ request.
 | Model packaging | `androidResources.noCompress += "vosk-model-small-en-us-0.15"` must be set in `app-lite/build.gradle.kts` itself — the library module's setting does not reach the APK |
 | 16 KB pages | Not relevant on the 32-bit A300M. For the main app, WebRTC 1.1.1 and Vosk 0.3.47 are still 4 KB-aligned (the POCO uses 4 KB pages); newer versions are aligned but need a voice retest |
 
-## The orchestrator conversation across devices
+## Open sessions follow the server
 
-`core/session/OrchestratorChannel` owns the one orchestrator socket and follows the server's pool
-(spec 12 §3.7 POOL-2, SRV-1). A backgrounded phone is not a pool watcher while its socket is down
-(no "Stay connected", no wake word, no voice: the socket goes 60 s after ON_STOP, or the OS
-freezes the process), so it misses `agent_session_closed` when another device closes Archie. So:
+The server's pool is the one truth for what is open (spec 12 OPEN-1..4); every device shows the
+same set and never revives a closed conversation.
 
-- **Every socket open** probes `pool/live` (as before) and also reads its `X-Archie-Server-Id`
-  header (`ArchieApi.livePoolSnapshot`). The channel remembers on which socket generation and
-  server id the conversation last got `session_started`.
-- **Every foreground with the socket still open** re-reads `pool/live` before the `Resync`
-  (`start`). `Resync` is never emitted without an adopted orchestrator: the stopped view of a
-  conversation closed live used to re-send `start` on the next foreground and re-open it.
-- **Missing from the pool, same server id** ⇒ closed elsewhere: the channel publishes a
-  synthesized `agent_session_closed{is_orchestrator}` frame and `OrchestratorClosed`, so the
-  conversation (WATCH-1: "This session was stopped"), the lite face and every frame consumer react
-  exactly as to the live frame; nothing is re-started. **Missing with a new or unknown server id**
-  (a backend restart) ⇒ resumed with `start`, as before. **Another orchestrator in the pool** ⇒
-  adopted, as on `agent_session_opened`. A failed read keeps T-9 (`Resync`).
-- Both apps get this through the shared channel (the lite app via the voice host's channel,
-  `autoStart`). Tests: `OrchestratorChannelTest` (`pool2_*`), `ClosedWhileAwayTest`.
-
-**Agent sessions follow the same rule** (`core/data/ConversationRepository` `AgentHandle`). Right
-after each `session_started` the view reads `pool/live` once (`HistoryRepository.syncPoolSnapshot`:
-the ST-2 turn status and the server id in one request). Before an automatic re-`start` (socket
-reopen, foreground with the socket open) a view that was live here, or already ended
-(stopped/terminated), re-reads the pool: in it → `start`; gone with the same server id, or already
-ended → the reducer's `ClosedWhileAway` input (socket counts as open, no `start`, WATCH-1 stop) and
-`ConversationEvent.ClosedElsewhere`, which `OpenSessionsRepository` treats like the live watcher
-close (an unseen sync-opened tab goes away); gone with a new or unknown id → `start` (backend
-restart). A view opened from History that was never live here just starts. Typing into a stopped
-view (Archie or agent) is the explicit resume the "Send a message to start it again" card offers:
-`Handle.sendUserFrame` posts `Resync` and sends the message after `session_started` (Archie also
-marks user intent). The Archie view gets `ClosedWhileAway` on every `OrchestratorClosed`. Tests:
-`AgentClosedElsewhereTest` (MockWebServer `FakeBackend`, which can send the server id header).
+- **"Open now"** (drawer, switcher, list pane, History) is `OpenSessionsRepository.items`: Archie,
+  then every agent session in `pool/live` in pool order, with or without a view here (tapping one
+  opens its view), then views not listed yet (a session the user just started), then memory and
+  visuals. There is no "open on another device" row, no background view and no unread badge.
+- **Reattach, never re-create** (OPEN-2). `ConversationState.userStart` marks the user's own first
+  `start` (new session, History, fork, continue, rewind; Archie: new, resume, switch); every other
+  `start` — reconnect, foreground, `not_started` recovery, adoption, the voice owner's
+  `voice_start` re-arm (`VoiceStartRequest.reattach`) — carries `reattach: true`, so the server
+  answers `error{session_closed}` instead of creating anything.
+- **Closed = gone** (OPEN-3). `session_stopped` (not our own), `agent_session_closed` for the view,
+  or `error{session_closed}` make the reducer emit `ConversationEffect.Closed`; the repository
+  removes the view (no close request) and emits `ConversationEvent.Closed`, and
+  `OpenSessionsRepository` moves focus to the neighbour as after an explicit close. If it was the
+  active agent view, the snackbar says "<title> was closed elsewhere" or "<title> ended: <detail>"
+  for a terminated session (the web's wording; none for Archie). A terminated session is reopened
+  from History; there is no "Continue in new session" card any more. Agent views
+  also close on the watcher frame (`ConversationRepository`), and the row leaves `history.pool` at
+  once (`dropFromPool`).
+- **Reconcile on every read** (OPEN-4). `HistoryRepository.poolReads` carries each `pool/live`
+  answer with its request time; agent views subscribed before that read and missing from it close.
+  Reads happen on every orchestrator socket open (`MainAppGraph`), every foreground
+  (`refreshAll`), after each agent `session_started` (ST-2, the same read) and on
+  `agent_session_opened`. `OrchestratorChannel` probes the pool itself on every socket open and
+  every foreground: its row is adopted, a missing one closes the Archie view (it publishes a
+  synthesized `agent_session_closed`, so the lite face and every frame consumer see one signal).
+- Tests: `OrchestratorChannelTest` (`open*`), `OpenRulesTest` (reducer), `DataLayerTest`
+  (`open*`, against `FakeBackend`, which keeps its pool like the server and answers reattach starts).
 
 ## Agent notifications (main app)
 
