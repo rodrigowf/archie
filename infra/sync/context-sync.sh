@@ -291,19 +291,23 @@ PULLED=()
 # rsync with our excludes plus the patterns in file $1; direction "push" or
 # "pull". Sets TRANSFERRED to the files rsync sent.
 TRANSFERRED=()
+# Optional $3: a file of relative paths; only those are sent (live pushes).
 rsync_dir() {
-  local direction="$1" extra="$2" out rc src dst errexit=0
+  local direction="$1" extra="$2" only="${3:-}" out rc src dst errexit=0
+  local -a scope=()
+  [[ -n "$only" ]] && scope=(--files-from="$only" -r)
   if [[ "$direction" == push ]]; then src="$LOCAL_DIR/"; dst="${REMOTE}:${REMOTE_DIR}/"
   else src="${REMOTE}:${REMOTE_DIR}/"; dst="$LOCAL_DIR/"; fi
   [[ $- == *e* ]] && errexit=1
   set +e
-  out=$(rsync -az --update --prune-empty-dirs --out-format='%n' \
+  out=$(rsync -az --update --prune-empty-dirs --out-format='%n' "${scope[@]}" \
     "${RSYNC_EXCLUDES[@]}" \
     --exclude-from="$extra" \
     -e "ssh $SSH_OPTS" \
     "$src" "$dst" 2>&1)
   rc=$?
   (( errexit )) && set -e
+  (( rc == 24 )) && rc=0   # "some files vanished before they could be transferred": fine
   if (( rc != 0 )); then
     err "rsync $direction failed (exit $rc): $(tail -n 2 <<< "$out" | tr '\n' ' ')"
     return "$rc"
@@ -312,16 +316,21 @@ rsync_dir() {
 }
 
 rsync_to_remote() {
-  # Push file contents only. Deletions are handled out-of-band by
-  # remote_delete_paths so we never use rsync's --delete (which would race with
-  # files the other side just created and not yet pushed to us). Tombstoned
-  # paths are skipped so a file deleted on the other side moments ago is not
-  # sent back. Sets PUSHED to the files rsync transferred.
-  local excludes rc=0
+  # Push only what changed here ($@: paths from this batch's events; a new
+  # directory is sent with its contents). Never the whole tree: a file this
+  # machine has but the other doesn't may have been deleted there while we
+  # weren't looking, and only the reconcile (with the manifest) can tell.
+  # No --delete either: deletions go out-of-band (remote_delete_paths).
+  # Tombstoned and held paths are skipped. Sets PUSHED to the files sent.
+  local excludes list rc=0 p
+  PUSHED=()
+  list=$(mktemp)
+  for p in "$@"; do [[ -e "${LOCAL_DIR%/}/$p" ]] && printf '%s\n' "$p"; done | LC_ALL=C sort -u > "$list"
+  if [[ ! -s "$list" ]]; then rm -f "$list"; return 0; fi
   excludes=$(mktemp)
   { tombstone_excludes; held_excludes; } > "$excludes"
-  rsync_dir push "$excludes" || rc=$?
-  rm -f "$excludes"
+  rsync_dir push "$excludes" "$list" || rc=$?
+  rm -f "$excludes" "$list"
   (( rc == 0 )) || return "$rc"
   PUSHED=("${TRANSFERRED[@]}")
 }
@@ -680,7 +689,7 @@ handle_batch() {
     fi
     # 3) Push content first (no --delete). A file the remote already has but we
     #    just modified gets updated; new files get created.
-    if ! rsync_to_remote; then
+    if ! rsync_to_remote "${CHANGED_PATHS[@]}"; then
       err "Sync failed after change."
       NEED_RECONCILE=1
       rm -f "$setf" "$rmf"

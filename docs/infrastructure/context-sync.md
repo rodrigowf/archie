@@ -65,10 +65,15 @@ changes to the other. Code is not synced this way — see [topology.md](topology
    `--exclude`, so all exclusions are one regex alternation.
 3. **Debounce.** After the first event it keeps draining events until `DEBOUNCE_SECONDS` pass with
    none, so a streaming JSONL write becomes one sync.
-4. **Push content.** `rsync -az --update --prune-empty-dirs` **without** `--delete` (rsync excludes:
-   `.git/`, `/.sync-trash/`, Syncthing artifacts, `*.tmp`, `.DS_Store`, active tombstones and held
-   deletions). `--update` skips files that are newer on the receiver, which together with both sides
-   pushing gives last-write-wins. The log line names what was pushed.
+4. **Push what changed.** `rsync -az --update --prune-empty-dirs --files-from=<this batch's paths> -r`
+   **without** `--delete` (rsync excludes: `.git/`, `/.sync-trash/`, Syncthing artifacts, `*.tmp`,
+   `.DS_Store`, active tombstones and held deletions). Only the paths from this batch's events are
+   sent (a new directory with its contents) — **never the whole tree**: a file this machine has and
+   the other lacks may have been deleted there while this side wasn't looking (its service stopped),
+   and a whole-tree push from the busy Jetson silently undid exactly such deletes. Copying anything
+   else that's missing on one side is the reconcile's job, which can tell new from deleted.
+   `--update` skips files that are newer on the receiver (last-write-wins). The log line names what
+   was pushed.
 5. **Apply deletions per path, with tombstones, into the trash.** Every `DELETE` / `MOVED_FROM` path
    seen during the window is collected; after the window, only paths that are **really gone
    locally** are kept (an atomic rename fires `MOVED_FROM` for a file that reappears under the same
@@ -130,8 +135,9 @@ nothing.
 a fake `ssh` (which runs the remote command locally and can simulate the remote being offline), on
 the laptop and on the Jetson (mawk 1.3.3, bash 4.4, rsync 3.1.2): live create/delete, delete and
 create while offline, delete while the service is stopped, edit beats delete, brake + approve, brake
-+ reject, a wiped `context/`, a live mass delete while the other side keeps pushing, and no log
-noise when idle.
++ reject, a wiped `context/`, a live mass delete while the other side keeps pushing, a delete while
+this side's service is stopped and the other side keeps writing, a folder moved in with its contents,
+and no log noise when idle.
 
 ### Why deletes are per-path (never `rsync --delete` on incremental syncs)
 
