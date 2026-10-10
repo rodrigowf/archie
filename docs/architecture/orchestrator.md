@@ -179,7 +179,9 @@ Tools can declare a `schema_builder` to inject live state (e.g. the MCP list) in
    each notification is persisted as a `background_notification` JSONL line (tied to
    `origin_tool_use_id`), and rendered as status lines prepended to the prompt:
    `[SESSION 1a2b3c4d ("title"), event: turn 5e6f7a8b succeeded, duration=42.0s, cost=$0.1234]`.
-   Lines carry status only; the model calls `read_agent_session` for content.
+   Lines carry status only; the model calls `read_agent_session` for content. When a turn did not
+   succeed the block adds an instruction to tell the user it stopped and why before anything else
+   (2026-10-10: on a timeout the model had answered with its own summary instead).
 5. **Wake callback**: `backend/api/routes/orchestrator.py` installs a callback on the queue. When a
    notification arrives and `session.is_busy` is false, it schedules a synthetic empty-prompt turn
    so the model can react without the user typing; a busy orchestrator just drains it next turn.

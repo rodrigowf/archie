@@ -166,6 +166,11 @@ def _render_notifications(notes: list[Notification]) -> str:
         if n.error:
             bits.append(f'error="{n.error}"')
         lines.append(", ".join(bits) + "]")
+    if any(n.status != "succeeded" for n in notes):
+        lines.append(
+            "(A turn above did NOT finish: tell the user it stopped and why before anything "
+            "else, then read the session to say how far it got. Don't present its work as done.)"
+        )
     lines.append(
         "(Use read_agent_session(session_id) for the actual content — it returns "
         "persisted messages plus a 'live' block with status and in-flight events.)"

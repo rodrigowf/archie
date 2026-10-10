@@ -32,6 +32,9 @@ class _Pool:
     def has(self, sid: str) -> bool:
         return sid in self.sessions
 
+    async def ensure_live(self, sid: str) -> bool:
+        return sid in self.sessions
+
     def get(self, sid: str) -> Any:
         return self.sessions.get(sid)
 
@@ -96,3 +99,17 @@ def test_other_conversations_get_their_own_runner() -> None:
     a = _session(pool, runtimes, local="conv-a")
     b = _session(pool, runtimes, local="conv-b")
     assert a.runner is not b.runner
+
+
+def test_a_turn_that_did_not_finish_is_flagged_to_the_model() -> None:
+    """2026-10-10: on a `timeout` notification the orchestrator answered with its own
+    summary and never said the delegated session had been stopped."""
+    from orchestrator.runner import Notification
+    from orchestrator.session import _render_notifications
+
+    def note(status: str) -> Notification:
+        return Notification("n", "turn-123", "agent-1", None, None, status, 0.0, 0, 600.0,
+                            None if status == "succeeded" else "no progress for 1800s")
+
+    assert "did NOT finish" in _render_notifications([note("timeout")])
+    assert "did NOT finish" not in _render_notifications([note("succeeded")])
