@@ -3,7 +3,7 @@ name: troubleshooting
 category: archie/operations
 tags: [troubleshooting, incidents, symptoms, fixes, jetson, deploy, context-sync, ssh, voice, android, search]
 created: 2026-04-20
-modified: 2026-10-09
+modified: 2026-10-10
 summary: Symptom → cause → fix table for every known Archie incident, each linked to the doc with the detail.
 source: curated (consolidated from all feedback_* and reference_* auto-memory notes, project_jetson_crash_2026_04_20.md, project_context_sync_delete_gating.md, project_indexer_full_reembed_fix_2026_06_17.md, project_voice_ghost_state_fix_2026_06_30.md (index line), project_qwen_voice_gate_no_staleness_clear.md (index line), assistant/infrastructure/server_hub_project.md, assistant/utilities/*.md, projects/video-editing/large_assets_outside_context.md; verified against code 2026-10-06)
 references:
@@ -95,6 +95,7 @@ matches, start from [debugging.md](debugging.md) and capture real logs first.
 | Voice suddenly fails everywhere with quota/`insufficient_quota` | OpenAI credits exhausted (2026-10-06 by paid evals) | Top up; estimate cost and confirm before paid runs | [working-rules.md](working-rules.md#changing-things) |
 | Gemini Live WS closed with 1008 "The operation was aborted" ~150 s after setup | A dead resumption handle re-presented after a relay rebuild | Clear opaque provider handles in the lowest-level teardown (only goAway reconnect keeps them) | [gemini-live.md](../voice/gemini-live.md) |
 | Gemini Live 1008 policy violation at setup | Stale/renamed model id | Auto-corrected since `6a4712f`; update the model id | [gemini-live.md](../voice/gemini-live.md) |
+| Qwen voice ends after ~10.5 min: "Too many audios. The maximum allowed is 320." | DashScope's per-conversation audio cap (~630 s committed, silence included) | Relay silence gating + audio budget (`QWEN_AUDIO_HISTORY_BUDGET_S`) delete the oldest user audio items | [qwen-omni.md](../voice/qwen-omni.md#the-320-audio-cap-silence-gating-and-the-audio-budget) |
 | Qwen voice: WS 1011 "Parse RealtimeEvent error: Common error!" / user cut off after ~30–40 s of speech | DashScope validator strictness / server VAD force-commit | Tool-schema sanitizing; client-side Silero VAD (`QWEN_MANUAL_VAD`) | [qwen-omni.md](../voice/qwen-omni.md) |
 | Audio chat turns 404 `model_not_found` | `gpt-4o-audio-preview` retired; the family is `gpt-audio` / `gpt-audio-mini` | Use `gpt-audio` (`backend/orchestrator/config.py`); if it 404s again, list `/v1/models` | [orchestrator.md](../architecture/orchestrator.md) |
 | Wake word became much harder to trigger after a "small improvement" | Tuned constants changed (2026-06-06 RMS threshold) | Revert; constants are read-only without approval | [wake-word.md](../voice/wake-word.md) |

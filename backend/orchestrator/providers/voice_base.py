@@ -527,6 +527,43 @@ class BaseVoiceProvider(ABC):
         """
         return bool(self.manual_vad_stop_frames())
 
+    @property
+    def gate_silence_upstream(self) -> bool:
+        """Hold mic audio back while the relay's manual VAD hears silence.
+
+        When True (and manual VAD is active), the relay keeps silent mic
+        chunks in a short pre-roll buffer instead of appending them
+        upstream, flushes the pre-roll when speech starts, and streams
+        normally until the turn is committed. Providers that bill or cap
+        committed audio (DashScope counts every committed second, silence
+        included) want this; the rest keep the default and stream
+        everything.
+
+        Default: ``False``.
+        """
+        return False
+
+    @property
+    def audio_history_budget_s(self) -> float | None:
+        """Seconds of committed user audio to keep in the upstream conversation.
+
+        When set, the relay tracks the duration of every user audio item
+        the provider creates and deletes the oldest ones (via
+        :meth:`delete_item_frame`) once the total passes the budget, so a
+        long conversation never hits a provider-side audio cap and never
+        has to be reopened.
+
+        Default: ``None`` (no budget).
+        """
+        return None
+
+    def delete_item_frame(self, item_id: str) -> dict[str, Any] | None:
+        """Upstream frame that removes one conversation item, or None.
+
+        Used with :attr:`audio_history_budget_s`. Default: ``None``.
+        """
+        return None
+
     def build_keepalive_chunk(self) -> str | None:
         """Return a base64-PCM silent chunk to keep the upstream warm, or None.
 
