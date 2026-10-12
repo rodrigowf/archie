@@ -1,0 +1,191 @@
+{
+  "name": "subagent_foreground_unopened",
+  "description": "SA-1, SA-2, SA-5: a foreground subagent runs and finishes without being opened. Its inner frames only update the Subagent summary (activity), never the parent timeline or status; the parent keeps just the spawn card.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "t1",
+      "tool_name": "Agent",
+      "tool_input": {
+        "subagent_type": "Explore",
+        "description": "Find scroll logic",
+        "prompt": "Find the chat scroll logic in the web app."
+      },
+      "seq": 1,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "subagent_started",
+      "tool_use_id": "t1",
+      "parent_tool_use_id": null,
+      "agent_type": "Explore",
+      "description": "Find scroll logic",
+      "background": false,
+      "started_at": "2026-10-12T12:00:01Z",
+      "seq": 2,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "subagent_event",
+      "tool_use_id": "t1",
+      "frame": {
+        "type": "tool_use",
+        "tool_use_id": "g1",
+        "tool_name": "Grep",
+        "tool_input": {
+          "pattern": "scroll"
+        }
+      },
+      "seq": 3,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "subagent_event",
+      "tool_use_id": "t1",
+      "frame": {
+        "type": "tool_result",
+        "tool_use_id": "g1",
+        "output": "a.ts:1",
+        "is_error": false
+      },
+      "seq": 4,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "subagent_event",
+      "tool_use_id": "t1",
+      "frame": {
+        "type": "text_complete",
+        "text": "Found it in a.ts."
+      },
+      "seq": 5,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "subagent_progress",
+      "tool_use_id": "t1",
+      "activity": "Grep",
+      "usage": {
+        "tokens": 1200,
+        "tool_uses": 1,
+        "duration_ms": 3000
+      },
+      "seq": 6,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "subagent_finished",
+      "tool_use_id": "t1",
+      "status": "done",
+      "summary": "Found it in a.ts.",
+      "usage": {
+        "tokens": 1200,
+        "tool_uses": 1,
+        "duration_ms": 3000
+      },
+      "ended_at": "2026-10-12T12:00:09Z",
+      "seq": 7,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "t1",
+      "output": "Found it in a.ts.",
+      "is_error": false,
+      "seq": 8,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_complete",
+      "text": "Scroll logic is in a.ts.",
+      "seq": 9,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "usage": {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 990,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 50
+      },
+      "input_tokens": 1000,
+      "output_tokens": 50,
+      "num_turns": 1,
+      "session_id": "sdk-1",
+      "is_error": false,
+      "result": "",
+      "seq": 10,
+      "stream_id": "L1:1759500000000"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "send",
+      "text": "where is the scroll logic?"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "where is the scroll logic?",
+        "origin": "local",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "t1",
+            "tool_name": "Agent",
+            "tool_input": {
+              "subagent_type": "Explore",
+              "description": "Find scroll logic",
+              "prompt": "Find the chat scroll logic in the web app."
+            },
+            "status": "done",
+            "output": "Found it in a.ts."
+          },
+          {
+            "type": "text",
+            "text": "Scroll logic is in a.ts.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "subagents": [
+      {
+        "tool_use_id": "t1",
+        "parent_tool_use_id": null,
+        "agent_type": "Explore",
+        "description": "Find scroll logic",
+        "background": false,
+        "status": "done",
+        "activity": "Grep",
+        "summary": "Found it in a.ts.",
+        "open": false
+      }
+    ],
+    "state": {
+      "status": "idle",
+      "in_turn": false
+    }
+  }
+}

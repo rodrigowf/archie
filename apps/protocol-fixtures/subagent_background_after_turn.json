@@ -1,0 +1,219 @@
+{
+  "name": "subagent_background_after_turn",
+  "description": "SA-2 (lifecycle wins over the spawn card), SA-1, SA-7: a background subagent's spawn card completes at launch, the agent keeps running after the parent turn ends, finishes, and the CLI's task-notification turn shows as a background notice followed by its own run.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "t1",
+      "tool_name": "Agent",
+      "tool_input": {
+        "subagent_type": "general-purpose",
+        "description": "Digest logs",
+        "prompt": "Read the logs.",
+        "run_in_background": true
+      },
+      "seq": 1,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "subagent_started",
+      "tool_use_id": "t1",
+      "parent_tool_use_id": null,
+      "agent_type": "general-purpose",
+      "description": "Digest logs",
+      "background": true,
+      "started_at": "2026-10-12T12:00:01Z",
+      "seq": 2,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "t1",
+      "output": "Async agent launched successfully. agentId: a1b2",
+      "is_error": false,
+      "seq": 3,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_complete",
+      "text": "Started a background agent.",
+      "seq": 4,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "usage": {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 990,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 50
+      },
+      "input_tokens": 1000,
+      "output_tokens": 50,
+      "num_turns": 1,
+      "session_id": "sdk-1",
+      "is_error": false,
+      "result": "",
+      "seq": 5,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "subagent_event",
+      "tool_use_id": "t1",
+      "frame": {
+        "type": "tool_use",
+        "tool_use_id": "b1",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "ls logs"
+        }
+      },
+      "seq": 6,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "subagent_event",
+      "tool_use_id": "t1",
+      "frame": {
+        "type": "tool_result",
+        "tool_use_id": "b1",
+        "output": "app.log",
+        "is_error": false
+      },
+      "seq": 7,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "subagent_finished",
+      "tool_use_id": "t1",
+      "status": "done",
+      "summary": "Logs are clean.",
+      "usage": {
+        "tokens": 1200,
+        "tool_uses": 1,
+        "duration_ms": 3000
+      },
+      "ended_at": "2026-10-12T12:00:09Z",
+      "seq": 8,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "user_message",
+      "text": "<task-notification>\n<task-id>a1b2</task-id>\n<status>completed</status>\n<summary>Agent \"Digest logs\" finished</summary>\n</task-notification>",
+      "source": "task_notification"
+    },
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "text_complete",
+      "text": "The background agent found the logs clean.",
+      "seq": 9,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "usage": {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 990,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 50
+      },
+      "input_tokens": 1000,
+      "output_tokens": 50,
+      "num_turns": 1,
+      "session_id": "sdk-1",
+      "is_error": false,
+      "result": "",
+      "seq": 10,
+      "stream_id": "L1:1759500000000"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "send",
+      "text": "dig through the logs in the background"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "dig through the logs in the background",
+        "origin": "local",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "t1",
+            "tool_name": "Agent",
+            "tool_input": {
+              "subagent_type": "general-purpose",
+              "description": "Digest logs",
+              "prompt": "Read the logs.",
+              "run_in_background": true
+            },
+            "status": "done",
+            "output": "Async agent launched successfully. agentId: a1b2"
+          },
+          {
+            "type": "text",
+            "text": "Started a background agent.",
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "kind": "notice",
+        "notice": "background",
+        "text": "<task-notification>\n<task-id>a1b2</task-id>\n<status>completed</status>\n<summary>Agent \"Digest logs\" finished</summary>\n</task-notification>"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "The background agent found the logs clean.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "subagents": [
+      {
+        "tool_use_id": "t1",
+        "parent_tool_use_id": null,
+        "agent_type": "general-purpose",
+        "description": "Digest logs",
+        "background": true,
+        "status": "done",
+        "activity": "Bash",
+        "summary": "Logs are clean.",
+        "open": false
+      }
+    ],
+    "state": {
+      "status": "idle",
+      "in_turn": false
+    }
+  }
+}

@@ -34,6 +34,7 @@ All current fixtures are `"source": "synthetic"`: hand-written from the backend 
     "orphan_results": [ ... ],                       // compared exactly (missing = [])
     "unattributed_results": [ ... ],                 // compared exactly (missing = [])
     "queue": [ ... ],                                // compared exactly, only when present
+    "subagents": [ ... ],                            // compared exactly, only when present (spec §4.8)
     "state": { ... },                                // only the keys present are compared
     "controller": { ... }                            // optional; voice-controller tests only (see below)
   }
@@ -82,6 +83,9 @@ So `events` that follow `initial_history` may legitimately overlap it (see `hist
 | `ws_closed` | — | the socket closed: entries are untouched; `gapPossible` per §3.3/SEQ-7 |
 | `ws_open` | — | the socket reopened: `sendStart` (§3.3) records the `start` message (with `resume_from` when allowed, and `reattach: true`: an automatic re-start of a conversation that was subscribed, OPEN-2) and starts holding frames until `session_started` |
 | `rest_page` | `mode` (`replace` \| `prepend` \| `reconcile`), `response` | `reduce(history_page{mode, response})` (§5.1, §5.5). A `replace` while a reload is pending (after `replay_overflow`) completes the canonical reload and flushes the held frames (§5.6). |
+| `open_subagent` | `tool_use_id` | `openSubagent` (spec §4.8 SA-5): creates the subagent's `conv`, starts holding its inner frames (`held = []`); the REST fetch is modelled by the next `subagent_rest_page` |
+| `subagent_rest_page` | `tool_use_id`, `response` | the subagent's first history page arrives: `history_page{replace}` on its `conv`, then its `held` frames are applied in order and `held = null` (SA-5) |
+| `release_subagent` | `tool_use_id` | `releaseSubagent` (SA-5): `conv = null`, `held = null` |
 
 ## Normalisation
 
@@ -108,12 +112,17 @@ So `events` that follow `initial_history` may legitimately overlap it (see `hist
 { "output": "", "is_error": false }
 // queue (the tray): order of the tray
 { "text": "second", "owner": "local|remote" }
+// subagents (spec §4.8): insertion order of conv.subagents
+{ "tool_use_id": "t1", "parent_tool_use_id": null, "agent_type": "Explore", "description": "...",
+  "background": false, "status": "running|done|failed|stopped", "activity": "Grep" | null,
+  "summary": "..." | null, "open": false }
+      // + "entries": [...] (normalised exactly like the top-level entries) only when "open" is true
 ```
 
 Rules:
 
 - **No ids are compared.** Client-generated entry/block ids, timestamps, object identity and
-  `scope`/`origin`/`implicitlyClosed`/`continuationOf`/`executing`/`progress` are internal and not part of
+  `scope`/`origin`/`implicitlyClosed`/`continuationOf`/`executing`/`progress` and a subagent's `usage`/`started_at`/`ended_at` are internal and not part of
   the normalised form. Only server-provided ids (`tool_use_id`, `request_id`) appear.
 - `output` is the normalised string (spec `normalizeOutput`): objects and arrays are serialised with
   `JSON.stringify` (no whitespace, key order preserved). `null` means the card never received a result.

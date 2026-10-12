@@ -1,0 +1,272 @@
+{
+  "name": "subagent_open_mid_run",
+  "description": "SA-4, SA-5: the user opens a running subagent. Inner frames that arrive while its first history page loads are held, then applied after the page; later frames reduce straight into the subagent's own conversation. The parent's spawn card stays running.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "t1",
+      "tool_name": "Agent",
+      "tool_input": {
+        "subagent_type": "Explore",
+        "description": "Find scroll logic",
+        "prompt": "Find the chat scroll logic in the web app."
+      },
+      "seq": 1,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "subagent_started",
+      "tool_use_id": "t1",
+      "parent_tool_use_id": null,
+      "agent_type": "Explore",
+      "description": "Find scroll logic",
+      "background": false,
+      "started_at": "2026-10-12T12:00:01Z",
+      "seq": 2,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "subagent_event",
+      "tool_use_id": "t1",
+      "frame": {
+        "type": "tool_use",
+        "tool_use_id": "g1",
+        "tool_name": "Grep",
+        "tool_input": {
+          "pattern": "scroll"
+        }
+      },
+      "seq": 3,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "subagent_event",
+      "tool_use_id": "t1",
+      "frame": {
+        "type": "tool_result",
+        "tool_use_id": "g1",
+        "output": "a.ts:1",
+        "is_error": false
+      },
+      "seq": 4,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "subagent_event",
+      "tool_use_id": "t1",
+      "frame": {
+        "type": "tool_use",
+        "tool_use_id": "g2",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "a.ts"
+        }
+      },
+      "seq": 5,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "subagent_event",
+      "tool_use_id": "t1",
+      "frame": {
+        "type": "tool_result",
+        "tool_use_id": "g2",
+        "output": "export const a = 1",
+        "is_error": false
+      },
+      "seq": 6,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "subagent_event",
+      "tool_use_id": "t1",
+      "frame": {
+        "type": "text_complete",
+        "text": "It is in a.ts."
+      },
+      "seq": 7,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "subagent_finished",
+      "tool_use_id": "t1",
+      "status": "done",
+      "summary": "It is in a.ts.",
+      "usage": {
+        "tokens": 1200,
+        "tool_uses": 1,
+        "duration_ms": 3000
+      },
+      "ended_at": "2026-10-12T12:00:09Z",
+      "seq": 8,
+      "stream_id": "L1:1759500000000"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "send",
+      "text": "where is the scroll logic?"
+    },
+    {
+      "at": 5,
+      "type": "open_subagent",
+      "tool_use_id": "t1"
+    },
+    {
+      "at": 6,
+      "type": "subagent_rest_page",
+      "tool_use_id": "t1",
+      "response": {
+        "messages": [
+          {
+            "role": "user",
+            "text": "Find the chat scroll logic in the web app.",
+            "blocks": [
+              {
+                "type": "text",
+                "text": "Find the chat scroll logic in the web app.",
+                "tool_use_id": null,
+                "tool_name": null,
+                "tool_input": null,
+                "output": null,
+                "is_error": false
+              }
+            ],
+            "timestamp": "2026-10-12T12:00:00+00:00"
+          },
+          {
+            "role": "assistant",
+            "text": "",
+            "blocks": [
+              {
+                "type": "tool_use",
+                "text": null,
+                "tool_use_id": "g1",
+                "tool_name": "Grep",
+                "tool_input": {
+                  "pattern": "scroll"
+                },
+                "output": null,
+                "is_error": false
+              }
+            ],
+            "timestamp": "2026-10-12T12:00:00+00:00"
+          },
+          {
+            "role": "user",
+            "text": "",
+            "blocks": [
+              {
+                "type": "tool_result",
+                "text": null,
+                "tool_use_id": "g1",
+                "tool_name": null,
+                "tool_input": null,
+                "output": "a.ts:1",
+                "is_error": false
+              }
+            ],
+            "timestamp": "2026-10-12T12:00:00+00:00"
+          }
+        ],
+        "total_count": 3,
+        "has_more": false,
+        "start_index": 0
+      }
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "where is the scroll logic?",
+        "origin": "local",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "t1",
+            "tool_name": "Agent",
+            "tool_input": {
+              "subagent_type": "Explore",
+              "description": "Find scroll logic",
+              "prompt": "Find the chat scroll logic in the web app."
+            },
+            "status": "running",
+            "output": null
+          }
+        ]
+      }
+    ],
+    "subagents": [
+      {
+        "tool_use_id": "t1",
+        "parent_tool_use_id": null,
+        "agent_type": "Explore",
+        "description": "Find scroll logic",
+        "background": false,
+        "status": "done",
+        "activity": "Read",
+        "summary": "It is in a.ts.",
+        "open": true,
+        "entries": [
+          {
+            "kind": "user",
+            "text": "Find the chat scroll logic in the web app.",
+            "origin": "history",
+            "state": "sent"
+          },
+          {
+            "kind": "assistant",
+            "blocks": [
+              {
+                "type": "tool",
+                "tool_use_id": "g1",
+                "tool_name": "Grep",
+                "tool_input": {
+                  "pattern": "scroll"
+                },
+                "status": "done",
+                "output": "a.ts:1"
+              },
+              {
+                "type": "tool",
+                "tool_use_id": "g2",
+                "tool_name": "Read",
+                "tool_input": {
+                  "file_path": "a.ts"
+                },
+                "status": "done",
+                "output": "export const a = 1"
+              },
+              {
+                "type": "text",
+                "text": "It is in a.ts.",
+                "streaming": false
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "state": {
+      "in_turn": true
+    }
+  }
+}

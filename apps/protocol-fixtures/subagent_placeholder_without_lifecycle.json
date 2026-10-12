@@ -1,0 +1,108 @@
+{
+  "name": "subagent_placeholder_without_lifecycle",
+  "description": "SA-2: a harness without lifecycle frames (Gemini invoke_agent). The spawn card alone creates the Subagent; its status and summary follow the card's result.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "gemini",
+    "local_id": "L1",
+    "sdk_id": "sdk-1"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "i1",
+      "tool_name": "invoke_agent",
+      "tool_input": {
+        "agent_name": "codebase_investigator",
+        "objective": "Map the router"
+      }
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "i1",
+      "output": "Router is in app.py",
+      "is_error": false
+    },
+    {
+      "type": "text_complete",
+      "text": "The router lives in app.py."
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "usage": {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 990,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 50
+      },
+      "input_tokens": 1000,
+      "output_tokens": 50,
+      "num_turns": 1,
+      "session_id": "sdk-1",
+      "is_error": false,
+      "result": ""
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "send",
+      "text": "map the router"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "map the router",
+        "origin": "local",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "i1",
+            "tool_name": "invoke_agent",
+            "tool_input": {
+              "agent_name": "codebase_investigator",
+              "objective": "Map the router"
+            },
+            "status": "done",
+            "output": "Router is in app.py"
+          },
+          {
+            "type": "text",
+            "text": "The router lives in app.py.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "subagents": [
+      {
+        "tool_use_id": "i1",
+        "parent_tool_use_id": null,
+        "agent_type": "codebase_investigator",
+        "description": "",
+        "background": false,
+        "status": "done",
+        "activity": null,
+        "summary": "Router is in app.py",
+        "open": false
+      }
+    ],
+    "state": {
+      "status": "idle",
+      "in_turn": false
+    }
+  }
+}
