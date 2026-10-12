@@ -85,7 +85,11 @@ private fun Draft.onNestedSessionEvent(f: ServerFrame.NestedSessionEvent) {
 private fun Draft.onUserMessage(f: ServerFrame.UserMessage) {
     // SA-7: a CLI-injected task-notification turn is announced as a background notice (as BG-2 shows the
     // same line from history); never a user bubble, never a tray pop.
-    if (f.source == "task_notification") { appendEntry(NoticeEntry(newEntryId(), NoticeKind.BACKGROUND, f.text)); return }
+    if (f.source == "task_notification") {
+        appendEntry(NoticeEntry(newEntryId(), NoticeKind.BACKGROUND, f.text))
+        promptSinceTurnEnd = true                                             // its status{processing} is not a tray dispatch
+        return
+    }
     if (f.queued) { queue.add(QueuedPrompt(f.text, QueueOwner.REMOTE)); return }   // I-12
     if (f.source == "shared_inject") {
         val i = pendingInjects.indexOf(f.text)

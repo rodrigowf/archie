@@ -1421,6 +1421,10 @@ class Machine extends Draft {
     const p = r.patch;
     for (const k of ['parent_tool_use_id', 'agent_type', 'description', 'activity', 'started_at', 'ended_at'] as const)
       if (p[k] === '') p[k] = undefined; // D6
+    // SA-3: terminal statuses stick; a row computed before a live subagent_finished may arrive after it
+    const cur = this.subAt(r.id);
+    // (a status that only the spawn card set — no lifecycle frame or row yet, SA-2 — is not authoritative: a row corrects it)
+    if (cur && cur.lifecycle && cur.status !== 'running' && p.status === 'running') p.status = undefined;
     this.upsertSubagent(r.id, p);
   }
 

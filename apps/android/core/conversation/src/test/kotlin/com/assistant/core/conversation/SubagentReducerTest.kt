@@ -160,4 +160,41 @@ class SubagentReducerTest {
         assertEquals(1200L, rows[0].usage!!.tokens)
         assertEquals("""{"type":"stop_subagent","tool_use_id":"t1"}""", ProtocolCodec.encodeClient(com.assistant.core.protocol.ClientFrame.StopSubagent("t1")))
     }
+    @Test
+    fun canonicalReloadRefetchesOpenTranscripts() {
+        val open = running("t1").input(ConversationInput.OpenSubagent("t1"), ConversationInput.SubagentPage("t1", page(0, 0)))
+            .input(ConversationInput.BeginReload)
+        val r = ConversationReducer.step(open, ConversationInput.HistoryPage(PageMode.REPLACE, page(0, 1, userLine("go"))))
+        assertTrue(ConversationEffect.FetchSubagentPage("t1") in r.effects)
+        assertTrue(r.state.subagents["t1"]!!.loading)
+    }
+
+    @Test
+    fun unknownFinishedStatusReadsAsDoneAndEmptyStringsKeepKnownValues() {
+        val s = running("t1").on(
+            ServerFrame.SubagentProgress("t1", "Grep", null),
+            ServerFrame.SubagentProgress("t1", "", null),
+            ServerFrame.SubagentStarted("t1", null, "", "", null, ""),
+            ServerFrame.SubagentFinished("t1", "weird", "ok", null, null),
+        )
+        val a = s.subagents["t1"]!!
+        assertEquals("Grep", a.activity)
+        assertEquals("Explore", a.agentType)
+        assertEquals("Find it", a.description)
+        assertEquals(SubagentStatus.DONE, a.status)
+    }
+
+    @Test
+    fun onlyContentFramesReachAnOpenTranscript() {
+        val s = running("t1").input(ConversationInput.OpenSubagent("t1"), ConversationInput.SubagentPage("t1", page(0, 0)))
+        val after = s.on(inner("t1", ServerFrame.Error("send_failed", "x")), inner("t1", ServerFrame.Status("interrupted")))
+        assertEquals(s.subagents["t1"]!!.conv, after.subagents["t1"]!!.conv)
+    }
+
+    @Test
+    fun taskNotificationTurnDoesNotPopTheTray() {
+        val s = agent().send("go").on(processing()).send("queued").on(turnComplete())
+            .on(ServerFrame.UserMessage("<task-notification/>", source = "task_notification"), processing())
+        assertEquals(listOf("queued"), s.queue.map { it.text })
+    }
 }

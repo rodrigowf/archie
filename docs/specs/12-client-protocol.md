@@ -1127,10 +1127,17 @@ case "subagent_event": {
   `summary` = the output. A subagent that has seen one of those takes status only from them (a background
   agent's spawn card completes at launch while the agent keeps running).
 - **SA-3. Snapshot.** Each `session_started.subagents[i]` is `upsertSubagent`ed in array order (never
-  deletes). `session_stopped` / `session_terminated` set every `running` subagent to `stopped`.
+  deletes). **Terminal statuses stick:** a server row (this snapshot or the SA-8 list) may move a `running`
+  subagent to a terminal status but never a terminal one back to `running` (a row computed before the live
+  `subagent_finished` can arrive after it). This applies only to a terminal status that came from a lifecycle
+  frame or an earlier server row: a status that only the spawn card set (SA-2) is always corrected by a row (a
+  background agent's card from history reads `done` at launch while the list says `running`). A later `subagent_finished` always applies (the backend may send a
+  second one that fills in `summary`/`usage`). `session_stopped` / `session_terminated` set every `running` subagent to `stopped`.
 - **SA-4. Inner frames.** `reduceInner(conv, frame)` is the §4.3 reducer applied to the subagent's own
   conversation (kind `agent`, the parent's provider), bypassing §3.6 (the parent's checkpoint already
-  deduplicated the wrapper). Inner content outside a turn starts one (TL-3); `subagent_finished` ends it.
+  deduplicated the wrapper). Inner content outside a turn starts one (TL-3); `subagent_finished` ends it — when it arrives while `held`
+  is non-null (the first page is still loading) the end is queued in `held` behind the held frames, so the
+  transcript never stays "working" after the page lands.
 - **SA-5. Lazy transcripts (memory).** A subagent's `conv` is created only when the user opens it
   (`openSubagent`). Until then the client keeps only the `Subagent` summary; inner frames update
   `activity` and are dropped. Opening: create `conv`, set `held = []`, fetch the first page of
@@ -1993,6 +2000,9 @@ IDs: **W-n** = item n of 02 §6.3; **W-6.1 / W-6.2** = the lists in 02 §6.1 / �
 | `subagent_background_after_turn` | SA-2 (lifecycle wins over the spawn card), SA-1, SA-7 |
 | `subagent_placeholder_without_lifecycle` | SA-2 (Gemini `invoke_agent`, no lifecycle frames) |
 | `subagent_nested_failed_stopped_history` | SA-2 from history, SA-6, failed/stopped |
+| `subagent_finished_while_page_loading` | SA-4, SA-5 (finish queued behind held frames) |
+| `subagent_stale_row_terminal_sticks` | SA-3, SA-8 (terminal statuses stick) |
+| `subagent_row_overrides_spawn_card` | SA-2, SA-3, SA-8 (a row corrects a card-derived status) |
 
 ---
 

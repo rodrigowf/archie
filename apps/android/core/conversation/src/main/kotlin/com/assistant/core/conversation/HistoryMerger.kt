@@ -84,8 +84,10 @@ object HistoryMerger {
         d.rebuildIndexes()
         d.history = HistoryState(loaded = true, startIndex = resp.startIndex, totalCount = resp.totalCount, hasMore = resp.hasMore)
         d.toolsTouched = true
-        // SA-8: after the first page of a view that holds spawn cards, fetch the subagent list once.
-        if (d.spawnSink == null && d.spawnCards > 0 && !d.subagentsListFetched && d.isAgent && d.ref.sdkId != null) {
+        // SA-8: after a page that left a placeholder no lifecycle frame or row described, fetch the list once.
+        if (d.spawnSink == null && !d.subagentsListFetched && d.isAgent && d.ref.sdkId != null &&
+            d.subagents.values.any { !it.lifecycle }
+        ) {
             d.subagentsListFetched = true
             d.effects += ConversationEffect.FetchSubagentList
         }

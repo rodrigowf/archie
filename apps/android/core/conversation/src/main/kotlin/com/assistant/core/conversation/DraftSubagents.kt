@@ -35,27 +35,37 @@ internal fun Draft.upsertSubagent(
 ): Subagent {
     val cur = subagents[id]
     val base = cur ?: Subagent(id)
+    // An empty string never overwrites a known value (SA-2; the web skips them too).
+    fun String?.known() = this?.takeIf { it.isNotEmpty() }
     val n = base.copy(
-        parentToolUseId = parent ?: base.parentToolUseId,
-        agentType = agentType ?: base.agentType,
-        description = description ?: base.description,
+        parentToolUseId = parent.known() ?: base.parentToolUseId,
+        agentType = agentType.known() ?: base.agentType,
+        description = description.known() ?: base.description,
         background = background ?: base.background,
         status = status ?: base.status,
-        activity = activity ?: base.activity,
+        activity = activity.known() ?: base.activity,
         usage = usage ?: base.usage,
         summary = summary ?: base.summary,
-        startedAt = startedAt ?: base.startedAt,
-        endedAt = endedAt ?: base.endedAt,
+        startedAt = startedAt.known() ?: base.startedAt,
+        endedAt = endedAt.known() ?: base.endedAt,
         lifecycle = base.lifecycle || lifecycle,
     )
     if (cur == null || n != cur) subagents[id] = n
     return n
 }
 
-/** A server row (SA-3 snapshot, SA-8 list): authoritative, like the lifecycle frames. */
+/**
+ * A server row (SA-3 snapshot, SA-8 list): authoritative, like the lifecycle frames, except that
+ * **terminal statuses stick** — a row computed before a live `subagent_finished` may arrive after it, so
+ * a row never moves a terminal status (from a lifecycle frame or an earlier row) back to `running`. A
+ * status only the spawn card set (no lifecycle yet, SA-2) is always corrected by the row.
+ */
 internal fun Draft.upsertSummary(r: SubagentSummary) {
+    val cur = subagents[r.toolUseId]
+    var status = SubagentStatus.fromWire(r.status)
+    if (cur != null && cur.lifecycle && cur.status.finished && status == SubagentStatus.RUNNING) status = null
     val s = upsertSubagent(
-        r.toolUseId, r.parentToolUseId, r.agentType, r.description, r.background, SubagentStatus.fromWire(r.status),
+        r.toolUseId, r.parentToolUseId, r.agentType, r.description, r.background, status,
         r.activity, r.usage, r.summary, r.startedAt, r.endedAt, lifecycle = true,
     )
     if (s.status.finished) endSubagentTurn(r.toolUseId)
@@ -117,8 +127,8 @@ internal fun Draft.onSubagentProgress(f: ServerFrame.SubagentProgress) {
 internal fun Draft.onSubagentFinished(f: ServerFrame.SubagentFinished) {
     val id = f.toolUseId?.takeIf { it.isNotEmpty() } ?: return
     upsertSubagent(
-        id, status = SubagentStatus.fromWire(f.status), summary = f.summary, usage = f.usage, endedAt = f.endedAt,
-        lifecycle = true,
+        id, status = SubagentStatus.fromWire(f.status)?.takeIf { it.finished } ?: SubagentStatus.DONE,   // unknown reads as done
+        summary = f.summary, usage = f.usage, endedAt = f.endedAt, lifecycle = true,
     )
     endSubagentTurn(id)
 }
@@ -127,6 +137,7 @@ internal fun Draft.onSubagentEvent(f: ServerFrame.SubagentEvent) {
     val id = f.toolUseId?.takeIf { it.isNotEmpty() } ?: return
     val s = upsertSubagent(id)
     val inner = f.frame ?: return
+    if (!inner.isSubagentContent()) return                                    // §4.8: content frames only
     if (inner is ServerFrame.ToolUse && !inner.toolName.isNullOrEmpty()) upsertSubagent(id, activity = inner.toolName)
     val held = s.held
     when {
@@ -171,7 +182,7 @@ internal fun Draft.subagentPage(id: String, page: PaginatedMessagesDto) {
     if (s.conv == null) return
     reduceInner(id) {
         HistoryMerger.applyPage(this, PageMode.REPLACE, page)
-        for (f in held) reduceFrame(f)
+        replayHeld(held)
     }
     subagents[id] = subagents[id]!!.copy(held = null, historyError = null)
 }
@@ -183,7 +194,7 @@ internal fun Draft.subagentPageFailed(id: String, message: String) {
     if (s.conv == null) return
     reduceInner(id) {
         history = history.copy(loaded = true)
-        for (f in held) reduceFrame(f)
+        replayHeld(held)
     }
     subagents[id] = subagents[id]!!.copy(held = null, historyError = message)
 }
@@ -203,11 +214,42 @@ private inline fun Draft.reduceInner(id: String, block: Draft.() -> Unit) {
     toolsTouched = true
 }
 
-/** `endTurnOf(s.conv)`: the subagent finished, so its transcript's turn ends (I-7). */
+/**
+ * `endTurnOf(s.conv)`: the subagent finished, so its transcript's turn ends (I-7). While its first page
+ * loads (SA-4) the end is queued in `held` behind the held frames (a `subagent_finished` marker), so the
+ * held content cannot restart a turn that then never ends.
+ */
 private fun Draft.endSubagentTurn(id: String) {
-    val conv = subagents[id]?.conv ?: return
+    val s = subagents[id] ?: return
+    val conv = s.conv ?: return
+    val held = s.held
+    if (held != null) {
+        if (held.lastOrNull() !is ServerFrame.SubagentFinished) subagents[id] = s.copy(held = held.add(ServerFrame.SubagentFinished(id)))
+        return
+    }
     if (!conv.inTurn && conv.status != SessionStatus.PROCESSING) return
     reduceInner(id) { endTurn("subagent_finished") }
+}
+
+/** The held frames in order; a queued end marker ends the transcript's turn at its place. */
+private fun Draft.replayHeld(held: List<ServerFrame>) {
+    for (f in held) if (f is ServerFrame.SubagentFinished) endTurn("subagent_finished") else reduceFrame(f)
+}
+
+private fun ServerFrame.isSubagentContent(): Boolean =
+    this is ServerFrame.TextDelta || this is ServerFrame.TextComplete || this is ServerFrame.ThinkingDelta ||
+        this is ServerFrame.ThinkingComplete || this is ServerFrame.ToolUse || this is ServerFrame.ToolResult
+
+/**
+ * §5.6 / D6: a canonical reload may have missed inner frames, so every open transcript that is not
+ * already loading fetches its first page again (held from now on, before the buffered frames replay).
+ */
+internal fun Draft.refetchOpenSubagents() {
+    for ((id, s) in subagents.entries.toList()) {
+        if (s.conv == null || s.held != null) continue
+        subagents[id] = s.copy(held = persistentListOf())
+        effects += ConversationEffect.FetchSubagentPage(id)
+    }
 }
 
 /** Kind `agent`, the parent's provider; a running subagent opens mid-turn (its history tail may still run). */

@@ -220,7 +220,8 @@ shown as an index and as tabs; their activity never enters the parent timeline. 
   subagent's own `conv` only while it is open, SA-4/SA-5), placeholders from Task-normalised spawn
   cards live and from history (`reducer/subagents.ts` `SUBAGENT_TOOL_NAMES`, SA-2: empty strings never
   overwrite, status follows the card only until a lifecycle frame or server row was seen), the
-  `session_started.subagents` snapshot and stop-on-stop (SA-3), the `task_notification` notice
+  `session_started.subagents` snapshot and stop-on-stop (SA-3; a server row never moves a
+  lifecycle-backed terminal status back to `running`, but may correct a status only a spawn card set), the `task_notification` notice
   (SA-7), and the inputs `open_subagent` / `subagent_page` / `release_subagent` / `subagents_list`
   with the effects `fetch_subagent_page` / `fetch_subagents` (SA-5, SA-8). Nested spawn cards inside
   an open transcript are hoisted into the root map with their parent (SA-6). Details of the choices

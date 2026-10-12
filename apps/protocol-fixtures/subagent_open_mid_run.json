@@ -262,7 +262,8 @@
               }
             ]
           }
-        ]
+        ],
+        "in_turn": false
       }
     ],
     "state": {

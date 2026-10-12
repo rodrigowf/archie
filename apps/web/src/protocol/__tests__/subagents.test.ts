@@ -232,3 +232,17 @@ describe('SA-2 amendment (2026-10-12)', () => {
     expect(sub(c, 't1')).toMatchObject({ status: 'stopped', summary: 'Stopped by user' });
   });
 });
+
+describe('SA-3 terminal statuses stick (2026-10-12 review)', () => {
+  it('a stale running row never flips a finished agent back; a later subagent_finished still applies', () => {
+    let c = feed(agent(), proc, spawn('t1'), started('t1'), finished('t1', 'done', 'first')).conv;
+    c = feed(c, { type: 'subagents_list', rows: [{ tool_use_id: 't1', status: 'running', activity: 'Grep' }] }).conv;
+    expect(sub(c, 't1')).toMatchObject({ status: 'done', summary: 'first', activity: 'Grep' });
+    c = feed(c, { type: 'session_started', session_id: 'L1', subagents: [{ tool_use_id: 't1', status: 'running' }] }).conv;
+    expect(sub(c, 't1').status).toBe('done');
+    c = feed(c, finished('t1', 'done', 'full report')).conv;
+    expect(sub(c, 't1').summary).toBe('full report');
+    c = feed(c, { type: 'subagents_list', rows: [{ tool_use_id: 't1', status: 'failed' }] }).conv;
+    expect(sub(c, 't1').status).toBe('failed'); // terminal → terminal from a row is allowed by the spec text
+  });
+});

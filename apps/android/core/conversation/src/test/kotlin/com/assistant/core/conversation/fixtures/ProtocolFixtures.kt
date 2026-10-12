@@ -111,6 +111,7 @@ object ProtocolFixtures {
         "open_subagent" -> ConversationInput.OpenSubagent(a.str("tool_use_id")!!)
         "subagent_rest_page" -> ConversationInput.SubagentPage(a.str("tool_use_id")!!, page(a["response"]!!.jsonObject))
         "release_subagent" -> ConversationInput.ReleaseSubagent(a.str("tool_use_id")!!)
+        "subagent_list" -> ConversationInput.SubagentList(ProtocolCodec.decodeSubagentList(a["response"]!!.jsonObject))
         else -> error("unknown client action $t")
     }
 
@@ -193,7 +194,7 @@ object ProtocolFixtures {
             put("activity", a.activity?.let { JsonPrimitive(it) } ?: JsonNull)
             put("summary", a.summary?.let { JsonPrimitive(it) } ?: JsonNull)
             put("open", a.open)
-            a.conv?.let { put("entries", normaliseEntries(it)) }
+            a.conv?.let { put("entries", normaliseEntries(it)); put("in_turn", it.inTurn) }
         })
     }
 

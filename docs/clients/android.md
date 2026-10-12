@@ -409,12 +409,18 @@ the web.
   (`ToolNameNormalizer.SUBAGENT_SPAWN_TOOLS`: `Agent`, `Task`, `agent`, `task`, `invoke_agent`; live
   and from history; a spawn card inside an open transcript becomes a nested placeholder), SA-2 status
   sync from the card when no lifecycle frame or server row described the agent, SA-3 snapshot from
-  `session_started.subagents` and stop-on-close, SA-7 `task_notification` notice. SA-5: inputs
+  `session_started.subagents` and stop-on-close (a row never moves a terminal status from a lifecycle
+  frame or earlier row back to `running`; a status only the spawn card set is always corrected), SA-7
+  `task_notification` notice (it marks a prompt, so its `status{processing}` never pops the tray). Only
+  content frames reach a transcript; an unknown `subagent_finished` status reads as done; empty strings
+  never overwrite known fields. A `subagent_finished` while the first page loads is queued in `held` as
+  an end marker (SA-4), and a canonical reload (§5.6) re-fetches every open transcript. SA-5: inputs
   `OpenSubagent` / `SubagentPage` / `SubagentPageFailed` / `ReleaseSubagent`; the reducer keeps at most 3
   transcripts (`subagentLru`, the visible one and the 2 most recently viewed) and asks the repository
   for the first page with `ConversationEffect.FetchSubagentPage`; SA-8 `FetchSubagentList` once after
-  the first history page with spawn cards. `ConversationRepository` runs both REST calls
-  (`ArchieApi.subagents` / `subagentMessages`) and `stopSubagent` (`stop_subagent`, SA-9).
+  a history page that leaves a placeholder no lifecycle frame or row described. `ConversationRepository`
+  runs both REST calls (`ArchieApi.subagents` / `subagentMessages`; a 404 or no sdk id yet is an empty
+  transcript, other failures show in the tab) and `stopSubagent` (`stop_subagent`, SA-9).
 - **UI** (`:feature:chat` `ui/Agents.kt`, `model/AgentUi.kt`). The Task card (`:feature:toolcards`
   `ToolCard(agent = AgentRun)`) shows the subagent's status (lifecycle wins over the card's result),
   "Running Grep" / the report's first line, tools · tokens · elapsed and **Open**, under the header
@@ -432,7 +438,8 @@ the web.
   agent's permissions, stall, connection) stay. Status changes are announced through
   `core/design` `LiveAnnouncement` (polite; failures assertive).
 - Tests: the five `subagent_*` protocol fixtures (`ProtocolFixtureConformanceTest`; the runner
-  supports `open_subagent` / `subagent_rest_page` / `release_subagent` and `expected.subagents`),
+  supports `open_subagent` / `subagent_rest_page` / `release_subagent` / `subagent_list` and
+  `expected.subagents` with `in_turn`),
   `SubagentReducerTest`, `AgentsUiTest`, `AgentRunTest`, goldens `chat-agents-main` and
   `chat-agents-nested-tab`.
 

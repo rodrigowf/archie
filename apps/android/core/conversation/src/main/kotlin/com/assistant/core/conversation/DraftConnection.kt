@@ -18,7 +18,10 @@ private fun Draft.applyInput(input: ConversationInput) {
         is ConversationInput.Frame -> onFrame(input.frame)
         is ConversationInput.HistoryPage -> {
             HistoryMerger.applyPage(this, input.mode, input.page)
-            if (input.mode == PageMode.REPLACE && reloading) finishReload()
+            if (input.mode == PageMode.REPLACE && reloading) {
+                refetchOpenSubagents()                                         // §5.6: before the buffered frames, so theirs are held
+                finishReload()
+            }
         }
         ConversationInput.BeginReload -> reloading = true
         ConversationInput.ReloadFailed -> if (reloading) { gapPossible = true; finishReload() }

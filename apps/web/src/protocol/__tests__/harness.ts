@@ -56,6 +56,10 @@ export function actionInput(a: FixtureAction): ConversationInput | null {
       return { type: 'open_subagent', toolUseId: String(a.tool_use_id) };
     case 'subagent_rest_page':
       return { type: 'subagent_page', toolUseId: String(a.tool_use_id), mode: 'replace', response: a.response as MessagesPage };
+    case 'subagent_list': {
+      const res = a.response as { subagents?: unknown } | undefined;
+      return { type: 'subagents_list', rows: res && Array.isArray(res.subagents) ? res.subagents : [] };
+    }
     case 'release_subagent':
       return { type: 'release_subagent', toolUseId: String(a.tool_use_id) };
     default:
@@ -186,7 +190,7 @@ export interface Normalised {
   state: Record<string, unknown>;
 }
 
-/** README "Normalisation" → subagents (spec 12 §4.8): `entries` only while the transcript is open. */
+/** README "Normalisation" → subagents (spec 12 §4.8): `entries` and `in_turn` only while the transcript is open. */
 export function normaliseSubagent(s: Subagent): Record<string, unknown> {
   const out: Record<string, unknown> = {
     tool_use_id: s.tool_use_id,
@@ -199,7 +203,10 @@ export function normaliseSubagent(s: Subagent): Record<string, unknown> {
     summary: s.summary,
     open: s.conv !== null,
   };
-  if (s.conv) out.entries = s.conv.entries.map(normaliseEntry);
+  if (s.conv) {
+    out.entries = s.conv.entries.map(normaliseEntry);
+    out.in_turn = s.conv.inTurn;
+  }
   return out;
 }
 

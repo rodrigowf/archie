@@ -1,0 +1,224 @@
+{
+  "name": "subagent_stale_row_terminal_sticks",
+  "description": "SA-3/SA-8: a list row computed before the live subagent_finished arrives after it; the terminal status sticks (no flip back to running). A row may still move a running agent to a terminal status and fill its summary.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "t1",
+      "tool_name": "Agent",
+      "tool_input": {
+        "subagent_type": "Explore",
+        "description": "Find scroll logic",
+        "prompt": "Find the chat scroll logic in the web app.",
+        "run_in_background": true
+      },
+      "seq": 1,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "subagent_started",
+      "tool_use_id": "t1",
+      "parent_tool_use_id": null,
+      "agent_type": "Explore",
+      "description": "Find scroll logic",
+      "background": true,
+      "started_at": "2026-10-12T12:00:01Z",
+      "seq": 2,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "t1",
+      "output": "Async agent launched successfully.",
+      "is_error": false,
+      "seq": 3,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "t2",
+      "tool_name": "Agent",
+      "tool_input": {
+        "subagent_type": "Explore",
+        "description": "Count callers",
+        "prompt": "Count.",
+        "run_in_background": true
+      },
+      "seq": 4,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "subagent_started",
+      "tool_use_id": "t2",
+      "parent_tool_use_id": null,
+      "agent_type": "Explore",
+      "description": "Count callers",
+      "background": true,
+      "started_at": "2026-10-12T12:00:01Z",
+      "seq": 5,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "t2",
+      "output": "Async agent launched successfully.",
+      "is_error": false,
+      "seq": 6,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "subagent_finished",
+      "tool_use_id": "t1",
+      "status": "done",
+      "summary": "It is in a.ts.",
+      "usage": {
+        "tokens": 1200,
+        "tool_uses": 1,
+        "duration_ms": 3000
+      },
+      "ended_at": "2026-10-12T12:00:09Z",
+      "seq": 7,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "usage": {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 990,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 50
+      },
+      "input_tokens": 1000,
+      "output_tokens": 50,
+      "num_turns": 1,
+      "session_id": "sdk-1",
+      "is_error": false,
+      "result": "",
+      "seq": 8,
+      "stream_id": "L1:1759500000000"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "send",
+      "text": "two agents"
+    },
+    {
+      "at": 8,
+      "type": "subagent_list",
+      "response": {
+        "subagents": [
+          {
+            "tool_use_id": "t1",
+            "parent_tool_use_id": null,
+            "agent_type": "Explore",
+            "description": "Find scroll logic",
+            "background": true,
+            "status": "running",
+            "activity": "Grep",
+            "usage": null,
+            "summary": null,
+            "started_at": "2026-10-12T12:00:01Z",
+            "ended_at": null
+          },
+          {
+            "tool_use_id": "t2",
+            "parent_tool_use_id": null,
+            "agent_type": "Explore",
+            "description": "Count callers",
+            "background": true,
+            "status": "done",
+            "activity": "Glob",
+            "usage": null,
+            "summary": "12 callers",
+            "started_at": "2026-10-12T12:00:01Z",
+            "ended_at": "2026-10-12T12:00:05Z"
+          }
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "two agents",
+        "origin": "local",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "t1",
+            "tool_name": "Agent",
+            "tool_input": {
+              "subagent_type": "Explore",
+              "description": "Find scroll logic",
+              "prompt": "Find the chat scroll logic in the web app.",
+              "run_in_background": true
+            },
+            "status": "done",
+            "output": "Async agent launched successfully."
+          },
+          {
+            "type": "tool",
+            "tool_use_id": "t2",
+            "tool_name": "Agent",
+            "tool_input": {
+              "subagent_type": "Explore",
+              "description": "Count callers",
+              "prompt": "Count.",
+              "run_in_background": true
+            },
+            "status": "done",
+            "output": "Async agent launched successfully."
+          }
+        ]
+      }
+    ],
+    "subagents": [
+      {
+        "tool_use_id": "t1",
+        "parent_tool_use_id": null,
+        "agent_type": "Explore",
+        "description": "Find scroll logic",
+        "background": true,
+        "status": "done",
+        "activity": "Grep",
+        "summary": "It is in a.ts.",
+        "open": false
+      },
+      {
+        "tool_use_id": "t2",
+        "parent_tool_use_id": null,
+        "agent_type": "Explore",
+        "description": "Count callers",
+        "background": true,
+        "status": "done",
+        "activity": "Glob",
+        "summary": "12 callers",
+        "open": false
+      }
+    ],
+    "state": {
+      "status": "idle",
+      "in_turn": false
+    }
+  }
+}

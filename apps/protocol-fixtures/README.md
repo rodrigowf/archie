@@ -86,6 +86,7 @@ So `events` that follow `initial_history` may legitimately overlap it (see `hist
 | `open_subagent` | `tool_use_id` | `openSubagent` (spec §4.8 SA-5): creates the subagent's `conv`, starts holding its inner frames (`held = []`); the REST fetch is modelled by the next `subagent_rest_page` |
 | `subagent_rest_page` | `tool_use_id`, `response` | the subagent's first history page arrives: `history_page{replace}` on its `conv`, then its `held` frames are applied in order and `held = null` (SA-5) |
 | `release_subagent` | `tool_use_id` | `releaseSubagent` (SA-5): `conv = null`, `held = null` |
+| `subagent_list` | `response` (`{subagents: SubagentSummary[]}`) | the SA-8 list fetch answered: upsert every row (SA-3 rules: terminal statuses stick) |
 
 ## Normalisation
 
@@ -116,7 +117,8 @@ So `events` that follow `initial_history` may legitimately overlap it (see `hist
 { "tool_use_id": "t1", "parent_tool_use_id": null, "agent_type": "Explore", "description": "...",
   "background": false, "status": "running|done|failed|stopped", "activity": "Grep" | null,
   "summary": "..." | null, "open": false }
-      // + "entries": [...] (normalised exactly like the top-level entries) only when "open" is true
+      // + "entries": [...] (normalised exactly like the top-level entries) and "in_turn": <its conv.inTurn>
+      //   only when "open" is true
 ```
 
 Rules:

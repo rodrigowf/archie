@@ -607,19 +607,24 @@ class ConversationRepository(
             }
         }
 
-        /** SA-5: the subagent's first page; any failure still releases its held frames (with the error). */
+        /**
+         * SA-5: the subagent's first page. No sdk id yet, or 404 (unknown / no transcript kept): an empty
+         * page (the transcript starts at the live tail). Other failures still release its held frames and
+         * show the error in its tab.
+         */
         private suspend fun fetchSubagentPage(toolUseId: String) {
             val sdkId = state.value.ref.sdkId
             if (sdkId == null) {
-                post(ConversationInput.SubagentPageFailed(toolUseId, "Earlier steps show after the first reply"))
+                post(ConversationInput.SubagentPage(toolUseId, PaginatedMessagesDto()))
                 return
             }
             val input = when (val r = api.subagentMessages(sdkId, toolUseId, limit = PAGE_SIZE)) {
                 is ApiResult.Ok -> ConversationInput.SubagentPage(toolUseId, r.value)
-                is ApiResult.HttpError -> ConversationInput.SubagentPageFailed(
-                    toolUseId,
-                    if (r.code == 404) "No transcript was recorded for this agent" else r.errorMessage() ?: "Couldn't load this agent's steps",
-                )
+                is ApiResult.HttpError -> if (r.code == 404) {
+                    ConversationInput.SubagentPage(toolUseId, PaginatedMessagesDto())
+                } else {
+                    ConversationInput.SubagentPageFailed(toolUseId, r.errorMessage() ?: "Couldn't load this agent's steps")
+                }
                 else -> ConversationInput.SubagentPageFailed(toolUseId, r.errorMessage() ?: "Couldn't load this agent's steps")
             }
             post(input)
