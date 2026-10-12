@@ -42,13 +42,18 @@ data class AgentRun(
         if (background) "background" else null,
     ).joinToString(" · ")
 
+    /**
+     * Live `now − startedAt` while running; once finished the longer of the reported duration and
+     * `endedAt − startedAt` (a stopped agent's duration can be stale: only the time to its last
+     * progress report), else whichever is known. Same rule as the web's `subagentElapsedMs`.
+     */
     fun elapsedMs(nowMs: Long): Long? {
         val start = startedAtMs
+        if (status == AgentRunStatus.Running) return if (start != null) (nowMs - start).coerceAtLeast(0) else durationMs
+        val span = if (start != null && endedAtMs != null) (endedAtMs - start).coerceAtLeast(0) else null
         return when {
-            status != AgentRunStatus.Running && durationMs != null -> durationMs
-            start != null && endedAtMs != null -> (endedAtMs - start).coerceAtLeast(0)
-            start != null && status == AgentRunStatus.Running -> (nowMs - start).coerceAtLeast(0)
-            else -> durationMs
+            durationMs != null && span != null -> maxOf(durationMs, span)
+            else -> durationMs ?: span
         }
     }
 

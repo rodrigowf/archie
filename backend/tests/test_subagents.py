@@ -337,6 +337,53 @@ class TestRouting:
         assert _sm()._build_options().forward_subagent_text is True
 
 
+class TestResumedAgent:
+    """An agent that backgrounds its own command and ends its turn finishes
+    (task_notification completed); when the command ends the CLI wakes it:
+    a second task_started with the same task_id / tool_use_id, its inner
+    messages, task_updated completed and a second notification (probe
+    2026-10-12, CLI 2.1.292)."""
+
+    async def test_second_task_started_reopens_and_finishes_again(self):
+        sm = _sm()
+        await _process(sm, _spawn("t1", background=True), _task_started("a1", "t1", run_id="r1"),
+                       _launch_result("t1", "a1"), _sub_tool("t1", "b1", name="Bash"))
+        evs = await _process(sm, _task_updated("a1", "completed"),
+                             _task_notification("a1", "t1", summary="waiting", run_id="r1"))
+        (fin1,) = [e for e in evs if isinstance(e, SubagentFinished)]
+        assert fin1.status == "done" and fin1.summary == "waiting"
+        first_start = sm._subagents.get("t1").started_at
+
+        evs = await _process(sm, _task_started("a1", "t1", run_id="r2"))
+        (again,) = [e for e in evs if isinstance(e, SubagentStarted)]
+        assert again.tool_use_id == "t1" and again.started_at == first_start
+        rec = sm._subagents.get("t1")
+        assert rec.status == "running" and rec.ended_at is None
+        assert sm.subagent_snapshot()[0]["status"] == "running"
+
+        evs = await _process(sm, _sub_tool("t1", "r9", name="Read"), _sub_text("t1", "slept"),
+                             _task_updated("a1", "completed"),
+                             _task_notification("a1", "t1", summary="slept", run_id="r2"))
+        assert any(isinstance(e, SubagentEvent) for e in evs)
+        (fin2,) = [e for e in evs if isinstance(e, SubagentFinished)]
+        assert fin2.status == "done" and fin2.summary == "slept"
+        # Its real end makes the CLI start a parent turn again: the note is queued.
+        assert [n["run_id"] for n in sm._pending_notifications] == ["r1", "r2"]
+
+    async def test_task_updated_running_after_finish_reopens(self):
+        sm = _sm()
+        await _process(sm, _spawn("t1"), _task_started("a1", "t1"), _task_notification("a1", "t1"))
+        evs = await _process(sm, _task_updated("a1", "running"))
+        assert [type(e) for e in evs] == [SubagentStarted]
+        # Running already: nothing more.
+        assert await _process(sm, _task_updated("a1", "running")) == []
+
+    async def test_duplicate_task_started_while_running_emits_nothing(self):
+        sm = _sm()
+        await _process(sm, _spawn("t1"), _task_started("a1", "t1"))
+        assert await _process(sm, _task_started("a1", "t1")) == []
+
+
 # ---------------------------------------------------------------------------
 # send() and the out-of-turn path (manager level)
 # ---------------------------------------------------------------------------
@@ -614,6 +661,37 @@ class TestRegistry:
         assert reg.finish("t1", status="done", summary="ok").status == "done"
         assert reg.finish("t1", status="failed") is None
         assert reg.progress("t1", activity="x", usage=None) is None
+        # Other harnesses never reopen by accident.
+        assert reg.start("t1", harness_id="a1") is None
+        assert reg.get("t1").status == "done"
+
+    def test_reopen_after_finish_is_a_new_run(self):
+        reg = SubagentRegistry()
+        first = reg.start("t1", harness_id="a1")
+        assert reg.start("t1", reopen=True) is None  # still running: nothing new
+        reg.finish("t1", status="done", summary="half")
+        again = reg.start("t1", reopen=True)
+        assert again is not None and again.started_at == first.started_at
+        assert reg.get("t1").status == "running" and reg.get("t1").ended_at is None
+        assert reg.progress("t1", activity="Read", usage=None) is not None
+        fin = reg.finish("t1", status="done", summary="all")
+        assert fin is not None and fin.summary == "all"
+
+    def test_stopped_without_fresh_duration_gets_the_wall_clock_span(self):
+        reg = SubagentRegistry()
+        reg.start("t1")
+        reg.get("t1").started_at = "2026-10-12T12:00:00Z"
+        reg.progress("t1", activity="Bash", usage={"tokens": 10, "tool_uses": 1, "duration_ms": 2000})
+        with patch("manager.subagents.now_iso", return_value="2026-10-12T12:01:07Z"):
+            fin = reg.finish("t1", status="stopped", summary="Stopped")
+        assert fin.usage == {"tokens": 10, "tool_uses": 1, "duration_ms": 67000}
+        # A fresh duration (the notification's) is kept as reported; done keeps its own.
+        reg.start("t2")
+        fin = reg.finish("t2", status="failed", usage={"tokens": 1, "tool_uses": 1, "duration_ms": 5})
+        assert fin.usage["duration_ms"] == 5
+        reg.start("t3")
+        reg.progress("t3", activity="x", usage={"tokens": 1, "tool_uses": 1, "duration_ms": 7})
+        assert reg.finish("t3", status="done").usage["duration_ms"] == 7
 
     def test_merge_live_wins_and_keeps_disk_order(self):
         disk = [{"tool_use_id": "a", "status": "stopped", "agent_type": "Explore", "description": "old"},
@@ -653,6 +731,13 @@ def test_runner_buckets_subagent_events_apart_from_the_ring():
     snap = runner.peek("S")
     assert snap["subagents"] == [{"tool_use_id": "t1", "agent_type": "Explore", "description": "Find",
                                   "status": "done", "activity": "Grep", "summary": "found"}]
+    # The CLI resumed it: running again until its new finish.
+    runner._note_subagent(rec, SubagentStarted("t1", None, "Explore", "Find", False, "now"))
+    assert runner.peek("S")["subagents"][0]["status"] == "running"
+    seq = rec.last_finish_seq
+    runner._note_subagent(rec, SubagentFinished("t1", "done", "slept"))
+    assert runner.peek("S")["subagents"][0]["status"] == "done"
+    assert rec.last_finish_seq > seq  # its second report turn is waited for too
 
 
 # ---------------------------------------------------------------------------

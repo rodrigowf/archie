@@ -81,6 +81,11 @@ describe('labels', () => {
     expect(subagentElapsedMs(sub({ status: 'done', started_at: start, usage: { tokens: null, tool_uses: null, duration_ms: 3000 } }), t0 + 9e6)).toBe(3000);
     expect(subagentElapsedMs(sub({ status: 'done', started_at: start, ended_at: '2026-10-12T12:00:09Z' }), 0)).toBe(9000);
     expect(subagentElapsedMs(sub({}), 0)).toBeNull();
+    // A stopped agent's duration is only the time to its first progress: the wall clock wins.
+    const stopped = sub({ status: 'stopped', started_at: start, ended_at: '2026-10-12T12:01:07Z', usage: { tokens: null, tool_uses: null, duration_ms: 2000 } });
+    expect(subagentElapsedMs(stopped, 0)).toBe(67000);
+    // A reported duration longer than the span (clock skew) still wins.
+    expect(subagentElapsedMs(sub({ status: 'done', started_at: start, ended_at: '2026-10-12T12:00:01Z', usage: { tokens: null, tool_uses: null, duration_ms: 4000 } }), 0)).toBe(4000);
   });
 
   it('tree order puts nested agents under their parent; groups split by state with finished last', () => {

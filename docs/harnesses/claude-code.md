@@ -137,6 +137,24 @@ top-level `tool_use` / `tool_result` lines carrying `tool_call_id`) are also rea
 `fold_orchestrator_lines()` folds each turn into one assistant message so truncate/fork counts match
 what the clients render ([orchestrator](../architecture/orchestrator.md)).
 
+## Cost
+
+`ResultMessage.total_cost_usd` is the CLI process's **running total**, not the turn's cost: every
+turn, `/compact` and task-notification turn adds to it, `/clear` (a `ConversationResetMessage`)
+zeroes it, and on `--resume` the CLI restores it from the last `cost-state` line it wrote to the
+session's JSONL at exit (probe 2026-10-12: totals 0.0121 → 0.0177 over two turns, then 0.0219 on
+the first turn of a resumed process). Summing the totals overcounted (~17x in a session with many
+background-agent notification turns). `_turn_cost()` turns the total into the turn's delta
+(`total − the last total seen on this connection`; a lower total means the CLI started over, so the
+whole total is new), and `TurnComplete.cost` / `sm.cost` carry deltas. At connect,
+`_restored_cost_baseline()` reads the resumed JSONL's last `cost-state.totalCostUSD`
+(`<CLAUDE_CONFIG_DIR>/projects/*/<sid>.jsonl`) as the baseline, so a resumed session never re-counts
+earlier processes' cost. SSH sessions start from 0 (their JSONL is on the remote machine): the
+first turn after a remote resume may count the restored total once. Clients add `turn_complete.cost`
+per turn (spec 12 §4.3), the orchestrator's runner adds a delegated turn's prompted and
+notification turns, `pool/live` reports `sm.cost`. Model Studio reports `None` (Anthropic prices
+applied to DashScope tokens); Qwen, Gemini and Codex report no cost.
+
 ## SDK version
 
 Pinned **`claude-agent-sdk==0.2.164`** (bundled CLI 2.1.292), upgraded 2026-10-07 from 0.1.81 / CLI
@@ -218,6 +236,11 @@ Contract: [spec 12 §4.8](../specs/12-client-protocol.md#48-subagents-sa-); desi
   own notification turn afterwards.
 - A prompt sent while a notification turn runs gets a turn of its own right after it (probe
   2026-10-12); `task_started.task_id` and the launch result's `agentId` are the same id.
+- An agent that backgrounds its own command (`Bash` with `run_in_background`) and ends its turn
+  **finishes** (`task_updated` completed + `task_notification` with that turn's answer, and a
+  notification turn in the parent). When the command ends, the CLI wakes the agent: a **second
+  `task_started` with the same `task_id` and `tool_use_id`**, its new messages, then `task_updated`
+  completed and a second `task_notification` (and parent turn) at its real end (probe 2026-10-12).
 
 **How `_process_message()` maps it:**
 
@@ -225,7 +248,7 @@ Contract: [spec 12 §4.8](../specs/12-client-protocol.md#48-subagents-sa-); desi
 |---|---|
 | Message with `parent_tool_use_id` | `SubagentEvent(tool_use_id=<parent>, event=<the usual TextComplete / ThinkingComplete / ToolUse / ToolResult / deltas>)`; never touches `status` |
 | `Agent`/`Task` tool_use (main or nested) | the usual `ToolUse`; the registry records the spawn (type, description, `run_in_background`, parent = the message's `parent_tool_use_id`) |
-| `task_started` (`local_agent`) | `SubagentStarted` (`background` = `run_in_background` or `is_backgrounded`); task id ↔ tool_use id mapped |
+| `task_started` (`local_agent`) | `SubagentStarted` (`background` = `run_in_background` or `is_backgrounded`); task id ↔ tool_use id mapped. For an agent that already finished (the CLI woke it, above): `SubagentStarted` again — the registry reopens it (`start(reopen=True)`: `running`, no `ended_at`, the first `started_at`) and its real end is a new `SubagentFinished`; a `task_updated` back to `running`/`pending` does the same |
 | `task_progress` | `SubagentProgress(activity = description or last_tool_name, usage)` |
 | `task_notification` | `SubagentFinished(status, summary, usage)` — `completed`→`done`, `failed`→`failed`, `stopped`/`killed`→`stopped` |
 | `task_updated` terminal | `killed` → `SubagentFinished(stopped)` at once; `completed`/`failed` wait for the notification's summary and are flushed by the next unrelated message |
@@ -245,11 +268,13 @@ turn that never comes: after a non-prompted `TurnComplete` inside `send()`, an `
 within 20 s (`_UNPROMPTED_GRACE_S`), else `send()` ends with a synthetic `TurnComplete` (not seen on
 CLI 2.1.292; a guard).
 
-Exactly one `SubagentStarted` per agent (the registry dedupes) and one `SubagentFinished` — plus a
+Exactly one `SubagentStarted` per agent run (the registry dedupes; a resumed agent starts a new run) and one `SubagentFinished` — plus a
 second one when a `task_notification` arrives after the finish was flushed (a `task_updated`
 terminal followed by an unrelated message) and brings a summary or usage the first lacked (spec 12
 SA-3: a later `subagent_finished` always applies). A finish without a summary uses the agent's last
-text. `stop_task` gets `task_started`'s task id (the spawn result's `agentId` never overwrites it). Nested
+text. A `stopped` or `failed` finish without a fresh duration gets `usage.duration_ms` = the
+wall-clock span from `started_at` (the last progress report's duration is only the time to that
+report). `stop_task` gets `task_started`'s task id (the spawn result's `agentId` never overwrites it). Nested
 agents route flat: their own messages carry their own spawn id; `parent_tool_use_id` on
 `subagent_started` gives the chain. The string-result fallback (`tool_use_result` without result
 blocks) no longer uses `parent_tool_use_id` as the tool id when that id is a known spawn: such a

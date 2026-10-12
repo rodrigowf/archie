@@ -728,7 +728,7 @@ function reduce(f) {
 
   case "turn_complete":
     if (ref.kind == "agent") {
-      counters.cost += f.cost ?? 0
+      counters.cost += f.cost ?? 0            // f.cost = this turn's own cost (USD), never a running total
       counters.turns += f.num_turns ?? 1
       const it = f.input_tokens ?? f.usage?.input_tokens
       if (typeof it == "number" && it > 0) counters.contextTokens = it
@@ -934,7 +934,7 @@ exception path:   status{streaming} → … → error{send_failed|send_audio_fai
 Before backend O-3 the orchestrator did not echo typed prompts to other devices (G-22); it now echoes typed prompts and voice messages (VM-1). Background-agent wake turns stream a reply with no prompt at all (01 §5.1). `background_notification` lines exist only in the JSONL and are never sent live (`orchestrator/session.py:1654-1670`).
 
 - **BG-1.** When the first assistant content of an orchestrator text turn arrives, the turn was not started by this client (`turnIsLocal == false`), **and the entry immediately before the new run is not a user entry** (since backend O-3, prompts typed on other devices arrive as `user_message` echoes and voice messages as `user_message{source:"voice_message"}` echoes (VM-1); both are visible prompts, not background), the reducer appends `notice{background}` before the run (`maybeBackgroundNotice`). UI copy: "Background update" with the explanation "The orchestrator replied to a background task or to another device." This keeps the reply in its own run and visibly unprompted.
-- **BG-2.** History lines `<task-notification>…` (Claude Code background tasks) become `notice{background, text: <line>}` (§5.1).
+- **BG-2.** History lines `<task-notification>…` (Claude Code background tasks) become `notice{background, text: <line>}` (§5.1). In a subagent's transcript the CLI puts a header before the block (`[SYSTEM NOTIFICATION - NOT USER INPUT]` and a few lines of explanation; the agent's own background command ended): such a line is the same notice, its `text` the line from `<task-notification>` on, without the header.
 
 #### 4.4.4 Errors
 
@@ -1104,8 +1104,8 @@ function upsertSubagent(id, fields) {            // creates in first-sight order
   for (const k in fields) if (fields[k] !== undefined && fields[k] !== null) s[k] = fields[k]
   return s
 }
-case "subagent_started":  upsertSubagent(f.tool_use_id, pick(f, "parent_tool_use_id", "agent_type",
-                                         "description", "background", "started_at")); return
+case "subagent_started":  upsertSubagent(f.tool_use_id, { status: "running", ...pick(f, "parent_tool_use_id",
+                                         "agent_type", "description", "background", "started_at") }); return
 case "subagent_progress": upsertSubagent(f.tool_use_id, { activity: f.activity, usage: f.usage }); return
 case "subagent_finished": { const s = upsertSubagent(f.tool_use_id, { status: f.status, summary: f.summary,
                                         usage: f.usage, ended_at: f.ended_at })
@@ -1119,6 +1119,14 @@ case "subagent_event": {
 }
 ```
 
+**Resumed agents.** The CLI can wake an agent that already finished (it backgrounded its own command and
+ended its turn; when the command ends the agent runs on). The backend then sends `subagent_started` again
+(same `tool_use_id`, the first `started_at`), the new run's frames, and a second `subagent_finished`.
+`subagent_started` for an agent that is already finished sets it back to `running` (the CLI resumed it): it
+is a live lifecycle frame, not a stale row, so SA-3's "terminal statuses stick" does not apply to it. An open
+transcript's turn restarts through TL-3 with the new inner content. Fixtures `subagent_resumed_after_finish`,
+`subagent_resumed_still_running`.
+
 - **SA-1. Never in the parent timeline.** `subagent_*` frames MUST NOT change the parent's `entries`,
   `tools`, `status`, `inTurn`, `stall` or `counters`, and MUST NOT start a turn (TL-3 does not apply).
 - **SA-2. Placeholders from spawn cards.** A `ToolBlock` whose normalised tool name is `Task` (§ tool
@@ -1131,7 +1139,7 @@ case "subagent_event": {
   `summary` = the output. A subagent that has seen one of those takes status only from them (a background
   agent's spawn card completes at launch while the agent keeps running).
 - **SA-3. Snapshot.** Each `session_started.subagents[i]` is `upsertSubagent`ed in array order (never
-  deletes). **Terminal statuses stick:** a server row (this snapshot or the SA-8 list) may move a `running`
+  deletes). **Terminal statuses stick (rows only):** a server row (this snapshot or the SA-8 list) may move a `running`
   subagent to a terminal status but never a terminal one back to `running` (a row computed before the live
   `subagent_finished` can arrive after it). This applies only to a terminal status that came from a lifecycle
   frame or an earlier server row: a status that only the spawn card set (SA-2) is always corrected by a row (a
@@ -1250,6 +1258,8 @@ function classifyUserLine(text): Entry {
   if (text.startsWith("[Request interrupted by user"))   return notice("interrupted", "")
   if (text.startsWith("This session is being continued from a previous conversation")) return notice("compaction", text)
   if (text.startsWith("<task-notification>"))           return notice("background", text)
+  if (text.startsWith("[SYSTEM NOTIFICATION - NOT USER INPUT]") && text.includes("<task-notification>"))
+                                                         return notice("background", text.slice(text.indexOf("<task-notification>")))
   if (/^<(command-name|command-message|command-args|local-command-stdout|local-command-stderr|local-command-caveat)>/.test(text))
                                                          return notice("command", text)
   return user(text, "history")
@@ -2007,6 +2017,8 @@ IDs: **W-n** = item n of 02 §6.3; **W-6.1 / W-6.2** = the lists in 02 §6.1 / �
 | `subagent_finished_while_page_loading` | SA-4, SA-5 (finish queued behind held frames) |
 | `subagent_stale_row_terminal_sticks` | SA-3, SA-8 (terminal statuses stick) |
 | `subagent_row_overrides_spawn_card` | SA-2, SA-3, SA-8 (a row corrects a card-derived status) |
+| `subagent_resumed_after_finish` | §4.8 resumed agents (second `subagent_started` → running, second finish), SA-7 |
+| `subagent_resumed_still_running` | §4.8 resumed agents (a finished agent is `running` again after `subagent_started`) |
 
 ---
 

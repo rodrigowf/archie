@@ -114,9 +114,13 @@ internal fun Draft.syncSpawnStatus() {
 
 // ───────────────────────── frames ─────────────────────────
 
+/** Also for an agent that already finished: the CLI resumed it, so it is `running` again (§4.8). */
 internal fun Draft.onSubagentStarted(f: ServerFrame.SubagentStarted) {
     val id = f.toolUseId?.takeIf { it.isNotEmpty() } ?: return
-    upsertSubagent(id, f.parentToolUseId, f.agentType, f.description, f.background, startedAt = f.startedAt, lifecycle = true)
+    upsertSubagent(
+        id, f.parentToolUseId, f.agentType, f.description, f.background, status = SubagentStatus.RUNNING,
+        startedAt = f.startedAt, lifecycle = true,
+    )
 }
 
 internal fun Draft.onSubagentProgress(f: ServerFrame.SubagentProgress) {

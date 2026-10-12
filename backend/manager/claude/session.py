@@ -275,6 +275,39 @@ def _extract_subprocess_pid(client: ClaudeSDKClient) -> int | None:
         return None
 
 
+
+def _last_cost_state(projects_dir: Path, session_id: str) -> float:
+    """``totalCostUSD`` of the last ``cost-state`` line in a session's JSONL.
+
+    The file is ``<projects_dir>/<mangled cwd>/<session_id>.jsonl``; the
+    session id is unique, so any project folder will do.  0.0 when there
+    is no such file or line.
+    """
+    try:
+        paths = list(projects_dir.glob(f"*/{session_id}.jsonl"))
+    except OSError:
+        return 0.0
+    total = 0.0
+    for path in paths[:1]:
+        try:
+            with path.open("rb") as fh:
+                for raw in fh:
+                    if b'"cost-state"' not in raw:
+                        continue
+                    try:
+                        obj = json.loads(raw)
+                    except ValueError:
+                        continue
+                    if not isinstance(obj, dict) or obj.get("type") != "cost-state":
+                        continue
+                    sid = obj.get("sessionId")
+                    cost = obj.get("totalCostUSD")
+                    if (sid in (None, session_id)) and isinstance(cost, (int, float)):
+                        total = float(cost)
+        except OSError:
+            return 0.0
+    return max(total, 0.0)
+
 def kill_claude_subprocess(pid: int, *, sigterm_grace_s: float = 0.5) -> bool:
     """Force-kill an orphaned bundled-claude subprocess identified by *pid*.
 
@@ -370,6 +403,11 @@ class ClaudeSessionManager(BaseSessionManager):
         # conversation (new session id / JSONL) on the same connection; the
         # next message that carries a session_id is the new one.
         self._session_reset_pending: bool = False
+        # ResultMessage.total_cost_usd is the CLI process's RUNNING total
+        # (every turn, /compact and background-notification turn adds to
+        # it; /clear zeroes it).  This is the last total seen on the current
+        # connection, so TurnComplete.cost can carry the turn's own delta.
+        self._cost_seen_total: float = 0.0
 
         # ── Subagents and out-of-turn routing (spec 12 §4.8) ──────────────
         # Live subagents keyed by the spawning Agent tool_use id.
@@ -464,6 +502,11 @@ class ClaudeSessionManager(BaseSessionManager):
         """
         try:
             options = self._build_options()
+            # A new CLI process: its running cost total starts from what
+            # the CLI restores for a resumed session (or 0).
+            self._cost_seen_total = await asyncio.to_thread(
+                self._restored_cost_baseline, options,
+            )
             self._client = ClaudeSDKClient(options)
             await self._client.connect()
 
@@ -1132,6 +1175,38 @@ class ClaudeSessionManager(BaseSessionManager):
         """
         return 0
 
+    def _turn_cost(self, total: float | None) -> float | None:
+        """This turn's cost from the CLI's running ``total_cost_usd``.
+
+        The total only grows on one connection, so the turn's cost is the
+        difference to the last total seen.  A total below it means the CLI
+        started over (new process, ``/clear``): the whole total is new.
+        """
+        if total is None:
+            return None
+        last = self._cost_seen_total
+        self._cost_seen_total = total
+        return total - last if total >= last else total
+
+    def _restored_cost_baseline(self, options: ClaudeAgentOptions) -> float:
+        """The running cost total the CLI starts a resumed session from.
+
+        At exit the CLI appends a ``cost-state`` line (``totalCostUSD``) to
+        the session's JSONL and, on ``--resume``, restores it: the first
+        total of the new process includes the earlier processes' cost
+        (verified with a two-process Haiku probe, CLI 2.1.x).  That cost is
+        not this connection's, so it is the delta baseline.  Local sessions
+        only (an SSH session's JSONL is on the remote machine); any read
+        problem means "no restore" (baseline 0, so the first turn counts
+        the whole total).
+        """
+        if not self._resume_id or self._config.ssh_host:
+            return 0.0
+        env = options.env if isinstance(options.env, dict) else {}
+        cfg_dir = env.get("CLAUDE_CONFIG_DIR") or os.environ.get("CLAUDE_CONFIG_DIR")
+        root = Path(cfg_dir) if cfg_dir else Path.home() / ".claude"
+        return _last_cost_state(root / "projects", self._resume_id)
+
     def _build_options(self) -> ClaudeAgentOptions:
         """Build SDK options from our config."""
         kwargs: dict = {
@@ -1390,6 +1465,7 @@ class ClaudeSessionManager(BaseSessionManager):
             # and JSONL.  The id is not in this message — it is on the next
             # message that carries one (handled above).
             self._session_reset_pending = True
+            self._cost_seen_total = 0.0  # the reset zeroes the CLI's totals
             return
 
         if isinstance(msg, StreamEvent):
@@ -1446,7 +1522,15 @@ class ClaudeSessionManager(BaseSessionManager):
             tid = self._task_tool_use_id(msg)
             patch = msg.patch if isinstance(msg.patch, dict) else {}
             status = wire_status(msg.status or patch.get("status"))
-            if status and tid in self._subagents:
+            raw_status = str(msg.status or patch.get("status") or "").lower()
+            if raw_status in ("running", "pending") and tid in self._subagents:
+                # Back to running after a finish: the CLI resumed it.
+                self._deferred_finish.pop(tid, None)
+                rec = self._subagents.get(tid)
+                ev = self._subagents.start(tid, reopen=True) if rec is not None and rec.finished_sent else None
+                if ev is not None:
+                    yield ev
+            elif status and tid in self._subagents:
                 if status == "stopped":
                     # A stopped task's notification is often suppressed.
                     self._deferred_finish.pop(tid, None)
@@ -1620,8 +1704,9 @@ class ClaudeSessionManager(BaseSessionManager):
 
         elif isinstance(msg, ResultMessage):
             self._turns += msg.num_turns
-            if msg.total_cost_usd is not None:
-                self._cost += msg.total_cost_usd
+            turn_cost = self._turn_cost(msg.total_cost_usd)
+            if turn_cost is not None:
+                self._cost += turn_cost
             # Always capture the SDK session ID from ResultMessage
             if msg.session_id:
                 self._provider_session_id = msg.session_id
@@ -1634,7 +1719,7 @@ class ClaudeSessionManager(BaseSessionManager):
             if self._pending_notifications:
                 self._arm_stale_notes()
             yield TurnComplete(
-                cost=msg.total_cost_usd,
+                cost=turn_cost,
                 usage=msg.usage or {},
                 num_turns=msg.num_turns,
                 session_id=msg.session_id,
@@ -1691,6 +1776,11 @@ class ClaudeSessionManager(BaseSessionManager):
             # The CLI runs every Agent call it backgrounds (2.1.292: all of
             # them) after the parent turn may have ended.
             background=backgrounded,
+            # A task_started for an agent that already finished: the CLI woke
+            # it again (its own background command ended; probe 2026-10-12,
+            # CLI 2.1.292: same task_id and tool_use_id, then its inner
+            # messages, task_updated completed and a second task_notification).
+            reopen=True,
         )
         self._subagents.get(tid).extra["task_id"] = msg.task_id  # what stop_task takes
         return [ev] if ev is not None else []

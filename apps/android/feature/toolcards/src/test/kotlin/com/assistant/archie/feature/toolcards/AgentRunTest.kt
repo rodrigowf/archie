@@ -26,6 +26,17 @@ class AgentRunTest {
     }
 
     @Test
+    fun finishedElapsedIsTheLongerOfDurationAndWallClock() {
+        // A stopped agent's duration is only the time to its first progress report (2 s of a 67 s run).
+        val stopped = AgentRun("t", AgentRunStatus.Stopped, startedAtMs = 1_000, endedAtMs = 68_000, durationMs = 2_000)
+        assertEquals(67_000L, stopped.elapsedMs(nowMs = 999_999))
+        // A reported duration longer than the span still wins; one side alone is used as is.
+        assertEquals(4_000L, AgentRun("t", AgentRunStatus.Done, startedAtMs = 0, endedAtMs = 1_000, durationMs = 4_000).elapsedMs(0))
+        assertEquals(9_000L, AgentRun("t", AgentRunStatus.Done, startedAtMs = 0, endedAtMs = 9_000).elapsedMs(0))
+        assertEquals(5_000L, AgentRun("t", AgentRunStatus.Running, startedAtMs = 1_000, durationMs = 2_000).elapsedMs(6_000))
+    }
+
+    @Test
     fun geminiInvokeAgentIsATaskCard() {
         val t = ToolCatalog.resolve("invoke_agent", buildJsonObject { put("agent_name", "codebase_investigator"); put("objective", "Map the router") }, SessionKind.AGENT)
         assertEquals("Task", t.name)

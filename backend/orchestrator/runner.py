@@ -612,8 +612,8 @@ class BackgroundAgentRunner:
             row["agent_type"] = event.agent_type
             row["description"] = event.description
             row["background"] = event.background
-            if row["status"] == "unknown":
-                row["status"] = "running"
+            # Also a finished agent the CLI resumed (spec 12 §4.8): running again.
+            row["status"] = "running"
         elif isinstance(event, SubagentProgress):
             row["activity"] = event.activity or row["activity"]
         elif isinstance(event, SubagentFinished):
@@ -924,12 +924,15 @@ class BackgroundAgentRunner:
                     record.last_progress_at = time.monotonic()
                     self._note_subagent(record, event, in_turn=True)
                 elif isinstance(event, TurnComplete):
+                    # TurnComplete.cost is that turn's own cost (not the
+                    # CLI's running total), so the turn's cost is the sum.
                     if event.prompted:
-                        record.cost = event.cost or 0.0
+                        record.cost += event.cost or 0.0
                         record.turns = event.num_turns or 0
                     elif record.last_finish_seq:
                         # A notification turn the CLI ran inside our send,
                         # after one of our subagents ended.
+                        record.cost += event.cost or 0.0
                         record.obs_seq += 1
                         record.notification_turns += 1
                         record.last_nt_end_seq = record.obs_seq

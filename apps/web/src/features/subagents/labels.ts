@@ -59,16 +59,18 @@ function parseTime(x: string | null): number | null {
 }
 
 /**
- * Elapsed time: live from `started_at` while running; when finished the reported duration, else
- * `ended_at − started_at`. Null when nothing is known.
+ * Elapsed time: live `now − started_at` while running; when finished the longer of the reported
+ * duration and `ended_at − started_at` (a stopped agent's duration can be stale — only the time to
+ * its last progress report), else whichever is known. Null when nothing is known.
  */
 export function subagentElapsedMs(s: Pick<Subagent, 'status' | 'usage' | 'started_at' | 'ended_at'>, now: number): number | null {
   const duration = s.usage ? s.usage.duration_ms : null;
   const start = parseTime(s.started_at);
   if (s.status === 'running') return start !== null ? Math.max(0, now - start) : duration;
-  if (duration !== null) return duration;
   const end = parseTime(s.ended_at);
-  return start !== null && end !== null ? Math.max(0, end - start) : null;
+  const span = start !== null && end !== null ? Math.max(0, end - start) : null;
+  if (duration !== null && span !== null) return Math.max(duration, span);
+  return duration !== null ? duration : span;
 }
 
 /** The facts after the activity: "3 tools · 12.4k tokens". */

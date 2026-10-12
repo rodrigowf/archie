@@ -1053,7 +1053,9 @@ class Machine extends Draft {
         return;
       case 'subagent_started':
         if (ref.kind !== 'agent') return;
+        // also for an agent that already finished: the CLI resumed it (§4.8)
         this.upsertSubagent(f.tool_use_id, {
+          status: 'running',
           parent_tool_use_id: nonEmpty(f.parent_tool_use_id),
           agent_type: nonEmpty(f.agent_type),
           description: nonEmpty(f.description),

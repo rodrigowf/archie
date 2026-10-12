@@ -9,8 +9,9 @@ Two producers feed the same :data:`SubagentSummary` shape:
 
 * a live :class:`SubagentRegistry` inside a session manager, which turns the
   harness's native lifecycle signals into :class:`~manager.types.SubagentStarted`
-  / ``SubagentProgress`` / ``SubagentFinished`` events (exactly one
-  ``started`` and one ``finished`` per subagent);
+  / ``SubagentProgress`` / ``SubagentFinished`` events (one ``started`` and
+  one ``finished`` per run: an agent the harness resumes after it finished
+  gets a new pair under the same ``tool_use_id``);
 * the provider adapter's disk reader (``ProviderAdapter.list_subagents``) for
   history.
 
@@ -66,6 +67,18 @@ def wire_status(raw: str | None) -> str | None:
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _span_ms(start: str | None, end: str | None) -> int | None:
+    """Milliseconds between two ISO-8601 instants (None when either is unknown)."""
+    try:
+        a = datetime.fromisoformat(str(start).replace("Z", "+00:00"))
+        b = datetime.fromisoformat(str(end).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if a.tzinfo is None or b.tzinfo is None:
+        return None
+    return max(0, int((b - a).total_seconds() * 1000))
 
 
 def usage_dict(tokens: Any = None, tool_uses: Any = None, duration_ms: Any = None) -> dict[str, Any]:
@@ -191,7 +204,15 @@ class SubagentRegistry:
         description: str | None = None,
         background: bool | None = None,
         parent_tool_use_id: str | None = None,
+        reopen: bool = False,
     ) -> SubagentStarted | None:
+        """The subagent runs: a ``SubagentStarted`` the first time (None after).
+
+        ``reopen``: the harness signals a new run of an agent that already
+        finished (Claude: an agent woken by its own background command's end
+        gets a second ``task_started``), so it is running again and will get
+        a new ``SubagentFinished``; ``started_at`` stays the first start.
+        """
         rec = self._records.get(tool_use_id)
         if rec is None:
             rec = SubagentRecord(tool_use_id=tool_use_id, parent_tool_use_id=parent_tool_use_id)
@@ -203,10 +224,12 @@ class SubagentRegistry:
         if background:
             rec.background = True
         self.link(tool_use_id, harness_id)
-        if rec.started_sent:
+        if rec.started_sent and not (reopen and rec.finished_sent):
             return None
         rec.started_sent = True
+        rec.finished_sent = False
         rec.status = "running"
+        rec.ended_at = None
         rec.started_at = rec.started_at or now_iso()
         return SubagentStarted(
             tool_use_id=tool_use_id,
@@ -264,6 +287,14 @@ class SubagentRegistry:
         if usage:
             rec.usage = usage
         rec.ended_at = now_iso()
+        if rec.status in ("stopped", "failed") and not (usage and usage.get("duration_ms") is not None):
+            # No fresh duration: the last progress report's is stale (the
+            # time to that report), so the wall-clock span stands in.
+            span = _span_ms(rec.started_at, rec.ended_at)
+            if span is not None:
+                u = dict(rec.usage or usage_dict())
+                u["duration_ms"] = max(u.get("duration_ms") or 0, span)
+                rec.usage = u
         return self._finished_event(rec)
 
     def amend(

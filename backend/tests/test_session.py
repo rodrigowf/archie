@@ -1663,8 +1663,9 @@ class TestSessionManagerCostTracking:
         from claude_agent_sdk import SystemMessage
 
         init_msg = SystemMessage(subtype="init", data={"session_id": "s1"})
+        # total_cost_usd is the CLI's running total per process.
         result1 = _mock_result(cost=0.05, num_turns=1)
-        result2 = _mock_result(cost=0.03, num_turns=1)
+        result2 = _mock_result(cost=0.08, num_turns=1)
 
         call_count = 0
 
@@ -1682,13 +1683,106 @@ class TestSessionManagerCostTracking:
             sm = SessionManager()
             await sm.start()
 
-            async for _ in sm.send("first"):
-                pass
-            async for _ in sm.send("second"):
-                pass
+            costs = []
+            for prompt in ("first", "second"):
+                async for ev in sm.send(prompt):
+                    if isinstance(ev, TurnComplete):
+                        costs.append(ev.cost)
 
+            assert costs == [pytest.approx(0.05), pytest.approx(0.03)]
             assert sm.cost == pytest.approx(0.08)
             assert sm.turns == 2
+
+    @staticmethod
+    async def _turn_costs(sm, *msgs):
+        out = []
+        for msg in msgs:
+            async for ev in sm._process_message(msg):
+                if isinstance(ev, TurnComplete):
+                    out.append(ev.cost)
+        return out
+
+    @pytest.mark.asyncio
+    async def test_running_total_becomes_per_turn_delta(self):
+        # Notification turns add ResultMessages with ever-growing totals:
+        # summing the totals overcounted (~17x in the field).
+        sm = SessionManager()
+        costs = await self._turn_costs(
+            sm, _mock_result(cost=0.10), _mock_result(cost=0.12), _mock_result(cost=0.20),
+        )
+        assert costs == [pytest.approx(0.10), pytest.approx(0.02), pytest.approx(0.08)]
+        assert sm.cost == pytest.approx(0.20)
+
+    @pytest.mark.asyncio
+    async def test_lower_total_means_new_count(self):
+        sm = SessionManager()
+        costs = await self._turn_costs(sm, _mock_result(cost=0.30), _mock_result(cost=0.05))
+        assert costs == [pytest.approx(0.30), pytest.approx(0.05)]
+        assert sm.cost == pytest.approx(0.35)
+
+    @pytest.mark.asyncio
+    async def test_conversation_reset_zeroes_baseline(self):
+        from claude_agent_sdk import ConversationResetMessage
+
+        sm = SessionManager()
+        reset = ConversationResetMessage(new_conversation_id="n", uuid="u", session_id="s")
+        costs = await self._turn_costs(
+            sm, _mock_result(cost=0.30), reset, _mock_result(cost=0.0), _mock_result(cost=0.40),
+        )
+        assert costs == [pytest.approx(0.30), 0.0, pytest.approx(0.40)]
+        assert sm.cost == pytest.approx(0.70)
+
+    @pytest.mark.asyncio
+    async def test_none_total_is_none(self):
+        sm = SessionManager()
+        assert await self._turn_costs(sm, _mock_result(cost=None)) == [None]
+        assert sm.cost == 0.0
+
+    def test_resume_baseline_is_last_cost_state(self, tmp_path, monkeypatch):
+        # On --resume the CLI restores the total of the JSONL's last
+        # cost-state line; that earlier cost is not this connection's.
+        proj = tmp_path / "projects" / "-home-x"
+        proj.mkdir(parents=True)
+        lines = [
+            {"type": "user", "message": {"content": "cost-state"}},
+            {"type": "cost-state", "sessionId": "sid-1", "totalCostUSD": 0.25},
+            {"type": "assistant"},
+            {"type": "cost-state", "sessionId": "sid-1", "totalCostUSD": 0.40},
+            {"type": "last-prompt"},
+        ]
+        (proj / "sid-1.jsonl").write_text("\n".join(json.dumps(x) for x in lines) + "\n")
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+        sm = SessionManager(session_id="sid-1")
+        assert sm._restored_cost_baseline(sm._build_options()) == pytest.approx(0.40)
+        # Fresh session, unknown session, SSH: no baseline.
+        assert SessionManager()._restored_cost_baseline(sm._build_options()) == 0.0
+        other = SessionManager(session_id="sid-2")
+        assert other._restored_cost_baseline(other._build_options()) == 0.0
+
+    @pytest.mark.asyncio
+    async def test_resumed_connection_counts_only_new_cost(self, tmp_path, monkeypatch):
+        from claude_agent_sdk import SystemMessage
+
+        proj = tmp_path / "projects" / "-p"
+        proj.mkdir(parents=True)
+        (proj / "sid-9.jsonl").write_text(
+            json.dumps({"type": "cost-state", "sessionId": "sid-9", "totalCostUSD": 1.5}) + "\n"
+        )
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+
+        async def fake_response():
+            yield _mock_result(session_id="sid-9", cost=1.75)
+
+        client = _make_mock_client(
+            [SystemMessage(subtype="init", data={"session_id": "sid-9"})], fake_response,
+        )
+        with patch("manager.claude.session.ClaudeSDKClient", return_value=client):
+            sm = SessionManager(session_id="sid-9")
+            await sm.start()
+            costs = [ev.cost async for ev in sm.send("again") if isinstance(ev, TurnComplete)]
+            assert costs == [pytest.approx(0.25)]
+            assert sm.cost == pytest.approx(0.25)
+            await sm.stop()
 
 
 class TestSessionManagerOptions:
