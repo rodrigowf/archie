@@ -131,7 +131,15 @@ class QwenAdapter(ProviderAdapter):
 
     def detect_provider(self, jsonl_path: Path) -> bool:
         """Detect Qwen format: ``message.parts`` instead of ``content``,
-        ``role: "model"`` for assistant, or system events with ``subtype``."""
+        ``role: "model"`` for assistant, or system events with ``subtype``.
+
+        The first message line decides. ``system`` + ``subtype`` is only a
+        fallback for a file with no message line yet: Claude writes such lines
+        too (``compact_boundary``, ``local_command``), and the registry takes
+        the first adapter that claims a file — claiming those made every
+        compacted Claude session read back as empty messages.
+        """
+        system_event = False
         try:
             with open(jsonl_path) as f:
                 for line in f:
@@ -142,6 +150,8 @@ class QwenAdapter(ProviderAdapter):
                         obj = json.loads(line)
                     except json.JSONDecodeError:
                         continue
+                    if not isinstance(obj, dict):
+                        continue
 
                     msg = obj.get("message")
                     if isinstance(msg, dict):
@@ -149,12 +159,14 @@ class QwenAdapter(ProviderAdapter):
                             return True
                         if msg.get("role") == "model":
                             return True
+                        if "content" in msg:
+                            return False  # Claude's message shape
 
                     if obj.get("type") == "system" and "subtype" in obj:
-                        return True
+                        system_event = True
         except (OSError, PermissionError):
             pass
-        return False
+        return system_event
 
     def read_messages(self, jsonl_path: Path) -> list[dict]:
         """Read user/assistant messages, normalized to the common shape.

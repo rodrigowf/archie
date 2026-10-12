@@ -164,6 +164,40 @@ class TestDetectProvider:
         ])
         assert adapter.detect_provider(path) is False
 
+    def test_rejects_claude_with_system_subtype_lines(self, tmp_path: Path, adapter: QwenAdapter):
+        """Claude writes ``system`` lines with a ``subtype`` too (compaction,
+        local commands); they must not make a Claude file look like Qwen."""
+        path = tmp_path / "claude-compacted.jsonl"
+        _write_jsonl(path, [
+            {"type": "system", "subtype": "compact_boundary", "content": "Conversation compacted"},
+            {"type": "user", "message": {"role": "user", "content": "hi"}},
+            {"type": "system", "subtype": "local_command", "content": "<command-name>/context</command-name>"},
+            {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "yo"}]}},
+        ])
+        assert adapter.detect_provider(path) is False
+
+    def test_registry_reads_compacted_claude_file_as_claude(self, tmp_path: Path, adapter: QwenAdapter):
+        """The registry takes the first adapter that claims a file, and the app
+        registers Qwen before Claude: a compacted Claude session must still read
+        back with its blocks (it read back as empty messages before)."""
+        from manager.claude.adapter import ClaudeAdapter
+        from manager.protocol import ProviderRegistry
+
+        registry = ProviderRegistry()
+        registry.register(adapter)
+        registry.register(ClaudeAdapter())
+        path = tmp_path / "claude-compacted.jsonl"
+        _write_jsonl(path, [
+            {"type": "user", "message": {"role": "user", "content": "hi"}, "timestamp": "2026-10-12T01:00:00Z"},
+            {"type": "system", "subtype": "compact_boundary", "content": "Conversation compacted"},
+            {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "yo"}]},
+             "timestamp": "2026-10-12T01:00:01Z"},
+        ])
+        found = registry.detect(path)
+        assert found is not None and found.provider_name == "claude"
+        previews = found.to_previews(found.read_messages(path))
+        assert [b.text for p in previews for b in p.blocks if b.type == "text"] == ["hi", "yo"]
+
     def test_tolerates_missing_file(self, tmp_path: Path, adapter: QwenAdapter):
         assert adapter.detect_provider(tmp_path / "nope.jsonl") is False
 
