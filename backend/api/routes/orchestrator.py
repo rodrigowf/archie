@@ -901,7 +901,6 @@ async def _attach_voice_payload(
     # UI so it can show a "summarizing" yellow state instead of the
     # default "preparing" that suggests imminent readiness. Also tells
     # the user something is happening so they don't try repeatedly.
-    pool_for_status = session._context.get("pool")
     # ``summarizing`` is a *pre-connect* state — only meaningful when the
     # user is waiting for the relay to come up. On a reconnect to a live
     # relay (the WS dropped briefly, Android re-attached) the relay
@@ -927,20 +926,17 @@ async def _attach_voice_payload(
                 "status": "summarizing",
             },
         })
-        # Directed send to the initiator only — broadcasting this used
-        # to flash a "Summarizing..." spinner on every other device
-        # subscribed to the same orchestrator session, making it look
-        # like both devices were trying to start a conversation. The
-        # initiator is the one waiting on the slow LLM round-trip; no
-        # other client needs to react. Falls back to broadcast if we
-        # don't have an initiator handle (e.g. server-initiated rearm).
-        try:
-            if initiator_ws is not None:
+        # Directed send to the initiator only — the one waiting on the slow
+        # LLM round-trip. Never broadcast: the only caller without an
+        # initiator socket is a passive device attaching to someone else's
+        # call, and a broadcast left every other device's face stuck on
+        # "Preparing" (2026-10-12, A300M) — nothing ever ends that phase on
+        # a device that didn't start the call.
+        if initiator_ws is not None:
+            try:
                 await _safe_send_bytes(initiator_ws, summarizing_msg)
-            elif pool_for_status is not None:
-                await pool_for_status.broadcast_orchestrator(orjson.loads(summarizing_msg))
-        except Exception:  # noqa: BLE001
-            logger.exception("voice_status:summarizing send failed")
+            except Exception:  # noqa: BLE001
+                logger.exception("voice_status:summarizing send failed")
 
     _t_su = time.monotonic()
     session_update = await session.get_session_update()
