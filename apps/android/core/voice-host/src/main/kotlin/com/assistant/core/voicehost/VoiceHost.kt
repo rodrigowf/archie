@@ -232,6 +232,12 @@ data class NotificationSpec(
     val appName: String,
     /** Main: Pause/Resume listening, Talk, Mute, End. Lite: the old notification had none; End only. */
     val fullActions: Boolean,
+    /**
+     * Main: while voice is live the notification is a media-style card (mic Mute/Unmute + End in
+     * the shade's media controls and on the lock screen, like a music player), backed by a
+     * platform MediaSession. Lite: off (the A300M keeps its old notification).
+     */
+    val mediaControls: Boolean = false,
 ) {
     companion object {
         fun lite(smallIcon: Int) = NotificationSpec(
@@ -264,6 +270,7 @@ data class NotificationSpec(
             needsForegroundText = "Tap to resume listening",
             appName = "Archie",
             fullActions = true,
+            mediaControls = true,
         )
     }
 }

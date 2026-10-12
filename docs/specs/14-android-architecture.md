@@ -548,13 +548,24 @@ renders the new state. This is inv04 §8 design rule 3. Re-validating the timing
 | Channel id | Importance | Shown when | Content | Actions |
 |---|---|---|---|---|
 | `host` | LOW, ongoing | the service runs without voice | "Listening for "wake up"" · "Wake word paused" · "Wake word stalled — mic held by another app" (inv04 §3.5) · "Tap to resume listening" | **Pause/Resume listening**, **Talk** (starts voice via the trampoline) |
-| `voice` | DEFAULT, silent, ongoing, chronometer | a voice session is active (owner) | "Archie · Listening/Speaking/Thinking/Using tools" | **Mute/Unmute**, **End** (direct `PendingIntent.getService` to the running service; allowed because the service is already in the foreground) |
+| `voice` | DEFAULT, silent, ongoing, chronometer | a voice session is active (owner) | "Archie · Listening/Speaking/Thinking/Using tools". Main app: a **media-style** card ("Archie" / "Listening", "Muted · Speaking", …) in the shade's media controls and on the lock screen (`VISIBILITY_PUBLIC`), like a music player | **Mute/Unmute**, **End** (direct `PendingIntent.getService` to the running service; allowed because the service is already in the foreground). On the media card (Android 13+) the same two buttons come from the MediaSession's custom actions |
 | `attention` | HIGH | only while the app is not visible: an agent `permission_request` (e.g. `ExitPlanMode`), `session_stalled` for >2 min, `session_terminated` | Session title + one line | **Approve**, **Reject** (with `RemoteInput` "Reply with feedback" → deny with reason, the web's semantics, inv02 F-14), **Open** |
 | `background` | LOW | `BackgroundRestricted` | "Archie can't listen in the background" | **Fix** → `BackgroundReliabilityPage` |
 | `agent_turns` ("Agent sessions") | HIGH (heads-up; opt-in) | an agent turn finished (`agent_turn_finished`, spec 12 TURN-2), Settings → Notifications on, the user not looking at that session | Session title + the reply's first line, or "Failed: …"; id 1004, tag `turn:<localId>` (one per session, replaced) | tap → focus that session (`EXTRA_OPEN_AGENT` + `EXTRA_OPEN_AGENT_SDK`); cleared when the session is opened |
 
 The FGS notification id is 1001 (inv04 §4.5). The `host` and `voice` notifications are the same notification id
 updated in place, so only one ongoing notification is shown.
+
+**Media controls (main app, `NotificationSpec.mediaControls`).** While voice is live the `voice`
+notification is `Notification.MediaStyle`, tied to a platform `MediaSession`
+(`core/voice-host/.../service/VoiceMediaSession.kt`, created by `VoiceHostService` on API 26+).
+Android 13+ draws the card from the session, not the notification: metadata title = "Archie",
+subtitle = the state word (`NotificationModel.status`); the PlaybackState has **no** standard
+actions (no play/pause, no skip), so the custom actions `MUTE`/`UNMUTE` (mic / mic-off icon) and
+`END` (call-end icon) fill the compact slots; their callback runs `toggleMute()` / `stopVoice()`.
+The state stays `STATE_PLAYING` for the whole conversation, muted or not (the system times paused
+cards out of the shade); when voice ends the session goes `STATE_STOPPED` + inactive and the
+notification goes back to the plain `host` one. The lite app keeps the plain notification.
 
 ### 2.8 System entry points (main app)
 

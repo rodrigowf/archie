@@ -59,6 +59,7 @@ class VoiceHostService : Service() {
     private var currentMask = FgsTypes.NONE
     private var voiceWakeLock: PowerManager.WakeLock? = null
     private var recents: DevInputRecentsMonitor? = null
+    private var media: VoiceMediaSession? = null
 
     inner class LocalBinder : Binder() {
         val host: VoiceHost? get() = runtime
@@ -85,7 +86,17 @@ class VoiceHostService : Service() {
             return
         }
         runtime = rt
-        notifications = HostNotifications(this, rt.config).also { it.ensureChannels() }
+        notifications = HostNotifications(this, rt.config) { media?.token }.also { it.ensureChannels() }
+        if (rt.config.notification.mediaControls && Build.VERSION.SDK_INT >= 26) {
+            media = VoiceMediaSession(this, rt.config.notification.title, notifications.openIntent()) { action ->
+                log.d(TAG, "Media control: $action")
+                when (action) {
+                    NotificationAction.MUTE, NotificationAction.UNMUTE -> rt.toggleMute()
+                    NotificationAction.END -> rt.stopVoice()
+                    else -> Unit
+                }
+            }
+        }
         val screen = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_USER_PRESENT)
@@ -105,7 +116,10 @@ class VoiceHostService : Service() {
         scope.launch {
             rt.state.map { NotificationPolicy.model(it, rt.config.notification, rt.wakeService.currentConfig.wakeWord) }
                 .distinctUntilChanged()
-                .collect { model -> if (foreground) notifications.notify(notifications.build(model), HostTuning.NOTIFICATION_ID) }
+                .collect { model ->
+                    media?.update(model)
+                    if (foreground) notifications.notify(notifications.build(model), HostTuning.NOTIFICATION_ID)
+                }
         }
         scope.launch {
             rt.state.map { it.session.isOwner && it.session.phase != SessionPhase.OFF && it.session.phase != SessionPhase.ERROR }
@@ -190,6 +204,8 @@ class VoiceHostService : Service() {
             try { unregisterReceiver(screenReceiver) } catch (_: Exception) {}
         }
         recents?.stop()
+        media?.release()
+        media = null
         holdVoiceWakeLock(false)
         scope.cancel()
         foreground = false

@@ -393,6 +393,12 @@ active on another device" never floats (not this device's microphone).
 | `core/voice-host` | `VoiceHostService` (microphone foreground service), `runtime/VoiceHostRuntime.kt` (owns channel wiring, voice session, wake service, cues, triggers), `HostTuning.kt` |
 | `core/wakeword` | see [wake-word.md](wake-word.md) |
 
+**System media controls (main app).** While this phone owns a live
+conversation, the voice notification is a media-style card backed by a
+`MediaSession` (`service/VoiceMediaSession.kt`): it appears in the shade's
+media controls and on the lock screen like a music player, with the state word
+and Mute/Unmute + End. Details: spec 14 §2.7.
+
 The voice session belongs to the **service-scoped host**, not to an
 Activity. The UIs (`:app-main`, `:app-lite`) bind to `VoiceHost`
 (`state`, `events`, `startVoice`, `stopVoice`, …). Values that must not
