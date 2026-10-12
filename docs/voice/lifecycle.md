@@ -139,8 +139,10 @@ path between `voice_start` and `session_started`, and every new turn
 invalidated the cache. The fix is the STALE-REUSE path plus the pre-warm in
 `end_voice` (`2f8c8ac`, `0f34923`). A wake after stop now reaches
 `session_started` in about 130 ms. While a summary really is being computed,
-the route sends `voice_status: summarizing` **to the initiator only**; the
-UI shows "Preparing conversation…". `voice_start_timing step=… dt_ms=…` log
+the route sends `voice_status: summarizing` **to the initiator only**, never
+broadcast (until `5226bf2` a passive device attaching to another device's call
+broadcast it, and the other faces stayed on "Preparing"); the UI shows
+"Preparing conversation…". `voice_start_timing step=… dt_ms=…` log
 lines time each step of the start path.
 
 ## Ownership across devices
