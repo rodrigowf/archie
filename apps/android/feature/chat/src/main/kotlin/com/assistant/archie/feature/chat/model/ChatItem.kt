@@ -93,6 +93,8 @@ sealed interface ChatItem {
         val position: GroupPosition,
         val expanded: Boolean,
         override val gap: Gap,
+        /** Spec 12 §4.8: the subagent a `Task` card spawned (its status wins over the card's result). */
+        val agent: com.assistant.archie.feature.toolcards.AgentRun? = null,
     ) : ChatItem {
         override val key get() = toolKey(entryId, block)
         override val contentType get() = "tool-${descriptor.renderer}"

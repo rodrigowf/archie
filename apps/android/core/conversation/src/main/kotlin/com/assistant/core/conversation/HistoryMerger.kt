@@ -83,6 +83,12 @@ object HistoryMerger {
         }
         d.rebuildIndexes()
         d.history = HistoryState(loaded = true, startIndex = resp.startIndex, totalCount = resp.totalCount, hasMore = resp.hasMore)
+        d.toolsTouched = true
+        // SA-8: after the first page of a view that holds spawn cards, fetch the subagent list once.
+        if (d.spawnSink == null && d.spawnCards > 0 && !d.subagentsListFetched && d.isAgent && d.ref.sdkId != null) {
+            d.subagentsListFetched = true
+            d.effects += ConversationEffect.FetchSubagentList
+        }
     }
 
     private fun resetContent(d: Draft) {
@@ -137,6 +143,7 @@ object HistoryMerger {
         if (!id.isNullOrEmpty()) {
             d.tools[id] = entryId
             d.orphans.remove(id)?.let { r -> d.updateTool(id) { d.applyResult(it, r, inferred = false) } }
+            d.spawnPlaceholder(tb)                                                      // SA-2 from history
         }
     }
 

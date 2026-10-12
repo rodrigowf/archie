@@ -27,10 +27,14 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -180,50 +184,75 @@ fun ConversationContent(
     var actionsFor by rememberSaveable { mutableStateOf<String?>(null) }
     var selectFor by rememberSaveable { mutableStateOf<String?>(null) }
     var confirmRewind by rememberSaveable { mutableStateOf<String?>(null) }
+    var agentsSheet by rememberSaveable { mutableStateOf(false) }
+    val agents = state.agents
+    val agentView = state.agentView
+    // A Task card's Open selects that agent's tab (spec 12 §4.8; FOCUS-1: only on the user's tap).
+    val agentActions = remember(onAction) { AgentActions(open = { id -> onAction(ChatAction.SelectAgent(id)) }) }
 
-    Column(modifier.fillMaxSize().background(ArchieTheme.colors.surface).testTag("conversation")) {
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            when {
-                !state.loaded && state.empty -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Spinner(size = 24.dp) }
-                state.empty && state.isArchie -> ArchieEmpty(hour, suggestions, onAction, callbacks)
-                state.empty -> Text(
-                    "Send a message to start.",
-                    Modifier.align(Alignment.Center).padding(24.dp),
-                    style = ArchieTheme.typography.bodyMedium,
-                    color = ArchieTheme.colors.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-                else -> ChatList(
-                    items = state.items,
-                    kind = state.kind,
-                    toolCards = toolCards,
-                    listState = listState,
-                    onAction = onAction,
-                    onLongPress = { actionsFor = it },
-                    onLink = onLink,
-                    linkOrigin = callbacks.linkOrigin,
-                )
+    var widthPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    Box(modifier.fillMaxSize().onSizeChanged { widthPx = it.width }) {
+        CompositionLocalProvider(LocalAgentActions provides agentActions) {
+            Column(Modifier.fillMaxSize().background(ArchieTheme.colors.surface).testTag("conversation")) {
+                // Nested agent tabs (plan §4.4 item 3): appear with the session's first subagent.
+                if (agents.any) AgentTabRow(agents, onAction)
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    when {
+                        agentView != null -> AgentTabBody(agentView, state.kind, toolCards, onAction, onLink, callbacks.linkOrigin)
+                        !state.loaded && state.empty -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Spinner(size = 24.dp) }
+                        state.empty && state.isArchie -> ArchieEmpty(hour, suggestions, onAction, callbacks)
+                        state.empty -> Text(
+                            "Send a message to start.",
+                            Modifier.align(Alignment.Center).padding(24.dp),
+                            style = ArchieTheme.typography.bodyMedium,
+                            color = ArchieTheme.colors.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                        else -> ChatList(
+                            items = state.items,
+                            kind = state.kind,
+                            toolCards = toolCards,
+                            listState = listState,
+                            onAction = onAction,
+                            onLongPress = { actionsFor = it },
+                            onLink = onLink,
+                            linkOrigin = callbacks.linkOrigin,
+                        )
+                    }
+                    state.busyOverlay?.let { BusyOverlay(it) }
+                    ArchieSnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).widthIn(max = MessageColumnMaxWidth))
+                }
+                // The floating voice controls (over other views) stay above this area: it reports its bounds.
+                val composerBounds = LocalComposerBounds.current
+                val boundsOwner = remember { Any() }
+                DisposableEffect(composerBounds) { onDispose { composerBounds?.clear(boundsOwner) } }
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .then(if (composerBounds != null) Modifier.onGloballyPositioned { composerBounds.report(boundsOwner, it.boundsInRoot()) } else Modifier)
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .imePadding()
+                        .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(Modifier.widthIn(max = MessageColumnMaxWidth - 24.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        InlineCardsArea(state.cards, onAction, onLink)
+                        if (agentView != null) {
+                            AgentReadOnlyBar(agentView.agent, onAction)
+                        } else {
+                            ComposerArea(
+                                state.composer, state.voice, state.counters, state.queue, draft, onAction, onAttach,
+                                clock = clock, voiceLevel = voiceLevel,
+                                agentsTotal = agents.all.size, agentsRunning = agents.running, onAgents = { agentsSheet = true },
+                            )
+                        }
+                    }
+                }
             }
-            state.busyOverlay?.let { BusyOverlay(it) }
-            ArchieSnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).widthIn(max = MessageColumnMaxWidth))
         }
-        // The floating voice controls (over other views) stay above this area: it reports its bounds.
-        val composerBounds = LocalComposerBounds.current
-        val boundsOwner = remember { Any() }
-        DisposableEffect(composerBounds) { onDispose { composerBounds?.clear(boundsOwner) } }
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .then(if (composerBounds != null) Modifier.onGloballyPositioned { composerBounds.report(boundsOwner, it.boundsInRoot()) } else Modifier)
-                .windowInsetsPadding(WindowInsets.navigationBars)
-                .imePadding()
-                .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 12.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Column(Modifier.widthIn(max = MessageColumnMaxWidth - 24.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                InlineCardsArea(state.cards, onAction, onLink)
-                ComposerArea(state.composer, state.voice, state.counters, state.queue, draft, onAction, onAttach, clock = clock, voiceLevel = voiceLevel)
-            }
+        if (agentsSheet && agents.any) {
+            AgentsSheet(agents, onAction, wide = with(density) { widthPx.toDp() } >= AgentsSideSheetWidth) { agentsSheet = false }
         }
     }
 

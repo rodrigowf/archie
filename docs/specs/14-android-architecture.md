@@ -753,6 +753,13 @@ expansion. Output is plain monospace; error output uses the `error` role. **Outp
 whatever the expanded or streaming state.** The "no output" text appears only when the result is an empty string; this
 is part of R7's acceptance test.
 
+**Subagent (agent) cards** (spec 12 §4.8, 2026-10-12): a `Task` card whose subagent is known gets an `AgentRun`
+(`:feature:toolcards`) from the list: the subagent's status replaces the card's own (a background agent's card
+completes at launch while it runs), and an always-visible footer (`ToolCardShell.footer`) shows the activity / report
+line, tools · tokens · elapsed and Open (opens the agent tab, `LocalAgentActions`). The catalog row and the body parts
+stay as the web oracle has them. Agent tabs, the Agents sheet and the agent tab body: [android.md](../clients/android.md)
+"Subagents".
+
 ### 3.5 Edit diff view
 
 - `EditDiffView(old, new)`: `com.github.difflib.DiffUtils.diff(oldLines, newLines)` (java-diff-utils 4.17), computed

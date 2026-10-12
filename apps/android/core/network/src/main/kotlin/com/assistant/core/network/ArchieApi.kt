@@ -142,6 +142,19 @@ class ArchieApi(private val rest: RestCaller) {
             before?.let { addQueryParameter("before", it.toString()) }
         })
 
+    /** Spec 12 §4.8 SA-8: every subagent the backend knows for this session (live registry + files on disk). */
+    suspend fun subagents(sdkId: String): ApiResult<List<com.assistant.core.protocol.SubagentSummary>> =
+        rest.getJson<JsonObject>(rest.url("/api/sessions") { addPathSegment(sdkId); addPathSegment("subagents") })
+            .map { com.assistant.core.protocol.ProtocolCodec.decodeSubagentList(it) }
+
+    /** SA-5 / SA-8: one subagent's transcript, the §5.1 page shape (404 when unknown). */
+    suspend fun subagentMessages(sdkId: String, toolUseId: String, limit: Int = 50, before: Int? = null): ApiResult<PaginatedMessagesDto> =
+        rest.getJson(rest.url("/api/sessions") {
+            addPathSegment(sdkId); addPathSegment("subagents"); addPathSegment(toolUseId); addPathSegment("messages")
+            addQueryParameter("limit", limit.coerceIn(1, 200).toString())
+            before?.let { addQueryParameter("before", it.toString()) }
+        })
+
     suspend fun preview(sdkId: String, max: Int = 5): ApiResult<List<MessagePreviewDto>> =
         rest.getJson(rest.url("/api/sessions") {
             addPathSegment(sdkId); addPathSegment("preview"); addQueryParameter("max", max.toString())

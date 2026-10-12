@@ -56,6 +56,15 @@ interface ChatBackend {
 
     /** The user looked at this view (agent socket LRU). */
     fun touch()
+
+    /** Spec 12 §4.8 SA-5: materialise a subagent's transcript (its tab was entered). */
+    fun openSubagent(toolUseId: String) {}
+
+    /** SA-5: drop a subagent's transcript. */
+    fun releaseSubagent(toolUseId: String) {}
+
+    /** SA-9: `stop_subagent`. `null` = no view. */
+    fun stopSubagent(toolUseId: String): SendResult? = null
 }
 
 /** Where "Continue in a new view" goes; decided from the view's kind, never from the screen (bug 5). */
@@ -87,6 +96,9 @@ class RepositoryChatBackend(
     override suspend fun upload(source: UploadSource, onProgress: (Long, Long) -> Unit) = uploads.upload(source, onProgress)
     override fun inject(text: String) = repo.inject(text)
     override fun touch() = repo.touch(key)
+    override fun openSubagent(toolUseId: String) { repo.openSubagent(key, toolUseId) }
+    override fun releaseSubagent(toolUseId: String) { repo.releaseSubagent(key, toolUseId) }
+    override fun stopSubagent(toolUseId: String) = repo.stopSubagent(key, toolUseId)
 
     companion object {
         /** A fork opened by the caller (focused, user-initiated, §6.5). */

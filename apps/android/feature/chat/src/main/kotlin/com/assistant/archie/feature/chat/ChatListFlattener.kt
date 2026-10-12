@@ -53,7 +53,15 @@ class ChatListFlattener(
     private val describe: (ToolBlock, SessionKind) -> ToolDescriptor,
     private val markdown: (blockId: String, text: String, streaming: Boolean) -> MdSnapshot,
 ) {
-    fun flatten(state: ConversationState, options: FlattenOptions = FlattenOptions()): FlattenResult {
+    /**
+     * [subagents]: where `Task` cards find their subagent (spec 12 §4.8). A subagent's own transcript
+     * has none of its own (routing is flat, SA-6), so its view passes the session's map.
+     */
+    fun flatten(
+        state: ConversationState,
+        options: FlattenOptions = FlattenOptions(),
+        subagents: Map<String, com.assistant.core.conversation.Subagent> = state.subagents,
+    ): FlattenResult {
         val out = ArrayList<ChatItem>(state.entries.size * 3)
         var streaming = false
         fun gap(g: Gap) = if (out.isEmpty()) Gap.None else g
@@ -96,7 +104,7 @@ class ChatListFlattener(
                                 @Suppress("UNCHECKED_CAST")
                                 val run = blocks.subList(i, j) as List<ToolBlock>
                                 val liveRun = tailLive && j == blocks.size
-                                addRun(out, e.id, run, liveRun, state, options, ::gap)
+                                addRun(out, e.id, run, liveRun, state, options, subagents, ::gap)
                                 i = j
                                 continue
                             }
@@ -150,15 +158,18 @@ class ChatListFlattener(
         liveRun: Boolean,
         state: ConversationState,
         options: FlattenOptions,
+        subagents: Map<String, com.assistant.core.conversation.Subagent>,
         gap: (Gap) -> Gap,
     ) {
         val descriptors = run.map { describe(it, state.kind) }
+        fun agentOf(b: ToolBlock) = if (subagents.isEmpty() || b.toolUseId.isEmpty()) null
+        else subagents[b.toolUseId]?.let { com.assistant.archie.feature.chat.model.AgentUiMapper.run(it) }
         fun cardExpanded(b: ToolBlock, d: ToolDescriptor): Boolean =
             options.cardToggles[ChatItem.toolKey(entryId, b)] ?: (d.defaultOpen || liveRun || b.executing)
 
         if (run.size < 2 || !options.grouping) {
             run.forEachIndexed { k, b ->
-                out += ChatItem.ToolCard(entryId, b, descriptors[k], GroupPosition.Solo, cardExpanded(b, descriptors[k]), gap(Gap.Item))
+                out += ChatItem.ToolCard(entryId, b, descriptors[k], GroupPosition.Solo, cardExpanded(b, descriptors[k]), gap(Gap.Item), agentOf(b))
             }
             return
         }
@@ -184,7 +195,7 @@ class ChatListFlattener(
                 run.lastIndex -> GroupPosition.Last
                 else -> GroupPosition.Middle
             }
-            out += ChatItem.ToolCard(entryId, b, descriptors[k], pos, cardExpanded(b, descriptors[k]), if (k == 0) Gap.Group else Gap.Tight)
+            out += ChatItem.ToolCard(entryId, b, descriptors[k], pos, cardExpanded(b, descriptors[k]), if (k == 0) Gap.Group else Gap.Tight, agentOf(b))
         }
     }
 

@@ -34,6 +34,8 @@ object CatalogToolCardRenderer : ToolCardRenderer {
     @Composable
     override fun Card(item: ChatItem.ToolCard, kind: SessionKind, onToggle: (Boolean) -> Unit, modifier: Modifier) {
         val uri = LocalUriHandler.current
+        val actions = LocalAgentActions.current
+        val agent = item.agent
         ToolCard(
             block = item.block,
             expanded = item.expanded,
@@ -42,6 +44,8 @@ object CatalogToolCardRenderer : ToolCardRenderer {
             kind = kind,
             placement = if (item.position == ChatItem.GroupPosition.Solo) ToolCardPlacement.Solo else ToolCardPlacement.Grouped,
             onLink = { href -> runCatching { uri.openUri(href) } },
+            agent = agent,
+            onOpenAgent = if (agent != null && actions != null) ({ actions.open(agent.id) }) else null,
         )
     }
 }

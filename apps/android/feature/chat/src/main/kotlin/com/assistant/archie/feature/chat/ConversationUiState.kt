@@ -34,6 +34,10 @@ data class ConversationUiState(
     val counters: CountersUi = CountersUi(),
     /** A rewind/fork/upload is running: the busy overlay covers the list (02 F-12). */
     val busyOverlay: String? = null,
+    /** Spec 12 §4.8: the session's subagents (tab row, Agents button and sheet). */
+    val agents: com.assistant.archie.feature.chat.model.AgentsUi = com.assistant.archie.feature.chat.model.AgentsUi(),
+    /** The selected agent tab's body; null = the Main tab (the conversation itself). */
+    val agentView: com.assistant.archie.feature.chat.model.AgentViewUi? = null,
 ) {
     val isArchie: Boolean get() = kind == SessionKind.ORCHESTRATOR
 }

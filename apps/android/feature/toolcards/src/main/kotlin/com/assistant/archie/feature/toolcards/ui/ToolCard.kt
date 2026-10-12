@@ -14,6 +14,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Row
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextOverflow
+import com.assistant.archie.feature.toolcards.AgentRun
+import com.assistant.archie.feature.toolcards.AgentRunStatus
+import com.assistant.core.design.components.ArchieButton
+import com.assistant.core.design.components.ButtonStyle
+import com.assistant.core.design.components.LiveAnnouncement
+import com.assistant.core.design.theme.ArchieTheme
 import com.assistant.archie.feature.toolcards.BodyPart
 import com.assistant.archie.feature.toolcards.DefaultOpen
 import com.assistant.archie.feature.toolcards.ResolvedTool
@@ -58,6 +68,13 @@ fun ToolCard(
     feed: List<String>? = null,
     feedTitle: String? = null,
     onLink: (String) -> Unit = {},
+    /**
+     * Spec 12 §4.8: the subagent this `Task` card spawned. Its status wins over the card's result,
+     * and its activity, usage and report show under the header, collapsed or not. The child
+     * transcript is never inlined: [onOpenAgent] opens its tab.
+     */
+    agent: AgentRun? = null,
+    onOpenAgent: (() -> Unit)? = null,
 ) {
     val tool = remember(block.toolName, block.toolInput, kind) { ToolCatalog.resolve(block, kind) }
     val timing = rememberToolTiming(block)
@@ -71,11 +88,16 @@ fun ToolCard(
         icon = ArchieIcons.named(tool.spec.icon) ?: ArchieIcons.Build,
         name = tool.label,
         summary = tool.summary,
-        status = shellStatus(block.status, stalled),
+        status = agent?.let { agentShellStatus(it.status) } ?: shellStatus(block.status, stalled),
         expanded = expanded,
         onToggle = { onToggle(!expanded) },
         modifier = modifier.testTag("$TOOL_CARD_TAG:${tool.name}"),
         placement = placement,
+        footer = if (agent != null) {
+            { AgentRunFooter(agent, onOpenAgent) }
+        } else {
+            null
+        },
         meta = if (hasMeta) {
             {
                 if (time != null) Text(time)
@@ -112,6 +134,52 @@ fun ToolCard(
         manual = null
     }
     ToolCard(block, manual ?: auto, { manual = it }, modifier, kind, placement, stalled, feed, onLink = onLink)
+}
+
+/** Design status of a subagent (spec 12 §4.8). */
+fun agentShellStatus(status: AgentRunStatus): ShellStatus = when (status) {
+    AgentRunStatus.Running -> ShellStatus.Running
+    AgentRunStatus.Done -> ShellStatus.Done
+    AgentRunStatus.Failed -> ShellStatus.Error
+    AgentRunStatus.Stopped -> ShellStatus.Stopped
+}
+
+/**
+ * The always-visible part of an agent card: what the agent is doing (or how it ended), tools ·
+ * tokens · elapsed, and Open. The elapsed time ticks once a second while it runs. Status changes are
+ * announced politely (failures assertively); the activity line itself is not a live region.
+ */
+@Composable
+fun AgentRunFooter(run: AgentRun, onOpen: (() -> Unit)?, modifier: Modifier = Modifier) {
+    val c = ArchieTheme.colors
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    if (run.status == AgentRunStatus.Running && run.startedAtMs != null) {
+        LaunchedEffect(run.id) {
+            while (true) {
+                now = System.currentTimeMillis()
+                delay(1_000)
+            }
+        }
+    }
+    Row(modifier.fillMaxWidth().testTag("agent-run:${run.id}"), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                run.line(),
+                style = ArchieTheme.typography.bodyMedium,
+                color = if (run.status == AgentRunStatus.Failed) c.error else c.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val stats = run.stats(now)
+            if (stats.isNotEmpty()) {
+                Text(stats, style = ArchieTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"), color = c.onSurfaceVariant, maxLines = 1)
+            }
+        }
+        LiveAnnouncement("Agent ${run.spoken}", assertive = run.status == AgentRunStatus.Failed)
+        if (onOpen != null) {
+            ArchieButton("Open", onOpen, style = ButtonStyle.Text, icon = ArchieIcons.OpenInNew, modifier = Modifier.testTag("agent-open:${run.id}"))
+        }
+    }
 }
 
 /** Design status of a block: no_result has no glyph of its own and reads as "waiting". */

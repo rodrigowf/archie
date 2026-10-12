@@ -5,6 +5,9 @@ import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.assistant.archie.feature.chat.model.AgentUiMapper
+import com.assistant.archie.feature.chat.model.AgentViewUi
+import com.assistant.archie.feature.chat.model.AgentsUi
 import com.assistant.archie.feature.chat.model.ChatItem
 import com.assistant.archie.feature.chat.model.ToolDescriptor
 import com.assistant.core.conversation.AssistantEntry
@@ -66,6 +69,14 @@ sealed interface ChatAction {
     data class Upload(val source: UploadSource, val subject: String? = null) : ChatAction
     data object Reload : ChatAction
 
+    // subagents (spec 12 §4.8, plan §4.4)
+    /** Select an agent tab (materialises its transcript, SA-5); null = Main. Only a user action selects (FOCUS-1). */
+    data class SelectAgent(val toolUseId: String?) : ChatAction
+    /** SA-9. */
+    data class StopAgent(val toolUseId: String) : ChatAction
+    /** Hide the tabs of finished agents (they stay in the Agents list and come back when opened). */
+    data object CloseFinishedAgents : ChatAction
+
     // voice (Archie only)
     data object StartVoice : ChatAction
     data object EndVoice : ChatAction
@@ -107,6 +118,14 @@ class ConversationViewModel(
     private val markdown = MarkdownStore()
     private val flattener = ChatListFlattener(describe) { id, text, streaming -> markdown.snapshot(id, text, streaming) }
 
+    // The selected agent tab's transcript has its own markdown store: its live block ids restart at 1.
+    private val agentMarkdown = MarkdownStore()
+    private val agentFlattener = ChatListFlattener(describe) { id, text, streaming -> agentMarkdown.snapshot(id, text, streaming) }
+    private val selectedAgent = MutableStateFlow(saved.get<String>(KEY_AGENT))
+    private val hiddenAgents = MutableStateFlow(saved.get<ArrayList<String>>(KEY_HIDDEN_AGENTS)?.toSet() ?: emptySet())
+    /** The Main list while an agent tab is on screen (not re-flattened until Main shows again). */
+    private var lastMain: FlattenResult? = null
+
     private val draft = MutableStateFlow(saved.get<String>(KEY_DRAFT) ?: "")
     val draftText: StateFlow<String> = draft
 
@@ -133,17 +152,51 @@ class ConversationViewModel(
         FlattenOptions(groupToggles = g, cardToggles = c, loadingOlder = l)
     }
 
-    private val flattened: Flow<Pair<ConversationState, FlattenResult>> =
-        combine(backend.state.filterNotNull(), options, ::Pair)
+    private class Flat(
+        val s: ConversationState,
+        val main: FlattenResult,
+        val agents: AgentsUi,
+        val agentView: AgentViewUi?,
+        val streaming: Boolean,
+    )
+
+    private val flattened: Flow<Flat> =
+        combine(backend.state.filterNotNull(), options, combine(selectedAgent, hiddenAgents, ::Pair)) { s, o, a -> Triple(s, o, a) }
             .conflate()
-            .map { (s, o) ->
-                val r = flattener.flatten(s, o)
-                markdown.sweep()
-                s to r
-            }
+            .map { (s, o, a) -> flattenAll(s, o, a.first, a.second) }
             .flowOn(flattenDispatcher)
             .conflate()
-            .transform { emit(it); if (it.second.streaming) delay(SAMPLE_MS) }
+            .transform { emit(it); if (it.streaming) delay(SAMPLE_MS) }
+
+    /** Main list (skipped while an agent tab is on screen), the agent tabs, and the selected agent's transcript. */
+    private fun flattenAll(s: ConversationState, o: FlattenOptions, selected: String?, hidden: Set<String>): Flat {
+        val sub = selected?.let { s.subagents[it] }
+        val prev = lastMain
+        val main = if (sub == null || prev == null) flattener.flatten(s, o).also { markdown.sweep(); lastMain = it } else prev
+        val agents = AgentUiMapper.agents(s, selected, hidden)
+        if (sub == null) return Flat(s, main, agents, null, main.streaming)
+        val conv = sub.conv
+        var streaming = false
+        val items = if (conv != null) {
+            // First page only (SA-5): no "Load older" in an agent tab.
+            val r = agentFlattener.flatten(conv.copy(history = conv.history.copy(hasMore = false)), o.copy(loadingOlder = false), s.subagents)
+            agentMarkdown.sweep()
+            streaming = r.streaming
+            r.items
+        } else {
+            emptyList()
+        }
+        val view = AgentViewUi(
+            agent = AgentUiMapper.agent(sub, s.subagents),
+            path = AgentUiMapper.path(sub, s.subagents).toImmutableList(),
+            items = items.toImmutableList(),
+            loaded = conv != null && sub.held == null && conv.history.loaded,
+            error = sub.historyError,
+            empty = conv?.entries?.isEmpty() ?: true,
+            truncated = conv?.history?.hasMore == true,
+        )
+        return Flat(s, main, agents, view, streaming)
+    }
 
     private val voiceUi: Flow<VoiceUi> = dock.ui
 
@@ -159,7 +212,9 @@ class ConversationViewModel(
         Local(a, d, t, b, dr.isBlank())
     }
 
-    val state: StateFlow<ConversationUiState> = combine(flattened, voiceUi, voice.recording, local) { (s, r), v, rec, l ->
+    val state: StateFlow<ConversationUiState> = combine(flattened, voiceUi, voice.recording, local) { f, v, rec, l ->
+        val s = f.s
+        val r = f.main
         val archie = s.kind == SessionKind.ORCHESTRATOR
         val vu = if (archie) v else VoiceUi.Off
         ConversationUiState(
@@ -175,6 +230,8 @@ class ConversationViewModel(
             voice = vu,
             counters = CountersUi(s.counters.cost, s.counters.turns, s.counters.contextTokens, s.counters.contextWindow),
             busyOverlay = l.busy,
+            agents = f.agents,
+            agentView = f.agentView,
         )
     }.stateIn(scope, SharingStarted.Eagerly, ConversationUiState())
 
@@ -223,6 +280,11 @@ class ConversationViewModel(
             is ChatAction.Fork -> cut(a.entryId, rewind = false)
             is ChatAction.Upload -> upload(a.source, a.subject)
             ChatAction.Reload -> { dismissed.update { it + "gap" }; backend.reload() }
+            is ChatAction.SelectAgent -> selectAgent(a.toolUseId)
+            is ChatAction.StopAgent -> if (backend.stopSubagent(a.toolUseId) != SendResult.SENT) {
+                effects.trySend(ChatEffect.Snackbar("Not connected: the agent was not stopped"))
+            }
+            ChatAction.CloseFinishedAgents -> closeFinishedAgents()
             ChatAction.StartVoice, ChatAction.EndVoice, ChatAction.ToggleMic, ChatAction.ToggleSpeaker,
             ChatAction.TakeOverVoice, ChatAction.ToggleRecording -> dock.onAction(a)
         }
@@ -233,6 +295,28 @@ class ConversationViewModel(
         is UserEntry -> e.text
         is AssistantEntry -> e.blocks.filterIsInstance<TextBlock>().joinToString("\n\n") { it.text }.ifEmpty { null }
         else -> null
+    }
+
+    // ───────────────────────── agent tabs (spec 12 §4.8) ─────────────────────────
+
+    private fun selectAgent(id: String?) {
+        selectedAgent.value = id
+        saved[KEY_AGENT] = id
+        if (id == null) return
+        if (id in hiddenAgents.value) setHidden(hiddenAgents.value - id)                  // back from "Close finished"
+        backend.openSubagent(id)
+    }
+
+    private fun closeFinishedAgents() {
+        val s = backend.state.value ?: return
+        val finished = s.subagents.values.filter { it.status.finished }.map { it.toolUseId }
+        setHidden(hiddenAgents.value + finished)
+        if (selectedAgent.value in finished) selectAgent(null)
+    }
+
+    private fun setHidden(ids: Set<String>) {
+        hiddenAgents.value = ids
+        saved[KEY_HIDDEN_AGENTS] = ArrayList(ids)
     }
 
     // ───────────────────────── composer ─────────────────────────
@@ -333,11 +417,15 @@ class ConversationViewModel(
         }
         // A new stall instance (different elapsed) re-shows a card the user dismissed with Keep waiting.
         if (s.stall == null) dismissed.update { it - "stall" }
+        // The selected agent tab keeps its transcript (restored selection, or released elsewhere): SA-5 re-open.
+        selectedAgent.value?.let { id -> if (s.subagents[id]?.conv == null && id in s.subagents) backend.openSubagent(id) }
     }
 
     private fun onEvent(e: ConversationEvent) {
         when (e) {
-            is ConversationEvent.SideError -> effects.trySend(ChatEffect.Snackbar(e.detail ?: e.code))
+            is ConversationEvent.SideError -> effects.trySend(
+                ChatEffect.Snackbar(if (e.code == "unsupported") e.detail ?: "This session can't stop a single agent" else e.detail ?: e.code),
+            )
             is ConversationEvent.StartFailed -> Unit   // shown through the connection banner card
             else -> Unit
         }
@@ -396,6 +484,8 @@ class ConversationViewModel(
         private const val KEY_GROUPS = "groups"
         private const val KEY_CARDS = "cards"
         private const val UNSENT = "unsent"
+        private const val KEY_AGENT = "agent"
+        private const val KEY_HIDDEN_AGENTS = "hidden_agents"
 
         /** A one-word slash command (`/help`, `/cost model`), not a path like `/home/x`. */
         val SLASH = Regex("^/[A-Za-z][\\w:-]*(\\s[\\s\\S]*)?$")

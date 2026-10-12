@@ -44,6 +44,15 @@ interface ToolCardRenderer {
     fun Card(item: ChatItem.ToolCard, kind: SessionKind, onToggle: (expanded: Boolean) -> Unit, modifier: Modifier)
 }
 
+/**
+ * What an agent (`Task`) card can ask of the conversation screen (spec 12 §4.8): open the subagent's
+ * tab. Provided by `ConversationContent`; null in standalone previews (no Open button then).
+ */
+@Stable
+class AgentActions(val open: (toolUseId: String) -> Unit)
+
+val LocalAgentActions = androidx.compose.runtime.staticCompositionLocalOf<AgentActions?> { null }
+
 /** Built on B-01's [ToolCardShell]: header line + plain monospace output well. */
 object DefaultToolCardRenderer : ToolCardRenderer {
     override fun describe(block: ToolBlock, kind: SessionKind): ToolDescriptor = BasicToolCatalog.describe(block, kind)
@@ -52,17 +61,24 @@ object DefaultToolCardRenderer : ToolCardRenderer {
     override fun Card(item: ChatItem.ToolCard, kind: SessionKind, onToggle: (Boolean) -> Unit, modifier: Modifier) {
         val b = item.block
         val d = item.descriptor
+        val agent = item.agent
+        val actions = LocalAgentActions.current
         ToolCardShell(
             category = d.category,
             icon = d.icon,
             name = d.name,
             summary = d.summary,
-            status = ChatListFlattener.status(b).shell(),
+            status = item.agent?.let { com.assistant.archie.feature.toolcards.ui.agentShellStatus(it.status) } ?: ChatListFlattener.status(b).shell(),
             expanded = item.expanded,
             onToggle = { onToggle(!item.expanded) },
             modifier = modifier,
             placement = if (item.position == ChatItem.GroupPosition.Solo) ToolCardPlacement.Solo else ToolCardPlacement.Grouped,
             meta = elapsed(b)?.let { t -> { Text(t) } },
+            footer = if (agent != null) {
+                { com.assistant.archie.feature.toolcards.ui.AgentRunFooter(agent, actions?.let { x -> { x.open(agent.id) } }) }
+            } else {
+                null
+            },
             output = { ToolResultWell(b) },
         )
     }

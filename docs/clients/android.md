@@ -3,7 +3,7 @@ name: android
 category: archie/clients
 tags: [android, kotlin, compose, navigation3, views, app-main, app-lite, a300m, poco, gradle, adb, signing, vosk]
 created: 2026-04-14
-modified: 2026-10-10
+modified: 2026-10-12
 summary: apps/android — Gradle multi-module project with the main app (com.assistant.archie) and the A300M lite app (com.assistant.peripheral).
 source: curated (consolidated from memory notes assistant/android/android_peripheral_project.md, assistant/infrastructure/repo_layout_cutover_2026_10.md, assistant/devices/peripheral_devices.md, auto-memory feedback_android_ws_keepalive_silent_drop.md, feedback_use_adb_input_for_device_tests.md, feedback_hands_on_checks_over_suites.md, feedback_run_test_before_speculating.md, project_frontend_refactor_2026_10_03.md; verified against code 2026-10-06)
 references:
@@ -12,6 +12,7 @@ references:
   - ../specs/14-android-architecture.md
   - ../specs/12-client-protocol.md
   - ../projects/frontend-refactor/README.md
+  - ../projects/subagent-view/PLAN.md
   - ../voice/architecture.md
   - ../voice/wake-word.md
   - ../voice/lifecycle.md
@@ -395,6 +396,45 @@ Test, and the Environment keys list with reveal-on-demand / edit / delete / add)
   documents). Chat links go through `rememberChatLinkHandler` (`shell/ContentWiring.kt`): visuals
   and memory files open as workspace items; memory documents open visuals in the app too (a
   `VisualDoc` screen on Compact).
+
+## Subagents (agent tabs, main app)
+
+Spec 12 §4.8 (SA-1..SA-9), plan [subagent-view](../projects/subagent-view/PLAN.md) §4.4. Same IA as
+the web.
+
+- **Data** (`:core:conversation`). `ConversationState.subagents` (first-sight order) holds one
+  `Subagent` per spawning `tool_use_id`; `DraftSubagents.kt` is the whole §4.8 reducer: lifecycle
+  frames (`subagent_started/progress/finished`), `subagent_event` (inner frames update `activity`;
+  they reduce into the subagent's own `conv` only once it is open), SA-2 placeholders from spawn cards
+  (`ToolNameNormalizer.SUBAGENT_SPAWN_TOOLS`: `Agent`, `Task`, `agent`, `task`, `invoke_agent`; live
+  and from history; a spawn card inside an open transcript becomes a nested placeholder), SA-2 status
+  sync from the card when no lifecycle frame or server row described the agent, SA-3 snapshot from
+  `session_started.subagents` and stop-on-close, SA-7 `task_notification` notice. SA-5: inputs
+  `OpenSubagent` / `SubagentPage` / `SubagentPageFailed` / `ReleaseSubagent`; the reducer keeps at most 3
+  transcripts (`subagentLru`, the visible one and the 2 most recently viewed) and asks the repository
+  for the first page with `ConversationEffect.FetchSubagentPage`; SA-8 `FetchSubagentList` once after
+  the first history page with spawn cards. `ConversationRepository` runs both REST calls
+  (`ArchieApi.subagents` / `subagentMessages`) and `stopSubagent` (`stop_subagent`, SA-9).
+- **UI** (`:feature:chat` `ui/Agents.kt`, `model/AgentUi.kt`). The Task card (`:feature:toolcards`
+  `ToolCard(agent = AgentRun)`) shows the subagent's status (lifecycle wins over the card's result),
+  "Running Grep" / the report's first line, tools · tokens · elapsed and **Open**, under the header
+  in `ToolCardShell`'s always-visible `footer` slot; the child transcript is never inlined. The tool
+  catalog and body are unchanged, so the web-oracle parity tests still hold. The **Agents** button
+  (badge = running count) sits next to the context ring only while the session has agents and opens
+  the Agents sheet (side sheet ≥ 600 dp, modal bottom sheet below): Running · Done (more than 3 fold
+  into "N more") · Failed or stopped, nested rows indented, Stop on running ones, "Close finished".
+  Above the list, `core/design` `SecondaryScrollableTabRow` shows Main plus one tab per subagent in
+  spawn order (status glyph, `↳` for nested, "N ⌄" menu with every agent and "Close finished"). A
+  new tab never takes focus (FOCUS-1); entering one materialises it. An agent tab renders its
+  transcript with the normal `ChatList` (its own `MarkdownStore`; latest page only), a breadcrumb for
+  nested agents (`Main › Explore › worker`), the history error when the first page failed, and a
+  read-only bar instead of the composer (Viewing … · Stop · Back to Main); the inline cards (the main
+  agent's permissions, stall, connection) stay. Status changes are announced through
+  `core/design` `LiveAnnouncement` (polite; failures assertive).
+- Tests: the five `subagent_*` protocol fixtures (`ProtocolFixtureConformanceTest`; the runner
+  supports `open_subagent` / `subagent_rest_page` / `release_subagent` and `expected.subagents`),
+  `SubagentReducerTest`, `AgentsUiTest`, `AgentRunTest`, goldens `chat-agents-main` and
+  `chat-agents-nested-tab`.
 
 ## Rules for changing the apps
 

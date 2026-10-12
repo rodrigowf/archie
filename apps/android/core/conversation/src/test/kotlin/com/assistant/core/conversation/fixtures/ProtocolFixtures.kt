@@ -107,6 +107,10 @@ object ProtocolFixtures {
         "ws_closed" -> ConversationInput.SocketClosed
         "ws_open" -> ConversationInput.SocketOpened
         "rest_page" -> ConversationInput.HistoryPage(pageMode(a.str("mode")!!), page(a["response"]!!.jsonObject))
+        // spec 12 §4.8 SA-5 (README "client_actions")
+        "open_subagent" -> ConversationInput.OpenSubagent(a.str("tool_use_id")!!)
+        "subagent_rest_page" -> ConversationInput.SubagentPage(a.str("tool_use_id")!!, page(a["response"]!!.jsonObject))
+        "release_subagent" -> ConversationInput.ReleaseSubagent(a.str("tool_use_id")!!)
         else -> error("unknown client action $t")
     }
 
@@ -177,6 +181,22 @@ object ProtocolFixtures {
         )
     }
 
+    /** README "Normalisation" `subagents`: insertion order; `entries` only when open. */
+    fun normaliseSubagents(s: ConversationState): JsonArray = buildJsonArray {
+        for (a in s.subagents.values) add(buildJsonObject {
+            put("tool_use_id", a.toolUseId)
+            put("parent_tool_use_id", a.parentToolUseId?.let { JsonPrimitive(it) } ?: JsonNull)
+            put("agent_type", a.agentType)
+            put("description", a.description)
+            put("background", a.background)
+            put("status", a.status.wire)
+            put("activity", a.activity?.let { JsonPrimitive(it) } ?: JsonNull)
+            put("summary", a.summary?.let { JsonPrimitive(it) } ?: JsonNull)
+            put("open", a.open)
+            a.conv?.let { put("entries", normaliseEntries(it)) }
+        })
+    }
+
     fun normaliseOrphans(s: ConversationState): JsonArray = buildJsonArray {
         for ((id, r) in s.orphanResults) add(buildJsonObject { put("tool_use_id", id); put("output", r.output); put("is_error", r.isError) })
     }
@@ -233,6 +253,7 @@ object ProtocolFixtures {
         diff("orphan_results", expected["orphan_results"] ?: JsonArray(emptyList()), normaliseOrphans(actual), problems)
         diff("unattributed_results", expected["unattributed_results"] ?: JsonArray(emptyList()), normaliseUnattributed(actual), problems)
         expected["queue"]?.let { diff("queue", it, normaliseQueue(actual), problems) }
+        expected["subagents"]?.let { diff("subagents", it, normaliseSubagents(actual), problems) }
         (expected["state"] as? JsonObject)?.forEach { (k, v) -> diff("state.$k", v, stateValue(actual, k), problems) }
         return problems
     }
