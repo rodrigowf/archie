@@ -412,6 +412,23 @@ class CodexAdapter(ProviderAdapter):
         )
 
 
+    # -- Subagents (spec 12 SA-8): child-thread rollouts linked by
+    #    session_meta parent_thread_id and the parent's spawnAgent items.
+
+    def list_subagents(self, jsonl_path: Path) -> list[dict]:
+        from .subagent_files import scan
+        rows, _files = scan(jsonl_path)
+        return rows
+
+    def read_subagent_messages(self, jsonl_path: Path, tool_use_id: str) -> list[dict] | None:
+        from .subagent_files import scan
+        rows, files = scan(jsonl_path)
+        path = files.get(tool_use_id)
+        if path is None:
+            return [] if any(r.get("tool_use_id") == tool_use_id for r in rows) else None
+        return self.read_messages(path)
+
+
 _adapter = CodexAdapter()
 register_provider(_adapter)
 
@@ -420,21 +437,42 @@ register_provider(_adapter)
 # Storage: resolver + discoverer
 # ---------------------------------------------------------------------------
 
-# path → originator (line 0 never changes, so no mtime check needed).
-_originator_cache: dict[str, str | None] = {}
+# path → (originator, parent thread id) from line 0 (it never changes, so no
+# mtime check needed).
+_meta_cache: dict[str, tuple[str | None, str | None]] = {}
+
+
+def _rollout_meta(path: Path) -> tuple[str | None, str | None]:
+    """``(originator, parent_thread_id)`` of a rollout; the parent is set only
+    for a multi-agent child thread (``session_meta.source.subagent``)."""
+    key = str(path)
+    if key in _meta_cache:
+        return _meta_cache[key]
+    value: tuple[str | None, str | None] = (None, None)
+    for obj in _iter_lines(path):
+        payload = obj.get("payload") if isinstance(obj.get("payload"), dict) else {}
+        origin = payload.get("originator") if isinstance(payload.get("originator"), str) else None
+        value = (origin, _parent_thread(payload))
+        break
+    _meta_cache[key] = value
+    return value
 
 
 def _originator(path: Path) -> str | None:
-    key = str(path)
-    if key in _originator_cache:
-        return _originator_cache[key]
-    value: str | None = None
-    for obj in _iter_lines(path):
-        payload = obj.get("payload") if isinstance(obj.get("payload"), dict) else {}
-        value = payload.get("originator") if isinstance(payload.get("originator"), str) else None
-        break
-    _originator_cache[key] = value
-    return value
+    return _rollout_meta(path)[0]
+
+
+def _parent_thread(payload: dict) -> str | None:
+    parent = payload.get("parent_thread_id")
+    if not isinstance(parent, str) or not parent:
+        source = payload.get("source")
+        spawn = None
+        if isinstance(source, dict):
+            sub = source.get("subagent") or source.get("subAgent")
+            if isinstance(sub, dict):
+                spawn = sub.get("thread_spawn")
+        parent = spawn.get("parent_thread_id") if isinstance(spawn, dict) else None
+    return parent if isinstance(parent, str) and parent else None
 
 
 def _codex_jsonl_candidates(session_id: str) -> list[Path]:
@@ -489,7 +527,12 @@ def _codex_discover_sessions(project_dir: str):
             sid = session_id_from_path(path)
             if not sid or sid in seen or not path.is_file():
                 continue
-            if only_archie and _originator(path) != home.CLIENT_NAME:
+            origin, parent = _rollout_meta(path)
+            if only_archie and origin != home.CLIENT_NAME:
+                continue
+            if parent:
+                # A multi-agent child thread: shown inside its parent's
+                # session (spec 12 §4.8), never as a session of its own.
                 continue
             seen.add(sid)
             yield sid, path

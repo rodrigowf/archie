@@ -42,12 +42,15 @@ from .._proc import process_tree, reap_descendants, signal_group
 from ..base_session import BaseSessionManager, TurnAbandoned
 from ..config import ManagerConfig
 from ..memory_context import memory_instructions
+from ..subagents import SubagentRegistry, is_spawn_tool, spawn_fields, usage_dict, wire_status
 from . import run_settings as _run_settings
 from ..types import (
     CompactComplete,
     Event,
     SessionStalled,
     SessionStatus,
+    SubagentEvent,
+    SubagentFinished,
     TextComplete,
     TextDelta,
     ThinkingComplete,
@@ -55,6 +58,7 @@ from ..types import (
     ToolResult,
     ToolUse,
     TurnComplete,
+    UnpromptedTurnStarted,
 )
 
 logger = logging.getLogger(__name__)
@@ -115,6 +119,37 @@ def _error_message(obj: dict) -> str | None:
     return subtype if isinstance(subtype, str) and subtype != "success" else None
 
 
+#: qwen-code 0.25's default ``subagent_type`` when the call names none.
+_DEFAULT_SUBAGENT_TYPE = "general-purpose"
+#: Text of a background launch's tool result (and the task id it names).
+_BG_LAUNCH_PREFIX = "Background agent launched"
+_TASK_ID_RE = re.compile(r"task_id:\s*([A-Za-z0-9_.:-]+)")
+
+
+def _notification_text(
+    task_id: object, tool_use_id: str, status: str, description: str,
+    result: str | None, usage: dict,
+) -> str:
+    """The ``<task-notification>`` Qwen records in the session JSONL for a
+    finished background agent (its stream only carries a display line)."""
+    lines = ["<task-notification>"]
+    if task_id:
+        lines.append(f"<task-id>{task_id}</task-id>")
+    lines.append(f"<tool-use-id>{tool_use_id}</tool-use-id>")
+    lines.append(f"<status>{status}</status>")
+    lines.append(f'<summary>Agent "{description or "agent"}" {status or "finished"}.</summary>')
+    if result:
+        lines.append(f"<result>{result}</result>")
+    if usage:
+        lines.append("<usage>")
+        for k in ("total_tokens", "tool_uses", "duration_ms"):
+            if usage.get(k) is not None:
+                lines.append(f"<{k}>{usage[k]}</{k}>")
+        lines.append("</usage>")
+    lines.append("</task-notification>")
+    return "\n".join(lines)
+
+
 class QwenSessionManager(BaseSessionManager):
     """Manage a single Qwen Code conversation.
 
@@ -155,6 +190,15 @@ class QwenSessionManager(BaseSessionManager):
         # Set once a per-run settings file was written on the SSH remote, so
         # stop() can remove it (best-effort).
         self._remote_settings_written: bool = False
+        # Subagents (spec 12 §4.8), keyed by the spawning ``agent`` call id.
+        # The registry lives as long as the session (snapshot for late
+        # joiners); the rest is per turn (see _reset_subagent_turn_state).
+        self._subagents = SubagentRegistry()
+        self._sub_text: dict[str, list[str]] = {}
+        self._sub_thinking: dict[str, list[str]] = {}
+        # The subagent that produced the latest parent_tool_use_id line: a
+        # failed subagent's error ``result`` line carries no parent id.
+        self._last_sub: str | None = None
 
     @property
     def provider_name(self) -> str:
@@ -411,6 +455,7 @@ class QwenSessionManager(BaseSessionManager):
             await self._kill_proc()
 
         self._status = SessionStatus.STREAMING
+        self._reset_subagent_turn_state()
 
         local_argv = self._build_argv()
         self._forking_turn = "--fork-session" in local_argv
@@ -548,6 +593,10 @@ class QwenSessionManager(BaseSessionManager):
                     logger.exception("on_pid_exit callback raised for pid=%d", proc.pid)
             self._event_inbox = None
             self._drain_pending_permissions()
+            # The CLI process is gone: a subagent it did not report on
+            # (killed or interrupted turn) can no longer run.
+            for ev in self._subagents.stop_all():
+                self._emit_out_of_turn(ev)
             _run_settings.remove_run_settings(settings_path)
             self._forking_turn = False
             self._status = SessionStatus.IDLE
@@ -567,8 +616,10 @@ class QwenSessionManager(BaseSessionManager):
         # Adapter state for translating Anthropic-style stream events.
         text_buffer: list[str] = []
         thinking_buffer: list[str] = []
-        # Each content_block_start carries metadata we need at content_block_stop time.
-        block_meta: dict[int, dict] = {}
+        # Each content_block_start carries metadata we need at content_block_stop
+        # time, keyed by (parent_tool_use_id, index): a subagent's blocks are
+        # numbered from 0 in its own message, like the parent's.
+        block_meta: dict[tuple[str | None, int], dict] = {}
 
         turn_started_at = loop.time()
         last_event_at = turn_started_at
@@ -633,7 +684,7 @@ class QwenSessionManager(BaseSessionManager):
     def _translate_event(
         self,
         obj: dict,
-        block_meta: dict[int, dict],
+        block_meta: dict,
         text_buffer: list[str],
         thinking_buffer: list[str],
     ) -> list[Event]:
@@ -641,9 +692,23 @@ class QwenSessionManager(BaseSessionManager):
 
         Returned as a list so a single source event can fan out (e.g.
         content_block_stop → TextComplete + reset buffer).
+
+        Lines carrying ``parent_tool_use_id`` come from a subagent (spec 12
+        §4.8): they are wrapped in :class:`SubagentEvent` and never touch the
+        session status.  ``agent`` calls, ``task_started`` /
+        ``task_notification`` and the spawning call's result drive the
+        subagent lifecycle.
         """
         out: list[Event] = []
         obj_type = obj.get("type", "")
+        parent = obj.get("parent_tool_use_id") or None
+        if not isinstance(parent, str):
+            parent = None
+        if parent:
+            self._last_sub = parent
+
+        def emit(ev: Event) -> None:
+            out.append(SubagentEvent(tool_use_id=parent, event=ev) if parent else ev)
 
         if obj_type == "system":
             subtype = obj.get("subtype", "")
@@ -656,50 +721,61 @@ class QwenSessionManager(BaseSessionManager):
                     trigger=obj.get("trigger", "manual"),
                     summary=obj.get("summary", ""),
                 ))
+            elif subtype == "task_started":
+                out.extend(self._on_task_started(obj.get("data")))
+            elif subtype == "task_notification":
+                out.extend(self._on_task_notification(obj.get("data")))
             return out
 
         if obj_type == "stream_event":
             event = obj.get("event", {})
             evt_type = event.get("type", "")
+            if parent:
+                texts = self._sub_text.setdefault(parent, [])
+                thinks = self._sub_thinking.setdefault(parent, [])
+            else:
+                texts, thinks = text_buffer, thinking_buffer
 
             if evt_type == "content_block_start":
                 index = event.get("index", 0)
                 block = event.get("content_block", {}) or {}
-                block_meta[index] = block
+                block_meta[(parent, index)] = block
                 # Reset buffers for fresh blocks.
                 if block.get("type") == "text":
-                    text_buffer.clear()
+                    texts.clear()
                 elif block.get("type") == "thinking":
-                    thinking_buffer.clear()
+                    thinks.clear()
 
             elif evt_type == "content_block_delta":
                 delta = event.get("delta", {}) or {}
                 dtype = delta.get("type", "")
                 if dtype == "text_delta":
-                    self._status = SessionStatus.STREAMING
+                    if not parent:
+                        self._status = SessionStatus.STREAMING
                     text = delta.get("text", "")
                     if text:
-                        text_buffer.append(text)
-                        out.append(TextDelta(text=text))
+                        texts.append(text)
+                        emit(TextDelta(text=text))
                 elif dtype == "thinking_delta":
-                    self._status = SessionStatus.THINKING
+                    if not parent:
+                        self._status = SessionStatus.THINKING
                     text = delta.get("thinking", "") or delta.get("text", "")
                     if text:
-                        thinking_buffer.append(text)
-                        out.append(ThinkingDelta(text=text))
+                        thinks.append(text)
+                        emit(ThinkingDelta(text=text))
                 # input_json_delta intentionally ignored — we use the
                 # complete tool_use block emitted with the assistant message.
 
             elif evt_type == "content_block_stop":
                 index = event.get("index", 0)
-                meta = block_meta.pop(index, {})
+                meta = block_meta.pop((parent, index), {})
                 btype = meta.get("type", "")
-                if btype == "text" and text_buffer:
-                    out.append(TextComplete(text="".join(text_buffer)))
-                    text_buffer.clear()
-                elif btype == "thinking" and thinking_buffer:
-                    out.append(ThinkingComplete(text="".join(thinking_buffer)))
-                    thinking_buffer.clear()
+                if btype == "text" and texts:
+                    emit(TextComplete(text="".join(texts)))
+                    texts.clear()
+                elif btype == "thinking" and thinks:
+                    emit(ThinkingComplete(text="".join(thinks)))
+                    thinks.clear()
 
             return out
 
@@ -712,17 +788,23 @@ class QwenSessionManager(BaseSessionManager):
                     continue
                 btype = block.get("type")
                 if btype == "tool_use":
-                    self._status = SessionStatus.TOOL_USE
-                    out.append(ToolUse(
-                        tool_use_id=block.get("id", ""),
-                        tool_name=block.get("name", ""),
-                        tool_input=block.get("input", {}) or {},
-                    ))
+                    tool_id = block.get("id", "")
+                    name = block.get("name", "")
+                    tool_input = block.get("input", {}) or {}
+                    if parent:
+                        self._subagents.note_activity(parent, name)
+                    else:
+                        self._status = SessionStatus.TOOL_USE
+                    emit(ToolUse(tool_use_id=tool_id, tool_name=name, tool_input=tool_input))
+                    if tool_id and is_spawn_tool(name):
+                        out.extend(self._on_spawn(tool_id, parent, tool_input))
                 # text / thinking are already covered by stream_event deltas.
             return out
 
         if obj_type == "user":
             # Tool results arrive as user messages with tool_result blocks.
+            # A subagent's first user line is its prompt (text): the
+            # transcript has it; nothing to stream.
             message = obj.get("message", {})
             content = message.get("content", [])
             if not isinstance(content, list):
@@ -740,14 +822,30 @@ class QwenSessionManager(BaseSessionManager):
                             elif isinstance(item, str):
                                 parts.append(item)
                         result_content = "\n".join(parts)
-                    out.append(ToolResult(
+                    result = ToolResult(
                         tool_use_id=block.get("tool_use_id", ""),
                         output=str(result_content) if result_content else "",
                         is_error=block.get("is_error", False),
-                    ))
+                    )
+                    emit(result)
+                    if result.tool_use_id in self._subagents:
+                        out.extend(self._on_spawn_result(result))
             return out
 
         if obj_type == "result":
+            if obj.get("is_error") and not parent and self._is_subagent_error_result(obj):
+                # A failed / cancelled subagent: the CLI emits a parentless
+                # error ``result`` mid-turn (``emitSubagentErrorResult``).
+                # It ends that agent, never the user's turn.
+                target = self._subagent_error_target()
+                if target is not None:
+                    ev = self._subagents.finish(
+                        target, status="failed",
+                        summary=_error_message(obj) or "Subagent failed",
+                    )
+                    if ev is not None:
+                        out.append(ev)
+                return out
             usage = obj.get("usage", {}) or {}
             num_turns = obj.get("num_turns", 0)
             self._turns += num_turns
@@ -759,6 +857,10 @@ class QwenSessionManager(BaseSessionManager):
             if is_error and not result:
                 # 0.2x: the reason lives in ``error.message``.
                 result = _error_message(obj)
+            # The CLI waits for its background agents before this final
+            # result (runNonInteractive), so whatever is still running now
+            # was cut short (interrupt, budget, error).
+            out.extend(self._subagents.stop_all())
             out.append(TurnComplete(
                 cost=None,  # qwen doesn't report cost
                 usage=usage,
@@ -770,6 +872,123 @@ class QwenSessionManager(BaseSessionManager):
             return out
 
         return out
+
+    # ------------------------------------------------------------------
+    # Subagents (spec 12 §4.8)
+    # ------------------------------------------------------------------
+
+    def _reset_subagent_turn_state(self) -> None:
+        self._sub_text.clear()
+        self._sub_thinking.clear()
+        self._last_sub = None
+
+    def subagent_snapshot(self) -> list[dict]:
+        return self._subagents.summaries()
+
+    def _on_spawn(self, tool_id: str, parent: str | None, tool_input: dict) -> list[Event]:
+        """An ``agent`` call: the subagent starts now (Qwen runs it inside
+        the call, or in the background right after it)."""
+        agent_type, description, background = spawn_fields(tool_input)
+        self._subagents.spawn(
+            tool_id, parent_tool_use_id=parent,
+            agent_type=agent_type or _DEFAULT_SUBAGENT_TYPE,
+            description=description, background=background,
+        )
+        ev = self._subagents.start(tool_id)
+        return [ev] if ev is not None else []
+
+    def _on_spawn_result(self, result: ToolResult) -> list[Event]:
+        """The spawning call's own result: a foreground agent ends here; a
+        background launch only names the task id (its end is a
+        ``task_notification``)."""
+        rec = self._subagents.get(result.tool_use_id)
+        if rec is None:
+            return []
+        m = _TASK_ID_RE.search(result.output or "")
+        if m:
+            self._subagents.link(result.tool_use_id, m.group(1))
+        if not result.is_error and (rec.background or _BG_LAUNCH_PREFIX in (result.output or "")):
+            rec.background = True
+            return []
+        ev = self._subagents.finish(
+            result.tool_use_id,
+            status="failed" if result.is_error else "done",
+            summary=result.output,
+        )
+        return [ev] if ev is not None else []
+
+    def _on_task_started(self, data: object) -> list[Event]:
+        data = data if isinstance(data, dict) else {}
+        tid = data.get("tool_use_id")
+        if not isinstance(tid, str) or tid not in self._subagents:
+            return []  # a monitor task etc.: not a subagent
+        rec = self._subagents.get(tid)
+        if rec is not None:
+            rec.background = True
+            if data.get("subagent_type") and rec.agent_type in ("", _DEFAULT_SUBAGENT_TYPE):
+                rec.agent_type = str(data["subagent_type"])
+        ev = self._subagents.start(
+            tid, harness_id=data.get("task_id") or None,
+            description=data.get("description") or None, background=True,
+        )
+        return [ev] if ev is not None else []
+
+    def _on_task_notification(self, data: object) -> list[Event]:
+        """A background agent ended.  The stream carries no report (the CLI
+        hands its ``<result>`` to the model only), so it is read from the
+        agent's transcript; the notice mirrors the line Qwen writes to the
+        session JSONL (shown as a background notice, SA-7 / BG-2)."""
+        data = data if isinstance(data, dict) else {}
+        tid = data.get("tool_use_id")
+        rec = self._subagents.get(tid) if isinstance(tid, str) else None
+        if rec is None:
+            return []
+        task_id = data.get("task_id") or rec.harness_id
+        if task_id:
+            self._subagents.link(rec.tool_use_id, str(task_id))
+        raw_status = str(data.get("status") or "")
+        status = wire_status(raw_status) or "done"
+        summary = self._background_report(str(task_id)) if task_id else None
+        u = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+        usage = usage_dict(u.get("total_tokens"), u.get("tool_uses"), u.get("duration_ms")) if u else None
+        out: list[Event] = [UnpromptedTurnStarted(
+            text=_notification_text(task_id, rec.tool_use_id, raw_status, rec.description, summary, u),
+            source="task_notification",
+        )]
+        ev = self._subagents.finish(rec.tool_use_id, status=status, summary=summary or "", usage=usage)
+        if ev is not None:
+            out.append(ev)
+        return out
+
+    def _background_report(self, task_id: str) -> str | None:
+        """Final answer of a background agent, from its transcript (local only)."""
+        if self._config.ssh_host or not self._provider_session_id:
+            return None
+        from .subagent_files import qwen_subagent_dir, transcript_report
+
+        path = qwen_subagent_dir(self._config.project_dir, self._provider_session_id) / f"agent-{task_id}.jsonl"
+        try:
+            return transcript_report(path)
+        except Exception:  # noqa: BLE001 — the report is a nicety
+            logger.debug("could not read qwen subagent transcript %s", path, exc_info=True)
+            return None
+
+    def _is_subagent_error_result(self, obj: dict) -> bool:
+        """The shape of ``buildSubagentErrorResult`` (qwen-code 0.25): zero
+        durations, while a subagent of this turn is still running.  The
+        turn's own final result always carries its real ``duration_ms``."""
+        if not self._subagents.running():
+            return False
+        return not obj.get("duration_ms") and not obj.get("duration_api_ms")
+
+    def _subagent_error_target(self) -> str | None:
+        last = self._subagents.get(self._last_sub)
+        if last is not None and last.status == "running":
+            return last.tool_use_id
+        running = self._subagents.running()
+        fg = [r for r in running if not r.background]
+        pick = (fg or running)
+        return pick[-1].tool_use_id if pick else None
 
     async def _drain_stderr(self, proc: asyncio.subprocess.Process) -> None:
         """Forward qwen stderr to the logger for visibility."""

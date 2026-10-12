@@ -174,11 +174,15 @@ def tool_call(item: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
             query = action.get("query") or action.get("url") or action.get("pattern") or ""
         return "WebSearch", {"query": query}
     if kind == "collabAgentToolCall":
-        return "Task", {
-            "description": str(item.get("tool") or "agent"),
-            "prompt": item.get("prompt") or "",
-            **({"model": item["model"]} if item.get("model") else {}),
-        }
+        tool = collab_tool(item)
+        if tool == "spawnAgent":
+            # The spawning call is the subagent's card (spec 12 §4.8: its
+            # item id keys the subagent), so it keeps the clients' Task name.
+            return "Task", spawn_input(item)
+        tool_input: dict[str, Any] = {"agents": receiver_ids(item)}
+        if item.get("prompt"):
+            tool_input["prompt"] = item["prompt"]
+        return COLLAB_TOOL_NAMES.get(tool, tool or "agent_tool"), tool_input
     if kind == "imageView":
         return "Read", {"file_path": str(item.get("path") or "")}
     if kind == "imageGeneration":
@@ -250,12 +254,117 @@ def tool_result(item: dict[str, Any]) -> tuple[str, bool]:
         query = item.get("query") or ""
         return (f"Searched: {query}" if query else "Search done"), False
     if kind == "collabAgentToolCall":
-        states = _get(item, "agentsStates", "agents_states")
-        return (_truncate(json.dumps(states, ensure_ascii=False)) if states else status or "done"), failed
+        if collab_tool(item) == "spawnAgent":
+            receivers = receiver_ids(item)
+            if failed or not receivers:
+                return f"Could not start the agent ({status or 'failed'})", True
+            names = receiver_names(item)
+            return "Started agent " + ", ".join(names.get(r) or r for r in receivers), False
+        states = agent_states(item)
+        if not states:
+            return status or "done", failed
+        names = receiver_names(item)
+        lines = []
+        for thread, (st, message) in states.items():
+            label = names.get(thread) or thread
+            lines.append(f"{label}: {st}" + (f" — {message}" if message else ""))
+        return _truncate("\n".join(lines)), failed
     if kind == "imageGeneration":
         saved = _get(item, "savedPath", "saved_path")
         return (str(saved) if saved else status or "done"), bool(_get(item, "failure"))
     return "", failed
+
+
+# ---------------------------------------------------------------------------
+# Multi-agent (collabAgentToolCall) items
+# ---------------------------------------------------------------------------
+
+#: Card names for the collab calls other than spawnAgent (the model-facing
+#: tool names, so they never read as a "Task" card).
+COLLAB_TOOL_NAMES = {
+    "sendInput": "send_input",
+    "resumeAgent": "resume_agent",
+    "wait": "wait_agent",
+    "waitAgent": "wait_agent",
+    "closeAgent": "close_agent",
+    "sendMessage": "send_message",
+    "followupTask": "followup_task",
+    "interruptAgent": "interrupt_agent",
+    "listAgents": "list_agents",
+}
+
+#: CollabAgentStatus (live camelCase / rollout snake_case) → readable word.
+_AGENT_STATUS = {
+    "pendinginit": "starting", "pending_init": "starting", "running": "running",
+    "interrupted": "interrupted", "completed": "completed", "errored": "errored",
+    "shutdown": "shut down", "notfound": "not found", "not_found": "not found",
+}
+
+
+def collab_tool(item: dict[str, Any]) -> str:
+    """``spawnAgent`` for both the live ``spawnAgent`` and the rollout ``spawn_agent``."""
+    raw = str(item.get("tool") or "")
+    if "_" in raw:
+        head, *rest = raw.split("_")
+        raw = head + "".join(w[:1].upper() + w[1:] for w in rest)
+    return raw
+
+
+def receiver_ids(item: dict[str, Any]) -> list[str]:
+    ids = _get(item, "receiverThreadIds", "receiver_thread_ids", default=[])
+    return [str(i) for i in ids if isinstance(i, str) and i] if isinstance(ids, list) else []
+
+
+def receiver_names(item: dict[str, Any]) -> dict[str, str]:
+    """thread id → nickname (rollouts only: ``receiver_agents``)."""
+    out: dict[str, str] = {}
+    agents = _get(item, "receiverAgents", "receiver_agents", default=[])
+    if isinstance(agents, list):
+        for a in agents:
+            if isinstance(a, dict) and a.get("thread_id") and a.get("agent_nickname"):
+                out[str(a["thread_id"])] = str(a["agent_nickname"])
+    return out
+
+
+def agent_states(item: dict[str, Any]) -> dict[str, tuple[str, str | None]]:
+    """``{thread: (status, message)}`` from ``agentsStates`` (live
+    ``{status, message}``) or ``agents_states`` (rollout: ``"pending_init"``,
+    ``{"completed": msg}``, ``{"errored": err}``)."""
+    raw = _get(item, "agentsStates", "agents_states", default={})
+    out: dict[str, tuple[str, str | None]] = {}
+    if not isinstance(raw, dict):
+        return out
+    for thread, st in raw.items():
+        if isinstance(st, dict) and "status" in st:
+            status, message = st.get("status"), st.get("message")
+        elif isinstance(st, dict) and len(st) == 1:
+            status, message = next(iter(st.items()))
+        else:
+            status, message = st, None
+        key = str(status or "").replace("-", "_")
+        out[str(thread)] = (
+            _AGENT_STATUS.get(key.lower(), _AGENT_STATUS.get(key, key or "unknown")),
+            message if isinstance(message, str) and message else None,
+        )
+    return out
+
+
+def spawn_description(prompt: str) -> str:
+    """One line for the agent card: the prompt's first line, shortened."""
+    line = next((ln.strip() for ln in (prompt or "").splitlines() if ln.strip()), "")
+    return line if len(line) <= 80 else line[:79].rstrip() + "…"
+
+
+def spawn_input(item: dict[str, Any]) -> dict[str, Any]:
+    prompt = str(item.get("prompt") or "")
+    out: dict[str, Any] = {
+        "description": spawn_description(prompt) or "agent",
+        "prompt": prompt,
+        "subagent_type": "agent",
+    }
+    if item.get("model"):
+        out["model"] = item["model"]
+    return out
 
 
 def plan_todos(plan: Any) -> dict[str, Any]:

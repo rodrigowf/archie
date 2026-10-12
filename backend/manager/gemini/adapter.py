@@ -185,6 +185,13 @@ def _extract_tool_result_text(call: dict) -> str:
     UI) and falls back to digging through ``result[].functionResponse.
     response.output`` or ``.error``.
     """
+    if call.get("name") == "invoke_agent":
+        # A subagent: its readable answer, not the SubagentProgress object
+        # nor the "Subagent 'x' finished. Termination Reason: …" envelope.
+        from .subagent_files import call_outcome
+        outcome = call_outcome(call)
+        if outcome is not None and outcome[1]:
+            return outcome[1]
     display = call.get("resultDisplay")
     if isinstance(display, str) and display.strip():
         return display
@@ -594,6 +601,32 @@ class GeminiAdapter(ProviderAdapter):
         if conv is None:
             return []
         return _normalize_records(conv.records)
+
+    # -- Subagents (spec 12 SA-8): invoke_agent calls of the parent chat,
+    #    transcripts in chats/<parent session id>/<agentId>.jsonl.
+
+    def list_subagents(self, jsonl_path: Path) -> list[dict]:
+        from .subagent_files import scan
+        rows, _files, _calls = scan(jsonl_path)
+        return rows
+
+    def read_subagent_messages(self, jsonl_path: Path, tool_use_id: str) -> list[dict] | None:
+        from .subagent_files import call_outcome, scan, synthetic_transcript
+        _rows, files, calls = scan(jsonl_path)
+        path = files.get(tool_use_id)
+        call = calls.get(tool_use_id)
+        if path is not None:
+            messages = self.read_messages(path)
+            # The agent hands its answer over through ``complete_task``
+            # args; show it as the transcript's last text, like other harnesses.
+            outcome = call_outcome(call) if call is not None else None
+            if outcome is not None and outcome[1]:
+                messages.append({
+                    "type": "assistant", "timestamp": call.get("timestamp"),
+                    "message": {"role": "assistant", "content": [{"type": "text", "text": outcome[1]}]},
+                })
+            return messages
+        return synthetic_transcript(call) if call is not None else None
 
     def parse_session_info(
         self,

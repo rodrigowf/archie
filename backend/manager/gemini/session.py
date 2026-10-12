@@ -119,6 +119,7 @@ from .._ssh import (
 )
 from ..base_session import BaseSessionManager, TurnAbandoned
 from ..config import ManagerConfig
+from ..subagents import SubagentRegistry
 from ..types import (
     Event,
     SessionStalled,
@@ -341,10 +342,16 @@ class GeminiSessionManager(BaseSessionManager):
         )
         # Background reapers for processes an interrupted turn left behind.
         self._reaper_tasks: set[asyncio.Task] = set()
+        # Subagents (spec 12 §4.8): ``invoke_agent`` calls, reported
+        # post-hoc (the stream has no inner events) — see subagent_files.
+        self._subagents = SubagentRegistry()
 
     @property
     def provider_name(self) -> str:
         return "gemini"
+
+    def subagent_snapshot(self) -> list[dict]:
+        return self._subagents.summaries()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -652,9 +659,61 @@ class GeminiSessionManager(BaseSessionManager):
                         "on_pid_exit callback raised for pid=%d", proc.pid,
                     )
 
+            # The CLI process is gone: a subagent it did not report on can
+            # no longer run.
+            for ev in self._subagents.stop_all():
+                self._emit_out_of_turn(ev)
+
             self._turns += 1
             if self._status != SessionStatus.INTERRUPTED:
                 self._status = SessionStatus.IDLE
+
+    async def _subagent_outcome(self, obj: dict) -> tuple[str, str, dict | None] | None:
+        """``(status, summary, usage)`` of a finished ``invoke_agent`` call.
+
+        The stream's tool_result carries no output for a local subagent
+        (its display is a ``SubagentProgress`` object), so the outcome is
+        read back from the call's ``toolCalls`` entry in the session file —
+        written before the stream event, re-polled briefly in case it is
+        not flushed yet.  SSH sessions write on the remote: only what the
+        stream itself carries.
+        """
+        from .subagent_files import (
+            as_progress, call_outcome, call_usage, find_call, progress_outcome, text_outcome,
+        )
+
+        output = obj.get("output")
+        if isinstance(output, str) and output.strip():
+            progress = as_progress(output)
+            if progress is not None:
+                return (*progress_outcome(progress), None)
+            parsed = text_outcome(output)
+            if parsed is not None:
+                return (*parsed, None)
+        if self._config.ssh_host or not self._provider_session_id:
+            return None
+        from .adapter import _gemini_jsonl_candidates, _read_gemini_session_id
+
+        tool_id = obj.get("tool_id", "")
+        for attempt in range(4):
+            for cand in _gemini_jsonl_candidates(self._provider_session_id):
+                path = Path(cand)
+                if _read_gemini_session_id(path) != self._provider_session_id:
+                    continue
+                try:
+                    call = await asyncio.to_thread(find_call, path, tool_id)
+                except Exception:  # noqa: BLE001 — the outcome is a nicety
+                    logger.debug("gemini subagent lookup failed", exc_info=True)
+                    call = None
+                outcome = call_outcome(call) if call is not None else None
+                if outcome is not None:
+                    try:
+                        usage = await asyncio.to_thread(call_usage, path, self._provider_session_id, call)
+                    except Exception:  # noqa: BLE001
+                        usage = None
+                    return (*outcome, usage)
+            await asyncio.sleep(0.25 * (attempt + 1))
+        return None
 
     async def _drain_stderr(self, proc: asyncio.subprocess.Process) -> None:
         """Drain stderr in the background, logging it and keeping a tail.
@@ -839,6 +898,13 @@ class GeminiSessionManager(BaseSessionManager):
             for ev in pending:
                 yield ev
 
+            if (
+                otype == "tool_result" and isinstance(obj, dict)
+                and obj.get("tool_id") in self._subagents
+            ):
+                # A finished subagent: look its outcome up before translating.
+                obj = dict(obj, _subagent_outcome=await self._subagent_outcome(obj))
+
             for ev in self._translate_event(obj, text_buffer, tool_uses_in_flight, state):
                 yield ev
 
@@ -910,6 +976,18 @@ class GeminiSessionManager(BaseSessionManager):
                 tool_name=tool_name,
                 tool_input=params if isinstance(params, dict) else {},
             ))
+            if tool_id and tool_name == "invoke_agent":
+                from .subagent_files import spawn_description
+                args = params if isinstance(params, dict) else {}
+                self._subagents.spawn(
+                    tool_id, parent_tool_use_id=None,
+                    agent_type=str(args.get("agent_name") or ""),
+                    description=spawn_description(args.get("prompt")),
+                    background=False,
+                )
+                ev = self._subagents.start(tool_id)
+                if ev is not None:
+                    out.append(ev)
             return out
 
         if obj_type == "tool_result":
@@ -926,11 +1004,28 @@ class GeminiSessionManager(BaseSessionManager):
             else:
                 output = obj.get("output", "")
             tool_uses_in_flight.pop(tool_id, None)
+            rec = self._subagents.get(tool_id)
+            outcome = obj.get("_subagent_outcome") if rec is not None else None
+            usage = None
+            if rec is not None:
+                if outcome is None:
+                    status = "failed" if is_error else "done"
+                    summary = str(output or "")
+                    if is_error and not summary:
+                        summary = "Subagent failed"
+                else:
+                    status, summary, usage = outcome
+                # The card shows the agent's answer, not the raw progress blob.
+                output = summary or output
             out.append(ToolResult(
                 tool_use_id=tool_id,
                 output=str(output) if output is not None else "",
                 is_error=is_error,
             ))
+            if rec is not None:
+                ev = self._subagents.finish(tool_id, status=status, summary=summary, usage=usage)
+                if ev is not None:
+                    out.append(ev)
             return out
 
         if obj_type == "error":

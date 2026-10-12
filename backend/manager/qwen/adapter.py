@@ -275,6 +275,23 @@ class QwenAdapter(ProviderAdapter):
         )
 
 
+    # -- Subagents (spec 12 SA-8): subagents/<sid>/agent-*.jsonl + .meta.json
+
+    def list_subagents(self, jsonl_path: Path) -> list[dict]:
+        from .subagent_files import scan
+        rows, _files = scan(jsonl_path)
+        return rows
+
+    def read_subagent_messages(self, jsonl_path: Path, tool_use_id: str) -> list[dict] | None:
+        from .subagent_files import scan
+        rows, files = scan(jsonl_path)
+        path = files.get(tool_use_id)
+        if path is None:
+            return [] if any(r.get("tool_use_id") == tool_use_id for r in rows) else None
+        # Same line format as the parent (``isSidechain`` lines).
+        return self.read_messages(path)
+
+
 _adapter = QwenAdapter()
 register_provider(_adapter)
 
