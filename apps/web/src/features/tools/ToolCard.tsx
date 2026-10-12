@@ -12,6 +12,8 @@ import { memo, useId, useState } from 'react';
 import type { SessionKind, ToolBlock } from '@/protocol';
 import { Icon, Spinner, VisuallyHidden, cx } from '@/ui/primitives';
 import { formatClock, formatDuration } from './format';
+import { AgentCard } from './AgentCard';
+import { normalizeToolName } from './normalize';
 import { resolveTool, headline } from './registry';
 import { CATEGORY_CLASS } from './categoryClass';
 import { useToolTiming } from './timing';
@@ -56,7 +58,12 @@ export function StatusGlyph({ status, stalled = false, size = 18 }: { status: To
   return <Icon name="more_horiz" size={size} className={styles.neutralIcon} />;
 }
 
-function ToolCardImpl({ block, sessionKind = 'agent', autoOpen, stalled = false, feed, feedTitle, className }: ToolCardProps) {
+/** Agent spawn cards (Task / Agent / invoke_agent) get the agent card (spec 12 §4.8); every other tool the plain card. */
+function ToolCardImpl(props: ToolCardProps) {
+  return normalizeToolName(props.block.tool_name, props.sessionKind ?? 'agent') === 'Task' ? <AgentCard {...props} /> : <PlainToolCard {...props} />;
+}
+
+function PlainToolCard({ block, sessionKind = 'agent', autoOpen, stalled = false, feed, feedTitle, className }: ToolCardProps) {
   const resolved = resolveTool(block, sessionKind);
   const { spec, input, label, summary, name } = resolved;
   const auto = spec.defaultOpen === 'always' || (autoOpen ?? block.status === 'running');

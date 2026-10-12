@@ -28,6 +28,7 @@ export interface Fixture {
     orphan_results?: unknown[];
     unattributed_results?: unknown[];
     queue?: unknown[];
+    subagents?: unknown[];
     state?: Record<string, unknown>;
     controller?: Record<string, unknown>;
   };

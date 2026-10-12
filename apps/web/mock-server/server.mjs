@@ -20,7 +20,10 @@
  * serves the fixture's REST pages (`initial_history`, `rest_page`) for the session's history.
  * After the script (or with no scenario) a session runs in "echo" mode: replies are generated.
  * Echo keywords: "tool", "plan" (ExitPlanMode permission), "think", "stall", "long", "fail",
- * "crash"; anything else is echoed back. Orchestrator: "tool", voice_start / voice_stop (Qwen-like
+ * "crash", "agents" (spec 12 §4.8: two foreground subagents, one nested under the first, and a
+ * background one that finishes after the turn and triggers a task-notification turn; their
+ * transcripts are served by GET …/subagents[/{id}/messages], `stop_subagent` stops one);
+ * anything else is echoed back. Orchestrator: "tool", voice_start / voice_stop (Qwen-like
  * signaling only, no audio), inject_text, send_audio, compact, get_models / get_model / set_model.
  */
 import http from 'node:http';
@@ -116,6 +119,8 @@ class Run {
     this.permissionWaiter = null;
     this.voice = { active: !!fixture?.session.voice_active, owner: null };
     this.closed = false;
+    /** spec 12 §4.8: tool_use_id → { row: SubagentSummary, messages: MessagePreview[], stop: bool } */
+    this.subagents = new Map();
   }
 
   title() {
@@ -162,6 +167,7 @@ class Run {
   sessionStarted(ws, extra = {}) {
     if (this.kind === 'agent') {
       const f = { type: 'session_started', session_id: this.localId, context_window: 200000 };
+      if (this.subagents.size) f.subagents = [...this.subagents.values()].map((a) => ({ ...a.row })); // SA-3
       const cur = !this.started && this.fixture ? firstCursor(this.fixture) : this.seq > 0 ? { stream_id: this.stream, next_seq: this.seq + 1 } : null;
       if (cur) f.resume_state = cur;
       return { ...f, ...extra };
@@ -427,6 +433,7 @@ class Run {
       this.emit({ type: 'tool_result', tool_use_id: id, output: 'done', is_error: false });
       return this.streamText('The command finished after a long wait.');
     }
+    if (t.includes('agents')) return this.agentsDemo();
     if (t.includes('tool')) {
       await this.streamText('Let me look.');
       await this.tool('Bash', { command: 'ls', description: 'List files' }, 'README.md\nsrc\ntests');
@@ -439,6 +446,194 @@ class Run {
     const answer = t.includes('long') ? LONG_ANSWER : `You said: ${text}`;
     await this.streamText(answer);
     this.record('assistant', answer);
+  }
+
+  // ───────────── subagents (spec 12 §4.8) ─────────────
+
+  /** Record one line of a subagent transcript (MessagePreview shape, like the parent's history). */
+  subRecord(id, role, text, blocks) {
+    const a = this.subagents.get(id);
+    if (!a) return;
+    a.messages.push({ role, text, blocks: blocks.map((b) => ({ text: null, tool_use_id: null, tool_name: null, tool_input: null, output: null, is_error: false, ...b })), timestamp: now() });
+  }
+
+  /** Spawn card + subagent_started. */
+  spawnSubagent({ id, parent = null, type, description, prompt, background = false }) {
+    const input = { subagent_type: type, description, prompt, ...(background ? { run_in_background: true } : {}) };
+    const row = { tool_use_id: id, parent_tool_use_id: parent, agent_type: type, description, background, status: 'running', activity: null, usage: { tokens: 0, tool_uses: 0, duration_ms: 0 }, summary: null, started_at: new Date().toISOString(), ended_at: null };
+    this.subagents.set(id, { row, messages: [], stop: false, startedMs: Date.now() });
+    const spawn = { type: 'tool_use', tool_use_id: id, tool_name: 'Agent', tool_input: input };
+    if (parent) this.subEvent(parent, spawn);
+    else {
+      this.emit(spawn);
+      this.record('assistant', '', [{ type: 'tool_use', tool_use_id: id, tool_name: 'Agent', tool_input: input }]); // the parent's history keeps the spawn card
+    }
+    this.emit({ type: 'subagent_started', tool_use_id: id, parent_tool_use_id: parent, agent_type: type, description, background, started_at: row.started_at });
+    this.subRecord(id, 'user', prompt, [{ type: 'text', text: prompt }]);
+  }
+
+  /** One frame of a subagent's own stream (wrapped; recorded into its transcript). */
+  subEvent(id, frame) {
+    const a = this.subagents.get(id);
+    if (!a) return;
+    if (frame.type === 'tool_use') {
+      a.row.activity = frame.tool_name;
+      a.row.usage.tool_uses += 1;
+      this.subRecord(id, 'assistant', '', [{ type: 'tool_use', tool_use_id: frame.tool_use_id, tool_name: frame.tool_name, tool_input: frame.tool_input }]);
+    } else if (frame.type === 'tool_result') {
+      this.subRecord(id, 'user', '', [{ type: 'tool_result', tool_use_id: frame.tool_use_id, output: frame.output, is_error: !!frame.is_error }]);
+    } else if (frame.type === 'text_complete') {
+      this.subRecord(id, 'assistant', frame.text, [{ type: 'text', text: frame.text }]);
+    }
+    this.emit({ type: 'subagent_event', tool_use_id: id, frame });
+  }
+
+  subProgress(id, tokens) {
+    const a = this.subagents.get(id);
+    if (!a) return;
+    a.row.usage.tokens += tokens;
+    a.row.usage.duration_ms = Date.now() - a.startedMs;
+    this.emit({ type: 'subagent_progress', tool_use_id: id, activity: a.row.activity ?? 'Thinking', usage: { ...a.row.usage } });
+  }
+
+  subFinish(id, status, summary) {
+    const a = this.subagents.get(id);
+    if (!a || a.row.status !== 'running') return false;
+    a.row.status = status;
+    a.row.summary = summary;
+    a.row.ended_at = new Date().toISOString();
+    a.row.usage.duration_ms = Date.now() - a.startedMs;
+    this.emit({ type: 'subagent_finished', tool_use_id: id, status, summary, usage: { ...a.row.usage }, ended_at: a.row.ended_at });
+    return true;
+  }
+
+  /** A scripted subagent: `steps` = [tool, input, output] | ['text', text] | ['spawn', spec]; stops on stop_subagent. */
+  async subScript(id, steps, { summary, status = 'done', token = null, pace = 900 }) {
+    let n = 0;
+    for (const st of steps) {
+      if (this.subagents.get(id)?.stop || this.closed) break;
+      if (token && token.cancelled) break;
+      if (st[0] === 'text') {
+        const text = st[1];
+        for (const c of chunks(text, 8)) this.subEvent(id, { type: 'text_delta', text: c });
+        this.subEvent(id, { type: 'text_complete', text });
+      } else if (st[0] === 'await') {
+        await st[1](); // a step that runs when reached (e.g. a nested agent)
+        continue;
+      } else {
+        n += 1;
+        const tid = `${id}_t${n}`;
+        this.subEvent(id, { type: 'tool_use', tool_use_id: tid, tool_name: st[0], tool_input: st[1] });
+        this.subProgress(id, 600 + n * 350);
+        await new Promise((r) => setTimeout(r, this.engine.fast ? 0 : pace * this.engine.speed));
+        if (this.subagents.get(id)?.stop) break;
+        this.subEvent(id, { type: 'tool_result', tool_use_id: tid, output: st[2], is_error: false });
+      }
+      await new Promise((r) => setTimeout(r, this.engine.fast ? 0 : (pace / 2) * this.engine.speed));
+    }
+    const stopped = this.subagents.get(id)?.stop || (token && token.cancelled) || this.closed;
+    this.subFinish(id, stopped ? 'stopped' : status, stopped ? 'Stopped by user' : summary);
+    return stopped ? 'Agent stopped' : summary;
+  }
+
+  /** A spawn card's result on the parent stream (recorded in the parent's history too). */
+  spawnResult(id, output, isError = false) {
+    this.emit({ type: 'tool_result', tool_use_id: id, output, is_error: isError });
+    this.record('user', '', [{ type: 'tool_result', tool_use_id: id, output, is_error: isError }]);
+  }
+
+  stopSubagent(id, ws) {
+    const a = this.subagents.get(id);
+    if (!a) return this.sendTo(ws, { type: 'error', error: 'unknown_subagent', detail: `No subagent ${id}` });
+    if (a.row.status !== 'running') return;
+    a.stop = true;
+  }
+
+  async agentsDemo() {
+    this.ensureSdkId(); // the real backend knows the sdk id from the CLI's init, before the turn ends
+    const token = this.cancel;
+    const tag = Math.random().toString(36).slice(2, 7);
+    const A = `toolu_agentA_${tag}`;
+    const B = `toolu_agentB_${tag}`;
+    const C = `toolu_agentC_${tag}`;
+    const N = `toolu_agentN_${tag}`;
+    await this.streamText('I will split this across three agents: two now, one in the background.');
+    this.spawnSubagent({ id: A, type: 'Explore', description: 'Find the scroll logic', prompt: 'Find where the chat list decides to follow new messages.' });
+    this.spawnSubagent({ id: B, type: 'general-purpose', description: 'Review the tests', prompt: 'Check which scroll tests exist and what they cover.' });
+    this.spawnSubagent({ id: C, type: 'general-purpose', description: 'Digest the logs', prompt: 'Read logs/ and summarise any errors.', background: true });
+    this.spawnResult(C, `Async agent launched successfully. agentId: ${C.slice(-6)}`);
+    const runC = this.subScript(
+        C,
+        [
+          ['Bash', { command: 'ls logs', description: 'List the logs' }, 'backend.log\nremote_console.log'],
+          ['Read', { file_path: 'logs/backend.log' }, 'INFO started\nWARN slow request /api/sessions (2.1s)'],
+          ['Grep', { pattern: 'ERROR', path: 'logs' }, 'no matches'],
+          ['text', 'No errors; one slow request warning.'],
+        ],
+        { summary: 'Logs are clean: no errors, one slow-request warning in backend.log.', pace: 3200 },
+      );
+    let nested = null;
+    const runA = this.subScript(
+      A,
+      [
+        ['Grep', { pattern: 'pinned|nearBottom', path: 'apps/web/src' }, 'useMessageWindow.ts:41\nmessageWindow.ts:12'],
+        ['Read', { file_path: 'apps/web/src/features/conversation/useMessageWindow.ts' }, 'export function useMessageWindow(o) {\n  // pinned within 150 px …\n}'],
+        ['spawnNested'],
+        ['text', 'The list follows new messages while it is within 150 px of the bottom (useMessageWindow.ts).'],
+      ].map((st) =>
+        st[0] === 'spawnNested'
+          ? [
+              'await',
+              async () => {
+                this.spawnSubagent({ id: N, parent: A, type: 'Explore', description: 'Count the callers', prompt: 'Count every caller of useMessageWindow.' });
+                nested = this.subScript(N, [['Grep', { pattern: 'useMessageWindow\\(' }, 'MessageList.tsx:212'], ['text', 'One caller: MessageList.']], { summary: 'One caller: MessageList.tsx.', token, pace: 700 });
+                this.subEvent(A, { type: 'tool_result', tool_use_id: N, output: await nested, is_error: false });
+              },
+            ]
+          : st,
+      ),
+      { summary: 'The chat list follows new messages within 150 px of the bottom (useMessageWindow.ts); MessageList is its only caller.', token, pace: 1100 },
+    );
+    const runB = this.subScript(
+      B,
+      [
+        ['Glob', { pattern: 'apps/web/src/**/scroll*.test.tsx' }, 'apps/web/src/features/conversation/__tests__/scroll.test.tsx'],
+        ['Read', { file_path: 'apps/web/src/features/conversation/__tests__/scroll.test.tsx' }, "describe('scroll', () => { … })"],
+        ['Bash', { command: 'npx vitest run scroll', description: 'Run the scroll tests' }, '✓ 12 tests passed'],
+        ['text', 'The scroll tests cover pinning, the freeze buffer and prepends; all 12 pass.'],
+      ],
+      { summary: 'scroll.test.tsx covers pinning, the freeze buffer and prepends; 12 tests pass.', token, pace: 1300 },
+    );
+    const [ra, rb] = await Promise.all([runA, runB]);
+    this.spawnResult(A, ra, ra === 'Agent stopped');
+    this.spawnResult(B, rb, rb === 'Agent stopped');
+    const answer = 'Both foreground agents are done; the log digest keeps running in the background.';
+    await this.streamText(answer);
+    this.record('assistant', answer);
+    // the background agent outlives the turn (out-of-turn frames, PLAN §4.3)
+    void (async () => {
+      const r = await runC;
+      while (this.busy && !this.closed) await new Promise((res) => setTimeout(res, 50)); // the CLI injects it after the running turn
+      if (this.closed) return;
+      const note = `<task-notification>\n<task-id>${C.slice(-6)}</task-id>\n<status>${r === 'Agent stopped' ? 'killed' : 'completed'}</status>\n<summary>Agent "Digest the logs" ${r === 'Agent stopped' ? 'was stopped' : 'finished'}</summary>\n</task-notification>`;
+      this.busy = true;
+      this.cancel = { cancelled: false };
+      this.emit({ type: 'user_message', text: note, source: 'task_notification' });
+      this.record('user', note);
+      this.emit({ type: 'status', status: 'processing' });
+      try {
+        const reply = r === 'Agent stopped' ? 'The log digest was stopped before it finished.' : 'The background agent found the logs clean: no errors, one slow-request warning.';
+        await this.streamText(reply);
+        this.record('assistant', reply);
+        this.emit({ type: 'turn_complete', cost: 0.001, usage: { input_tokens: 12, output_tokens: 20 }, input_tokens: 1900, output_tokens: 20, num_turns: 1, session_id: this.ensureSdkId(), is_error: false, result: 'ok' });
+      } catch {
+        // interrupted
+      }
+      this.busy = false;
+      this.cancel = null;
+      const next = this.queue.shift();
+      if (next && !this.closed) this.runTurn(next.text, next.sender, false);
+    })();
   }
 
   async orchestratorReply(text) {
@@ -494,7 +689,21 @@ class Run {
 }
 
 /** Frame types the Claude agent stream stamps with seq (pool._wrap_payload). */
-const SEQ_TYPES = new Set(['text_delta', 'text_complete', 'thinking_delta', 'thinking_complete', 'tool_use', 'tool_result', 'turn_complete', 'permission_request', 'permission_resolved']);
+const SEQ_TYPES = new Set([
+  'text_delta',
+  'text_complete',
+  'thinking_delta',
+  'thinking_complete',
+  'tool_use',
+  'tool_result',
+  'turn_complete',
+  'permission_request',
+  'permission_resolved',
+  'subagent_started',
+  'subagent_progress',
+  'subagent_finished',
+  'subagent_event',
+]);
 
 class Engine {
   constructor(opts) {
@@ -654,8 +863,8 @@ class Engine {
     if (type === 'ping' && kind === 'orchestrator') return;
     if (type === 'pong' && kind === 'orchestrator') return;
     if (type === 'get_models' && kind === 'orchestrator') return send({ type: 'models_list', models: [MODEL_INFO.model_info] });
-    const known = ['send', 'interrupt', 'compact', 'stop', 'permission_response', 'command', 'inject_text', 'send_audio', 'set_model', 'get_model', 'voice_stop', 'voice_event', 'voice_audio_in', 'voice_recording_chunk', 'voice_recording_end'];
-    const agentOnly = ['command'];
+    const known = ['send', 'interrupt', 'compact', 'stop', 'permission_response', 'command', 'stop_subagent', 'inject_text', 'send_audio', 'set_model', 'get_model', 'voice_stop', 'voice_event', 'voice_audio_in', 'voice_recording_chunk', 'voice_recording_end'];
+    const agentOnly = ['command', 'stop_subagent'];
     const orchOnly = ['inject_text', 'send_audio', 'set_model', 'get_model', 'voice_stop', 'voice_event', 'voice_audio_in', 'voice_recording_chunk', 'voice_recording_end'];
     if (known.indexOf(type) < 0 || (kind === 'agent' && orchOnly.indexOf(type) >= 0) || (kind === 'orchestrator' && agentOnly.indexOf(type) >= 0))
       return send({ type: 'error', error: 'unknown_type', detail: `Unknown message type: '${type}'` });
@@ -684,6 +893,8 @@ class Engine {
         return run.prompt(`[audio:${msg.format ?? 'webm'}] (${String(msg.audio ?? '').length} base64 chars)`, ws);
       case 'interrupt':
         return run.interrupt(ws);
+      case 'stop_subagent':
+        return run.stopSubagent(String(msg.tool_use_id ?? ''), ws);
       case 'compact':
         if (kind === 'orchestrator') {
           run.broadcast({ type: 'status', status: 'streaming' });

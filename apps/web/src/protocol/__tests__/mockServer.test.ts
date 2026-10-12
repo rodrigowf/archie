@@ -157,6 +157,9 @@ const LIVE = [
   'voice_transcript_coalescing_gemini',
   'orchestrator_error_no_turn_complete',
   'orchestrator_parallel_tools',
+  'subagent_foreground_unopened',
+  'subagent_background_after_turn',
+  'subagent_placeholder_without_lifecycle',
 ];
 
 describe('mock server replays scenarios faithfully (W-05 DoD)', () => {
@@ -171,6 +174,7 @@ describe('mock server replays scenarios faithfully (W-05 DoD)', () => {
     expect(actual.orphan_results).toStrictEqual(exp.orphan_results ?? []);
     expect(actual.unattributed_results).toStrictEqual(exp.unattributed_results ?? []);
     if (exp.queue !== undefined) expect(actual.queue).toStrictEqual(exp.queue);
+    if (exp.subagents !== undefined) expect(actual.subagents).toStrictEqual(exp.subagents);
     const expState = Object.fromEntries(Object.entries(exp.state ?? {}).filter(([k]) => keys.indexOf(k) >= 0));
     expect(actual.state).toStrictEqual(expState);
   });

@@ -29,6 +29,7 @@ import {
   useTabTitle,
 } from '@/stores';
 import { compactSession, resumeReadOnly, STOP_FIRST } from '@/features/session-actions';
+import { AgentsButton } from '@/features/subagents';
 import { IconButton } from '@/ui/controls';
 import { Menu, MenuItem } from '@/ui/overlays';
 import { cx } from '@/ui/primitives';
@@ -348,6 +349,8 @@ function ComposerImpl({ localId }: ComposerProps) {
             }}
           />
         )}
+        {/* spec 12 §4.8: shown only while the session has subagents (IA §6 zero state) */}
+        {!rec && !archie ? <AgentsButton localId={localId} /> : null}
         {showRing ? (
           <ContextRing
             usage={{ percent: s.percent, level: s.level }}

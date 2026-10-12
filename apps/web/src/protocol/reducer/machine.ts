@@ -14,6 +14,14 @@
  *   close as a `watcher` effect. Either way the session directory then closes the view (OPEN-3).
  * - D5 a start error that fails the pending `start` releases the held `preStart` frames (lossless,
  *   L-2) instead of leaving them for a `session_started` that will not come.
+ * - D6 subagents (§4.8): lifecycle / spawn-card / snapshot / list upserts skip empty strings as
+ *   well as null (a harness that omits a field never blanks one set earlier); `subagent_finished`
+ *   also counts as "lifecycle seen" for SA-2; a subagent that leaves `running` while its
+ *   transcript is open ends that transcript's turn whatever the cause (finished frame, snapshot,
+ *   list row, spawn card); nested spawn cards inside an open transcript are hoisted into the
+ *   root map with `parent_tool_use_id` = the open subagent (SA-6); a canonical reload (§5.6)
+ *   re-fetches every open transcript; SA-7 sets `promptSinceTurnEnd` so the notification's own
+ *   `status{processing}` never dispatches a queued prompt from the tray.
  */
 import { classifyUserLine, normalizeOutput } from '../history/classify';
 import { canResume, checkpointFromResumeState, isDuplicateSeq, mergeResumeState } from '../resume/checkpoint';
@@ -34,6 +42,8 @@ import {
   type SessionKind,
   type SessionStatus,
   type StreamBlock,
+  type Subagent,
+  type SubagentUsage,
   type ToolBlock,
   type ToolResultData,
   type UserEntry,
@@ -43,6 +53,7 @@ import { coerceFrame, isPlainObject } from '../wire/decode';
 import type { MessagePreview, MessagesPage, ServerFrame, SessionStartedFrame } from '../wire/server';
 import { Draft, type Loc, type Mutable } from './draft';
 import type { ConversationInput, Effect, HistoryMode, StepResult } from './io';
+import { blankSubagent, isSubagentTool, rowPatch, sameUsage, spawnPatch, subagentStatus, usageOf, type SubagentPatch } from './subagents';
 
 const TURN_FAILURE_AGENT = ['send_failed', 'upstream_wedged', 'turn_timeout', 'command_failed', 'compact_failed'];
 const TURN_FAILURE_ORCH = [
@@ -78,6 +89,32 @@ const VOICE_DELTAS = [
 ];
 const VOICE_TRANSCRIPT_DONE = ['response.output_audio_transcript.done', 'response.audio_transcript.done'];
 const VOICE_TEXT_DONE = ['response.output_text.done', 'response.text.done'];
+
+/** Frames a `subagent_event` may carry into the subagent's own conversation (SA-4). */
+const INNER_TYPES: readonly string[] = [
+  'text_delta',
+  'text_complete',
+  'thinking_delta',
+  'thinking_complete',
+  'tool_use',
+  'tool_result',
+  'tool_executing',
+  'tool_progress',
+  'permission_request',
+  'permission_resolved',
+];
+/** Marker kept in a subagent's `held` list: its `subagent_finished` arrived while the first page loaded. */
+const SUBAGENT_END = 'subagent_finished';
+const END_MARKER: ServerFrame = Object.freeze({ type: 'unknown', original_type: SUBAGENT_END, raw: {} }) as ServerFrame;
+
+function isEndMarker(f: ServerFrame): boolean {
+  return f.type === 'unknown' && f.original_type === SUBAGENT_END;
+}
+
+/** A non-empty string, else null (D6: upserts never blank a field with ""). */
+function nonEmpty(x: string | null | undefined): string | null {
+  return typeof x === 'string' && x !== '' ? x : null;
+}
 
 function str(x: unknown): string {
   return typeof x === 'string' ? x : '';
@@ -154,6 +191,8 @@ export function initialConversation(o: InitialConversationOptions): Conversation
     connectionBanner: null,
     gapPossible: false,
     agentApprovals: [],
+    subagents: [],
+    subagentsListed: false,
     checkpoint: null,
     counters: { cost: 0, turns: 0, contextTokens: null, contextWindow: null },
     history: { loaded: false, startIndex: 0, totalCount: 0, hasMore: false },
@@ -254,6 +293,18 @@ class Machine extends Draft {
         if (this.s.agentApprovals.some((a) => a.localId === x.localId))
           this.s.agentApprovals = this.s.agentApprovals.filter((a) => a.localId !== x.localId);
         return;
+      case 'open_subagent':
+        return this.openSubagent(x.toolUseId);
+      case 'subagent_page':
+        return this.onSubagentPage(x.toolUseId, x.mode, x.response, x.error ?? null);
+      case 'release_subagent':
+        this.patchSub(x.toolUseId, { conv: null, held: null, loadError: null });
+        return;
+      case 'subagents_list':
+        for (const row of x.rows) this.upsertRow(row);
+        return;
+      case 'end_turn':
+        return this.endTurn();
     }
   }
 
@@ -367,10 +418,13 @@ class Machine extends Draft {
       this.applyHistoryPage('replace', resp);
       this.s.reloading = false;
       this.s.gapPossible = false;
+      this.maybeListSubagents();
+      this.refetchOpenSubagents(); // D6: before the buffered frames, so their inner frames are held
       this.flushReload();
       return;
     }
     this.applyHistoryPage(mode, resp);
+    if (mode !== 'reconcile') this.maybeListSubagents();
   }
 
   /** ST-2 */
@@ -644,6 +698,7 @@ class Machine extends Draft {
           const m = this.blockMut(known) as Mutable<ToolBlock>;
           if (fillName) m.tool_name = name;
           if (fillInput) m.tool_input = input;
+          this.taskCreated(this.blockAt(known) as ToolBlock);
         }
         return;
       }
@@ -660,6 +715,7 @@ class Machine extends Draft {
       scope,
       origin: 'live',
     });
+    this.taskCreated(this.blockAt(loc) as ToolBlock); // SA-2, before an orphan result settles it
     if (id) this.attachOrphan(id, loc);
   }
 
@@ -720,6 +776,7 @@ class Machine extends Draft {
     m.status = status;
     m.inferred = inferred;
     m.executing = false;
+    this.taskSettled(loc);
   }
 
   private onToolExecuting(id: string): void {
@@ -795,6 +852,7 @@ class Machine extends Draft {
           if (b.status === 'running') {
             (this.blockMut(loc) as Mutable<ToolBlock>).status = 'no_result';
             expired += 1;
+            this.taskSettled(loc);
           }
         } else if (b.state === 'pending') {
           const pb = this.blockMut(loc) as Mutable<PermissionBlock>;
@@ -877,6 +935,12 @@ class Machine extends Draft {
       case 'user_message': {
         if (f.queued === true) {
           this.s.queue = this.s.queue.concat([{ text: f.text, owner: 'remote' }]); // I-12
+          return;
+        }
+        if (f.source === 'task_notification') {
+          // SA-7: a background subagent finished; never a user bubble, never pops the tray
+          this.appendEntry(this.noticeEntry('background', f.text));
+          this.s.promptSinceTurnEnd = true; // D6: its status{processing} is not a tray dispatch
           return;
         }
         if (f.source === 'shared_inject') {
@@ -962,12 +1026,14 @@ class Machine extends Draft {
         this.s.status = 'terminated';
         this.endTurn();
         this.endVoice();
+        this.stopRunningSubagents(); // SA-3
         this.s.checkpoint = null;
         return;
 
       case 'session_stopped':
         if (this.s.expectStopAck) {
           this.s.expectStopAck = false; // reply to our own stop / close
+          this.stopRunningSubagents(); // SA-3: the harness process (and its subagents) is gone
           return;
         }
         return this.stoppedByServer(); // the view closes on the watcher's agent_session_closed (OPEN-3)
@@ -983,7 +1049,38 @@ class Machine extends Draft {
         return this.endVoice();
       case 'session_started':
         if (f.voice === true) this.s.voiceActive = true; // the other fields: onSessionStarted (§3.6)
+        if (ref.kind === 'agent' && Array.isArray(f.subagents)) for (const row of f.subagents) this.upsertRow(row); // SA-3
         return;
+      case 'subagent_started':
+        if (ref.kind !== 'agent') return;
+        this.upsertSubagent(f.tool_use_id, {
+          parent_tool_use_id: nonEmpty(f.parent_tool_use_id),
+          agent_type: nonEmpty(f.agent_type),
+          description: nonEmpty(f.description),
+          background: f.background ?? null,
+          started_at: nonEmpty(f.started_at),
+          lifecycle: true,
+        });
+        return;
+      case 'subagent_progress':
+        if (ref.kind !== 'agent') return;
+        this.upsertSubagent(f.tool_use_id, { activity: nonEmpty(f.activity), usage: usageOf(f.usage) });
+        return;
+      case 'subagent_finished': {
+        if (ref.kind !== 'agent') return;
+        const sub = this.upsertSubagent(f.tool_use_id, {
+          status: subagentStatus(f.status, 'done'),
+          summary: f.summary ?? null,
+          usage: usageOf(f.usage),
+          ended_at: nonEmpty(f.ended_at),
+          lifecycle: true,
+        });
+        if (sub) this.endSubagentTurn(sub.tool_use_id);
+        return;
+      }
+      case 'subagent_event':
+        if (ref.kind !== 'agent') return;
+        return this.onSubagentEvent(f.tool_use_id, f.frame);
       case 'nested_session_event':
         return this.onNestedEvent(f.session_id, f.event_type, f.event_data);
       case 'model_changed':
@@ -1014,6 +1111,7 @@ class Machine extends Draft {
     if (this.s.status !== 'terminated') this.s.status = 'stopped';
     this.endTurn();
     this.endVoice();
+    this.stopRunningSubagents(); // SA-3
   }
 
   private onNestedEvent(localId: string, eventType: string, data: Record<string, unknown>): void {
@@ -1264,6 +1362,177 @@ class Machine extends Draft {
     if (loc) (this.blockMut(loc) as Mutable<StreamBlock>).streaming = false;
   }
 
+  // ═════════════════════════ subagents (§4.8) ═════════════════════════
+
+  private subIndex(id: string): number {
+    const list = this.s.subagents;
+    for (let k = 0; k < list.length; k++) if ((list[k] as Subagent).tool_use_id === id) return k;
+    return -1;
+  }
+
+  private subAt(id: string): Subagent | null {
+    const k = this.subIndex(id);
+    return k >= 0 ? (this.s.subagents[k] as Subagent) : null;
+  }
+
+  /** Replace one subagent (copy-on-write list), or append it in first-sight order. */
+  private writeSub(next: Subagent): void {
+    const k = this.subIndex(next.tool_use_id);
+    if (k < 0) this.s.subagents = this.s.subagents.concat([next]);
+    else this.s.subagents = this.s.subagents.map((x, n) => (n === k ? next : x));
+  }
+
+  /**
+   * spec `upsertSubagent`: creates in first-sight order, then merges the non-null fields. A
+   * subagent that leaves `running` while its transcript is open ends that transcript's turn (D6).
+   */
+  private upsertSubagent(id: string, patch: SubagentPatch): Subagent | null {
+    if (!id) return null;
+    const prev = this.subAt(id);
+    const base = prev ?? blankSubagent(id);
+    let next: Mutable<Subagent> | null = prev ? null : { ...base };
+    for (const key of Object.keys(patch) as (keyof SubagentPatch)[]) {
+      const v = patch[key];
+      if (v === undefined || v === null) continue;
+      const cur = (next ?? base)[key];
+      if (key === 'usage' ? sameUsage(cur as SubagentUsage | null, v as SubagentUsage) : cur === v) continue;
+      if (!next) next = { ...base };
+      (next as Record<string, unknown>)[key] = v;
+    }
+    if (!next) return base;
+    this.writeSub(next);
+    if (base.status === 'running' && next.status !== 'running') this.endSubagentTurn(id);
+    return this.subAt(id);
+  }
+
+  /** Set fields verbatim, null included (conv / held / loadError / status). */
+  private patchSub(id: string, fields: Partial<Mutable<Subagent>>): void {
+    const prev = this.subAt(id);
+    if (!prev) return;
+    let changed = false;
+    for (const k of Object.keys(fields) as (keyof Subagent)[]) if (prev[k] !== fields[k]) changed = true;
+    if (changed) this.writeSub({ ...prev, ...fields });
+  }
+
+  /** A `SubagentSummary` row (SA-3 snapshot, SA-8 list). */
+  private upsertRow(row: unknown): void {
+    const r = rowPatch(row);
+    if (!r) return;
+    const p = r.patch;
+    for (const k of ['parent_tool_use_id', 'agent_type', 'description', 'activity', 'started_at', 'ended_at'] as const)
+      if (p[k] === '') p[k] = undefined; // D6
+    this.upsertSubagent(r.id, p);
+  }
+
+  /** SA-2: a Task-like spawn card was created (live or history). Agent sessions only. */
+  private taskCreated(tb: ToolBlock): void {
+    if (!tb.tool_use_id || this.s.ref.kind !== 'agent' || !isSubagentTool(tb.tool_name)) return;
+    this.upsertSubagent(tb.tool_use_id, spawnPatch(tb.tool_input));
+  }
+
+  /** SA-2: the spawn card settled; the status follows it while no lifecycle frame was seen. */
+  private taskSettled(loc: Loc): void {
+    const tb = this.blockAt(loc) as ToolBlock;
+    if (!tb.tool_use_id || this.s.ref.kind !== 'agent' || !isSubagentTool(tb.tool_name)) return;
+    const sub = this.subAt(tb.tool_use_id);
+    if (!sub || sub.lifecycle) return;
+    const status = tb.status === 'done' ? 'done' : tb.status === 'error' ? 'failed' : tb.status === 'no_result' ? 'stopped' : null;
+    if (status) this.upsertSubagent(tb.tool_use_id, { status, summary: tb.output });
+  }
+
+  /** SA-3: the session stopped or terminated; every running subagent stopped with it. */
+  private stopRunningSubagents(): void {
+    for (const x of this.s.subagents) if (x.status === 'running') this.upsertSubagent(x.tool_use_id, { status: 'stopped' });
+  }
+
+  /** SA-4: `subagent_finished` ends the open transcript's turn (or after its first page, while it loads). */
+  private endSubagentTurn(id: string): void {
+    const sub = this.subAt(id);
+    if (!sub) return;
+    if (sub.held) this.patchSub(id, { held: sub.held.concat([END_MARKER]) });
+    else if (sub.conv) this.patchSub(id, { conv: this.stepInner(id, sub.conv, { type: 'end_turn' }) });
+  }
+
+  private onSubagentEvent(id: string, raw: Record<string, unknown>): void {
+    const d = coerceFrame(raw);
+    if (!d.ok || INNER_TYPES.indexOf(d.frame.type) < 0) return;
+    const inner = d.frame;
+    const sub = this.upsertSubagent(id, inner.type === 'tool_use' ? { activity: nonEmpty(inner.tool_name) } : {});
+    if (!sub) return;
+    if (sub.held) this.patchSub(id, { held: sub.held.concat([inner]) });
+    else if (sub.conv) this.patchSub(id, { conv: this.stepInner(id, sub.conv, { type: 'frame', frame: inner }) });
+    // conv == null: only the summary is kept (SA-5)
+  }
+
+  /**
+   * `reduceInner` (SA-4): the §4.3 reducer on the subagent's own conversation. Its effects are
+   * dropped (no socket, no REST of its own); nested spawn cards it created or settled are hoisted
+   * into this (root) map with this subagent as their parent (SA-6, D6).
+   */
+  private stepInner(id: string, conv: Conversation, input: ConversationInput): Conversation {
+    const next = stepConversation(conv, input).state;
+    const before = conv.subagents;
+    for (const n of next.subagents) {
+      if (before.indexOf(n) >= 0) continue;
+      const root = this.subAt(n.tool_use_id);
+      this.upsertSubagent(n.tool_use_id, {
+        parent_tool_use_id: root && root.parent_tool_use_id ? null : id,
+        agent_type: nonEmpty(n.agent_type),
+        description: nonEmpty(n.description),
+      });
+      if (!(root && root.lifecycle) && n.status !== 'running') this.upsertSubagent(n.tool_use_id, { status: n.status, summary: n.summary });
+    }
+    return next;
+  }
+
+  /** `openSubagent` (SA-5). */
+  private openSubagent(id: string): void {
+    if (!id || this.s.ref.kind !== 'agent') return;
+    const sub = this.upsertSubagent(id, {});
+    if (!sub || sub.conv) return;
+    const conv = initialConversation({
+      localId: `${this.s.ref.localId}/${id}`,
+      kind: 'agent',
+      provider: this.s.ref.provider,
+      subscribed: true,
+      liveStatus: sub.status === 'running' ? 'streaming' : null, // a running agent's tail tool may still run (TC-2)
+    });
+    this.patchSub(id, { conv, held: [], loadError: null });
+    this.effects.push({ type: 'fetch_subagent_page', toolUseId: id });
+  }
+
+  /** SA-5 first page (+ held frames), or an older page of an open transcript (§5.3). */
+  private onSubagentPage(id: string, mode: 'replace' | 'prepend', resp: MessagesPage | null, error: string | null): void {
+    const sub = this.subAt(id);
+    if (!sub || !sub.conv) return; // released meanwhile
+    if (mode === 'prepend') {
+      if (resp && sub.held === null) this.patchSub(id, { conv: this.stepInner(id, sub.conv, { type: 'history_page', mode: 'prepend', response: resp }) });
+      return;
+    }
+    if (sub.held === null) return; // a stale answer: this transcript is not waiting for a page
+    let conv = sub.conv;
+    if (resp) conv = this.stepInner(id, conv, { type: 'history_page', mode: 'replace', response: resp });
+    for (const f of sub.held) conv = this.stepInner(id, conv, isEndMarker(f) ? { type: 'end_turn' } : { type: 'frame', frame: f });
+    this.patchSub(id, { conv, held: null, loadError: resp ? null : (error ?? 'Could not load the transcript.') });
+  }
+
+  /** SA-8: after a history page that created placeholders, fetch the list once. */
+  private maybeListSubagents(): void {
+    if (this.s.subagentsListed || this.s.ref.kind !== 'agent' || !this.s.ref.sdkId) return;
+    if (!this.s.subagents.some((x) => !x.lifecycle)) return;
+    this.s.subagentsListed = true;
+    this.effects.push({ type: 'fetch_subagents' });
+  }
+
+  /** D6: a canonical reload (§5.6) may have missed inner frames; reload every open transcript. */
+  private refetchOpenSubagents(): void {
+    for (const x of this.s.subagents) {
+      if (!x.conv || x.held !== null) continue;
+      this.patchSub(x.tool_use_id, { held: [] });
+      this.effects.push({ type: 'fetch_subagent_page', toolUseId: x.tool_use_id });
+    }
+  }
+
   // ═════════════════════════ history (§5.1, §5.5) ═════════════════════════
 
   private applyHistoryPage(mode: HistoryMode, resp: MessagesPage): void {
@@ -1280,7 +1549,10 @@ class Machine extends Draft {
       const mayStillRun = mode === 'replace' && this.s.inTurn && i === page.length - 1;
       if (mayStillRun) continue;
       e.blocks.forEach((b, j) => {
-        if (b.type === 'tool' && b.status === 'running') (this.blockMut({ w: 0, i, j }) as Mutable<ToolBlock>).status = 'no_result';
+        if (b.type === 'tool' && b.status === 'running') {
+          (this.blockMut({ w: 0, i, j }) as Mutable<ToolBlock>).status = 'no_result';
+          this.taskSettled({ w: 0, i, j });
+        }
       });
     }
     this.scratch = false;
@@ -1369,6 +1641,7 @@ class Machine extends Draft {
       scope: 'turn',
       origin: 'history',
     });
+    this.taskCreated(this.blockAt(loc) as ToolBlock); // SA-2 from history
     if (id) this.attachOrphan(id, loc);
   }
 

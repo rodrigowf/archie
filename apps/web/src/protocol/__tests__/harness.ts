@@ -3,7 +3,7 @@
  * "Normalisation"). Every event goes through the real decoder as a binary frame first (T-1).
  */
 import type { Fixture, FixtureAction } from '../../../mock-server/scenarios.mjs';
-import type { Conversation, ConversationInput, Effect, Entry, MessagesPage } from '../index';
+import type { Conversation, ConversationInput, Effect, Entry, MessagesPage, Subagent } from '../index';
 import { decodeFrame, initialConversation, stepConversation } from '../index';
 
 export interface RunResult {
@@ -52,6 +52,12 @@ export function actionInput(a: FixtureAction): ConversationInput | null {
       return { type: 'socket_open' };
     case 'rest_page':
       return { type: 'history_page', mode: a.mode as 'replace' | 'prepend' | 'reconcile', response: a.response as MessagesPage };
+    case 'open_subagent':
+      return { type: 'open_subagent', toolUseId: String(a.tool_use_id) };
+    case 'subagent_rest_page':
+      return { type: 'subagent_page', toolUseId: String(a.tool_use_id), mode: 'replace', response: a.response as MessagesPage };
+    case 'release_subagent':
+      return { type: 'release_subagent', toolUseId: String(a.tool_use_id) };
     default:
       throw new Error(`unknown client action ${a.type}`);
   }
@@ -176,7 +182,25 @@ export interface Normalised {
   orphan_results: unknown[];
   unattributed_results: unknown[];
   queue: unknown[];
+  subagents: unknown[];
   state: Record<string, unknown>;
+}
+
+/** README "Normalisation" → subagents (spec 12 §4.8): `entries` only while the transcript is open. */
+export function normaliseSubagent(s: Subagent): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    tool_use_id: s.tool_use_id,
+    parent_tool_use_id: s.parent_tool_use_id,
+    agent_type: s.agent_type,
+    description: s.description,
+    background: s.background,
+    status: s.status,
+    activity: s.activity,
+    summary: s.summary,
+    open: s.conv !== null,
+  };
+  if (s.conv) out.entries = s.conv.entries.map(normaliseEntry);
+  return out;
 }
 
 export function normalise(c: Conversation, stateKeys: readonly string[] = Object.keys(STATE_KEYS)): Normalised {
@@ -191,6 +215,7 @@ export function normalise(c: Conversation, stateKeys: readonly string[] = Object
     orphan_results: c.orphanResults.map((o) => ({ tool_use_id: o.tool_use_id, output: o.output, is_error: o.is_error })),
     unattributed_results: c.unattributed.map((u) => ({ output: u.output, is_error: u.is_error })),
     queue: c.queue.map((q) => ({ text: q.text, owner: q.owner })),
+    subagents: c.subagents.map(normaliseSubagent),
     state,
   };
 }

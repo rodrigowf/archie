@@ -123,3 +123,28 @@ describe('fixture scenarios through the real SessionRuntime', () => {
     expect(actual.state).toStrictEqual(expState);
   });
 });
+
+describe('subagents end to end (spec 12 §4.8, mock "agents" scenario)', () => {
+  it('two foreground agents, a nested one and a background agent finishing after the turn; an opened transcript loads over REST', async () => {
+    startServices({ skipInitialSync: true, reconnectPolicy: fastReconnect });
+    const rt = openSession({ kind: 'agent', focus: true }) as SessionRuntime;
+    await until(() => rt.conv.conn === 'subscribed', 'session_started');
+    rt.send('run the agents');
+    await until(() => rt.conv.subagents.length >= 3, 'three agents').catch((e: unknown) => {
+      throw new Error(`${String(e)} ${rt.conv.status} ${JSON.stringify(rt.conv.entries.map(summary))}`);
+    });
+    const first = rt.conv.subagents[0]?.tool_use_id as string;
+    rt.openSubagent(first);
+    await until(() => rt.conv.subagents.length === 4 && rt.conv.subagents.every((s) => s.status === 'done'), 'all agents done', 3000).catch((e: unknown) => {
+      throw new Error(`${String(e)} ${JSON.stringify(rt.conv.subagents.map((s) => [s.status, s.held?.length, s.activity]))} ${rt.conv.status}`);
+    });
+    await until(() => rt.conv.entries.some((e) => e.kind === 'notice' && e.notice === 'background') && rt.conv.status === 'idle', 'task notification turn', 8000);
+    const opened = rt.conv.subagents[0];
+    expect(opened?.held).toBeNull();
+    expect(opened?.conv?.entries.length).toBeGreaterThan(1);
+    expect(rt.conv.subagents.filter((s) => s.parent_tool_use_id === first)).toHaveLength(1);
+    // SA-1: only the spawn cards and the parent's own text are in the parent timeline
+    const tools = rt.conv.entries.flatMap((e) => (e.kind === 'assistant' ? e.blocks.filter((b) => b.type === 'tool').map((b) => (b as { tool_name: string }).tool_name) : []));
+    expect(tools).toEqual(['Agent', 'Agent', 'Agent']);
+  }, 15000);
+});

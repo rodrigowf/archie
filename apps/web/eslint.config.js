@@ -78,8 +78,9 @@ const BOUNDARY_PATTERNS = [
   },
   {
     // Regex, because gitignore-style groups cannot re-include a path under an excluded parent.
-    // The per-build alias `@/features/markdown/highlight/languages` (vite.shared.ts) stays allowed.
-    regex: '^@/features/(?!markdown/highlight/languages$)[^/]+/',
+    // The per-build alias `@/features/markdown/highlight/languages` (vite.shared.ts) stays allowed, and
+    // `@/features/subagents/card` (the lazy agent card's entry, kept off the initial barrel, spec 13 §5.4).
+    regex: '^@/features/(?!markdown/highlight/languages$|subagents/card$)[^/]+/',
     message: BOUNDARY_MESSAGE,
   },
 ];

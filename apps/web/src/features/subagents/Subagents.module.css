@@ -1,0 +1,70 @@
+/*
+ * Subagent UI (PLAN §4.4): the composer's Agents button, the secondary agent tab row, the agent
+ * tab's breadcrumb and read-only bar, and the agents sheet rows. No flex `gap` (Safari 12):
+ * spacing is margins. Task hue from the tool-category tokens.
+ */
+
+/* ---------- status glyphs ---------- */
+
+.glyph {
+  flex: none;
+}
+
+.ok {
+  color: var(--md-ext-color-success);
+}
+
+.err {
+  color: var(--md-sys-color-error);
+}
+
+.neutral {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Agents button (beside the context ring, Composer `.ring`) ---------- */
+
+.agentsButton {
+  display: inline-flex;
+  position: relative;
+  flex: none;
+  align-items: center;
+  height: 40px;
+  margin-bottom: 4px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 20px;
+  background: none;
+  color: var(--md-sys-color-on-surface-variant);
+  font-family: var(--md-sys-typescale-label-medium-font);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.agentsButton::after {
+  content: "";
+  position: absolute;
+  inset: -4px 0;
+}
+
+.agentsButton[data-running] {
+  color: var(--md-ext-color-tool-task);
+}
+
+.agentsCount {
+  min-width: 16px;
+  height: 18px;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--md-ext-color-tool-task-container);
+  color: var(--md-ext-color-on-tool-task-container);
+  line-height: 18px;
+  text-align: center;
+}

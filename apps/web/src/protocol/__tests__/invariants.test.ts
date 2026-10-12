@@ -78,7 +78,19 @@ const VOICE_CONTENT = [
   'response.text.done',
 ];
 const TRANSPORT_ERRORS = ['start_timeout', 'start_failed', 'orchestrator_active', 'invalid_json', 'unknown_type', 'voice_event_failed'];
-const KNOWN_EFFECTS = ['send', 'reload', 'reconcile', 'learn_sdk_id', 'turn_ended', 'nested_event', 'watcher', 'protocol_error', 'retry_start'];
+const KNOWN_EFFECTS = [
+  'send',
+  'reload',
+  'reconcile',
+  'learn_sdk_id',
+  'turn_ended',
+  'nested_event',
+  'watcher',
+  'protocol_error',
+  'retry_start',
+  'fetch_subagent_page', // SA-5 transcript fetch (data, not navigation)
+  'fetch_subagents', // SA-8 list fetch
+];
 
 /** Is this input "assistant content" in the sense of I-1? */
 function isContentInput(prev: Conversation, input: ConversationInput): boolean {
@@ -174,6 +186,13 @@ function checkStep(prev: Conversation, input: ConversationInput, next: Conversat
   // I-12 a queued prompt goes to the tray, not the timeline
   if (f && f.type === 'user_message' && f.queued === true && next.entries !== prev.entries)
     v.push('I-12 queued user_message touched the timeline');
+
+  // SA-1 subagent frames never touch the parent timeline, status, turn, stall or counters
+  if (f && (f.type === 'subagent_started' || f.type === 'subagent_progress' || f.type === 'subagent_finished' || f.type === 'subagent_event')) {
+    if (next.entries !== prev.entries) v.push('SA-1 subagent frame changed the parent entries');
+    if (next.status !== prev.status || next.inTurn !== prev.inTurn) v.push('SA-1 subagent frame changed the parent status / turn');
+    if (next.stall !== prev.stall || next.counters !== prev.counters) v.push('SA-1 subagent frame changed the parent stall / counters');
+  }
 
   // I-14 no focus / navigation anywhere; I-15 transport errors are not content
   for (const e of effects) if (KNOWN_EFFECTS.indexOf(e.type) < 0) v.push(`I-14 unexpected effect ${e.type}`);

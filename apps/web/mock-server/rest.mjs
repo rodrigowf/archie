@@ -251,6 +251,18 @@ export function createRest(engine, opts = {}) {
       engine.closeRun(mm[1]);
       return send(res, 204);
     }
+    // spec 12 §4.8 SA-8: the session's subagents and one subagent's transcript (live mock runs)
+    mm = /^\/api\/sessions\/([^/]+)\/subagents(?:\/([^/]+)\/messages)?$/.exec(p);
+    if (mm && m === 'GET') {
+      const run = engine.runForSdk(mm[1]);
+      const subs = run ? run.subagents : null;
+      if (!mm[2]) return json(res, 200, { subagents: subs ? [...subs.values()].map((a) => ({ ...a.row })) : [] });
+      const a = subs ? subs.get(mm[2]) : undefined;
+      if (!a) return notFound(res, `Subagent '${mm[2]}' not found`);
+      const limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit') ?? 50) || 50));
+      const b = url.searchParams.get('before');
+      return json(res, 200, pageMessages(a.messages, limit, b === null ? undefined : Number(b)));
+    }
     mm = /^\/api\/sessions\/([^/]+)(?:\/(messages|preview|config|rename|duplicate|truncate|fork))?$/.exec(p);
     if (mm) {
       const [, id, sub] = mm;

@@ -167,6 +167,69 @@ export abstract class ConversationRuntime implements RuntimeHandle {
           this.resendStart();
         }, e.delayMs);
         return;
+      case 'fetch_subagent_page':
+        void this.fetchSubagentPage(e.toolUseId);
+        return;
+      case 'fetch_subagents':
+        void this.fetchSubagentList();
+        return;
+    }
+  }
+
+  // ───────────────────────── subagents (spec 12 §4.8) ─────────────────────────
+
+  /** The sdk id for subagent REST; a brand-new session may only know it through `pool/live`. */
+  private async subagentSdkId(): Promise<string | null> {
+    if (this.conv.ref.sdkId) return this.conv.ref.sdkId;
+    const found = await this.hooks.lookupSdkId(this.localId);
+    if (found && !this.disposed && !this.conv.ref.sdkId) this.step({ type: 'sdk_id', sdkId: found });
+    return this.conv.ref.sdkId;
+  }
+
+  /**
+   * SA-5: the first transcript page of an opened subagent. 404 (unknown to the server, or a server
+   * without the route) and "no sdk id yet" read as an empty page: the transcript starts at the
+   * live tail. Any other failure still releases the held frames, with the error shown in its tab.
+   */
+  protected async fetchSubagentPage(toolUseId: string): Promise<void> {
+    let response: MessagesPage | null = EMPTY_PAGE;
+    let error: string | null = null;
+    try {
+      const sdk = await this.subagentSdkId();
+      if (sdk) response = await api.sessions.subagentMessages(sdk, toolUseId, { limit: HISTORY_PAGE_SIZE });
+    } catch (err) {
+      if (!isApiError(err, 404)) {
+        response = null;
+        error = errorMessage(err);
+      }
+    }
+    if (!this.disposed) this.step({ type: 'subagent_page', toolUseId, mode: 'replace', response, error });
+  }
+
+  /** §5.3 for a subagent transcript: its next older page. */
+  async loadOlderSubagent(toolUseId: string): Promise<void> {
+    const sub = this.conv.subagents.find((s) => s.tool_use_id === toolUseId);
+    const sdk = this.conv.ref.sdkId;
+    const conv = sub?.conv;
+    if (!sdk || !conv || !conv.history.hasMore || sub.held !== null) return;
+    try {
+      const page = await api.sessions.subagentMessages(sdk, toolUseId, { limit: HISTORY_PAGE_SIZE, before: conv.history.startIndex });
+      if (!this.disposed && pageAbuts(page, conv.history.startIndex)) this.step({ type: 'subagent_page', toolUseId, mode: 'prepend', response: page });
+    } catch (err) {
+      getEnv().log('warn', 'subagent page failed', errorMessage(err));
+    }
+  }
+
+  /** SA-8: the server's list, once after a history page that created placeholders. */
+  private async fetchSubagentList(): Promise<void> {
+    try {
+      const sdk = await this.subagentSdkId();
+      if (!sdk) return;
+      const res = await api.sessions.subagents(sdk);
+      const rows = res && Array.isArray(res.subagents) ? res.subagents : [];
+      if (!this.disposed && rows.length) this.step({ type: 'subagents_list', rows });
+    } catch (err) {
+      getEnv().log('debug', 'subagent list unavailable', errorMessage(err)); // older servers: placeholders stay as they are
     }
   }
 

@@ -2,7 +2,7 @@
  * Sessions REST (inventory 01 §3.2). History calls take the **sdk id** (G-12, ID-3); only
  * `close` takes the `local_id`.
  */
-import type { MessagesPage } from '@/protocol';
+import type { MessagesPage, SubagentsListResponse } from '@/protocol';
 import { http } from '../client';
 import type { PoolSession, SessionConfig, SessionInfo } from '../types';
 
@@ -14,6 +14,13 @@ export const sessions = {
   /** `limit` 1–200 (default 50); `before` = the oldest `start_index` held (§5.3). */
   messages: (sdkId: string, opts: { limit?: number; before?: number } = {}) =>
     http.get<MessagesPage>(`/api/sessions/${id(sdkId)}/messages`, { query: { limit: opts.limit ?? 50, before: opts.before } }),
+  /** spec 12 SA-8: every subagent of the session (live registry + the harness's files). */
+  subagents: (sdkId: string) => http.get<SubagentsListResponse>(`/api/sessions/${id(sdkId)}/subagents`),
+  /** spec 12 SA-5/SA-8: one subagent's transcript, paged like `messages`. 404 = unknown. */
+  subagentMessages: (sdkId: string, toolUseId: string, opts: { limit?: number; before?: number } = {}) =>
+    http.get<MessagesPage>(`/api/sessions/${id(sdkId)}/subagents/${id(toolUseId)}/messages`, {
+      query: { limit: opts.limit ?? 50, before: opts.before },
+    }),
   getConfig: (sdkId: string) => http.get<SessionConfig>(`/api/sessions/${id(sdkId)}/config`),
   /** Only changed keys; `null` = inherit global (§6.14). */
   putConfig: (sdkId: string, patch: Partial<SessionConfig>) => http.put<SessionConfig>(`/api/sessions/${id(sdkId)}/config`, { json: patch }),

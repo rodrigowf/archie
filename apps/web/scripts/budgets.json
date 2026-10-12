@@ -1,7 +1,7 @@
 {
   "//": "Bundle budgets (spec 13 §5.4), enforced by scripts/check-budgets.mjs. Sizes in kB (1000 bytes), gzip level 9, except fonts (uncompressed woff2). A budget change needs a one-line entry in `justifications` (who, when, why).",
   "main": {
-    "initialJs": 190,
+    "initialJs": 194,
     "initialCss": 35,
     "fonts": 80,
     "largestLazyJs": 60,
@@ -15,5 +15,7 @@
     "largestLazyJs": 75,
     "totalJs": 560
   },
-  "justifications": []
+  "justifications": [
+    "2026-10-12 (Claude, subagent-view P1 for Rodrigo): main initialJs 190 -> 194 kB. Spec 12 §4.8 adds +4.7 kB gzip to the initial graph (HEAD baseline 187.8 kB, now 192.5 kB): ~3.8 kB is the pure data layer that must run on every frame (reducer SA-1..SA-9, runtime transcript fetch / LRU / stop) and ~0.9 kB the Agents button + host context; every agent view (tab row, transcript, sheet, card helpers) is a lazy chunk."
+  ]
 }

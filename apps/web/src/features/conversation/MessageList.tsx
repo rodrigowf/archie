@@ -13,6 +13,7 @@
  *   covers message text (fixes visual audit W6).
  */
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useStore } from 'zustand';
 import { busy, unmatchedResults, type Block, type Conversation, type Entry, type SessionKind } from '@/protocol';
 import { getSessionRuntime } from '@/services';
 import { usePrefs, useSession, useShallow, type SessionStore } from '@/stores';
@@ -36,6 +37,14 @@ export interface MessageListProps {
   readonly empty?: ReactNode;
   /** Window cap override (tests). Default 200, 80 on low-end devices (spec 13 §5.2). */
   readonly cap?: number;
+  /**
+   * `subagent`: a subagent's transcript (spec 12 §4.8): `store` is a derived read-only store, no
+   * message actions, no connection / gap / unmatched lines (they belong to the session), and
+   * older pages come from `onLoadOlder`.
+   */
+  readonly variant?: 'main' | 'subagent';
+  /** Older-page loader (default: the session runtime's `loadOlder`). */
+  readonly onLoadOlder?: () => void;
 }
 
 interface RowContext {
@@ -191,12 +200,13 @@ function GapLine({ localId }: { localId: string }) {
   );
 }
 
-function MessageListImpl({ localId, store, hidden, empty, cap }: MessageListProps) {
+function MessageListImpl({ localId, store, hidden, empty, cap, variant = 'main', onLoadOlder }: MessageListProps) {
   const area = useRef<ScrollAreaHandle>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const content = useRef<HTMLDivElement>(null);
-  const s = useSession(
-    localId,
+  const main = variant === 'main';
+  const s = useStore(
+    store,
     useShallow((st) => {
       const c = st.conv;
       const last = c.entries[c.entries.length - 1];
@@ -222,8 +232,8 @@ function MessageListImpl({ localId, store, hidden, empty, cap }: MessageListProp
     content,
     cap: cap ?? (isLowEnd() ? WINDOW_CAP_LOW_END : WINDOW_CAP_MAIN),
     hidden,
-    canLoadOlder: s.hasMore && !s.loadingOlder && s.hasSdk,
-    loadOlder: () => void getSessionRuntime(localId)?.loadOlder(),
+    canLoadOlder: s.hasMore && !s.loadingOlder && (s.hasSdk || !main),
+    loadOlder: onLoadOlder ?? (() => void getSessionRuntime(localId)?.loadOlder()),
   });
   const rich = useRichModule();
   const Assistant = rich ? rich.RichAssistantMessage : null;
@@ -237,18 +247,18 @@ function MessageListImpl({ localId, store, hidden, empty, cap }: MessageListProp
         lastId: s.lastId,
         stalledToolUseId: s.stalledToolUseId,
         grouping,
-        actions: s.hasSdk,
-        canRewind: s.kind === 'agent' && !s.readOnly,
+        actions: s.hasSdk && main,
+        canRewind: s.kind === 'agent' && !s.readOnly && main,
         isBusy: s.isBusy,
       },
-    [Assistant, localId, s.kind, s.liveId, s.lastId, s.stalledToolUseId, grouping, s.hasSdk, s.readOnly, s.isBusy],
+    [Assistant, localId, s.kind, s.liveId, s.lastId, s.stalledToolUseId, grouping, s.hasSdk, s.readOnly, s.isBusy, main],
   );
   const { view } = win;
   const isEmpty = view.entries.length === 0 && view.buffered === 0;
   const above = view.hiddenAbove > 0 || s.hasMore;
   return (
     <div className={styles.listWrap}>
-      <ScrollArea ref={area} className={styles.scroll} onScroll={win.onScroll} aria-label="Conversation" tabIndex={0}>
+      <ScrollArea ref={area} className={styles.scroll} onScroll={win.onScroll} aria-label={main ? 'Conversation' : 'Agent transcript'} tabIndex={0}>
         <div ref={content} className={cx(styles.column, (isEmpty || !ctx) && styles.columnEmpty)}>
           {(s.loading && isEmpty) || (!ctx && !isEmpty) ? (
             <div className={styles.loading} role="status">
@@ -271,9 +281,13 @@ function MessageListImpl({ localId, store, hidden, empty, cap }: MessageListProp
               ))}
             </>
           )}
-          <UnmatchedChip localId={localId} />
-          <GapLine localId={localId} />
-          <ConnectionLine localId={localId} store={store} />
+          {main ? (
+            <>
+              <UnmatchedChip localId={localId} />
+              <GapLine localId={localId} />
+              <ConnectionLine localId={localId} store={store} />
+            </>
+          ) : null}
         </div>
       </ScrollArea>
       {!win.pinned ? (

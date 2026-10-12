@@ -44,6 +44,8 @@ export interface SessionRuntimeOptions {
   reconnectPolicy?: ReconnectPolicy;
 }
 
+/** SA-5: materialised subagent transcripts kept per session (the visible one + 2 recent). */
+export const SUBAGENT_TRANSCRIPTS_KEPT = 3;
 export const TRUNCATE_RETRIES = 3;
 export const TRUNCATE_RETRY_MS = 500;
 const TAIL_PAGE = 200;
@@ -52,6 +54,8 @@ export class SessionRuntime extends ConversationRuntime {
   private readonly socket: ArchieSocket;
   private readonly reconnector: Reconnector | null;
   private coldOpenPending = false;
+  /** Subagent ids by last view, most recent last (SA-5 LRU). */
+  private subagentLru: string[] = [];
   readonly readOnly: boolean;
 
   constructor(opts: SessionRuntimeOptions, hooks: RuntimeHooks) {
@@ -170,6 +174,38 @@ export class SessionRuntime extends ConversationRuntime {
     if (this.readOnly) return;
     this.step({ type: 'local_compact' });
     this.sendWhenSubscribed({ type: 'compact' });
+  }
+
+  /**
+   * SA-5: show a subagent's transcript (materialise it if needed). Keeps at most
+   * `SUBAGENT_TRANSCRIPTS_KEPT` transcripts: the least recently viewed others are released.
+   */
+  openSubagent(toolUseId: string): void {
+    if (!toolUseId) return;
+    this.subagentLru = this.subagentLru.filter((id) => id !== toolUseId).concat([toolUseId]);
+    this.step({ type: 'open_subagent', toolUseId });
+    const open = this.conv.subagents.filter((s) => s.conv !== null).map((s) => s.tool_use_id);
+    let excess = open.length - SUBAGENT_TRANSCRIPTS_KEPT;
+    // least recently viewed first; ids never viewed through here (none today) go first
+    const order = open.slice().sort((a, b) => this.subagentLru.indexOf(a) - this.subagentLru.indexOf(b));
+    for (const id of order) {
+      if (excess <= 0) break;
+      if (id === toolUseId) continue;
+      this.releaseSubagent(id);
+      excess -= 1;
+    }
+  }
+
+  /** SA-5: drop a subagent's transcript (re-opened later the same way). */
+  releaseSubagent(toolUseId: string): void {
+    this.subagentLru = this.subagentLru.filter((id) => id !== toolUseId);
+    this.step({ type: 'release_subagent', toolUseId });
+  }
+
+  /** SA-9: ask the harness to stop one subagent; the answer is `subagent_finished{stopped}`. */
+  stopSubagent(toolUseId: string): void {
+    if (this.readOnly || !toolUseId) return;
+    this.sendWhenSubscribed({ type: 'stop_subagent', tool_use_id: toolUseId });
   }
 
   /** Slash command passthrough (`command` on the chat WS). */
