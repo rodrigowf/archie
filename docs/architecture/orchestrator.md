@@ -3,7 +3,7 @@ name: orchestrator
 category: archie/architecture
 tags: [orchestrator, agent-loop, tools, providers, system-prompt, background-runner, notifications, run-script, persistence, jsonl]
 created: 2026-02-23
-modified: 2026-10-08
+modified: 2026-10-12
 summary: The orchestrator agent — session vs agent loop, model providers, system prompt, the 24 tools, background runner, persistence.
 source: curated (consolidated from memory notes assistant/architecture/orchestrator-vision.md, assistant/architecture/permissions_branch_architecture.md, assistant/architecture/project-overview.md, assistant/infrastructure/features_and_integrations_summary.md; verified against code 2026-10-06)
 references:
@@ -132,7 +132,7 @@ Tools can declare a `schema_builder` to inject live state (e.g. the MCP list) in
 | | `close_agent_session` | Close a live session |
 | | `read_agent_session` | Last N persisted messages (default 5) plus a `live` block: `running` (turn id, live event tail) or `idle` |
 | | `send_to_agent_session` | Fire-and-forget: returns `{turn_id, session_id, status: "running", started_at}` at once (below) |
-| | `interrupt_agent_session` | Cancel a running turn (SDK interrupt); the runner reports it as `cancelled` |
+| | `interrupt_agent_session` | Cancel a running turn via `runner.cancel_session` (SDK interrupt while the agent works on it, stops the turn's running subagents); the runner reports it as `cancelled`. With no runner turn: a plain `pool.interrupt` |
 | | `respond_to_agent_permission` | Answer a pending `ExitPlanMode` request (`allow`/`deny`, optional message) |
 | | `list_history` | Past sessions with type (`agent` / `orchestrator`) |
 | `assistant_config.py` | `get_assistant_config` | Coding-agent settings the next session inherits (working dir + history, harness/model, MCPs, chrome flag) |
@@ -162,13 +162,37 @@ Tools can declare a `schema_builder` to inject live state (e.g. the MCP list) in
    same session serialize on the pool's per-session lock; different sessions run in parallel.
 2. Events are buffered in a per-turn ring (200 entries) that `read_agent_session` shows as the live
    tail; pending permission ids are tracked for the prompt's active-sessions section.
+   **Background subagents keep the turn open.** With CLI 2.1.292 every Agent call runs in the
+   background, so the prompt's turn ends right after the launch ("I started 3 agents…") and the
+   real answer comes in `<task-notification>` turns the CLI starts on its own, which travel only on
+   the pool's out-of-turn path. The runner observes the session through `pool.tap_events()` for the
+   whole turn and, after the prompt's turn, enters a follow phase (`_follow_subagents`) when one
+   of the turn's subagents is still running, or a background one ended without its report yet. It
+   buffers the events of the notification turns that report on its subagents (matched by the
+   `<tool-use-id>` in the notification) into the same ring, adopts agents those turns start, adds
+   their cost and turns, and keeps their last text as the turn's final text. It ends the turn when
+   none of its subagents is running, no notification turn of it is running, and one ended after the
+   last subagent finished, unless the session still owes one
+   (`BaseSessionManager.awaits_unprompted_turn()`; Claude: pending task notifications). If no
+   report turn comes (another harness, notifications the CLI batched into one turn), it ends
+   `settle_grace` (30 s) after the session's last event. A finish the runner missed is reconciled
+   from `pool.subagents_for()`; a session closed while its subagents still run fails the turn.
+   `peek()` / `read_agent_session` show `live.phase` (`agent` | `waiting_for_subagents` |
+   `notification_turn`), `live.waiting_for_subagents` and the subagent rows, and the prompt's
+   active-sessions line says "waiting for N subagents". Device notifications stay one per agent
+   turn (spec 12 TURN-1: the prompt's turn and each notification turn); the runner adds none on
+   success.
 3. Exactly one terminal `Notification` per turn — `succeeded`, `failed`, `cancelled` or `timeout`
    — is pushed onto the conversation's `NotificationQueue`. The timeout counts time **without
    progress** (`idle_timeout`, default 1800 s with no text, tool call, tool result or permission
    event; `SessionStalled` notices don't count, a pending permission is never idle), so a working
    agent is never stopped however long the task; `max_turn_seconds` is an optional hard cap (off by
    default). Until 2026-10-10 it was a fixed 600 s wall clock, which killed a session mid-edit.
-   `TurnAbandoned` (no SDK messages for 240 s) is retried once.
+   `TurnAbandoned` (no SDK messages for 240 s) is retried once. The timeout keeps counting in the
+   follow phase: subagent events and notification turns are progress, silence is not. A timeout
+   or a cancel stops the turn's running subagents (`sm.stop_subagent`) and interrupts the SDK only
+   while the agent works on the turn (its prompt or a notification turn); a timeout in the follow
+   phase adds no `agent_turn_finished{error}`, since the prompt's turn was already announced.
    A cancelled `pool.send()` emits no `turn_complete`, so every turn the runner ends tells the
    agent's open tabs itself (`broadcast_session`): `error{turn_timeout}` then
    `status{interrupted}` on timeout, `status{interrupted}` on cancel, `status{retrying}` before the
@@ -178,8 +202,9 @@ Tools can declare a `schema_builder` to inject live state (e.g. the MCP list) in
 4. At the top of the next `OrchestratorSession.send()` (under `_busy_lock`) the queue is drained:
    each notification is persisted as a `background_notification` JSONL line (tied to
    `origin_tool_use_id`), and rendered as status lines prepended to the prompt:
-   `[SESSION 1a2b3c4d ("title"), event: turn 5e6f7a8b succeeded, duration=42.0s, cost=$0.1234]`.
-   Lines carry status only; the model calls `read_agent_session` for content. When a turn did not
+   `[SESSION 1a2b3c4d ("title"), event: turn 5e6f7a8b succeeded, duration=42.0s, cost=$0.1234, subagents=2, last_message="…"]`.
+   Lines carry status plus a one-line excerpt of the final text (`Notification.preview`, ≤ 240
+   chars, also persisted with `subagents`); the model still calls `read_agent_session` for content. When a turn did not
    succeed the block adds an instruction to tell the user it stopped and why before anything else
    (2026-10-10: on a timeout the model had answered with its own summary instead).
 5. **Wake callback**: `backend/api/routes/orchestrator.py` installs a callback on the queue. When a
@@ -197,7 +222,8 @@ dropping a dying session — therefore **never stops an agent turn** (it called 
 session stopping late can't unhook its successor's). Finished turns' notifications wait in the
 queue; when the conversation gets a session again its route installs the wake callback and, if
 anything is pending, runs the synthetic turn at once. Only an explicit `interrupt_agent_session`
-(`runner.cancel`) or a backend shutdown stops a delegated turn. A runner keeps its last 100
+(`runner.cancel_session` → `runner.cancel`, which also stops the turn's running subagents) or a
+backend shutdown stops a delegated turn. A runner keeps its last 100
 finished turns (never a session's latest) for `read_agent_session`.
 
 The runner imports only the pool, store and manager event types (not the session or agent), so it

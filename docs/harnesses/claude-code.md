@@ -120,7 +120,10 @@ alias rows through `record_cli_models()`; the session id comes from the resume i
 system message or the first `ResultMessage`), then starts the persistent
 `_receive_loop()`. Shutdown cancels the loop, bounds `disconnect()` at 8 s, and SIGTERM/SIGKILLs a
 surviving PID (`kill_claude_subprocess` checks `/proc/<pid>/comm` starts with `claude` first).
-Constants: stall notice 120 s then every 60 s, abandoned turn 240 s, replay buffer 500 events.
+Constants: stall notice 120 s then every 60 s, abandoned turn 240 s, replay buffer 1000 events
+(500 until 2026-10-12; doubled because parallel agents with `forward_subagent_text` add their
+`subagent_event` frames — thinking, tool calls, results, text, no deltas — to the same ring, and a
+smaller ring meant more `replay_overflow` full reloads; a few hundred KB per session at worst).
 
 ## JSONL shape
 
@@ -204,9 +207,17 @@ Contract: [spec 12 §4.8](../specs/12-client-protocol.md#48-subagents-sa-); desi
   system message, the reply, then a `ResultMessage` whose `origin` is
   `{"kind": "task-notification", "runId": <the task's run_id>}`. The injected
   `<task-notification>` prompt is **not** streamed (not even with `--replay-user-messages`); it is
-  only written to the JSONL (`queue-operation` enqueue + a `user` line with `origin`). Several
-  pending notifications can be dequeued together: the first injected turn then ends at once with an
-  empty result and the next one answers both.
+  only written to the JSONL (`queue-operation` enqueue + a `user` line with `origin`), and that line
+  is not there yet when the turn's `init` arrives. Several pending notifications can be dequeued
+  together: the first injected turn then ends at once with an empty result and the next one answers
+  both.
+- An agent that finishes while a turn is running and **before that turn's next model request**
+  (the main agent waiting on a tool) is folded into that request: the turn answers it and the CLI
+  starts no turn of its own for it. The main thread's `system/status{status:"requesting"}` marks
+  each request. An agent that finishes while the turn's last request is already in flight gets its
+  own notification turn afterwards.
+- A prompt sent while a notification turn runs gets a turn of its own right after it (probe
+  2026-10-12); `task_started.task_id` and the launch result's `agentId` are the same id.
 
 **How `_process_message()` maps it:**
 
@@ -220,9 +231,25 @@ Contract: [spec 12 §4.8](../specs/12-client-protocol.md#48-subagents-sa-); desi
 | `task_updated` terminal | `killed` → `SubagentFinished(stopped)` at once; `completed`/`failed` wait for the notification's summary and are flushed by the next unrelated message |
 | spawn's own tool result, not `async_launched` | `SubagentFinished` (a synchronous agent on older CLIs; a failed spawn) |
 | `init` with no `send()` waiting and a pending main-agent notification | `UnpromptedTurnStarted(text=<the <task-notification> prompt rebuilt from the task_notification message>)` → `user_message{source:"task_notification"}` + `status{processing}` |
-| `ResultMessage` | `TurnComplete(origin=<origin.kind>)`; `send()` ends only at a **prompted** one (`origin` None/`human`), so a notification turn that runs before a queued prompt never ends the user's turn |
+| `status{requesting}` during a turn | notifications that arrived during this turn are dropped from the pending list (folded into this request) |
+| `ResultMessage` | `TurnComplete(origin=<origin.kind>)`; `send()` ends only at a **prompted** one (`origin` None/`human`), so a notification turn that runs before a queued prompt never ends the user's turn. A non-prompted one that arrives inside a `send()` goes to it unsequenced and outside the replay ring (the pool never broadcasts it) |
 
-Exactly one `SubagentStarted` and one `SubagentFinished` per agent (the registry dedupes). Nested
+**Matching notifications to turns.** Pending notifications are announced oldest first (the CLI
+dequeues them in arrival order; nothing at `init` names the task). A turn's `origin.runId` settles
+it: the note with that run id is removed, and a mismatched announced note is **never** put back (it
+used to go back at the head and make every later turn announce the wrong agent). Notes folded into a
+request are dropped (above); notes still pending 10 s after the session went idle with no turn
+started (`_NOTE_TURN_WAIT_S`) are dropped too, so `awaits_unprompted_turn()` cannot stay true
+forever. If the CLI ever folded *our* prompt into one of its own turns, `send()` would wait for a
+turn that never comes: after a non-prompted `TurnComplete` inside `send()`, an `init` must follow
+within 20 s (`_UNPROMPTED_GRACE_S`), else `send()` ends with a synthetic `TurnComplete` (not seen on
+CLI 2.1.292; a guard).
+
+Exactly one `SubagentStarted` per agent (the registry dedupes) and one `SubagentFinished` — plus a
+second one when a `task_notification` arrives after the finish was flushed (a `task_updated`
+terminal followed by an unrelated message) and brings a summary or usage the first lacked (spec 12
+SA-3: a later `subagent_finished` always applies). A finish without a summary uses the agent's last
+text. `stop_task` gets `task_started`'s task id (the spawn result's `agentId` never overwrites it). Nested
 agents route flat: their own messages carry their own spawn id; `parent_tool_use_id` on
 `subagent_started` gives the chain. The string-result fallback (`tool_use_result` without result
 blocks) no longer uses `parent_tool_use_id` as the tool id when that id is a known spawn: such a
@@ -237,6 +264,10 @@ backlog and handed over, in order, when `send()` returns. See
 **Stop (SA-9).** `stop_subagent(tool_use_id)` → `ClaudeSDKClient.stop_task(<task id>)`; the CLI
 answers `task_updated{killed}` (→ `subagent_finished{stopped}`) and, for a main-agent task, a
 notification turn. Verified live 2026-10-12.
+
+**Older SDKs.** The Task* imports, `forward_subagent_text`, `ResultMessage.origin`,
+`parent_tool_use_id` and `stop_task` are all read defensively, so a rollback to 0.1.81 degrades
+(agents only as spawn cards, every turn prompted, stop answers `unsupported`) instead of breaking.
 
 **History (SA-8).** `context/<sid>/subagents/agent-<agentId>.jsonl` (+ `.meta.json`
 `{agentType, description, toolUseId, spawnDepth, requestShape, parentAgentId}`), written

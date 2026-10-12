@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -13,11 +13,16 @@ from manager.types import (
     PermissionRequest,
     PermissionResolved,
     SessionInfo,
+    SubagentEvent,
+    SubagentFinished,
+    SubagentProgress,
+    SubagentStarted,
     TextComplete,
     TextDelta,
     ToolResult,
     ToolUse,
     TurnComplete,
+    UnpromptedTurnStarted,
 )
 from orchestrator.runner import (
     AgentTurnHandle,
@@ -46,6 +51,7 @@ class FakePool:
         self.interrupts: list[str] = []
         self._send_started: dict[str, asyncio.Event] = {}
         self._block_until: dict[str, asyncio.Event] = {}
+        self.taps: dict[str, list[Any]] = {}
 
     def add_session(self, sid: str, sdk_id: str | None = "sdk-" + "x") -> None:
         sm = MagicMock()
@@ -76,7 +82,20 @@ class FakePool:
         await self._block_until[sid].wait()
         events = self.scripts.get(sid, [])
         for evt in events:
+            self.emit(sid, evt, out_of_turn=False)  # as pool.send: taps, then yield
             yield evt
+
+    # Event taps (pool.tap_events) and the out-of-turn path.
+    def tap_events(self, sid: str, cb: Any):
+        self.taps.setdefault(sid, []).append(cb)
+        return lambda: self.taps[sid].remove(cb)
+
+    def emit(self, sid: str, event: Any, *, out_of_turn: bool = True) -> None:
+        for cb in list(self.taps.get(sid, [])):
+            cb(event, out_of_turn)
+
+    async def wait_out_of_turn_idle(self, sid: str, timeout: float = 15.0) -> None:
+        return None
 
     def block_send(self, sid: str) -> None:
         self._block_until[sid].clear()
@@ -632,3 +651,365 @@ async def test_finished_turns_are_pruned_but_latest_per_session_kept(
         await runner._turns[last.turn_id].task  # type: ignore[arg-type]
     assert len(runner._turns) <= 4
     assert h2.turn_id in runner._turns and last.turn_id in runner._turns
+
+
+# ---------------------------------------------------------------------------
+# Background subagents: the turn stays open until they are reported on
+# ---------------------------------------------------------------------------
+
+_ISO = "2026-10-12T12:00:00Z"
+
+
+def _bg_spawn(tid: str, description: str = "Find it", *, background: bool = True) -> list[Any]:
+    """What the Claude session yields for one Agent call (CLI 2.1.292: async launch)."""
+    return [
+        ToolUse(tool_use_id=tid, tool_name="Agent", tool_input={"description": description}),
+        SubagentStarted(
+            tool_use_id=tid, parent_tool_use_id=None, agent_type="Explore",
+            description=description, background=background, started_at=_ISO,
+        ),
+        ToolResult(tool_use_id=tid, output=f"Async agent launched successfully.\nagentId: a-{tid}"),
+    ]
+
+
+def _note(tid: str) -> UnpromptedTurnStarted:
+    return UnpromptedTurnStarted(
+        text=f"<task-notification>\n<task-id>a-{tid}</task-id>\n<tool-use-id>{tid}</tool-use-id>\n"
+             f"<status>completed</status>\n</task-notification>",
+    )
+
+
+def _report_turn(pool: FakePool, sid: str, tid: str, text: str, *, cost: float = 0.001) -> None:
+    """The CLI's own task-notification turn, as the pool's out-of-turn pump delivers it."""
+    pool.emit(sid, _note(tid))
+    pool.emit(sid, ToolUse(tool_use_id=f"r-{tid}", tool_name="Read", tool_input={}))
+    pool.emit(sid, TextComplete(text=text))
+    pool.emit(sid, TurnComplete(cost=cost, num_turns=1, origin="task-notification"))
+
+
+async def _until(pred, timeout: float = 2.0) -> None:
+    deadline = time.monotonic() + timeout
+    while not pred():
+        assert time.monotonic() < deadline, "condition not met in time"
+        await asyncio.sleep(0.01)
+
+
+def _sub_pool(cls: type[FakePool] = FakePool) -> FakePool:
+    pool = cls()
+    pool.add_session("s1")
+    sm = pool.sessions["s1"]
+    sm.stop_subagent = AsyncMock()
+    sm.awaits_unprompted_turn = MagicMock(return_value=False)
+    return pool
+
+
+async def test_background_subagents_keep_the_turn_open_until_the_last_report(
+    store: FakeStore, queue: NotificationQueue
+) -> None:
+    """2 background agents + 2 notification turns → exactly one notification,
+    after the last report, carrying the final text (not "I started 2 agents")."""
+    pool = _sub_pool()
+    pool.scripts["s1"] = [
+        *_bg_spawn("t1", "Scan backend"), *_bg_spawn("t2", "Scan frontend"),
+        TextComplete(text="I started 2 agents."),
+        TurnComplete(cost=0.01, num_turns=1),
+    ]
+    runner = BackgroundAgentRunner(pool, store, queue, idle_timeout=2.0, settle_grace=5.0)
+    handle = await runner.spawn("s1", "audit")
+    record = runner._turns[handle.turn_id]
+    await _until(lambda: record.phase == "subagents")
+
+    snap = runner.peek("s1")
+    assert snap["finished"] is False and snap["status"] == "running"
+    assert snap["phase"] == "waiting_for_subagents" and snap["waiting_for_subagents"] == 2
+    assert [r["status"] for r in snap["subagents"]] == ["running", "running"]
+    [h] = runner.list_in_flight()
+    assert h.phase == "waiting_for_subagents" and h.waiting_for_subagents == 2
+
+    pool.emit("s1", SubagentProgress(tool_use_id="t1", activity="Grep"))
+    pool.emit("s1", SubagentEvent(tool_use_id="t1", event=ToolUse(tool_use_id="x1", tool_name="Grep", tool_input={})))
+    pool.emit("s1", SubagentFinished(tool_use_id="t1", status="done", summary="backend ok"))
+    _report_turn(pool, "s1", "t1", "Backend scan is done; waiting for frontend.")
+    await asyncio.sleep(0.1)
+    assert not record.finished and queue.drain() == []
+    assert runner.peek("s1")["waiting_for_subagents"] == 1
+
+    pool.emit("s1", SubagentFinished(tool_use_id="t2", status="done", summary="frontend ok"))
+    pool.emit("s1", _note("t2"))
+    assert runner.peek("s1")["phase"] == "notification_turn"
+    pool.emit("s1", TextComplete(text="Both scans are clean: final answer."))
+    pool.emit("s1", TurnComplete(cost=0.002, num_turns=1, origin="task-notification"))
+    await asyncio.wait_for(record.task, 2.0)  # type: ignore[arg-type]
+
+    [n] = queue.drain()
+    assert n.status == "succeeded" and n.error is None
+    assert n.preview == "Both scans are clean: final answer."
+    assert n.subagents == 2
+    assert n.cost == pytest.approx(0.013) and n.turns == 3
+    snap = runner.peek("s1", limit=200)
+    kinds = [e["kind"] for e in snap["events"]]
+    assert kinds.count("notification_turn") == 2 and kinds.count("notification_turn_end") == 2
+    # Subagent content never enters the ring; the report turns' own events do.
+    assert "x1" not in {e["payload"].get("tool_use_id") for e in snap["events"]}
+    assert "r-t1" in {e["payload"].get("tool_use_id") for e in snap["events"]}
+    assert snap["last_assistant_text"] == "Both scans are clean: final answer."
+    assert pool.taps["s1"] == []  # untapped
+    assert pool.interrupts == []
+
+
+async def test_turn_without_subagents_is_unchanged(store: FakeStore, queue: NotificationQueue) -> None:
+    pool = _sub_pool()
+    pool.scripts["s1"] = [TextComplete(text="All done."), TurnComplete(cost=0.0, num_turns=1)]
+    runner = BackgroundAgentRunner(pool, store, queue, idle_timeout=2.0, settle_grace=10.0)
+    handle = await runner.spawn("s1", "go")
+    t0 = time.monotonic()
+    await asyncio.wait_for(runner._turns[handle.turn_id].task, 1.0)  # type: ignore[arg-type]
+    assert time.monotonic() - t0 < 0.5  # never waits the settle grace
+    [n] = queue.drain()
+    assert n.status == "succeeded" and n.preview == "All done." and n.subagents == 0
+    assert runner._turns[handle.turn_id].phase == "agent"
+
+
+async def test_foreground_subagent_finished_in_turn_is_not_followed(
+    store: FakeStore, queue: NotificationQueue
+) -> None:
+    pool = _sub_pool()
+    pool.scripts["s1"] = [
+        *_bg_spawn("t1", background=False),
+        SubagentFinished(tool_use_id="t1", status="done", summary="found"),
+        TextComplete(text="The agent found it."),
+        TurnComplete(cost=0.0, num_turns=1),
+    ]
+    runner = BackgroundAgentRunner(pool, store, queue, idle_timeout=2.0, settle_grace=10.0)
+    handle = await runner.spawn("s1", "go")
+    await asyncio.wait_for(runner._turns[handle.turn_id].task, 1.0)  # type: ignore[arg-type]
+    [n] = queue.drain()
+    assert n.status == "succeeded" and n.subagents == 1 and n.preview == "The agent found it."
+
+
+async def test_idle_timeout_still_fires_while_waiting_for_subagents(
+    store: FakeStore, queue: NotificationQueue
+) -> None:
+    pool = _sub_pool(TabPool)
+    pool.scripts["s1"] = [*_bg_spawn("t1"), TextComplete(text="Started."), TurnComplete(cost=0.0, num_turns=1)]
+    runner = BackgroundAgentRunner(pool, store, queue, idle_timeout=0.3, settle_grace=5.0)
+    handle = await runner.spawn("s1", "go")
+    await asyncio.wait_for(runner._turns[handle.turn_id].task, 3.0)  # type: ignore[arg-type]
+
+    [n] = queue.drain()
+    assert n.status == "timeout"
+    assert "no progress" in (n.error or "") and "waiting for its subagents" in (n.error or "")
+    assert "stopped 1 subagent" in (n.error or "")
+    pool.sessions["s1"].stop_subagent.assert_awaited_once_with("t1")
+    # Only subagents were left: no SDK turn to interrupt, nothing to end in the tabs.
+    assert pool.interrupts == []
+    frames = [f for sid, f in pool.tab_frames if sid == "s1"]
+    assert frames == [{"type": "error", "error": "turn_timeout", "detail": frames[0]["detail"]}]
+    assert "waiting for its subagents" in frames[0]["detail"]
+
+
+async def test_subagent_progress_counts_as_progress_while_following(
+    store: FakeStore, queue: NotificationQueue
+) -> None:
+    pool = _sub_pool()
+    pool.scripts["s1"] = [*_bg_spawn("t1"), TurnComplete(cost=0.0, num_turns=1)]
+    runner = BackgroundAgentRunner(pool, store, queue, idle_timeout=0.3, settle_grace=5.0)
+    handle = await runner.spawn("s1", "go")
+    record = runner._turns[handle.turn_id]
+    await _until(lambda: record.phase == "subagents")
+    for i in range(8):  # 0.8 s of work, well past the 0.3 s idle timeout
+        await asyncio.sleep(0.1)
+        pool.emit("s1", SubagentProgress(tool_use_id="t1", activity=f"step {i}"))
+    assert not record.finished
+    pool.emit("s1", SubagentFinished(tool_use_id="t1", status="done"))
+    _report_turn(pool, "s1", "t1", "Done after a long scan.")
+    await asyncio.wait_for(record.task, 1.0)  # type: ignore[arg-type]
+    [n] = queue.drain()
+    assert n.status == "succeeded" and n.preview == "Done after a long scan."
+
+
+async def test_interrupt_stops_the_turns_subagents(store: FakeStore, queue: NotificationQueue) -> None:
+    from orchestrator.tools.agent_sessions import interrupt_agent_session
+    import json as _json
+
+    pool = _sub_pool(TabPool)
+    pool.scripts["s1"] = [*_bg_spawn("t1"), *_bg_spawn("t2"), TurnComplete(cost=0.0, num_turns=1)]
+    runner = BackgroundAgentRunner(pool, store, queue, idle_timeout=5.0, settle_grace=5.0)
+    handle = await runner.spawn("s1", "go")
+    record = runner._turns[handle.turn_id]
+    await _until(lambda: record.phase == "subagents")
+    pool.emit("s1", SubagentFinished(tool_use_id="t2", status="done"))
+
+    out = _json.loads(await interrupt_agent_session({"pool": pool, "runner": runner}, "s1"))
+    await asyncio.gather(record.task, return_exceptions=True)  # type: ignore[arg-type]
+    assert out["status"] == "interrupted" and out["cancelled_turns"] == [handle.turn_id]
+    assert out["stopped_subagents"] == 1
+    pool.sessions["s1"].stop_subagent.assert_awaited_once_with("t1")  # t2 had already finished
+    assert pool.interrupts == []  # no SDK turn was running
+    [n] = queue.drain()
+    assert n.status == "cancelled" and "stopped 1 subagent" in (n.error or "")
+
+
+async def test_cancel_mid_prompt_interrupts_and_stops_spawned_subagents(
+    store: FakeStore, queue: NotificationQueue
+) -> None:
+    pool = _sub_pool(TabPool)
+    gate = asyncio.Event()
+
+    async def send(sid: str, message: str, *, source_ws=None):
+        for ev in _bg_spawn("t1"):
+            yield ev
+        await gate.wait()
+        yield TurnComplete(cost=0.0, num_turns=1)
+
+    pool.send = send  # type: ignore[method-assign]
+    runner = BackgroundAgentRunner(pool, store, queue, idle_timeout=5.0)
+    handle = await runner.spawn("s1", "go")
+    record = runner._turns[handle.turn_id]
+    await _until(lambda: "t1" in record.subagents)
+    assert await runner.cancel(handle.turn_id)
+    await asyncio.gather(record.task, return_exceptions=True)  # type: ignore[arg-type]
+    pool.sessions["s1"].stop_subagent.assert_awaited_once_with("t1")
+    assert pool.interrupts == ["s1"]
+    assert ("s1", {"type": "status", "status": "interrupted"}) in pool.tab_frames
+    [n] = queue.drain()
+    assert n.status == "cancelled"
+
+
+async def test_interrupt_without_a_runner_turn_still_interrupts_the_session(
+    store: FakeStore, queue: NotificationQueue
+) -> None:
+    from orchestrator.tools.agent_sessions import interrupt_agent_session
+    import json as _json
+
+    pool = _sub_pool()
+    runner = BackgroundAgentRunner(pool, store, queue)
+    out = _json.loads(await interrupt_agent_session({"pool": pool, "runner": runner}, "s1"))
+    assert out == {"session_id": "s1", "status": "interrupted"}
+    assert pool.interrupts == ["s1"]
+
+
+async def test_report_turn_of_another_turns_subagent_is_not_ours(
+    store: FakeStore, queue: NotificationQueue
+) -> None:
+    pool = _sub_pool()
+    pool.scripts["s1"] = [*_bg_spawn("t1"), TurnComplete(cost=0.0, num_turns=1)]
+    runner = BackgroundAgentRunner(pool, store, queue, idle_timeout=5.0, settle_grace=5.0)
+    handle = await runner.spawn("s1", "go")
+    record = runner._turns[handle.turn_id]
+    await _until(lambda: record.phase == "subagents")
+    pool.emit("s1", SubagentFinished(tool_use_id="old", status="done"))  # an earlier turn's agent
+    _report_turn(pool, "s1", "old", "Old agent report.")
+    await asyncio.sleep(0.05)
+    assert not record.finished and record.notification_turns == 0
+    assert record.last_assistant_text != "Old agent report."
+    pool.emit("s1", SubagentFinished(tool_use_id="t1", status="failed", summary="crashed"))
+    _report_turn(pool, "s1", "t1", "The agent failed: crashed.")
+    await asyncio.wait_for(record.task, 1.0)  # type: ignore[arg-type]
+    [n] = queue.drain()
+    assert n.status == "succeeded" and n.preview == "The agent failed: crashed."
+
+
+async def test_waits_for_every_owed_report_turn(store: FakeStore, queue: NotificationQueue) -> None:
+    """Both agents end before the first report: the session still owes the
+    second report turn (awaits_unprompted_turn), so the turn waits for it."""
+    pool = _sub_pool()
+    owed = {"n": 0}
+    pool.sessions["s1"].awaits_unprompted_turn = MagicMock(side_effect=lambda: owed["n"] > 0)
+    pool.scripts["s1"] = [*_bg_spawn("t1"), *_bg_spawn("t2"), TurnComplete(cost=0.0, num_turns=1)]
+    runner = BackgroundAgentRunner(pool, store, queue, idle_timeout=5.0, settle_grace=5.0)
+    handle = await runner.spawn("s1", "go")
+    record = runner._turns[handle.turn_id]
+    await _until(lambda: record.phase == "subagents")
+    owed["n"] = 2
+    pool.emit("s1", SubagentFinished(tool_use_id="t1", status="done"))
+    pool.emit("s1", SubagentFinished(tool_use_id="t2", status="done"))
+    owed["n"] = 1
+    _report_turn(pool, "s1", "t1", "First report.")
+    await asyncio.sleep(0.1)
+    assert not record.finished
+    owed["n"] = 0
+    _report_turn(pool, "s1", "t2", "Second report: all done.")
+    await asyncio.wait_for(record.task, 1.0)  # type: ignore[arg-type]
+    [n] = queue.drain()
+    assert n.preview == "Second report: all done."
+
+
+async def test_background_agent_that_ended_during_the_turn_waits_for_its_report(
+    store: FakeStore, queue: NotificationQueue
+) -> None:
+    pool = _sub_pool()
+    pool.scripts["s1"] = [
+        *_bg_spawn("t1"), SubagentFinished(tool_use_id="t1", status="done"),
+        TextComplete(text="Started one."), TurnComplete(cost=0.0, num_turns=1),
+    ]
+    runner = BackgroundAgentRunner(pool, store, queue, idle_timeout=5.0, settle_grace=5.0)
+    handle = await runner.spawn("s1", "go")
+    record = runner._turns[handle.turn_id]
+    await _until(lambda: record.phase == "subagents")
+    assert runner.peek("s1")["waiting_for_subagents"] == 0
+    _report_turn(pool, "s1", "t1", "It finished quickly: result.")
+    await asyncio.wait_for(record.task, 1.0)  # type: ignore[arg-type]
+    [n] = queue.drain()
+    assert n.preview == "It finished quickly: result."
+
+
+async def test_no_report_turn_ends_after_the_settle_grace(store: FakeStore, queue: NotificationQueue) -> None:
+    """A harness without report turns: the turn ends settle_grace after the
+    last subagent finished, with the prompt's own text."""
+    pool = _sub_pool()
+    pool.scripts["s1"] = [*_bg_spawn("t1"), TextComplete(text="Launched."), TurnComplete(cost=0.0, num_turns=1)]
+    runner = BackgroundAgentRunner(pool, store, queue, idle_timeout=5.0, settle_grace=0.2)
+    handle = await runner.spawn("s1", "go")
+    record = runner._turns[handle.turn_id]
+    await _until(lambda: record.phase == "subagents")
+    pool.emit("s1", SubagentFinished(tool_use_id="t1", status="done", summary="ok"))
+    await asyncio.wait_for(record.task, 2.0)  # type: ignore[arg-type]
+    [n] = queue.drain()
+    assert n.status == "succeeded" and n.preview == "Launched."
+    assert runner.peek("s1")["subagents"][0]["summary"] == "ok"
+
+
+async def test_missed_finish_is_reconciled_from_the_live_registry(
+    store: FakeStore, queue: NotificationQueue
+) -> None:
+    pool = _sub_pool()
+    live = [{"tool_use_id": "t1", "status": "running"}]
+    pool.subagents_for = lambda sid: live  # type: ignore[attr-defined]
+    pool.scripts["s1"] = [*_bg_spawn("t1"), TurnComplete(cost=0.0, num_turns=1)]
+    runner = BackgroundAgentRunner(pool, store, queue, idle_timeout=5.0, settle_grace=0.2)
+    handle = await runner.spawn("s1", "go")
+    record = runner._turns[handle.turn_id]
+    await _until(lambda: record.phase == "subagents")
+    live[0] = {"tool_use_id": "t1", "status": "done", "summary": "seen only in the registry"}
+    await asyncio.wait_for(record.task, 3.0)  # type: ignore[arg-type]
+    [n] = queue.drain()
+    assert n.status == "succeeded"
+
+
+async def test_session_closed_while_subagents_run_fails_the_turn(
+    store: FakeStore, queue: NotificationQueue
+) -> None:
+    pool = _sub_pool()
+    pool.scripts["s1"] = [*_bg_spawn("t1"), TurnComplete(cost=0.0, num_turns=1)]
+    runner = BackgroundAgentRunner(pool, store, queue, idle_timeout=5.0, settle_grace=0.2)
+    handle = await runner.spawn("s1", "go")
+    record = runner._turns[handle.turn_id]
+    await _until(lambda: record.phase == "subagents")
+    del pool.sessions["s1"]
+    await asyncio.wait_for(record.task, 3.0)  # type: ignore[arg-type]
+    [n] = queue.drain()
+    assert n.status == "failed" and "session closed" in (n.error or "")
+
+
+async def test_notification_renders_subagents_and_last_message() -> None:
+    from orchestrator.session import _notification_entry, _render_notifications
+
+    n = Notification(
+        "nid", "turn-1234", "agent-1", "Audit", None, "succeeded", 0.0, 3, 12.0, None,
+        preview='Both scans are "clean".', subagents=2,
+    )
+    line = _render_notifications([n])
+    assert "subagents=2" in line and "last_message=\"Both scans are 'clean'.\"" in line
+    entry = _notification_entry(n)
+    assert entry["subagents"] == 2 and entry["preview"] == 'Both scans are "clean".'

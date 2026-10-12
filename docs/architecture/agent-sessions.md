@@ -165,6 +165,14 @@ connected client saw nothing until it reconnected.
   order — clients drop `seq <= checkpoint`.
 - **Status** — subagent events never change the session status; a harness-started turn sets it
   (`streaming` …) and its `TurnComplete` returns it to `idle`, so `pool/live` reflects it.
+- **A prompt during a harness-started turn** — `pool.send()` first waits (≤ 30 s) until the turn
+  ends (`_await_harness_turn_end`: announced out of turn, or the session busy with no send of
+  ours); the CLI would queue the prompt behind it anyway, and this way that turn's `turn_complete`
+  never lands inside the user's turn. If one still ends inside a `send()` (the CLI ran it first), it
+  is not broadcast and only balances the watcher events (`_end_harness_turn`).
+- **Stop during a harness-started turn** — `cancel_turn()` with no turn task of ours interrupts the
+  CLI when such a turn runs and returns `True`, so the chat route tells every device
+  (`status{interrupted}`).
 - **Subagent frames** — `SubagentEvent` is serialized as `subagent_event{tool_use_id, frame}` (the
   wrapper is seq-stamped and goes into the replay ring; the inner frame never has `seq`), the
   lifecycle events as `subagent_started` / `subagent_progress` / `subagent_finished`. Because the
@@ -176,11 +184,20 @@ connected client saw nothing until it reconnected.
   `GET /api/sessions/{sdk_id}/subagents`; `GET /api/sessions/{sdk_id}/subagents/{tool_use_id}/messages`
   pages the adapter's `read_subagent_messages()` like `/messages` (404 unknown, empty page when the
   subagent is known but has no transcript yet).
-- **Orchestrator runner** — subagent events count as progress for the 30-min no-progress timeout but
-  never enter the 200-entry ring: each turn record keeps a small per-subagent summary (≤ 20), shown
-  by `peek()`; `read_agent_session`'s `live` block lists up to 10 of the session's subagents. Agents
-  that outlive the delegated turn (every agent on CLI 2.1.292) report through the session's own
-  notification turns, which the runner does not see.
+- **Event taps** — `pool.tap_events(local_id, cb)` lets an observer see every event of a session:
+  `cb(event, out_of_turn)` runs synchronously after the broadcast, for each event `send()` streams
+  (`False`) and each one the out-of-turn pump sends (`True`, in seq order); a failing tap is logged
+  and skipped. `wait_out_of_turn_idle()` is the public form of the pump-drained wait. A
+  harness-started turn stopped with `interrupt()` is announced as `interrupted`, like a prompted one.
+- **Orchestrator runner** — a delegated turn's subagents are tracked by spawning `tool_use_id`
+  (calls made in the turn, their children, and agents started inside the turn's notification
+  turns); their events count as progress for the 30-min no-progress timeout but never enter the
+  200-entry ring. Agents that outlive the prompt (every agent on CLI 2.1.292) keep the turn open:
+  the runner follows the session through a tap until none of them runs and the notification turn
+  reporting on the last one ended (`BaseSessionManager.awaits_unprompted_turn()` — Claude: a
+  `<task-notification>` turn still owed — keeps it waiting for the next), then pushes one
+  notification with that turn's final text. Details in
+  [orchestrator.md](orchestrator.md#fire-and-forget-agent-turns-backendorchestratorrunnerpy).
 - **Adding a harness** — translate its native signals with a `SubagentRegistry` (spawn → start →
   progress → finish), wrap the subagent's content events in `SubagentEvent`, emit out-of-turn events
   through `_emit_out_of_turn`, implement `subagent_snapshot()` / `stop_subagent()` on the manager and
@@ -328,7 +345,10 @@ still explain why the version matters:
 - **Closing a never-used new session deletes its JSONL** (`close_pool_session`: zero turns and not
   resumed); resumed sessions are never deleted there.
 - **`DELETE /api/sessions/{id}` is a soft delete** to `context/trash/` and removes the session from
-  the history index.
+  the history index. The JSONL, its `.config.json` / `.summary.json` sidecars and its state
+  directory `context/<sid>/` (subagent transcripts, tool results) move together, under the same
+  collision suffix (`SessionStore.delete_session`). There is no restore endpoint: recover by moving
+  them back by hand.
 
 ## History
 

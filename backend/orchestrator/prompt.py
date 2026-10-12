@@ -312,9 +312,17 @@ def _active_sessions_section(context: dict[str, Any]) -> str:
         # Per-session detail: in-flight fire-and-forget turns + pending perms
         for h in in_flight.get(sid, []):
             elapsed = f"{h.elapsed_seconds:.1f}s"
+            phase = getattr(h, "phase", "agent")
+            if phase == "waiting_for_subagents":
+                n_sub = getattr(h, "waiting_for_subagents", 0)
+                detail = f", waiting for {n_sub} subagent{'s' if n_sub != 1 else ''}"
+            elif phase == "notification_turn":
+                detail = ", reporting on a finished subagent"
+            else:
+                detail = ""
             lines.append(
                 f"    in-flight: turn {h.turn_id[:8]} "
-                f"running for {elapsed} (status={h.status})"
+                f"running for {elapsed} (status={h.status}{detail})"
             )
             if h.pending_permission_ids:
                 rids = ", ".join(rid[:8] for rid in h.pending_permission_ids)
@@ -554,7 +562,8 @@ def _guidelines_section() -> str:
 - **Match MCPs to tasks**: Load only the MCPs an agent needs
 
 ### Background Events
-- After every fire-and-forget turn, you'll receive a structured `[SESSION xxx event: turn <id> <status>, ...]` line (succeeded / failed / cancelled / timeout). Status only — call `read_agent_session(session_id)` for the actual content; it works both while a turn is still running (live tail in `live.events`) and after it finishes (persisted messages). Never describe or summarise an agent's results without reading them first.
+- After every fire-and-forget turn, you'll receive a structured `[SESSION xxx event: turn <id> <status>, ...]` line (succeeded / failed / cancelled / timeout), with at most a one-line `last_message` excerpt. Call `read_agent_session(session_id)` for the actual content; it works both while a turn is still running (live tail in `live.events`) and after it finishes (persisted messages). Never describe or summarise an agent's results without reading them first.
+- When the agent starts subagents, its turn stays in flight until they have all finished and the agent has reported on them (`subagents=N` on the event line): the event carries the final answer, not "I started N agents". Meanwhile `read_agent_session` shows `live.phase: waiting_for_subagents` and `live.subagents` with each one's status — that is waiting, not stuck. `interrupt_agent_session` also stops those subagents.
 - A turn that did **not** succeed (failed / cancelled / timeout) must be reported to the user as such, first: say it stopped and why (the `error`), then read the session to tell them how far it got. Don't present unfinished work as done.
 - Permission events also arrive as structured lines: `[SESSION xxx event: <user|orchestrator> <approved|denied> <ToolName> — "<message>"]`. Typically the user answered in their tab; only call `respond_to_agent_permission` when they're unavailable, the agent has explicitly asked you to decide, or you have a specific reason to overrule.
 - Agents announce intent BEFORE calling gated tools (per their system prompt). When you see one of those announcements in `read_agent_session`'s `live.events` while a turn is running, you can respond via the agent's chat — the user's chat reply also auto-denies the pending popup with their prose as the rejection reason, prompting the agent to refine.

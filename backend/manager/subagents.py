@@ -237,6 +237,13 @@ class SubagentRegistry:
         if rec is not None and activity and not rec.finished_sent:
             rec.activity = activity
 
+    def note_text(self, tool_use_id: str, text: str | None) -> None:
+        """Remember the subagent's latest answer text: the summary of last
+        resort when it finishes without one."""
+        rec = self._records.get(tool_use_id)
+        if rec is not None and text and text.strip():
+            rec.extra["last_text"] = text
+
     def finish(
         self,
         tool_use_id: str,
@@ -252,15 +259,44 @@ class SubagentRegistry:
         rec.status = status if status in ("done", "failed", "stopped") else "done"
         if summary:
             rec.summary = summary
+        elif not rec.summary and rec.extra.get("last_text"):
+            rec.summary = rec.extra["last_text"]
         if usage:
             rec.usage = usage
         rec.ended_at = now_iso()
+        return self._finished_event(rec)
+
+    def amend(
+        self,
+        tool_use_id: str,
+        *,
+        status: str,
+        summary: str | None = None,
+        usage: dict[str, Any] | None = None,
+    ) -> SubagentFinished | None:
+        """A finished subagent gets better data (its notification arrived
+        after the finish was flushed): a second ``SubagentFinished`` carries
+        it (spec 12 SA-3: a later subagent_finished always applies).  None
+        when nothing changed."""
+        rec = self._records.get(tool_use_id)
+        if rec is None or not rec.finished_sent:
+            return None
+        changed = False
+        if summary and summary != rec.summary:
+            rec.summary, changed = summary, True
+        if usage and usage != rec.usage:
+            rec.usage, changed = usage, True
+        if status in ("done", "failed", "stopped") and status != rec.status and rec.status != "stopped":
+            rec.status, changed = status, True
+        return self._finished_event(rec) if changed else None
+
+    def _finished_event(self, rec: SubagentRecord) -> SubagentFinished:
         return SubagentFinished(
-            tool_use_id=tool_use_id,
+            tool_use_id=rec.tool_use_id,
             status=rec.status,
             summary=rec.summary or "",
             usage=dict(rec.usage or usage_dict()),
-            ended_at=rec.ended_at,
+            ended_at=rec.ended_at or now_iso(),
         )
 
     def stop_all(self) -> list[SubagentFinished]:

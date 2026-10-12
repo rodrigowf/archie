@@ -38,6 +38,7 @@ from manager.base_session import BaseSessionManager, SessionDeadError
 from manager.config import ManagerConfig
 from manager.types import (
     Event,
+    SessionStatus,
     TerminationReason,
     TextComplete,
     TurnComplete,
@@ -254,6 +255,10 @@ class SessionPool:
         self._oot_tasks: dict[str, asyncio.Task[None]] = {}
         # A harness-started turn being broadcast out of turn: its final text.
         self._oot_turns: dict[str, dict[str, Any]] = {}
+        # Event taps (tap_events): observers of every event a session emits,
+        # in turn or out of turn — the orchestrator runner follows a delegated
+        # turn's background subagents and notification turns with them.
+        self._event_taps: dict[str, list[Callable[[Event, bool], None]]] = {}
 
     # ------------------------------------------------------------------
     # Agent session lifecycle
@@ -542,6 +547,10 @@ class SessionPool:
         sm = self._sessions.get(session_id)
         if sm is not None:
             self._interrupted.add(session_id)
+            oot_turn = self._oot_turns.get(session_id)
+            if oot_turn is not None:
+                # A harness-started turn is running: it ends as interrupted too.
+                oot_turn["interrupted"] = True
             await sm.interrupt()
 
     async def resolve_session_permission(
@@ -1124,6 +1133,10 @@ class SessionPool:
             self._interrupted.discard(session_id)
             final_text: str | None = None
             finished = False
+            # A harness-started turn (task notification) still running ends
+            # before our prompt is echoed: the CLI would queue the prompt
+            # behind it anyway, and its turn_complete must not end ours.
+            await self._await_harness_turn_end(session_id)
             # A harness-started turn still being broadcast ends before ours begins.
             await self._await_out_of_turn_idle(session_id)
             try:
@@ -1164,9 +1177,18 @@ class SessionPool:
                 await self._await_out_of_turn_idle(session_id)
                 async for event in sm.send(text):
                     payload = self._wrap_payload(sm, serialize_event(event))
-                    await self._broadcast_session(session_id, payload)
+                    harness_turn_end = isinstance(event, TurnComplete) and not event.prompted
+                    if not harness_turn_end:
+                        # A harness-started turn that ran inside our send()
+                        # is not the end of the user's turn: never broadcast
+                        # as turn_complete (clients would end it mid-way).
+                        await self._broadcast_session(session_id, payload)
+                    self._run_taps(session_id, event, False)
                     if isinstance(event, TextComplete) and event.text.strip():
                         final_text = event.text
+                        harness_turn = self._oot_turns.get(session_id)
+                        if harness_turn is not None:  # its reply, before ours
+                            harness_turn["text"] = event.text
                     if isinstance(event, TurnComplete):
                         self._pin_provider(sm)
                         self._save_open_set()  # a fresh session learns its sdk id here
@@ -1174,6 +1196,7 @@ class SessionPool:
                             # A turn the CLI injected (task notification)
                             # ran before our prompt: ours is still to come.
                             final_text = None
+                            self._end_harness_turn(session_id, event)
                         elif not finished:
                             # Before the yield: the consumer may stop iterating here.
                             finished = True
@@ -1627,6 +1650,15 @@ class SessionPool:
 
         task = self._turn_tasks.get(session_id)
         if task is None or task.done():
+            if self._harness_turn_running(session_id):
+                # No turn of ours, but the CLI runs one of its own (a task
+                # notification turn): Stop must reach the CLI, and the caller
+                # tells every device (status{interrupted}).
+                try:
+                    await self.interrupt(session_id)
+                except Exception:
+                    logger.exception("interrupt() failed during cancel_turn for %s", session_id)
+                return True
             return False
 
         # Issue the SDK interrupt FIRST.  That's the proper way to stop
@@ -1874,7 +1906,7 @@ class SessionPool:
             if turn is not None:
                 self.announce_turn_finished(
                     session_id,
-                    status="error" if event.is_error else "ok",
+                    status="interrupted" if turn.get("interrupted") else ("error" if event.is_error else "ok"),
                     text=turn["text"] or event.result,
                     error=(event.result or "Turn failed") if event.is_error else None,
                 )
@@ -1885,6 +1917,80 @@ class SessionPool:
                 "event_type": payload["type"],
                 "event_data": payload,
             })
+        self._run_taps(session_id, event, True)
+
+    def tap_events(
+        self, session_id: str, cb: Callable[[Event, bool], None],
+    ) -> Callable[[], None]:
+        """Observe every event of an agent session: ``cb(event, out_of_turn)``.
+
+        Called synchronously, after the event was broadcast, for each event
+        ``send()`` streams (``out_of_turn=False``) and each one the
+        out-of-turn pump broadcasts (``True``, in seq order).  Must not block
+        or raise.  Returns the remover.  The orchestrator runner uses it to
+        follow a delegated turn's background subagents and the notification
+        turns that report on them."""
+        self._event_taps.setdefault(session_id, []).append(cb)
+
+        def remove() -> None:
+            taps = self._event_taps.get(session_id)
+            if taps and cb in taps:
+                taps.remove(cb)
+                if not taps:
+                    self._event_taps.pop(session_id, None)
+        return remove
+
+    def _run_taps(self, session_id: str, event: Event, out_of_turn: bool) -> None:
+        for cb in list(self._event_taps.get(session_id, ())):
+            try:
+                cb(event, out_of_turn)
+            except Exception:  # noqa: BLE001 — an observer must never break a broadcast
+                logger.exception("event tap failed for %s", session_id)
+
+    async def wait_out_of_turn_idle(self, session_id: str, timeout: float = 15.0) -> None:
+        """Wait (bounded) until the session's queued out-of-turn events went out."""
+        await self._await_out_of_turn_idle(session_id, timeout=timeout)
+
+    _BUSY = (SessionStatus.STREAMING, SessionStatus.TOOL_USE, SessionStatus.THINKING)
+
+    def _harness_turn_running(self, session_id: str) -> bool:
+        """A turn the harness started on its own is running (announced out of
+        turn, or the session is busy with no send() of ours in flight)."""
+        if session_id in self._oot_turns:
+            return True
+        sm = self._sessions.get(session_id)
+        task = self._turn_tasks.get(session_id)
+        return (
+            sm is not None and getattr(sm, "status", None) in self._BUSY
+            and (task is None or task.done())
+        )
+
+    async def _await_harness_turn_end(self, session_id: str, timeout: float = 30.0) -> None:
+        """Bounded wait for a harness-started turn to end (called under the
+        session lock, so no send() of ours is in flight)."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        sm = self._sessions.get(session_id)
+        while loop.time() < deadline and (
+            session_id in self._oot_turns
+            or (sm is not None and getattr(sm, "status", None) in self._BUSY)
+        ):
+            await asyncio.sleep(0.1)
+        if loop.time() >= deadline:
+            logger.warning("harness turn of %s still running after %.0fs; sending anyway", session_id, timeout)
+
+    def _end_harness_turn(self, session_id: str, event: TurnComplete) -> None:
+        """A harness-started turn ended inside a send(): balance its
+        ``agent_turn_started`` (announced when it began out of turn)."""
+        turn = self._oot_turns.pop(session_id, None)
+        if turn is None:
+            return
+        self.announce_turn_finished(
+            session_id,
+            status="interrupted" if turn.get("interrupted") else ("error" if event.is_error else "ok"),
+            text=turn.get("text") or event.result,
+            error=(event.result or "Turn failed") if event.is_error else None,
+        )
 
     def subagents_for(self, session_id: str) -> list[dict[str, Any]]:
         """Live subagents of an open session (spawn order); [] when none / unknown."""

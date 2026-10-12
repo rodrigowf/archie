@@ -190,7 +190,17 @@ _TURN_ABANDON_S = 240.0
 # Bounded so an idle session that nobody's watching for hours doesn't
 # accumulate megabytes of dropped events.  Each event is small (typically
 # a JSON payload <1 KB), so 500 entries ≈ 0.5 MB per session worst-case.
-_REPLAY_BUFFER_SIZE = 500
+_REPLAY_BUFFER_SIZE = 1000
+
+# A pending task notification whose turn the CLI did not start this long
+# after the session went idle was consumed some other way (folded into a
+# turn): forget it, so it is never announced for the wrong turn.
+_NOTE_TURN_WAIT_S = 10.0
+
+# After a CLI-started turn ended inside our send() (it ran before our
+# prompt), our own turn must start (an ``init``) within this time, else the
+# CLI folded our prompt into that turn and send() ends here.
+_UNPROMPTED_GRACE_S = 20.0
 
 
 class SequencedEvent(NamedTuple):
@@ -384,6 +394,13 @@ class ClaudeSessionManager(BaseSessionManager):
         # wait here until send() returns, then go out of turn in order.
         self._inbox_closed: bool = False
         self._post_turn_backlog: list[SequencedEvent] = []
+        # A CLI turn is running (from its ``init`` to its ResultMessage), and
+        # a counter of turns: a notification that arrived during turn N and
+        # is followed by a request in turn N (``status: requesting``) was
+        # folded into that request — the CLI starts no turn of its own for it.
+        self._cli_turn_active: bool = False
+        self._turn_gen: int = 0
+        self._stale_notes_timer: asyncio.TimerHandle | None = None
 
     @property
     def provider_name(self) -> str:
@@ -683,6 +700,10 @@ class ClaudeSessionManager(BaseSessionManager):
         stall_notified_at: float | None = None
         messages_received = 0
         turn_complete_seen = False
+        # Set when a CLI-started turn ended inside this send(): our own turn
+        # must start (an init) by then, else the CLI folded our prompt into
+        # that turn and nothing more will come for it.
+        fold_deadline: float | None = None
 
         try:
             while not turn_complete_seen:
@@ -695,12 +716,29 @@ class ClaudeSessionManager(BaseSessionManager):
                         _STALL_REPEAT_INTERVAL_S - (now - stall_notified_at),
                     )
 
+                if fold_deadline is not None and self._cli_turn_active:
+                    fold_deadline = None  # our turn started
+                wait_s = max(next_notice_in, 0.5)
+                if fold_deadline is not None:
+                    wait_s = max(0.05, min(wait_s, fold_deadline - now))
                 try:
-                    item = await asyncio.wait_for(
-                        inbox.get(), timeout=max(next_notice_in, 0.5),
-                    )
+                    item = await asyncio.wait_for(inbox.get(), timeout=wait_s)
                 except asyncio.TimeoutError:
                     now = loop.time()
+                    if fold_deadline is not None and not self._cli_turn_active and now >= fold_deadline:
+                        # The CLI is idle and never started a turn for our
+                        # prompt: end this send() rather than wait forever.
+                        logger.warning(
+                            "Session %s: no turn of its own followed a CLI-started turn "
+                            "within %.0fs; ending send()", self._local_id, _UNPROMPTED_GRACE_S,
+                        )
+                        self._last_yielded_seq = None
+                        self._status = SessionStatus.IDLE
+                        yield TurnComplete(session_id=self._provider_session_id or "")
+                        turn_complete_seen = True
+                        continue
+                    if fold_deadline is not None and now < fold_deadline:
+                        continue
                     # If we've never received a single message and we've been
                     # waiting longer than _TURN_ABANDON_S, the upstream request
                     # never landed.  Give up so the caller can retry instead
@@ -749,8 +787,11 @@ class ClaudeSessionManager(BaseSessionManager):
                 # A turn the CLI injected on its own (a task notification
                 # that ran before our queued prompt) ends with its own
                 # TurnComplete: our turn is still to come.
-                if isinstance(event, TurnComplete) and event.prompted:
-                    turn_complete_seen = True
+                if isinstance(event, TurnComplete):
+                    if event.prompted:
+                        turn_complete_seen = True
+                    else:
+                        fold_deadline = loop.time() + _UNPROMPTED_GRACE_S
         finally:
             # Detach the inbox: from here on events go out of turn (the
             # pool's sink broadcasts them) and into the replay ring.  The
@@ -901,11 +942,24 @@ class ClaudeSessionManager(BaseSessionManager):
         path (the latter via :meth:`_emit_permission_request` in the base
         class).
         """
+        inbox = self._event_inbox
+        if (
+            isinstance(event, TurnComplete) and not event.prompted
+            and inbox is not None and not self._inbox_closed
+        ):
+            # A CLI-started turn ended inside our send() (it ran before our
+            # prompt).  It is not the end of the user's turn: unsequenced and
+            # kept out of the replay ring, so no client ever ends the user's
+            # turn on it; send() and the pool only do their bookkeeping.
+            try:
+                inbox.put_nowait(event)
+            except asyncio.QueueFull:  # pragma: no cover — unbounded queue
+                pass
+            return
         seq = self._next_seq
         self._next_seq += 1
         self._replay_buffer.append((seq, event))
         wrapped = SequencedEvent(seq=seq, event=event)
-        inbox = self._event_inbox
         if inbox is None:
             # No send() is consuming: background subagents, a turn the CLI
             # started on its own.  The pool broadcasts these (spec 12 §4.8).
@@ -1082,10 +1136,7 @@ class ClaudeSessionManager(BaseSessionManager):
         """Build SDK options from our config."""
         kwargs: dict = {
             "include_partial_messages": True,
-            # Subagent text and thinking arrive as messages carrying
-            # ``parent_tool_use_id`` and are routed into subagent_event frames
-            # (spec 12 §4.8), so they never surface as the parent's text.
-            "forward_subagent_text": True,
+
             "setting_sources": ["project", "local"],
             "can_use_tool": self._can_use_tool,
             # Append a small policy onto the bundled Claude Code system prompt
@@ -1125,6 +1176,12 @@ class ClaudeSessionManager(BaseSessionManager):
             # When mcp_servers is provided, it overrides settings from .claude.json
             kwargs["mcp_servers"] = self._config.mcp_servers
 
+        if "forward_subagent_text" in getattr(ClaudeAgentOptions, "__dataclass_fields__", {}):
+            # Subagent text and thinking arrive as messages carrying
+            # ``parent_tool_use_id`` and are routed into subagent_event frames
+            # (spec 12 §4.8), so they never surface as the parent's text.
+            # (Guarded: SDKs before 0.2.x have no such option.)
+            kwargs["forward_subagent_text"] = True
         # Harness options (effort / thinking / fallback model) → SDK fields.
         kwargs.update(self._harness_option_kwargs())
         # Copy, never mutate the config's dict (it may be shared).
@@ -1346,7 +1403,7 @@ class ClaudeSessionManager(BaseSessionManager):
             if not isinstance(delta, dict):
                 return
             delta_type = delta.get("type", "")
-            parent = msg.parent_tool_use_id
+            parent = getattr(msg, "parent_tool_use_id", None)
             out: Event | None = None
             if delta_type == "text_delta":
                 if not parent:
@@ -1412,21 +1469,39 @@ class ClaudeSessionManager(BaseSessionManager):
                 trigger = data.get("trigger", "manual")
                 summary = data.get("summary", "")
                 yield CompactComplete(trigger=trigger, summary=summary)
-            elif msg.subtype == "init" and self._out_of_turn() and self._pending_notifications:
-                # Every turn starts with an init message.  With no send()
-                # waiting, this is the turn the CLI starts for a background
-                # task that finished (spec 12 SA-7).
-                note = self._pending_notifications.popleft()
-                self._announced_notification = note
-                self._status = SessionStatus.STREAMING
-                yield UnpromptedTurnStarted(text=note["text"], source="task_notification")
+            elif msg.subtype == "init":
+                # Every turn starts with an init message.
+                self._cli_turn_active = True
+                self._turn_gen += 1
+                self._cancel_stale_notes()
+                if self._out_of_turn() and self._pending_notifications:
+                    # With no send() waiting, this is the turn the CLI starts
+                    # for a background task that finished (spec 12 SA-7).
+                    # The init carries no run id and the JSONL line comes
+                    # later, so the oldest pending note is announced (the CLI
+                    # dequeues them in arrival order); the turn's
+                    # ResultMessage.origin.runId settles it.
+                    note = self._pending_notifications.popleft()
+                    self._announced_notification = note
+                    self._status = SessionStatus.STREAMING
+                    yield UnpromptedTurnStarted(text=note["text"], source="task_notification")
+            elif msg.subtype == "status" and data.get("status") == "requesting" and self._cli_turn_active:
+                # A model request of the main agent starts: notifications that
+                # arrived during this turn are folded into it (probe 2026-10-12:
+                # an agent finishing while the main agent waits on a tool is
+                # answered in the same turn, no turn of its own follows).
+                for note in list(self._pending_notifications):
+                    if note.get("gen") == self._turn_gen:
+                        self._pending_notifications.remove(note)
 
         elif isinstance(msg, AssistantMessage):
-            parent = msg.parent_tool_use_id
+            parent = getattr(msg, "parent_tool_use_id", None)
             for block in msg.content:
                 out: Event | None = None
                 if isinstance(block, TextBlock):
                     out = TextComplete(text=block.text)
+                    if parent:
+                        self._subagents.note_text(parent, block.text)
 
                 elif isinstance(block, ThinkingBlock):
                     if block.thinking:
@@ -1483,7 +1558,7 @@ class ClaudeSessionManager(BaseSessionManager):
             # output (Bash ``{stdout, stderr, interrupted, ...}``, Edit
             # ``{filePath, ...}``, MCP: a list) and has no tool_use_id, so
             # it is only a fallback for messages without result blocks.
-            parent = msg.parent_tool_use_id
+            parent = getattr(msg, "parent_tool_use_id", None)
             result_blocks = (
                 [b for b in msg.content if isinstance(b, ToolResultBlock)]
                 if isinstance(msg.content, list) else []
@@ -1550,10 +1625,14 @@ class ClaudeSessionManager(BaseSessionManager):
             # Always capture the SDK session ID from ResultMessage
             if msg.session_id:
                 self._provider_session_id = msg.session_id
-            origin = msg.origin if isinstance(msg.origin, dict) else None
+            origin = getattr(msg, "origin", None)  # SDK < 0.2.x: absent
+            origin = origin if isinstance(origin, dict) else None
             origin_kind = origin.get("kind") if origin else None
+            self._cli_turn_active = False
             if origin_kind == "task-notification":
                 self._settle_notification_turn(origin.get("runId"))
+            if self._pending_notifications:
+                self._arm_stale_notes()
             yield TurnComplete(
                 cost=msg.total_cost_usd,
                 usage=msg.usage or {},
@@ -1613,6 +1692,7 @@ class ClaudeSessionManager(BaseSessionManager):
             # them) after the parent turn may have ended.
             background=backgrounded,
         )
+        self._subagents.get(tid).extra["task_id"] = msg.task_id  # what stop_task takes
         return [ev] if ev is not None else []
 
     def _on_task_notification(self, msg) -> list[Event]:
@@ -1626,17 +1706,23 @@ class ClaudeSessionManager(BaseSessionManager):
                 "task_id": msg.task_id,
                 "run_id": info.get("run_id") or (msg.data or {}).get("run_id"),
                 "text": _task_notification_text(msg, tid, (rec.description or rec.agent_type or "agent") if rec else None),
+                # The turn it arrived in (None: idle).  See the requesting branch.
+                "gen": self._turn_gen if self._cli_turn_active else None,
             })
+            if not self._cli_turn_active:
+                self._arm_stale_notes()
         if rec is not None:
             self._deferred_finish.pop(tid, None)
             usage = msg.usage if isinstance(msg.usage, dict) else {}
-            ev = self._subagents.finish(
-                tid,
+            fields = dict(
                 status=wire_status(msg.status) or "done",
                 summary=msg.summary or "",
                 usage=usage_dict(usage.get("total_tokens"), usage.get("tool_uses"), usage.get("duration_ms"))
                 if usage else None,
             )
+            # Already finished (a task_updated flushed without a summary):
+            # a second subagent_finished fills summary/usage in (SA-3).
+            ev = self._subagents.finish(tid, **fields) or self._subagents.amend(tid, **fields)
             if ev is not None:
                 out.append(ev)
         return out
@@ -1648,7 +1734,10 @@ class ClaudeSessionManager(BaseSessionManager):
         if not agent_id:
             m = _AGENT_ID_RE.search(result.output or "")
             agent_id = m.group(1) if m else None
-        if agent_id:
+        rec = self._subagents.get(result.tool_use_id)
+        if agent_id and rec is not None and not rec.harness_id:
+            # task_started's task_id wins: stop_task needs it (on CLI 2.1.292
+            # the two are the same id).
             self._subagents.link(result.tool_use_id, str(agent_id))
         raw = meta.get("status")
         if raw == "async_launched" or meta.get("isAsync"):
@@ -1668,24 +1757,62 @@ class ClaudeSessionManager(BaseSessionManager):
         if not run_id:
             return
         if announced is not None and announced.get("run_id") not in (None, run_id):
-            # FIFO guessed wrong: the announced one is still to come.
-            self._pending_notifications.appendleft(announced)
+            # The turn answered another notification than the one announced.
+            # Never re-queue the announced one: putting it back at the head
+            # made every later turn announce the wrong agent.  At worst its
+            # own turn (if any) then runs without an announcement.
+            logger.info(
+                "Session %s: notification turn %s answered a different task than announced (%s)",
+                self._local_id, run_id, announced.get("run_id"),
+            )
         for note in list(self._pending_notifications):
             if note.get("run_id") == run_id:
                 self._pending_notifications.remove(note)
 
+    def _arm_stale_notes(self) -> None:
+        """While idle with notifications pending, the CLI starts their turn at
+        once (well under a second in probes); if none started, they were
+        consumed otherwise — drop them (``awaits_unprompted_turn`` would
+        otherwise stay true forever)."""
+        self._cancel_stale_notes()
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._stale_notes_timer = loop.call_later(_NOTE_TURN_WAIT_S, self._drop_stale_notes)
+
+    def _cancel_stale_notes(self) -> None:
+        if self._stale_notes_timer is not None:
+            self._stale_notes_timer.cancel()
+            self._stale_notes_timer = None
+
+    def _drop_stale_notes(self) -> None:
+        self._stale_notes_timer = None
+        if self._cli_turn_active or not self._pending_notifications:
+            return
+        logger.info(
+            "Session %s: %d task notification(s) got no turn of their own; dropped",
+            self._local_id, len(self._pending_notifications),
+        )
+        self._pending_notifications.clear()
+
     def subagent_snapshot(self) -> list[dict]:
         return self._subagents.summaries()
+
+    def awaits_unprompted_turn(self) -> bool:
+        return bool(self._pending_notifications) or self._announced_notification is not None
 
     async def stop_subagent(self, tool_use_id: str) -> None:
         rec = self._subagents.get(tool_use_id)
         if rec is None:
             raise SubagentNotFound(tool_use_id)
-        if rec.status != "running" or not rec.harness_id:
+        task_id = rec.extra.get("task_id") or rec.harness_id
+        if rec.status != "running" or not task_id or self._client is None:
             raise SubagentNotRunning(tool_use_id)
-        if self._client is None:
-            raise SubagentNotRunning(tool_use_id)
-        await self._client.stop_task(rec.harness_id)
+        stop_task = getattr(self._client, "stop_task", None)
+        if stop_task is None:  # SDK < 0.2.x
+            raise NotImplementedError("this claude-agent-sdk cannot stop a single task")
+        await stop_task(task_id)
 
 
 # "agentId: a1b2…" in the text of an async Agent launch result.

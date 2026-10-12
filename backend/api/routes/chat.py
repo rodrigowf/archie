@@ -17,6 +17,8 @@ disconnect.  See ``_handle_command``.
 from __future__ import annotations
 
 import logging
+import weakref
+
 import orjson
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -458,6 +460,15 @@ async def _send_session_started(
             await ws.send_bytes(orjson.dumps(payload))
 
 
+# History part of session_started.subagents, read once per live session:
+# everything the session produced since it (re)started is in the manager's
+# live registry, so the files on disk only add what came before — re-reading
+# the growing JSONL on every start / reattach would be a full scan each time
+# (the per-file cache misses as soon as the file grows).  Keyed by manager,
+# value (sdk id, rows); a /clear (new sdk id) reads once more.
+_HISTORY_ONCE: "weakref.WeakKeyDictionary[BaseSessionManager, tuple[str, list[dict]]]" = weakref.WeakKeyDictionary()
+
+
 async def _subagents_snapshot(
     ws: WebSocket, pool: SessionPool, sm: BaseSessionManager, session_id: str,
 ) -> list[dict]:
@@ -468,11 +479,21 @@ async def _subagents_snapshot(
     store = getattr(ws.app.state, "store", None)
     sdk_id = sm.sdk_session_id if isinstance(sm.sdk_session_id, str) else None
     disk: list[dict] = []
-    if store is not None and sdk_id:
-        try:
-            disk = await asyncio.to_thread(store.list_subagents, sdk_id)
-        except Exception:  # noqa: BLE001 — history is a nicety here
-            logger.exception("subagent history read failed for %s", sdk_id)
+    if store is not None and sdk_id and getattr(sm, "is_resumed", True) is not False:
+        cached = _HISTORY_ONCE.get(sm)
+        if cached is not None and cached[0] == sdk_id:
+            disk = cached[1]
+        else:
+            try:
+                disk = await asyncio.to_thread(store.list_subagents, sdk_id)
+            except Exception:  # noqa: BLE001 — history is a nicety here
+                logger.exception("subagent history read failed for %s", sdk_id)
+            else:
+                try:
+                    _HISTORY_ONCE[sm] = (sdk_id, disk)
+                except TypeError:  # not weak-referenceable (test doubles)
+                    pass
+    # A brand-new session (not resumed) has no history: its live registry is all.
     return merge_summaries(disk, live)
 
 
@@ -482,7 +503,7 @@ async def _handle_stop_subagent(ws: WebSocket, sm: BaseSessionManager, tool_use_
     if not isinstance(tool_use_id, str) or not tool_use_id:
         await ws.send_bytes(orjson.dumps({
             "type": "error", "error": "invalid_stop_subagent",
-            "detail": "tool_use_id (non-empty string) is required",
+            "detail": "No agent was named to stop.",
         }))
         return
     try:
@@ -490,20 +511,21 @@ async def _handle_stop_subagent(ws: WebSocket, sm: BaseSessionManager, tool_use_
     except NotImplementedError:
         await ws.send_bytes(orjson.dumps({
             "type": "error", "error": "unsupported",
-            "detail": f"{sm.provider_name} cannot stop a single subagent",
+            "detail": "This session can't stop a single agent.",
         }))
     except SubagentNotFound:
         await ws.send_bytes(orjson.dumps({
-            "type": "error", "error": "unknown_subagent", "detail": tool_use_id,
+            "type": "error", "error": "unknown_subagent", "detail": "Unknown agent.",
         }))
     except SubagentNotRunning:
         await ws.send_bytes(orjson.dumps({
-            "type": "error", "error": "subagent_not_running", "detail": tool_use_id,
+            "type": "error", "error": "subagent_not_running", "detail": "This agent already finished.",
         }))
     except Exception as e:  # noqa: BLE001
         logger.exception("stop_subagent failed for %s", tool_use_id)
         await ws.send_bytes(orjson.dumps({
-            "type": "error", "error": "stop_subagent_failed", "detail": str(e),
+            "type": "error", "error": "stop_subagent_failed",
+            "detail": "Couldn't stop the agent. Try again.",
         }))
 
 

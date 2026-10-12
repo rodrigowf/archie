@@ -141,12 +141,34 @@ def _strip_audio_blocks(message: dict[str, Any], audio_format: str) -> None:
     message["content"] = " ".join([f"[audio:{audio_format}]", *texts]).strip()
 
 
+def _notification_entry(n: Notification) -> dict[str, Any]:
+    """A drained notification as a ``background_notification`` JSONL line (minus timestamp)."""
+    entry: dict[str, Any] = {
+        "type": "background_notification",
+        "notification_id": n.notification_id,
+        "turn_id": n.turn_id,
+        "session_id": n.session_id,
+        "session_title": n.session_title,
+        "origin_tool_use_id": n.origin_tool_use_id,
+        "status": n.status,
+        "cost": n.cost,
+        "turns": n.turns,
+        "duration_seconds": n.duration_seconds,
+        "error": n.error,
+    }
+    if n.subagents:
+        entry["subagents"] = n.subagents
+    if n.preview:
+        entry["preview"] = n.preview
+    return entry
+
+
 def _render_notifications(notes: list[Notification]) -> str:
     """Render a batch of background-agent notifications as a status block.
 
-    Status lines only (per design choice): the orchestrator must call
-    read_agent_session to retrieve actual content. Keeps the synthetic
-    prompt cheap and forces explicit follow-up reads.
+    Status lines plus at most a one-line ``last_message`` excerpt: the
+    orchestrator must still call read_agent_session for the actual content.
+    Keeps the synthetic prompt cheap and forces explicit follow-up reads.
     """
     if not notes:
         return ""
@@ -163,8 +185,12 @@ def _render_notifications(notes: list[Notification]) -> str:
             bits.append(f"cost=${n.cost:.4f}")
         if n.turns:
             bits.append(f"turns={n.turns}")
+        if n.subagents:
+            bits.append(f"subagents={n.subagents}")
         if n.error:
             bits.append(f'error="{n.error}"')
+        if n.preview:
+            bits.append('last_message="' + n.preview.replace('"', "'") + '"')
         lines.append(", ".join(bits) + "]")
     if any(n.status != "succeeded" for n in notes):
         lines.append(
@@ -1743,17 +1769,7 @@ class OrchestratorSession:
             # is replayable (ties back to the originating tool_use_id).
             for n in pending:
                 self._writer.append({
-                    "type": "background_notification",
-                    "notification_id": n.notification_id,
-                    "turn_id": n.turn_id,
-                    "session_id": n.session_id,
-                    "session_title": n.session_title,
-                    "origin_tool_use_id": n.origin_tool_use_id,
-                    "status": n.status,
-                    "cost": n.cost,
-                    "turns": n.turns,
-                    "duration_seconds": n.duration_seconds,
-                    "error": n.error,
+                    **_notification_entry(n),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
             # Build the actual prompt the LLM sees.  Notifications go FIRST
@@ -1867,17 +1883,7 @@ class OrchestratorSession:
             if pending:
                 for n in pending:
                     self._writer.append({
-                        "type": "background_notification",
-                        "notification_id": n.notification_id,
-                        "turn_id": n.turn_id,
-                        "session_id": n.session_id,
-                        "session_title": n.session_title,
-                        "origin_tool_use_id": n.origin_tool_use_id,
-                        "status": n.status,
-                        "cost": n.cost,
-                        "turns": n.turns,
-                        "duration_seconds": n.duration_seconds,
-                        "error": n.error,
+                        **_notification_entry(n),
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     })
                 rendered = _render_notifications(pending)

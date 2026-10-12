@@ -325,6 +325,13 @@ class BaseSessionManager(ABC):
         (:func:`manager.subagents.merge_summaries`).  Default: none."""
         return []
 
+    def awaits_unprompted_turn(self) -> bool:
+        """True while the harness owes a turn of its own: a background task
+        ended and the turn that reports on it (Claude: ``<task-notification>``)
+        has not run yet, or is running.  The orchestrator runner keeps a
+        delegated turn open until it ran.  Default: never."""
+        return False
+
     async def stop_subagent(self, tool_use_id: str) -> None:
         """Ask the harness to stop one running subagent (spec 12 SA-9).
 

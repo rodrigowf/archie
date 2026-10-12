@@ -33,14 +33,20 @@ The clients have no subagent concept, and the backend mostly throws subagent dat
   The parent's `toolUseResult` (agentId, status, isAsync, totals, toolStats) is dropped by
   `extract_blocks`. The SDK ships `list_subagents()` / `get_subagent_messages()` for exactly this.
 
-**Other harnesses**
+**Other harnesses** (facts re-verified on the real CLIs 2026-10-12; the "Status" column is the
+P3 implementation — details in each harness doc's *Subagents* section)
 
-| Harness | Subagents | Live inner events | Link to parent | Today |
+| Harness | Subagents | Live inner events | Link to parent | Status (P3, 2026-10-12) |
 |---|---|---|---|---|
-| Model Studio | via Claude Code | as Claude | as Claude | as Claude |
-| Qwen Code 0.25 | `agent` tool (+ background) | tool calls/results yes; text only as final result | `parent_tool_use_id` (Claude-style stream-json) + `task_started`/`task_notification` | flattened; a failed subagent's parentless `result` line ends the parent turn early (bug) |
-| Codex 0.161 | `spawn_agent` … (`multi_agent` on) | yes — each child is its own thread | child `threadId` ↔ parent `collabAgentToolCall.receiverThreadIds`, `Thread.parentThreadId` | child-thread notifications dropped (`codex/session.py:695`); every collab call (incl. `wait`) renders as a "Task" card |
-| Gemini CLI 0.63 | `invoke_agent` (on by default) | **no** — stream-json only carries the final `SubagentProgress` JSON (last ≤ 3 activities) | `tool_id` only | raw JSON blob in a tool card |
+| Model Studio | via Claude Code | as Claude | as Claude | ✅ inherits the Claude path unchanged ([model-studio.md](../../harnesses/model-studio.md#subagents)) |
+| Qwen Code 0.25 | `agent` tool (+ `run_in_background`) | foreground: tool calls/results only (text never streamed; the answer is the `agent` call's result); background: **none** (only `task_started` / `task_notification`, no report text) | `parent_tool_use_id` (Claude-style stream-json) + `task_started`/`task_notification` `{task_id, tool_use_id}` | ✅ live routing + lifecycle, background report read from the transcript, failed-subagent `result` no longer ends the turn, `block_meta` keyed by (parent, index); history from `subagents/<sid>/`; stop unsupported ([qwen-code.md](../../harnesses/qwen-code.md#subagents)) |
+| Codex 0.161 | `spawnAgent` … (`multi_agent` on) | yes — each child is its own thread on the same app-server connection (no `thread/started` for it; its first notifications precede the spawn item's completion) | child `threadId` ↔ the `spawnAgent` item's `receiverThreadIds`; rollout `session_meta.parent_thread_id` | ✅ full live routing (held until mapped), out-of-turn after the parent turn, only `spawnAgent` is a `Task` card, stop via `turn/interrupt` on the child; history from child rollouts, which are no longer listed as sessions ([codex-cli.md](../../harnesses/codex-cli.md#subagents)) |
+| Gemini CLI 0.63 | `invoke_agent` (on by default) | **no** — and the stream-json `tool_result` has **no output** (the `SubagentProgress` display is not a string); the outcome is in the session file's `toolCalls` entry | `tool_id`; `toolCalls[].agentId` → `chats/<sid>/<agentId>.jsonl` | ✅ post-hoc: started at the call, finished at the result (outcome read back from the session file), readable answer on the card; history from the child chat (or synthesised from `recentActivity`); live inner events later (P4) ([gemini-cli.md](../../harnesses/gemini-cli.md#subagents)) |
+
+Before P3 (for the record): Qwen flattened subagent tool calls and a failed subagent's parentless
+`result` ended the parent turn early; Codex dropped child-thread notifications
+(`codex/session.py`) and rendered every collab call (incl. `wait`) as a "Task" card; Gemini showed an
+empty / raw card.
 
 Spec 12 has no subagent concept (§5.7 only says subagent events "may appear flat"); no protocol
 fixture contains Task/Agent events.
@@ -173,8 +179,8 @@ and nested agents fall out recursively (an AgentRun's `conv` has its own Agent c
 | P0 | Spec 12 section + fixtures; backend event model, registry, out-of-turn broadcast, Claude adapter (live + history), latent-bug fixes, tests | Fixtures pass in a backend test; a real session with 2 parallel + 1 background agent streams correctly over a WS probe |
 | P1 | Web: AgentRun reducer, inline card, agents sheet, secondary tab row, agent tab, both builds | Seen working in the real app on the laptop and on the iPad (compat) |
 | P2 | Android `:app-main` parity | Reached through the app's own navigation on the POCO and seen working |
-| P3 | Qwen + Codex adapters; Gemini post-hoc | Same WS-probe check per harness |
-| P4 | Stop agent, orchestrator runner/tool integration, Gemini live, polish | — |
+| P3 | Qwen + Codex adapters; Gemini post-hoc | Same WS-probe check per harness — ✅ done 2026-10-12 (real WS probes on Qwen, Codex incl. stop, Gemini) |
+| P4 | Stop agent, orchestrator runner/tool integration, Gemini live, polish | Runner/tool integration done 2026-10-12: a delegated turn stays open while its background subagents run and ends with one notification carrying the final report text (real Claude check: 1 background agent → one `succeeded` notification, preview = the report turn's text); `interrupt_agent_session` stops the turn's subagents; soft delete moves `context/<sid>/`. Gemini live still open |
 
 ## 6. Decisions (2026-10-12)
 

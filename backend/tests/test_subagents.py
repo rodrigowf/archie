@@ -215,9 +215,13 @@ class TestRouting:
     async def test_killed_task_finishes_stopped_at_once_and_only_once(self):
         sm = _sm()
         await _process(sm, _spawn("t1"), _task_started("a1", "t1"))
-        evs = await _process(sm, _task_updated("a1", "killed"), _task_notification("a1", "t1", status="stopped"))
+        evs = await _process(sm, _task_updated("a1", "killed"),
+                             _task_notification("a1", "t1", status="stopped", summary="Partial work"))
         fin = [e for e in evs if isinstance(e, SubagentFinished)]
-        assert [(f.status) for f in fin] == ["stopped"]
+        # Stopped at once; the late notification only fills the summary in (SA-3).
+        assert [(f.status, f.summary) for f in fin] == [("stopped", "Stopped"), ("stopped", "Partial work")]
+        evs = await _process(sm, _task_notification("a1", "t1", status="stopped", summary="Partial work"))
+        assert not [e for e in evs if isinstance(e, SubagentFinished)]  # nothing new: no third
 
     async def test_sync_spawn_result_finishes_agent(self):
         sm = _sm()
@@ -330,9 +334,7 @@ class TestRouting:
         assert not sm._pending_notifications
 
     async def test_forward_subagent_text_is_on(self):
-        with patch("manager.claude.session.ClaudeAgentOptions") as opts:
-            _sm()._build_options()
-        assert opts.call_args.kwargs["forward_subagent_text"] is True
+        assert _sm()._build_options().forward_subagent_text is True
 
 
 # ---------------------------------------------------------------------------
@@ -594,8 +596,8 @@ def test_serializer_matches_fixture_frames(path: Path):
         expected = {k: v for k, v in frame.items() if k not in ("seq", "stream_id")}
         assert serialize_event(ev) == expected, frame["type"]
         checked += 1
-    if path.stem != "subagent_placeholder_without_lifecycle":
-        assert checked, "fixture has no subagent frames"
+    if not checked:
+        pytest.skip("fixture carries no subagent frames (REST / history only)")
 
 
 # ---------------------------------------------------------------------------
@@ -651,3 +653,262 @@ def test_runner_buckets_subagent_events_apart_from_the_ring():
     snap = runner.peek("S")
     assert snap["subagents"] == [{"tool_use_id": "t1", "agent_type": "Explore", "description": "Find",
                                   "status": "done", "activity": "Grep", "summary": "found"}]
+
+
+# ---------------------------------------------------------------------------
+# Review fixes (2026-10-12 follow-up)
+# ---------------------------------------------------------------------------
+
+def _requesting():
+    return SystemMessage(subtype="status", data={"status": "requesting"})
+
+
+class TestNotificationMatching:
+    """Finding 1: notes folded into a turn are dropped; announcements follow
+    the CLI's turns, never re-queued at the head."""
+
+    async def _two_agents(self, sm):
+        await _process(sm, _spawn("tA", background=True, description="Agent A"),
+                       _task_started("aA", "tA", run_id="rA"), _launch_result("tA", "aA"),
+                       _spawn("tB", background=True, description="Agent B"),
+                       _task_started("aB", "tB", run_id="rB"), _launch_result("tB", "aB"))
+
+    async def test_note_folded_into_the_prompted_turn_is_never_announced(self):
+        sm = _sm()
+        sm._event_inbox = asyncio.Queue()           # a send() of ours is running
+        await _process(sm, _init(), _requesting())
+        await self._two_agents(sm)
+        # A finishes while the main agent waits on a tool; the next request includes it.
+        await _process(sm, _task_notification("aA", "tA", run_id="rA"), _requesting())
+        assert not sm._pending_notifications
+        await _process(sm, _result())
+        sm._event_inbox = None
+        # B finishes while idle: its own turn follows and is announced as B.
+        await _process(sm, _task_notification("aB", "tB", run_id="rB"))
+        (ev,) = await _process(sm, _init())
+        assert isinstance(ev, UnpromptedTurnStarted) and "<tool-use-id>tB</tool-use-id>" in ev.text
+        await _process(sm, _result(origin={"kind": "task-notification", "runId": "rB"}))
+        assert not sm._pending_notifications and not sm.awaits_unprompted_turn()
+
+    async def test_note_without_a_later_request_keeps_its_own_turn(self):
+        """e2e 2026-10-12: agents that finish while the final request is
+        already in flight get turns of their own after the prompted turn."""
+        sm = _sm()
+        sm._event_inbox = asyncio.Queue()
+        await _process(sm, _init(), _requesting())
+        await self._two_agents(sm)
+        await _process(sm, _task_notification("aA", "tA", run_id="rA"), _result())
+        sm._event_inbox = None
+        (ev,) = await _process(sm, _init())
+        assert "<tool-use-id>tA</tool-use-id>" in ev.text
+
+    async def test_mismatched_run_id_does_not_requeue_the_announced_note(self):
+        sm = _sm()
+        await self._two_agents(sm)
+        await _process(sm, _task_notification("aA", "tA", run_id="rA"),
+                       _task_notification("aB", "tB", run_id="rB"))
+        (ev,) = await _process(sm, _init())
+        assert "tA" in ev.text
+        await _process(sm, _result(origin={"kind": "task-notification", "runId": "rB"}))
+        assert not sm._pending_notifications   # A not put back at the head
+        assert await _process(sm, _init()) == []
+
+    async def test_notes_without_a_turn_are_dropped_after_a_while(self, monkeypatch):
+        import manager.claude.session as mod
+        monkeypatch.setattr(mod, "_NOTE_TURN_WAIT_S", 0.05)
+        sm = _sm()
+        await self._two_agents(sm)
+        await _process(sm, _task_notification("aA", "tA", run_id="rA"))
+        assert sm.awaits_unprompted_turn()
+        await asyncio.sleep(0.15)
+        assert not sm._pending_notifications and not sm.awaits_unprompted_turn()
+
+    async def test_a_turn_starting_in_time_keeps_the_note(self, monkeypatch):
+        import manager.claude.session as mod
+        monkeypatch.setattr(mod, "_NOTE_TURN_WAIT_S", 0.05)
+        sm = _sm()
+        await self._two_agents(sm)
+        await _process(sm, _task_notification("aA", "tA", run_id="rA"))
+        (ev,) = await _process(sm, _init())
+        await asyncio.sleep(0.15)
+        assert sm._announced_notification is not None and isinstance(ev, UnpromptedTurnStarted)
+
+
+class TestLateNotificationAmends:
+    """Finding 3: a finish flushed without a summary is completed by a later
+    task_notification (a second subagent_finished, spec SA-3)."""
+
+    async def test_flushed_finish_uses_last_text_then_notification_amends(self):
+        sm = _sm()
+        await _process(sm, _spawn("t1", background=True), _task_started("a1", "t1"),
+                       _sub_text("t1", "Draft answer"), _task_updated("a1", "completed"))
+        evs = await _process(sm, _sub_text("t2", "unrelated"))
+        (first,) = [e for e in evs if isinstance(e, SubagentFinished)]
+        assert first.status == "done" and first.summary == "Draft answer"
+        evs = await _process(sm, _task_notification("a1", "t1", summary="Final answer"))
+        (second,) = [e for e in evs if isinstance(e, SubagentFinished)]
+        assert second.summary == "Final answer"
+        assert second.usage == {"tokens": 1200, "tool_uses": 2, "duration_ms": 3000}
+        assert sm.subagent_snapshot()[0]["summary"] == "Final answer"
+
+
+class TestStopUsesTaskId:
+    """Finding B: stop_task takes task_started's task_id, even if the spawn
+    result names another agent id (identical on CLI 2.1.292)."""
+
+    async def test_spawn_result_does_not_relink_over_task_id(self):
+        sm = _sm()
+        await _process(sm, _spawn("t1", background=True), _task_started("task-1", "t1"),
+                       _launch_result("t1", "agent-other"))
+        sm._client = MagicMock()
+        sm._client.stop_task = AsyncMock()
+        await sm.stop_subagent("t1")
+        sm._client.stop_task.assert_awaited_once_with("task-1")
+
+    async def test_old_sdk_without_stop_task_is_unsupported(self):
+        sm = _sm()
+        await _process(sm, _spawn("t1"), _task_started("task-1", "t1"))
+        sm._client = MagicMock(spec=["query"])
+        with pytest.raises(NotImplementedError):
+            await sm.stop_subagent("t1")
+
+
+class TestFoldedPromptFallback:
+    """Finding A (not reproduced on CLI 2.1.292, guarded anyway): when the CLI
+    starts no turn for our prompt after a turn of its own, send() ends."""
+
+    async def test_send_ends_when_no_own_turn_follows(self, monkeypatch):
+        import manager.claude.session as mod
+        monkeypatch.setattr(mod, "_UNPROMPTED_GRACE_S", 0.3)
+
+        async def response():
+            yield _init()
+            yield AssistantMessage(content=[TextBlock(text="(notification reply + answer)")], model="m")
+            yield _result(origin={"kind": "task-notification", "runId": "r9"})
+            # …and nothing more: the prompt was folded into that turn.
+
+        client = _make_mock_client([], response)
+        with patch("manager.claude.session.ClaudeSDKClient", return_value=client):
+            sm = SessionManager()
+            await sm.start()
+            events = await asyncio.wait_for(_collect(sm.send("go")), 5)
+            tcs = [e for e in events if isinstance(e, TurnComplete)]
+            assert [tc.prompted for tc in tcs] == [False, True]
+            # The CLI's own TurnComplete inside our send() is not in the replay ring.
+            assert not [e for _, e in sm._replay_buffer if isinstance(e, TurnComplete)]
+            assert sm.status == SessionStatus.IDLE
+            await sm.stop()
+
+
+async def _collect(agen):
+    return [e async for e in agen]
+
+
+class TestPoolHarnessTurns:
+    async def test_prompt_waits_for_a_running_notification_turn(self):
+        """Finding 8: the user's prompt is echoed only after the CLI's own turn
+        ended; that turn's start/finish reach watchers balanced."""
+        release = asyncio.Event()
+
+        async def response():
+            yield _init()
+            yield _spawn("t1", background=True)
+            yield _task_started("a1", "t1", run_id="r1")
+            yield _launch_result("t1", "a1")
+            yield _result()
+            yield _task_notification("a1", "t1", summary="done!", run_id="r1")
+            yield _init()                                   # the CLI's own turn starts
+            yield AssistantMessage(content=[TextBlock(text="Agent finished.")], model="m")
+            await release.wait()
+            yield _result(origin={"kind": "task-notification", "runId": "r1"})
+
+        async def response2():
+            yield _init()
+            yield AssistantMessage(content=[TextBlock(text="second answer")], model="m")
+            yield _result()
+
+        calls = {"n": 0}
+
+        def factory():
+            calls["n"] += 1
+            return response() if calls["n"] == 1 else response2()
+        client = _make_mock_client([], factory)
+
+        with patch("manager.claude.session.ClaudeSDKClient", return_value=client), \
+                patch("api.pool._session_manager_for", side_effect=lambda cfg, **kw: SessionManager(**kw)):
+            pool = SessionPool()
+            from manager.config import ManagerConfig
+            lid = await pool.create(ManagerConfig(), local_id="L2")
+            frames: list[dict] = []
+            watched: list[dict] = []
+            pool.subscribe(lid, _capture_ws(frames))
+            pool.watch(_capture_ws(watched))
+            async for _ in pool.send(lid, "first"):
+                pass
+            for _ in range(100):
+                if any(f.get("source") == "task_notification" for f in frames):
+                    break
+                await asyncio.sleep(0.01)
+            second = asyncio.create_task(_drain(pool.send(lid, "second")))
+            await asyncio.sleep(0.3)
+            assert not any(f.get("text") == "second" for f in frames)   # held back
+            release.set()
+            await asyncio.wait_for(second, 5)
+            types = [(f["type"], f.get("text", "")[:12]) for f in frames]
+            i_tc = max(i for i, f in enumerate(frames[:-3]) if f["type"] == "turn_complete")
+            i_user = next(i for i, f in enumerate(frames) if f.get("type") == "user_message" and f.get("text") == "second")
+            assert i_tc < i_user, types
+            await asyncio.sleep(0.05)
+            starts = [w for w in watched if w["type"] == "agent_turn_started"]
+            ends = [w for w in watched if w["type"] == "agent_turn_finished"]
+            assert len(starts) == len(ends) == 3
+            await pool.close(lid)
+
+    async def test_harness_turn_end_inside_send_is_not_broadcast(self):
+        from tests.test_pool_turn import _install, _stub_session_manager
+        pool = SessionPool()
+        sm = _stub_session_manager([])
+
+        async def _send(text):
+            pool._oot_turns[sm.local_id] = {"text": None}   # announced out of turn just before
+            yield TextComplete(text="notification reply")
+            yield TurnComplete(session_id="sdk-test", origin="task-notification")
+            yield TextComplete(text="answer")
+            yield TurnComplete(session_id="sdk-test")
+        sm.send = _send
+        sm.stream_id = None
+        sm.last_yielded_seq = None
+        _install(pool, sm)
+        frames: list[dict] = []
+        watched: list[dict] = []
+        pool._subscribers[sm.local_id].add(_capture_ws(frames))
+        pool.watch(_capture_ws(watched))
+        async for _ in pool.send(sm.local_id, "go"):
+            pass
+        await asyncio.sleep(0.05)
+        assert [f["type"] for f in frames].count("turn_complete") == 1
+        assert sm.local_id not in pool._oot_turns
+        finished = [w for w in watched if w["type"] == "agent_turn_finished"]
+        assert [w["preview"] for w in finished] == ["notification reply", "answer"]
+
+    async def test_stop_during_a_harness_turn_interrupts_the_cli(self):
+        """Finding 2: no turn task of ours, but the CLI runs its own turn."""
+        from tests.test_pool_turn import _install, _stub_session_manager
+        pool = SessionPool()
+        sm = _stub_session_manager([])
+        sm.interrupt = AsyncMock()
+        _install(pool, sm)
+        assert await pool.cancel_turn(sm.local_id) is False     # idle: nothing to stop
+        sm.status = SessionStatus.STREAMING
+        assert await pool.cancel_turn(sm.local_id) is True
+        sm.interrupt.assert_awaited_once()
+        sm.status = SessionStatus.IDLE
+        pool._oot_turns[sm.local_id] = {"text": None}
+        assert await pool.cancel_turn(sm.local_id) is True
+        assert pool._oot_turns[sm.local_id]["interrupted"] is True
+
+
+async def _drain(agen):
+    async for _ in agen:
+        pass
+

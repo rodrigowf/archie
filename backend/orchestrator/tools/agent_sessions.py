@@ -369,8 +369,13 @@ async def close_agent_session(context: dict[str, Any], session_id: str) -> str:
         "also tells you whether a turn is actively running on this session: "
         "'live.status' is 'running' (a turn is in flight — events shows the live "
         "tail of text/tool_use/permission events) or 'idle' (no turn running — "
-        "messages is the canonical record). Use this single tool whether you want "
-        "the finished output of a past turn or a progress check on an in-flight one."
+        "messages is the canonical record). A delegated turn stays 'running' while "
+        "subagents it started are still working: 'live.phase' is then "
+        "'waiting_for_subagents' (with 'live.waiting_for_subagents' = how many) or "
+        "'notification_turn' (the agent is reporting on a finished subagent), and "
+        "'live.subagents' lists them with status and current activity. Use this "
+        "single tool whether you want the finished output of a past turn or a "
+        "progress check on an in-flight one."
     ),
     input_schema={
         "type": "object",
@@ -423,9 +428,12 @@ async def read_agent_session(
             live = {
                 "status": "running",
                 "turn_id": snapshot.get("turn_id"),
+                "phase": snapshot.get("phase", "agent"),
                 "last_assistant_text": snapshot.get("last_assistant_text", ""),
                 "events": snapshot.get("events", []),
             }
+            if snapshot.get("waiting_for_subagents"):
+                live["waiting_for_subagents"] = snapshot["waiting_for_subagents"]
     # Subagents the session spawned (spec 12 §4.8): one line each, so the
     # orchestrator can tell "waiting on its agents" from "stuck".
     rows = pool.subagents_for(session_id) if hasattr(pool, "subagents_for") else []
@@ -457,10 +465,13 @@ async def read_agent_session(
         "with a turn_id; the agent runs in the background. The result will arrive "
         "as a structured background event ('[SESSION xxx event: turn finished]') at "
         "the start of your next turn — do NOT loop calling this tool waiting for a "
-        "response. While the turn is in flight you can: spawn other agents, check "
-        "progress or read persisted output via read_agent_session, answer "
-        "permission requests via respond_to_agent_permission, or simply respond "
-        "to the user. Use interrupt_agent_session to stop a turn early."
+        "response. If the agent starts subagents, the turn finishes only when they "
+        "are all done and the agent has reported on them, so the event carries its "
+        "final answer, not 'I started N agents'. While the turn is in flight you "
+        "can: spawn other agents, check progress or read persisted output via "
+        "read_agent_session, answer permission requests via "
+        "respond_to_agent_permission, or simply respond to the user. Use "
+        "interrupt_agent_session to stop a turn early."
     ),
     input_schema={
         "type": "object",
@@ -520,9 +531,9 @@ async def send_to_agent_session(
     description=(
         "Interrupt an actively executing Claude Code agent session. "
         "Use this to stop an agent that is running undesired actions or taking "
-        "too long.  The agent will stop processing immediately, and any "
-        "fire-and-forget turn driven by send_to_agent_session will produce a "
-        "'cancelled' background event next turn."
+        "too long.  The agent will stop processing immediately, the subagents "
+        "started by a fire-and-forget turn (send_to_agent_session) are stopped "
+        "too, and that turn will produce a 'cancelled' background event next turn."
     ),
     input_schema={
         "type": "object",
@@ -537,9 +548,26 @@ async def send_to_agent_session(
 )
 async def interrupt_agent_session(context: dict[str, Any], session_id: str) -> str:
     pool = context["pool"]
+    runner = context.get("runner")
 
     if not pool.has(session_id):
         return json.dumps({"error": f"No active session with ID {session_id}"})
+
+    # A delegated turn goes through the runner: it interrupts the SDK while the
+    # session works on the turn, stops the turn's running subagents and ends it
+    # as 'cancelled' — also while it only waits for those subagents (no SDK
+    # turn running then, so a bare pool.interrupt would stop nothing).
+    try:
+        cancelled = await runner.cancel_session(session_id) if runner is not None else []
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Error cancelling runner turns of %s: %s", session_id, e)
+        cancelled = []
+    if cancelled:
+        stopped = sum(runner.stopped_subagents(t) for t in cancelled)
+        out: dict[str, Any] = {"session_id": session_id, "status": "interrupted", "cancelled_turns": cancelled}
+        if stopped:
+            out["stopped_subagents"] = stopped
+        return json.dumps(out)
 
     try:
         await pool.interrupt(session_id)

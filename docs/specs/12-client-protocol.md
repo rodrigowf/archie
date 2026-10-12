@@ -406,7 +406,8 @@ onWatcherEvent(e):               // only arrives on the orchestrator WS, even un
 - **OPEN-3. Closed = gone, everywhere, at once.** When a conversation leaves the pool — `agent_session_closed{session_id, is_orchestrator}` (check the flag, FOCUS-2), `error{session_closed}`, or a `pool/live` read without its row (OPEN-4) — every client closes its view immediately, whether it is active or not, without a `close` request (the server already closed it). If it was active, focus moves to its neighbouring view, as after an explicit close. Orchestrator: `orchestratorRef = null`, voice ends (§7), the Archie slot shows the empty "New conversation" state. A client MAY show a one-line notice ("Closed on another device"; for `session_terminated{reason}` the reason). *Rationale:* until 2026-10-10 a view the user had looked at stayed as a "Stopped" tab (FOCUS-3, now removed), listed under "Open now" with no session behind it, and its next automatic `start` re-opened the session on the server for every device.
 - **OPEN-4. Reconcile on every read.** Clients read `pool/live` on every orchestrator socket open and every visible/foreground (§3.5), and after each `session_started` of an agent view (ST-2, one read for both): views whose row is missing close (OPEN-3), the others take the row's status (ST-2), rows with no view here are listed (OPEN-1). Watcher events keep it current in between: `agent_session_opened` adds the row on every device, `agent_session_closed` removes it.
 - **MC-1.** Mutations are not broadcast (G-27). After rename, delete, duplicate, rewind, fork, close and config writes, the acting client refreshes its own stores. Other clients see changes on their next `refreshList()` (visible, watcher event, or any `turn_complete`).
-- **TURN-1.** Turn watcher events (added 2026-10-09 for device notifications). `pool.send()` (`backend/api/pool.py`), the path of every agent turn (chat tabs and the orchestrator's runner; never the orchestrator's own turns), and the pool's out-of-turn path (a turn the harness starts on its own, e.g. a Claude task-notification turn, §4.8) tell every pool watcher:
+- **TURN-1.** Turn watcher events (added 2026-10-09 for device notifications). `pool.send()` (`backend/api/pool.py`), the path of every agent turn (chat tabs and the orchestrator's runner; never the orchestrator's own turns), and the pool's out-of-turn path (a turn the harness starts on its own, e.g. a Claude task-notification turn, §4.8) tell every pool watcher (a prompt sent while such a harness turn runs is echoed only after it ends — bounded
+  wait, 30 s):
   - `agent_turn_started{session_id, sdk_session_id, provider}` when a turn begins;
   - `agent_turn_finished{session_id, sdk_session_id, provider, title, status, preview, error}` when it ends. `session_id` is the agent's `localId`. `status` is `ok` | `error` | `interrupted`: a turn stopped through `pool.interrupt` (chat Stop, `cancel_turn`, a superseding prompt, the runner's cancel) is `interrupted` even though the SDK still sends a `TurnComplete`; an `is_error` `TurnComplete`, an exception, an abandoned turn after its retry and the runner's timeout are `error` (the timeout arrives as `interrupted` then `error`). `title` is the session's custom title or first prompt (null when unknown: use MC-2). `preview` is one line of the turn's final assistant text (markdown markers dropped, ≤ 200 chars); `error` the failure detail when `status == "error"`. An unknown `status` reads as `ok`.
 
@@ -907,6 +908,8 @@ queued:    sender: local_send while busy ⇒ tray; … turn_complete → status{
            observer: user_message{text,queued:true} ⇒ tray; … turn_complete → status{processing} ⇒ pop tray head into timeline
            (backend O-6 no longer re-echoes it; a pre-O-6 re-echo is swallowed via dispatchedFromTray). `dispatchedFromTray` is cleared on turn end.
 interrupt: sender: status{interrupted} (direct) ⇒ notice "interrupted", endTurn
+harness:   user_message{source:"task_notification"} → status{processing} → content… → turn_complete
+           (a turn the CLI starts itself, §4.8; one that ends inside the user's turn sends no turn_complete)
            observer: nothing until the next user_message/status{processing} ⇒ endTurn("superseded")
 ```
 
@@ -1077,7 +1080,8 @@ subagent_event    { tool_use_id, frame: Frame }   // frame ∈ text_delta, text_
 this session (running and finished), oldest first. A CLI-injected task-notification turn (a background
 subagent finished and the parent reacts) is announced with `user_message{text, source:"task_notification"}`
 before its `status{processing}`. That `user_message` carries `seq`/`stream_id` (it is in the replay ring, so a reconnecting client gets it
-replayed), unlike a prompt echo (SEQ-3); clients accept it with or without them. Note (CLI 2.1.292): the
+replayed), unlike a prompt echo (SEQ-3); clients accept it with or without them. A subagent the CLI folds into a running turn (it finished while that
+turn was still working) gets no task-notification turn of its own. Note (CLI 2.1.292): the
 CLI runs **every** Agent call in the background, so the parent turn usually ends before its subagents, and
 several queued notifications can produce a turn with no content (TL-5 applies: it leaves no trace beyond its
 notice).
@@ -1160,9 +1164,9 @@ case "subagent_event": {
   no transcript). After the first history page of a view that created any SA-2 placeholder, the client
   fetches the list once and upserts every row.
 - **SA-9. Stop.** `stop_subagent{tool_use_id}` (client → server, chat WS) asks the harness to stop one
-  subagent (Claude `stop_task`, Codex `interruptAgent`). The answer is the normal `subagent_finished
+  subagent (Claude `stop_task`, Codex `turn/interrupt` on the child thread). The answer is the normal `subagent_finished
   {status:"stopped"}`; harnesses that cannot stop one answer `error{unsupported}`. Other answers: `error{unknown_subagent}`,
-  `error{subagent_not_running}`, `error{invalid_stop_subagent}`, `error{stop_subagent_failed}` (protocol class, §4.4.4).
+  `error{subagent_not_running}`, `error{invalid_stop_subagent}`, `error{stop_subagent_failed}` (protocol class, §4.4.4; `detail` is human text).
 
 `SubagentSummary` = the `Subagent` fields without `conv`/`held`.
 
@@ -1377,7 +1381,7 @@ The server serialises turns; there is no tray for the orchestrator. Other device
 agent:        local_interrupt(); WS→ {type:"interrupt"}  ⇐ status{interrupted} (direct)
 orchestrator: WS→ {type:"interrupt"}                    ⇐ status{interrupted} (broadcast) … error{interrupted} … status{idle}
 ```
-Interrupt drops every server-queued prompt; the sender's tray is cleared (its texts MAY be restored into the input). `interrupt` does not stop a realtime voice response (G-34): in voice mode the Stop control is `voice_stop` (§7).
+Stop also applies while the harness runs a turn of its own (a task-notification turn, §4.8): the server interrupts it and answers `status{interrupted}` to every device. Interrupt drops every server-queued prompt; the sender's tray is cleared (its texts MAY be restored into the input). `interrupt` does not stop a realtime voice response (G-34): in voice mode the Stop control is `voice_stop` (§7).
 
 ### 6.4 Compact
 

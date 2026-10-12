@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 import shutil
 import uuid as _uuid
 from datetime import datetime, timezone
@@ -35,6 +36,8 @@ from .protocol import (
     is_visible_message_default,
 )
 from .types import MessagePreview, SessionDetail, SessionInfo
+
+logger = logging.getLogger(__name__)
 
 
 __all__ = ["SessionStore", "_extract_text", "_parse_timestamp"]
@@ -401,8 +404,9 @@ class SessionStore:
         return self._load_titles()
 
     def delete_session(self, session_id: str, *, skip_index_cleanup: bool = False) -> bool:
-        """Soft-delete a session: move its JSONL (and its ``.config.json`` /
-        ``.summary.json`` sidecars) into context/trash/.
+        """Soft-delete a session: move its JSONL, its ``.config.json`` /
+        ``.summary.json`` sidecars and its state directory (``<sid>/``:
+        subagent transcripts, tool results) into context/trash/.
 
         The history-index cleanup (:func:`remove_session_from_index`, a SQLite
         transaction) can be skipped with ``skip_index_cleanup=True`` by
@@ -442,6 +446,19 @@ class SessionStore:
                     path.rename(trash_dir / f"{stem}{suffix}{ext}")
                 except OSError:
                     pass
+        # The session's state directory next to the JSONL (Claude:
+        # ``<sid>/subagents/`` transcripts, ``<sid>/tool-results/``) goes too,
+        # under the same suffix (its own if only the directory collides).
+        state_dir = jsonl_path.with_suffix("")
+        if state_dir.is_dir() and not state_dir.is_symlink():
+            dir_target = trash_dir / f"{jsonl_path.stem}{suffix}"
+            if dir_target.exists():
+                ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+                dir_target = trash_dir / f"{jsonl_path.stem}.{ts}"
+            try:
+                state_dir.rename(dir_target)
+            except OSError:
+                logger.warning("Could not move %s to the trash", state_dir, exc_info=True)
         self._pin_cache.pop(session_id, None)
 
         titles = self._load_titles()

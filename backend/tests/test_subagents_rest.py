@@ -277,5 +277,56 @@ async def test_stop_subagent_unsupported_harness():
     sm.stop_subagent = lambda tid: BaseSessionManager.stop_subagent(sm, tid)
     await chat_mod._handle_stop_subagent(ws, sm, "t1")
     assert sent[-1]["type"] == "error" and sent[-1]["error"] == "unsupported"
+    assert sent[-1]["detail"] == "This session can't stop a single agent."
     await chat_mod._handle_stop_subagent(ws, sm, None)
     assert sent[-1]["error"] == "invalid_stop_subagent"
+
+
+async def test_stop_subagent_errors_are_human_text():
+    """Clients toast ``detail`` verbatim: never a raw tool_use_id."""
+    from api.routes import chat as chat_mod
+    from manager.base_session import SubagentNotFound, SubagentNotRunning
+
+    sent: list[dict] = []
+    ws = MagicMock()
+
+    async def _send(data):
+        sent.append(json.loads(data))
+    ws.send_bytes = _send
+    sm = MagicMock()
+    for exc, code, text in (
+        (SubagentNotFound("toolu_x"), "unknown_subagent", "Unknown agent."),
+        (SubagentNotRunning("toolu_x"), "subagent_not_running", "This agent already finished."),
+        (RuntimeError("boom"), "stop_subagent_failed", "Couldn't stop the agent. Try again."),
+    ):
+        async def _stop(tid, _e=exc):
+            raise _e
+        sm.stop_subagent = _stop
+        await chat_mod._handle_stop_subagent(ws, sm, "toolu_x")
+        assert (sent[-1]["error"], sent[-1]["detail"]) == (code, text)
+        assert "toolu_x" not in sent[-1]["detail"]
+
+
+async def test_session_started_reads_history_once_per_live_session(ctx):
+    """Finding 11: the disk scan runs once per live session, not on every
+    start / reattach (the live registry covers everything after it)."""
+    from api.routes import chat as chat_mod
+
+    class _SM:  # weak-referenceable stand-in for a session manager
+        sdk_session_id = SID
+        is_resumed = True
+
+    pool = SessionPool()
+    store = MagicMock()
+    store.list_subagents.return_value = [{"tool_use_id": "t_old", "status": "done"}]
+    ws = MagicMock()
+    ws.app.state.store = store
+    sm = _SM()
+    for _ in range(3):
+        rows = await chat_mod._subagents_snapshot(ws, pool, sm, "L1")
+        assert [r["tool_use_id"] for r in rows] == ["t_old"]
+    assert store.list_subagents.call_count == 1
+    fresh = _SM()
+    fresh.is_resumed = False  # a brand-new session has no history on disk
+    assert await chat_mod._subagents_snapshot(ws, pool, fresh, "L2") == []
+    assert store.list_subagents.call_count == 1
