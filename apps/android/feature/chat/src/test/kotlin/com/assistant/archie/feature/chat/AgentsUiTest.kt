@@ -17,6 +17,7 @@ import com.assistant.core.protocol.PaginatedMessagesDto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -126,5 +127,31 @@ class AgentsUiTest : ScreenTestBase() {
         assertEquals(listOf("Main", "Explore", "worker"), AgentUiMapper.path(s.subagents["n1"]!!, s.subagents))
         assertEquals(2, ui.running)
         assertEquals(SubagentStatus.RUNNING, ui.all[1].status)
+    }
+
+    @Test
+    fun anAgentTabNeverPagesMainHistory() {
+        val actions = mutableListOf<ChatAction>()
+        val s = Frames.reduce(Frames.agent(), started)
+        val sub = s.subagents["t1"]!!
+        val view = com.assistant.archie.feature.chat.model.AgentViewUi(
+            agent = AgentUiMapper.agent(sub, s.subagents),
+            path = kotlinx.collections.immutable.persistentListOf(),
+            items = kotlinx.collections.immutable.persistentListOf(
+                com.assistant.archie.feature.chat.model.ChatItem.Notice("e1", com.assistant.core.conversation.NoticeKind.BACKGROUND, "short", com.assistant.archie.feature.chat.model.ChatItem.Gap.None),
+            ),
+            loaded = true, error = null, empty = false,
+        )
+        compose.setContent {
+            com.assistant.core.design.theme.ArchieTheme(reduceMotion = true) {
+                com.assistant.archie.feature.chat.ui.AgentTabBody(
+                    view, com.assistant.core.model.SessionKind.AGENT, com.assistant.archie.feature.chat.ui.DefaultToolCardRenderer,
+                    { actions += it }, {}, null,
+                )
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("short").assertExists()
+        assertTrue("no LoadOlder from an agent tab: $actions", actions.none { it is ChatAction.LoadOlder })
     }
 }

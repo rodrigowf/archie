@@ -3,6 +3,7 @@ package com.assistant.core.design.components
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
@@ -17,10 +18,12 @@ import androidx.compose.ui.unit.dp
  */
 @Composable
 fun LiveAnnouncement(text: String, modifier: Modifier = Modifier, assertive: Boolean = false) {
-    Box(
-        modifier.size(1.dp).semantics {
+    // Same text, same modifier instance: a recomposition for any other reason never touches the node.
+    val semantics = remember(text, assertive) {
+        Modifier.semantics {
             liveRegion = if (assertive) LiveRegionMode.Assertive else LiveRegionMode.Polite
             contentDescription = text
-        },
-    )
+        }
+    }
+    Box(modifier.size(1.dp).then(semantics))
 }

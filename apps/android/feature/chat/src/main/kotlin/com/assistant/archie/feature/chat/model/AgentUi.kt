@@ -50,13 +50,31 @@ data class AgentUi(
     val spoken: String get() = "$title, ${run.spoken}" + if (depth > 0) ", nested agent" else ""
 }
 
+/**
+ * What a tab (and the tab row's "N ⌄" menu) shows of an agent: no activity, tokens or times, so the
+ * tab row only recomposes when a tab appears, is renamed or changes status.
+ */
+@Immutable
+data class AgentTabUi(
+    val id: String,
+    val depth: Int,
+    val label: String,
+    val title: String,
+    val status: SubagentStatus,
+    val spoken: String,
+)
+
+fun AgentUi.tab(): AgentTabUi = AgentTabUi(id, depth, tabLabel, title, status, spoken)
+
 /** Everything the screen needs about the session's subagents. Empty = no tab row, no Agents button. */
 @Immutable
 data class AgentsUi(
     /** Every subagent, spawn order. */
     val all: ImmutableList<AgentUi> = persistentListOf(),
     /** The tab row after "Main": [all] minus the finished ones the user closed (the selected one always stays). */
-    val tabs: ImmutableList<AgentUi> = persistentListOf(),
+    val tabs: ImmutableList<AgentTabUi> = persistentListOf(),
+    /** Every agent, slim, for the tab row's menu. */
+    val menu: ImmutableList<AgentTabUi> = persistentListOf(),
     /** The agent tab on screen; null = Main. */
     val selectedId: String? = null,
     val running: Int = 0,
@@ -137,7 +155,8 @@ object AgentUiMapper {
         val tabs = all.filter { it.id !in hidden || it.id == selected }
         return AgentsUi(
             all = all.toImmutableList(),
-            tabs = tabs.toImmutableList(),
+            tabs = tabs.map { it.tab() }.toImmutableList(),
+            menu = all.map { it.tab() }.toImmutableList(),
             selectedId = selected?.takeIf { it in subs },
             running = all.count { it.status == SubagentStatus.RUNNING },
             closableFinished = tabs.count { it.finished },

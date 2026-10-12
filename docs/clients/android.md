@@ -437,6 +437,16 @@ the web.
   read-only bar instead of the composer (Viewing … · Stop · Back to Main); the inline cards (the main
   agent's permissions, stall, connection) stay. Status changes are announced through
   `core/design` `LiveAnnouncement` (polite; failures assertive).
+- **Performance rules** (2026-10-12, a 2.5–3.7 s main-thread freeze on the POCO while two subagents
+  streamed and on tab switches): agent cards never fold into "N steps" groups (web parity) and never
+  open by themselves; an agent tab opens only its running card (`FlattenOptions.expandLiveRun = false`);
+  the Main list stays composed but unmeasured while an agent tab is open, and each agent tab keeps its
+  `LazyListState`; an agent tab never sends `LoadOlder` (it used to page Main); the list is sampled at
+  33 ms while any subagent runs, and a frame that changes only `subagents` patches the agent cards
+  (`ChatListFlattener.patchAgents`) instead of re-flattening; tool-body markdown over 2,000 chars parses
+  off the main thread (`Markdown(syncLimit)`); agent tabs have their own `MarkdownCache` (Shared raised to
+  400); the tab row gets slim `AgentTabUi` rows; `Spinner` turns in its graphics layer (no recomposition,
+  static semantics) and the elapsed time ticks in `AgentStatsText` only.
 - Tests: the five `subagent_*` protocol fixtures (`ProtocolFixtureConformanceTest`; the runner
   supports `open_subagent` / `subagent_rest_page` / `release_subagent` / `subagent_list` and
   `expected.subagents` with `in_turn`),

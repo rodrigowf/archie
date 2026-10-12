@@ -33,6 +33,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.mutableStateOf
@@ -189,6 +190,8 @@ fun ConversationContent(
     val agentView = state.agentView
     // A Task card's Open selects that agent's tab (spec 12 §4.8; FOCUS-1: only on the user's tap).
     val agentActions = remember(onAction) { AgentActions(open = { id -> onAction(ChatAction.SelectAgent(id)) }) }
+    // One list position per agent tab, kept across tab switches.
+    val agentListStates = remember { HashMap<String, LazyListState>() }
 
     var widthPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
@@ -196,29 +199,36 @@ fun ConversationContent(
         CompositionLocalProvider(LocalAgentActions provides agentActions) {
             Column(Modifier.fillMaxSize().background(ArchieTheme.colors.surface).testTag("conversation")) {
                 // Nested agent tabs (plan §4.4 item 3): appear with the session's first subagent.
-                if (agents.any) AgentTabRow(agents, onAction)
+                if (agents.any) AgentTabRow(agents.tabs, agents.menu, agents.selectedId, agents.closableFinished, onAction)
                 Box(Modifier.weight(1f).fillMaxWidth()) {
-                    when {
-                        agentView != null -> AgentTabBody(agentView, state.kind, toolCards, onAction, onLink, callbacks.linkOrigin)
-                        !state.loaded && state.empty -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Spinner(size = 24.dp) }
-                        state.empty && state.isArchie -> ArchieEmpty(hour, suggestions, onAction, callbacks)
-                        state.empty -> Text(
-                            "Send a message to start.",
-                            Modifier.align(Alignment.Center).padding(24.dp),
-                            style = ArchieTheme.typography.bodyMedium,
-                            color = ArchieTheme.colors.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                        )
-                        else -> ChatList(
-                            items = state.items,
-                            kind = state.kind,
-                            toolCards = toolCards,
-                            listState = listState,
-                            onAction = onAction,
-                            onLongPress = { actionsFor = it },
-                            onLink = onLink,
-                            linkOrigin = callbacks.linkOrigin,
-                        )
+                    // Main stays composed while an agent tab is open (hidden: neither measured nor placed),
+                    // so going back to Main is instant and keeps its scroll position.
+                    Box(Modifier.fillMaxSize().then(if (agentView != null) HiddenLayout else Modifier)) {
+                        when {
+                            !state.loaded && state.empty -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Spinner(size = 24.dp) }
+                            state.empty && state.isArchie -> ArchieEmpty(hour, suggestions, onAction, callbacks)
+                            state.empty -> Text(
+                                "Send a message to start.",
+                                Modifier.align(Alignment.Center).padding(24.dp),
+                                style = ArchieTheme.typography.bodyMedium,
+                                color = ArchieTheme.colors.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                            else -> ChatList(
+                                items = state.items,
+                                kind = state.kind,
+                                toolCards = toolCards,
+                                listState = listState,
+                                onAction = onAction,
+                                onLongPress = { actionsFor = it },
+                                onLink = onLink,
+                                linkOrigin = callbacks.linkOrigin,
+                            )
+                        }
+                    }
+                    if (agentView != null) {
+                        val agentList = agentListStates.getOrPut(agentView.agent.id) { LazyListState() }
+                        AgentTabBody(agentView, state.kind, toolCards, onAction, onLink, callbacks.linkOrigin, listState = agentList)
                     }
                     state.busyOverlay?.let { BusyOverlay(it) }
                     ArchieSnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).widthIn(max = MessageColumnMaxWidth))
@@ -313,6 +323,9 @@ private fun ArchieEmpty(hour: Int, suggestions: List<Suggestion>, onAction: (Cha
         )
     }
 }
+
+/** Keeps its content composed but takes no space and draws nothing (the hidden Main list). */
+private val HiddenLayout: Modifier = Modifier.layout { _, _ -> layout(0, 0) {} }
 
 /** Covers the list during rewind / fork / upload (02 F-12). */
 @Composable

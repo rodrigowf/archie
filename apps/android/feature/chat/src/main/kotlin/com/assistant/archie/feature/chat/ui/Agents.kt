@@ -46,7 +46,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.assistant.archie.feature.chat.ChatAction
+import com.assistant.archie.feature.chat.model.AgentTabUi
 import com.assistant.archie.feature.chat.model.AgentUi
+import kotlinx.collections.immutable.ImmutableList
 import com.assistant.archie.feature.chat.model.AgentViewUi
 import com.assistant.archie.feature.chat.model.AgentsUi
 import com.assistant.archie.feature.toolcards.AgentRunStatus
@@ -100,10 +102,16 @@ fun AgentStatusGlyph(status: SubagentStatus, size: androidx.compose.ui.unit.Dp =
  * "Close finished".
  */
 @Composable
-fun AgentTabRow(agents: AgentsUi, onAction: (ChatAction) -> Unit, modifier: Modifier = Modifier) {
+fun AgentTabRow(
+    tabs: ImmutableList<AgentTabUi>,
+    menuItems: ImmutableList<AgentTabUi>,
+    selected: String?,
+    closableFinished: Int,
+    onAction: (ChatAction) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val c = ArchieTheme.colors
-    val selected = agents.selectedId
-    val index = if (selected == null) 0 else agents.tabs.indexOfFirst { it.id == selected } + 1
+    val index = if (selected == null) 0 else tabs.indexOfFirst { it.id == selected } + 1
     var menu by remember { mutableStateOf(false) }
     Row(modifier.fillMaxWidth().background(c.surface).testTag("agent-tabs"), verticalAlignment = Alignment.CenterVertically) {
         SecondaryScrollableTabRow(selectedTabIndex = index.coerceAtLeast(0), modifier = Modifier.weight(1f)) {
@@ -114,11 +122,11 @@ fun AgentTabRow(agents: AgentsUi, onAction: (ChatAction) -> Unit, modifier: Modi
                 modifier = Modifier.testTag("agent-tab:main"),
                 contentDescription = "Main conversation",
             )
-            agents.tabs.forEach { a ->
+            tabs.forEach { a ->
                 SecondaryTab(
                     selected = a.id == selected,
                     onClick = { onAction(ChatAction.SelectAgent(a.id)) },
-                    label = (if (a.depth > 0) "↳ " else "") + a.tabLabel,
+                    label = (if (a.depth > 0) "↳ " else "") + a.label,
                     modifier = Modifier.testTag("agent-tab:${a.id}"),
                     leading = { AgentStatusGlyph(a.status, 14.dp) },
                     contentDescription = a.spoken,
@@ -132,16 +140,16 @@ fun AgentTabRow(agents: AgentsUi, onAction: (ChatAction) -> Unit, modifier: Modi
                     .heightIn(min = 48.dp)
                     .clip(CircleShape)
                     .clickable(role = Role.Button) { menu = true }
-                    .semantics { contentDescription = "All agents, ${agents.all.size}" }
+                    .semantics { contentDescription = "All agents, ${menuItems.size}" }
                     .padding(horizontal = 10.dp)
                     .testTag("agent-tabs-menu"),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("${agents.all.size}", style = ArchieTheme.typography.labelLarge, color = c.onSurfaceVariant)
+                Text("${menuItems.size}", style = ArchieTheme.typography.labelLarge, color = c.onSurfaceVariant)
                 ArchieIcon(ArchieIcons.KeyboardArrowDown, null, size = 18.dp, tint = c.onSurfaceVariant)
             }
             ArchieDropdownMenu(menu, { menu = false }) {
-                agents.all.forEach { a ->
+                menuItems.forEach { a ->
                     ArchieMenuItem(
                         (if (a.depth > 0) "↳ " else "") + a.title,
                         { menu = false; onAction(ChatAction.SelectAgent(a.id)) },
@@ -158,7 +166,7 @@ fun AgentTabRow(agents: AgentsUi, onAction: (ChatAction) -> Unit, modifier: Modi
                     "Close finished",
                     { menu = false; onAction(ChatAction.CloseFinishedAgents) },
                     icon = ArchieIcons.Close,
-                    enabled = agents.closableFinished > 0,
+                    enabled = closableFinished > 0,
                 )
             }
         }
@@ -179,8 +187,13 @@ fun AgentTabBody(
     onLink: (String) -> Unit,
     linkOrigin: String?,
     modifier: Modifier = Modifier,
+    /** Kept per agent by the caller, so a tab returns where it was left. */
+    listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
 ) {
     val c = ArchieTheme.colors
+    // The list asks for older pages near its end; an agent tab shows its first page only (SA-5) and
+    // must never page Main's history.
+    val tabAction = remember(onAction) { { a: ChatAction -> if (a !is ChatAction.LoadOlder) onAction(a) } }
     Column(modifier.fillMaxSize().testTag("agent-view:${view.agent.id}")) {
         if (view.path.isNotEmpty()) {
             Text(
@@ -218,8 +231,8 @@ fun AgentTabBody(
                         items = view.items,
                         kind = kind,
                         toolCards = toolCards,
-                        listState = rememberLazyListState(),
-                        onAction = onAction,
+                        listState = listState,
+                        onAction = tabAction,
                         onLongPress = {},
                         onLink = onLink,
                         linkOrigin = linkOrigin,
@@ -360,15 +373,6 @@ private fun AgentsSheetContent(agents: AgentsUi, onAction: (ChatAction) -> Unit,
 @Composable
 private fun AgentRow(a: AgentUi, onPick: (AgentUi) -> Unit, onAction: (ChatAction) -> Unit) {
     val c = ArchieTheme.colors
-    var now by remember { androidx.compose.runtime.mutableLongStateOf(System.currentTimeMillis()) }
-    if (a.status == SubagentStatus.RUNNING) {
-        androidx.compose.runtime.LaunchedEffect(a.id) {
-            while (true) {
-                now = System.currentTimeMillis()
-                kotlinx.coroutines.delay(1_000)
-            }
-        }
-    }
     Row(
         Modifier
             .fillMaxWidth()
@@ -390,8 +394,7 @@ private fun AgentRow(a: AgentUi, onPick: (AgentUi) -> Unit, onAction: (ChatActio
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text((if (a.depth > 0) "↳ " else "") + a.title, style = ArchieTheme.typography.bodyLarge, color = c.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(a.run.line(), style = ArchieTheme.typography.bodyMedium, color = if (a.status == SubagentStatus.FAILED) c.error else c.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val stats = a.run.stats(now)
-            if (stats.isNotEmpty()) Text(stats, style = ArchieTheme.typography.bodySmall, color = c.onSurfaceVariant, maxLines = 1)
+            com.assistant.archie.feature.toolcards.ui.AgentStatsText(a.run)
         }
         if (a.status == SubagentStatus.RUNNING) {
             ArchieIconButton(ArchieIcons.StopFilled, "Stop ${a.title}", { onAction(ChatAction.StopAgent(a.id)) }, size = 40.dp, modifier = Modifier.testTag("agent-row-stop:${a.id}"))

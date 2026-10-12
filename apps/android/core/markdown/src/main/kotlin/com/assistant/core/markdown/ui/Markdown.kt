@@ -73,9 +73,19 @@ fun Markdown(
     style: MarkdownStyle = MarkdownStyle.fromTheme(),
     onLinkClick: (String) -> Unit = {},
     cacheId: String = "inline",
+    /**
+     * Texts up to this length parse in place (cheap, and deterministic for screenshots); longer ones
+     * parse off the main thread ([rememberMarkdown]) and show once ready. Tool bodies pass a small limit:
+     * a synchronous parse of a long report froze the main thread for seconds (2026-10-12).
+     */
+    syncLimit: Int = Int.MAX_VALUE,
 ) {
-    val nodes = remember(cacheId, text) { MarkdownCache.Shared.getBlocking(cacheId, text) }
-    MarkdownNodes(nodes, modifier, style, onLinkClick)
+    val nodes = if (text.length <= syncLimit) {
+        remember(cacheId, text) { MarkdownCache.Shared.getBlocking(cacheId, text) }
+    } else {
+        rememberMarkdown(cacheId, text)
+    }
+    if (nodes != null) MarkdownNodes(nodes, modifier, style, onLinkClick) else androidx.compose.foundation.layout.Box(modifier)
 }
 
 @Composable

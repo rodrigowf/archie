@@ -158,7 +158,7 @@ private fun TextOutput(block: ToolBlock, modifier: Modifier, label: String, rend
             OutputRender.Markdown -> if (isError) {
                 Text(shown, color = c.error)
             } else {
-                Markdown(shown, Modifier.fillMaxWidth(), style = richMarkdownStyle(), onLinkClick = onLink, cacheId = "tool:${block.id}")
+                Markdown(shown, Modifier.fillMaxWidth(), style = richMarkdownStyle(), onLinkClick = onLink, cacheId = "tool:${block.id}", syncLimit = TOOL_MARKDOWN_SYNC_LIMIT)
             }
             OutputRender.Script -> ScriptOutput(shown, isError)
             // Parsed from the full output: the 20 KB cap would cut the JSON.

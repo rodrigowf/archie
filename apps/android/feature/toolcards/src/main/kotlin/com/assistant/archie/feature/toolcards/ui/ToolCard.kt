@@ -152,15 +152,6 @@ fun agentShellStatus(status: AgentRunStatus): ShellStatus = when (status) {
 @Composable
 fun AgentRunFooter(run: AgentRun, onOpen: (() -> Unit)?, modifier: Modifier = Modifier) {
     val c = ArchieTheme.colors
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    if (run.status == AgentRunStatus.Running && run.startedAtMs != null) {
-        LaunchedEffect(run.id) {
-            while (true) {
-                now = System.currentTimeMillis()
-                delay(1_000)
-            }
-        }
-    }
     Row(modifier.fillMaxWidth().testTag("agent-run:${run.id}"), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
@@ -170,16 +161,37 @@ fun AgentRunFooter(run: AgentRun, onOpen: (() -> Unit)?, modifier: Modifier = Mo
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            val stats = run.stats(now)
-            if (stats.isNotEmpty()) {
-                Text(stats, style = ArchieTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"), color = c.onSurfaceVariant, maxLines = 1)
-            }
+            AgentStatsText(run)
         }
         LiveAnnouncement("Agent ${run.spoken}", assertive = run.status == AgentRunStatus.Failed)
         if (onOpen != null) {
             ArchieButton("Open", onOpen, style = ButtonStyle.Text, icon = ArchieIcons.OpenInNew, modifier = Modifier.testTag("agent-open:${run.id}"))
         }
     }
+}
+
+/**
+ * `3 tools · 12.4k tokens · 1:05`. Only this text ticks (once a second, while the agent runs with a
+ * known start), so the card or row around it does not recompose every second.
+ */
+@Composable
+fun AgentStatsText(
+    run: AgentRun,
+    modifier: Modifier = Modifier,
+    style: androidx.compose.ui.text.TextStyle = ArchieTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
+    color: androidx.compose.ui.graphics.Color = ArchieTheme.colors.onSurfaceVariant,
+) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    if (run.status == AgentRunStatus.Running && run.startedAtMs != null) {
+        LaunchedEffect(run.id) {
+            while (true) {
+                now = System.currentTimeMillis()
+                delay(1_000)
+            }
+        }
+    }
+    val stats = run.stats(now)
+    if (stats.isNotEmpty()) Text(stats, modifier, style = style, color = color, maxLines = 1)
 }
 
 /** Design status of a block: no_result has no glyph of its own and reads as "waiting". */
