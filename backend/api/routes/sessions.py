@@ -248,6 +248,80 @@ def get_messages_paginated(
     )
 
 
+def _live_local_id(session_id: str, pool: SessionPool) -> str | None:
+    """The pool's local id for an sdk id (or a live local id given directly)."""
+    if pool.has(session_id):
+        return session_id
+    return pool.find_by_sdk_id(session_id)
+
+
+def subagent_summaries(session_id: str, store: SessionStore, pool: SessionPool) -> list[dict]:
+    """Every subagent of a session: history on disk merged with the live
+    registry of the open session (live wins).  Shared with ``session_started``."""
+    from manager.subagents import merge_summaries
+
+    live_id = _live_local_id(session_id, pool)
+    live = pool.subagents_for(live_id) if live_id else []
+    sm = pool.get(live_id) if live_id else None
+    sdk_id = (sm.sdk_session_id if sm is not None else None) or session_id
+    disk = store.list_subagents(sdk_id) if isinstance(sdk_id, str) and sdk_id else []
+    return merge_summaries(disk, live)
+
+
+@router.get("/{session_id}/subagents")
+def list_subagents(
+    session_id: str,
+    store: SessionStore = Depends(get_store),
+    pool: SessionPool = Depends(get_pool),
+):
+    """Spec 12 SA-8: ``{subagents: SubagentSummary[]}``, oldest first."""
+    rows = subagent_summaries(session_id, store, pool)
+    if not rows and _live_local_id(session_id, pool) is None and store.get_session_info(session_id) is None:
+        raise HTTPException(404, detail=f"Session {session_id!r} not found")
+    return {"subagents": rows}
+
+
+@router.get("/{session_id}/subagents/{tool_use_id}/messages", response_model=PaginatedMessagesResponse)
+def get_subagent_messages(
+    session_id: str,
+    tool_use_id: str,
+    limit: int = Query(50, ge=1, le=200),
+    before: int | None = Query(None, description="Load messages before this index (for infinite scroll up)"),
+    store: SessionStore = Depends(get_store),
+    pool: SessionPool = Depends(get_pool),
+):
+    """Spec 12 SA-8: a subagent's transcript, paginated like ``/messages``.
+
+    404 when the subagent is unknown; an empty page when it is known but the
+    harness has no transcript (yet).
+    """
+    live_id = _live_local_id(session_id, pool)
+    sm = pool.get(live_id) if live_id else None
+    sdk_id = (sm.sdk_session_id if sm is not None else None) or session_id
+    page = store.get_subagent_messages_paginated(sdk_id, tool_use_id, limit=limit, before_index=before)
+    if page is None:
+        known_live = any(r.get("tool_use_id") == tool_use_id for r in (pool.subagents_for(live_id) if live_id else []))
+        if not known_live:
+            raise HTTPException(404, detail=f"Subagent {tool_use_id!r} not found in session {session_id!r}")
+        page = ([], 0, False)
+    messages, total_count, has_more = page
+    start_index = 0 if not messages else (before - len(messages) if before else total_count - len(messages))
+    return PaginatedMessagesResponse(
+        messages=[
+            MessagePreviewResponse(
+                role=m.role,
+                text=m.text,
+                blocks=_convert_blocks(m.blocks),
+                timestamp=m.timestamp.isoformat() if m.timestamp else None,
+            )
+            for m in messages
+        ],
+        total_count=total_count,
+        has_more=has_more,
+        start_index=max(0, start_index),
+    )
+
+
 @router.get("/{session_id}/preview", response_model=list[MessagePreviewResponse])
 def get_preview(
     session_id: str,

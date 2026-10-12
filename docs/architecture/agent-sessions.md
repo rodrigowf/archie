@@ -3,8 +3,8 @@ name: agent-sessions
 category: archie/architecture
 tags: [agent-sessions, session-pool, session-manager, claude-agent-sdk, local-id, lifecycle, permissions, stall-watchdog, session-config, resume]
 created: 2026-02-23
-modified: 2026-10-09
-summary: How agent (chat) sessions run — SessionPool, session managers, dual IDs, lifecycle hardening, permissions, stall watchdog, per-session config.
+modified: 2026-10-12
+summary: How agent (chat) sessions run — SessionPool, session managers, dual IDs, out-of-turn events and subagents, lifecycle hardening, permissions, stall watchdog, per-session config.
 source: curated (consolidated from memory notes assistant/architecture/project-overview.md, assistant/architecture/permissions_branch_architecture.md, assistant/architecture/orchestrator-vision.md, auto-memory project_session_config.md, project_sdk_upgrade_path_2026_06_18.md, feedback_diagnose_via_direct_ws_probe.md; verified against code 2026-10-06)
 references:
   - system-overview.md
@@ -15,6 +15,7 @@ references:
   - ../infrastructure/ssh-remote-execution.md
   - ../operations/debugging.md
   - ../operations/troubleshooting.md
+  - ../specs/12-client-protocol.md
 ---
 
 # Agent sessions
@@ -38,7 +39,8 @@ the model APIs) is the second — see [orchestrator.md](orchestrator.md).
 | `backend/manager/base_session.py` | `BaseSessionManager` (lifecycle task, permission futures, IDs, status), `TurnAbandoned`, `SessionDeadError` |
 | `backend/manager/claude/session.py` | `ClaudeSessionManager` (alias `SessionManager`) — wraps `claude_agent_sdk.ClaudeSDKClient` |
 | `backend/manager/{qwen,gemini,codex}/session.py` | The other harnesses ([registry](../harnesses/registry.md)) |
-| `backend/manager/types.py` | Typed events: `TextDelta`, `TextComplete`, `ThinkingDelta/Complete`, `ToolUse`, `ToolResult`, `TurnComplete`, `CompactComplete`, `PermissionRequest`, `PermissionResolved`, `SessionStalled`, `SessionTerminated`; `SessionStatus`, `TerminationReason` |
+| `backend/manager/types.py` | Typed events: `TextDelta`, `TextComplete`, `ThinkingDelta/Complete`, `ToolUse`, `ToolResult`, `TurnComplete` (`origin`, `prompted`), `CompactComplete`, `PermissionRequest`, `PermissionResolved`, `SessionStalled`, `SessionTerminated`, subagents (`SubagentStarted`, `SubagentProgress`, `SubagentFinished`, `SubagentEvent`), `UnpromptedTurnStarted`; `SessionStatus`, `TerminationReason` |
+| `backend/manager/subagents.py` | Harness-neutral subagent bookkeeping: `SubagentRegistry` (one started / one finished per subagent), `merge_summaries` (disk + live), status mapping |
 | `backend/manager/protocol.py` | `ProviderAdapter` — reads a harness's native JSONL into normalized messages; `detect_provider()` |
 | `backend/manager/registry.py` | `HarnessSpec` / `HarnessRegistry` |
 | `backend/manager/store.py` | `SessionStore` — list/read/rename/delete/duplicate/truncate/fork sessions on disk |
@@ -96,6 +98,7 @@ WebSockets), `_locks` (one `asyncio.Lock` serializing `send()`), `_turn_tasks` (
   (`_REPLAY_BUFFER_SIZE`). A reconnecting client sends `resume_from: {stream_id, seq}` in `start`;
   `replay_for_subscriber()` replays the gap or answers `replay_overflow` (client refetches over
   REST). Claude only; Qwen/Gemini sessions are non-resumable.
+- **Out-of-turn broadcast** — see [Out-of-turn events and subagents](#out-of-turn-events-and-subagents).
 - **`close()`** — cancel the turn task, broadcast `session_terminated` (typed reason, when given)
   then `session_stopped`, notify watchers, hand the PID to the reaper's grace map, and
   `asyncio.wait_for(sm.stop(), 10 s)`.
@@ -123,15 +126,65 @@ WebSockets), `_locks` (one `asyncio.Lock` serializing `send()`), `_turn_tasks` (
 
 Client → server: `start` (`local_id`, `resume_sdk_id`, `fork`, `mcp_servers`, `resume_from`),
 `send`, `command` (slash command, single-socket output), `interrupt`, `compact`,
-`permission_response`, `stop` (unsubscribe only — the agent keeps working). A `start` with
+`permission_response`, `stop_subagent{tool_use_id}` (spec 12 SA-9: `sm.stop_subagent()`; harnesses
+without it answer `error{unsupported}`, an unknown / finished one `error{unknown_subagent}` /
+`error{subagent_not_running}`), `stop` (unsubscribe only — the agent keeps working). A `start` with
 `reattach: true` (every automatic start, spec 12 OPEN-2) only re-attaches: for a session that is
 not open it answers `error{session_closed}` and creates nothing; for a restored one it resumes
 its sdk id under the same `local_id`. Otherwise `start` either
 re-subscribes to a pool session with that `local_id` or builds a config with
 `build_session_config()` and calls `pool.create()` with a 30 s timeout (`start_timeout` error
 usually means the CLI is not authenticated). The reply is `session_started` (`session_id` =
-`local_id`, `context_window`, `resume_state`, optional `replay_overflow`). The full frame contract
-is in `docs/specs/12-client-protocol.md`.
+`local_id`, `context_window`, `subagents` — every subagent known for the session, live registry
+merged over the history on disk —, `resume_state`, optional `replay_overflow`). The subagent list is
+read before the replay batch is computed, so no await separates that batch from the envelope. The
+full frame contract is in `docs/specs/12-client-protocol.md`.
+
+## Out-of-turn events and subagents
+
+Spec 12 §4.8; Claude specifics in [Claude Code harness — Subagents](../harnesses/claude-code.md#subagents).
+
+A session can produce events while no `send()` is consuming it: a background subagent still working
+after the parent turn ended, or a turn the harness starts on its own (Claude: a `<task-notification>`
+turn when a background task finishes). Before 2026-10-12 these only went into the replay ring, so a
+connected client saw nothing until it reconnected.
+
+- **Manager side** — `BaseSessionManager.set_out_of_turn_sink(cb)`; a harness calls
+  `_emit_out_of_turn(item)` for each such event, in dispatch order. Claude's `_inject_event()` routes
+  each event: to the active `send()` inbox; to a backlog once the `TurnComplete` that ends that
+  `send()` is queued (flushed to the sink when `send()` returns, so nothing lands in an inbox nobody
+  reads); else to the sink. `send()` ends only at a *prompted* `TurnComplete` (`origin` None /
+  `human`).
+- **Pool side** — `_attach_out_of_turn()` (in `create()`) installs the sink: one ordered queue plus a
+  pump task per session broadcasts each event like an in-turn frame (`seq` / `stream_id` from the
+  harness wrapper). `UnpromptedTurnStarted` goes out as `user_message{text, source:"task_notification"}`
+  followed by `status{processing}`, and the turn is announced to pool watchers like any agent turn
+  (`agent_turn_started`, then `agent_turn_finished` at its `TurnComplete`). `pool.send()` waits until
+  the queue is drained (once before its `user_message`, again right before `sm.send()`, with no await
+  between that check and the manager registering its inbox), so frames always reach a socket in seq
+  order — clients drop `seq <= checkpoint`.
+- **Status** — subagent events never change the session status; a harness-started turn sets it
+  (`streaming` …) and its `TurnComplete` returns it to `idle`, so `pool/live` reflects it.
+- **Subagent frames** — `SubagentEvent` is serialized as `subagent_event{tool_use_id, frame}` (the
+  wrapper is seq-stamped and goes into the replay ring; the inner frame never has `seq`), the
+  lifecycle events as `subagent_started` / `subagent_progress` / `subagent_finished`. Because the
+  content events are wrapped, nothing that only knows the parent's events (status, stall watchdog's
+  `last_tool_name`, turn preview, runner ring) can mistake them for the parent's.
+- **Snapshot and REST** — `pool.subagents_for(local_id)` (the manager's `subagent_snapshot()`) is
+  merged with `SessionStore.list_subagents(sdk_id)` (the adapter's `list_subagents()`, history on
+  disk) by `merge_summaries()` for `session_started.subagents` and
+  `GET /api/sessions/{sdk_id}/subagents`; `GET /api/sessions/{sdk_id}/subagents/{tool_use_id}/messages`
+  pages the adapter's `read_subagent_messages()` like `/messages` (404 unknown, empty page when the
+  subagent is known but has no transcript yet).
+- **Orchestrator runner** — subagent events count as progress for the 30-min no-progress timeout but
+  never enter the 200-entry ring: each turn record keeps a small per-subagent summary (≤ 20), shown
+  by `peek()`; `read_agent_session`'s `live` block lists up to 10 of the session's subagents. Agents
+  that outlive the delegated turn (every agent on CLI 2.1.292) report through the session's own
+  notification turns, which the runner does not see.
+- **Adding a harness** — translate its native signals with a `SubagentRegistry` (spawn → start →
+  progress → finish), wrap the subagent's content events in `SubagentEvent`, emit out-of-turn events
+  through `_emit_out_of_turn`, implement `subagent_snapshot()` / `stop_subagent()` on the manager and
+  `list_subagents()` / `read_subagent_messages()` on its adapter.
 
 ## Session managers
 
@@ -157,7 +210,9 @@ lifecycle task, `_stop_requested`, status/cost/turns, `local_id` / `sdk_session_
   `_receive_loop_done`, and later `send()` calls raise `SessionDeadError`.
 - **String tool results** — some CLI versions deliver bundled-tool output on the `UserMessage` as a
   plain string (or an MCP content list) instead of a `ToolResultBlock`/dict. `_process_message`
-  treats it as the output and takes the `tool_use_id` from `parent_tool_use_id`. Dropping it left
+  treats it as the output and takes the `tool_use_id` from `parent_tool_use_id` — unless that id is
+  a known subagent spawn: then the message is the subagent's and the result goes into its
+  `subagent_event` with an empty id (it used to land on the parent's Agent card). Dropping it left
   the tool card spinning forever.
 
 Qwen and Gemini managers follow the same base class; their specifics (per-turn subprocesses, JSONL
@@ -285,5 +340,7 @@ still explain why the version matters:
 - Later: the persistent receive loop replaced the per-turn drain task; dead-session reaper and typed
   `session_terminated`; seq/stream resume protocol; `send_or_queue` prompt queue.
 - 2026-06-18: SDK floor raised to 0.1.81.
+- 2026-10-12: out-of-turn broadcast (background subagents, harness-started turns), subagent events
+  and REST (spec 12 §4.8), `TurnComplete.origin`.
 
 Related: [system overview](system-overview.md), [backend](backend.md), [Claude Code harness](../harnesses/claude-code.md), [troubleshooting](../operations/troubleshooting.md).

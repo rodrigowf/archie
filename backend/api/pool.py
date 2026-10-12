@@ -36,7 +36,13 @@ from api.serializers import serialize_event
 from manager._proc import process_alive as _process_alive, looks_like
 from manager.base_session import BaseSessionManager, SessionDeadError
 from manager.config import ManagerConfig
-from manager.types import Event, TerminationReason, TextComplete, TurnComplete
+from manager.types import (
+    Event,
+    TerminationReason,
+    TextComplete,
+    TurnComplete,
+    UnpromptedTurnStarted,
+)
 from orchestrator.runner import AgentRuntimes
 
 from .open_sessions import OpenSessionsStore, OpenSet
@@ -235,6 +241,20 @@ class SessionPool:
         # per-session config (see _pin_provider) — saves a disk read per turn.
         self._provider_pinned: set[str] = set()
 
+        # Out-of-turn events (spec 12 §4.8): what a session emits while no
+        # send() consumes it (background subagents after the parent turn
+        # ended, the CLI's own task-notification turns).  One ordered queue
+        # + pump task per session broadcasts them; ``_oot_idle`` is set when
+        # everything queued has gone out, so send() can start its own
+        # broadcasts strictly after them (clients drop seq <= checkpoint,
+        # so the wire order must follow the seq order).
+        self._oot_queues: dict[str, asyncio.Queue[Any]] = {}
+        self._oot_pending: dict[str, int] = {}
+        self._oot_idle: dict[str, asyncio.Event] = {}
+        self._oot_tasks: dict[str, asyncio.Task[None]] = {}
+        # A harness-started turn being broadcast out of turn: its final text.
+        self._oot_turns: dict[str, dict[str, Any]] = {}
+
     # ------------------------------------------------------------------
     # Agent session lifecycle
     # ------------------------------------------------------------------
@@ -309,6 +329,7 @@ class SessionPool:
                 self._sessions.pop(existing, None)
                 self._subscribers.pop(existing, None)
                 self._locks.pop(existing, None)
+                self._detach_out_of_turn(existing, sm)
 
         lid = local_id or str(_uuid.uuid4())
 
@@ -383,6 +404,7 @@ class SessionPool:
             self._tracked_pids.pop(exited_pid, None)
 
         sm.set_pid_callbacks(_on_pid_spawn, _on_pid_exit)
+        self._attach_out_of_turn(lid, sm)
 
         self._open_agents[lid] = sm.sdk_session_id
         self._save_open_set()
@@ -469,6 +491,7 @@ class SessionPool:
         self._pending_locks.pop(session_id, None)
         self._interrupted.discard(session_id)
         self._last_started.pop(session_id, None)
+        self._detach_out_of_turn(session_id, sm)
 
         # Hand the pid(s) off to the closed-session shadow map so the
         # reaper has a grace window to verify the subprocess actually
@@ -1101,6 +1124,8 @@ class SessionPool:
             self._interrupted.discard(session_id)
             final_text: str | None = None
             finished = False
+            # A harness-started turn still being broadcast ends before ours begins.
+            await self._await_out_of_turn_idle(session_id)
             try:
                 # Fire-and-forget like the finish: a stalled watcher socket must
                 # never delay the turn (we hold the session lock here).
@@ -1133,6 +1158,10 @@ class SessionPool:
                     session_id,
                     {"type": "status", "status": "processing"},
                 )
+                # Out-of-turn frames already queued go out first; nothing can
+                # be queued between this check and sm.send() registering its
+                # inbox (no await in between), so seqs stay in wire order.
+                await self._await_out_of_turn_idle(session_id)
                 async for event in sm.send(text):
                     payload = self._wrap_payload(sm, serialize_event(event))
                     await self._broadcast_session(session_id, payload)
@@ -1141,7 +1170,11 @@ class SessionPool:
                     if isinstance(event, TurnComplete):
                         self._pin_provider(sm)
                         self._save_open_set()  # a fresh session learns its sdk id here
-                        if not finished:
+                        if not event.prompted:
+                            # A turn the CLI injected (task notification)
+                            # ran before our prompt: ours is still to come.
+                            final_text = None
+                        elif not finished:
                             # Before the yield: the consumer may stop iterating here.
                             finished = True
                             self.announce_turn_finished(
@@ -1717,6 +1750,154 @@ class SessionPool:
             wire["stream_id"] = sm.stream_id
             payloads.append(wire)
         return "ok", payloads
+
+    # ------------------------------------------------------------------
+    # Out-of-turn events (spec 12 §4.8)
+    # ------------------------------------------------------------------
+
+    def _attach_out_of_turn(self, session_id: str, sm: BaseSessionManager) -> None:
+        setter = getattr(sm, "set_out_of_turn_sink", None)
+        if setter is None:
+            return
+        self._oot_queues[session_id] = asyncio.Queue()
+        self._oot_pending[session_id] = 0
+        idle = asyncio.Event()
+        idle.set()
+        self._oot_idle[session_id] = idle
+        setter(lambda item, _sid=session_id: self._on_out_of_turn(_sid, item))
+
+    def _detach_out_of_turn(self, session_id: str, sm: BaseSessionManager | None) -> None:
+        setter = getattr(sm, "set_out_of_turn_sink", None) if sm is not None else None
+        if setter is not None:
+            setter(None)
+        task = self._oot_tasks.pop(session_id, None)
+        if task is not None and not task.done():
+            task.cancel()
+        self._oot_queues.pop(session_id, None)
+        self._oot_pending.pop(session_id, None)
+        idle = self._oot_idle.pop(session_id, None)
+        if idle is not None:
+            idle.set()  # never leave a send() waiting on a closed session
+        self._oot_turns.pop(session_id, None)
+
+    def _on_out_of_turn(self, session_id: str, item: object) -> None:
+        """Sink installed on each session manager (sync, from its receive loop)."""
+        queue = self._oot_queues.get(session_id)
+        if queue is None:
+            return
+        queue.put_nowait(item)
+        self._oot_pending[session_id] = self._oot_pending.get(session_id, 0) + 1
+        self._oot_idle[session_id].clear()
+        task = self._oot_tasks.get(session_id)
+        if task is None or task.done():
+            try:
+                self._oot_tasks[session_id] = asyncio.get_running_loop().create_task(
+                    self._pump_out_of_turn(session_id, queue),
+                    name=f"oot-{session_id[:8]}",
+                )
+            except RuntimeError:  # no running loop (sync tests)
+                pass
+
+    async def _pump_out_of_turn(self, session_id: str, queue: asyncio.Queue[Any]) -> None:
+        while True:
+            item = await queue.get()
+            try:
+                await self._broadcast_out_of_turn(session_id, item)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                logger.exception("out-of-turn broadcast failed for %s", session_id)
+            finally:
+                if self._oot_queues.get(session_id) is queue:
+                    left = max(0, self._oot_pending.get(session_id, 1) - 1)
+                    self._oot_pending[session_id] = left
+                    if left == 0:
+                        self._oot_idle[session_id].set()
+
+    async def _await_out_of_turn_idle(self, session_id: str, timeout: float = 15.0) -> None:
+        """Wait until every queued out-of-turn frame went out.  Bounded: a
+        subscriber socket that stalls the pump must not block the session's
+        next turn forever (the in-turn path awaits the same sockets anyway)."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        idle = self._oot_idle.get(session_id)
+        while idle is not None and not idle.is_set():
+            left = deadline - loop.time()
+            if left <= 0:
+                logger.warning("out-of-turn frames of %s still pending after %.0fs", session_id, timeout)
+                return
+            try:
+                await asyncio.wait_for(idle.wait(), timeout=left)
+            except asyncio.TimeoutError:
+                pass
+            idle = self._oot_idle.get(session_id)
+
+    async def _broadcast_out_of_turn(self, session_id: str, item: object) -> None:
+        """Broadcast one out-of-turn event (seq-stamped like in-turn frames).
+
+        A harness-started turn (``UnpromptedTurnStarted``) is announced as
+        ``user_message{source}`` + ``status{processing}`` and, like any agent
+        turn, to pool watchers (``agent_turn_started`` / ``_finished``)."""
+        sm = self._sessions.get(session_id)
+        if isinstance(item, Event):
+            event, seq = item, None
+        else:  # a harness wrapper carrying (seq, event), e.g. Claude's SequencedEvent
+            event, seq = getattr(item, "event", None), getattr(item, "seq", None)
+            if not isinstance(event, Event):
+                return
+        payload = serialize_event(event)
+        stream_id = getattr(sm, "stream_id", None) if sm is not None else None
+        if seq is not None and stream_id is not None:
+            payload["seq"] = seq
+            payload["stream_id"] = stream_id
+        await self._broadcast_session(session_id, payload)
+
+        if isinstance(event, UnpromptedTurnStarted):
+            await self._broadcast_session(session_id, {"type": "status", "status": "processing"})
+            self._oot_turns[session_id] = {"text": None}
+            started = self._spawn_announce({
+                "type": "agent_turn_started",
+                "session_id": session_id,
+                "sdk_session_id": _str_or_none(sm.sdk_session_id) if sm is not None else None,
+                "provider": _str_or_none(sm.provider_name) if sm is not None else None,
+            }, None, None)
+            if started is not None:
+                self._last_started[session_id] = started
+        elif isinstance(event, TextComplete):
+            turn = self._oot_turns.get(session_id)
+            if turn is not None and event.text.strip():
+                turn["text"] = event.text
+        elif isinstance(event, TurnComplete):
+            if sm is not None:
+                self._pin_provider(sm)
+            turn = self._oot_turns.pop(session_id, None)
+            if turn is not None:
+                self.announce_turn_finished(
+                    session_id,
+                    status="error" if event.is_error else "ok",
+                    text=turn["text"] or event.result,
+                    error=(event.result or "Turn failed") if event.is_error else None,
+                )
+        if payload.get("type") in ("permission_request", "permission_resolved"):
+            await self.broadcast_orchestrator({
+                "type": "nested_session_event",
+                "session_id": session_id,
+                "event_type": payload["type"],
+                "event_data": payload,
+            })
+
+    def subagents_for(self, session_id: str) -> list[dict[str, Any]]:
+        """Live subagents of an open session (spawn order); [] when none / unknown."""
+        sm = self._sessions.get(session_id)
+        snap = getattr(sm, "subagent_snapshot", None) if sm is not None else None
+        if snap is None:
+            return []
+        try:
+            rows = snap()
+        except Exception:  # noqa: BLE001
+            logger.exception("subagent_snapshot failed for %s", session_id)
+            return []
+        return rows if isinstance(rows, list) else []
 
     # ------------------------------------------------------------------
     # Internal helpers

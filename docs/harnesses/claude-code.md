@@ -3,13 +3,15 @@ name: claude-code
 category: archie/harnesses
 tags: [claude-code, claude-agent-sdk, harness, claude-config-dir, jsonl, skills, auth, oauth, chrome, sdk-upgrade, harness-catalog, effort, thinking]
 created: 2026-05-15
-modified: 2026-10-09
-summary: The Claude Code harness — ClaudeSessionManager over claude-agent-sdk, .claude_config layout, JSONL, SDK pin (0.2.164), config catalog + options, auth, Chrome flag.
+modified: 2026-10-12
+summary: The Claude Code harness — ClaudeSessionManager over claude-agent-sdk, .claude_config layout, JSONL, SDK pin (0.2.164), subagents (routing, Task* lifecycle, notification turns, history files), config catalog + options, auth, Chrome flag.
 source: curated (consolidated from memory notes assistant/providers/provider_generalization.md, assistant/providers/qwen_code_adaptation.md, assistant/utilities/project_skills_not_registered.md, auto-memory project_sdk_upgrade_path_2026_06_18.md, feedback_verify_auth_under_backend_config_dir.md, feedback_jetson_oauth_token_expiry.md, feedback_ssh_remote_cli_nvm_path.md; verified against code 2026-10-06)
 references:
   - registry.md
   - authentication.md
   - qwen-code.md
+  - ../specs/12-client-protocol.md
+  - ../projects/subagent-view/PLAN.md
   - gemini-cli.md
   - ../architecture/agent-sessions.md
   - ../architecture/backend.md
@@ -40,13 +42,14 @@ doc covers what is specific to Claude Code.
 | File | Contents |
 |---|---|
 | `backend/manager/claude/session.py` | `ClaudeSessionManager` (historical alias `SessionManager`), `SessionAbandoned(TurnAbandoned)`, `kill_claude_subprocess()`, `_extract_subprocess_pid()`, `_build_options()`, `_write_ssh_wrapper()`, `_DEFAULT_GATED_TOOLS`, `_PERMISSION_GATING_PROMPT` |
-| `backend/manager/claude/adapter.py` | `ClaudeAdapter` (JSONL), `fold_orchestrator_lines()`, `HarnessSpec(name="claude", catalog_loader=…)` |
+| `backend/manager/claude/adapter.py` | `ClaudeAdapter` (JSONL; `list_subagents()` / `read_subagent_messages()` for subagent history), `fold_orchestrator_lines()`, `HarnessSpec(name="claude", catalog_loader=…)` |
+| `backend/manager/claude/subagent_files.py` | `scan()` — subagent history from `context/<sid>/subagents/` + the parent JSONL (see [Subagents](#subagents)) |
 | `backend/manager/claude/catalog.py` | `load_claude_catalog()` (models + options for the settings UIs), `claude_model_caps()` (offline per-model effort/thinking support), `record_cli_models()` |
 | `backend/manager/auth.py` | `AuthManager` — `claude auth status`, `claude setup-token`, credentials file under `CLAUDE_CONFIG_DIR` |
 | `backend/api/routes/auth.py` | `GET /api/auth/status`, `POST /api/auth/login`, `POST /api/auth/credentials` |
 | `backend/api/session_factory.py` | `build_session_config()` — working dir, SSH, provider, model, MCP servers, chrome flag |
 | `backend/requirements-claude.txt` | `claude-agent-sdk==0.2.164` (exact pin; comment block = upgrade checklist) |
-| `backend/tests/test_claude_adapter.py`, `test_session.py`, `test_claude_harness_options.py`, `test_ssh_session_churn.py`, `test_ssh_helper.py`, `test_orphan_reaper.py`, `test_pool_turn.py` | Tests |
+| `backend/tests/test_claude_adapter.py`, `test_session.py`, `test_claude_harness_options.py`, `test_ssh_session_churn.py`, `test_ssh_helper.py`, `test_orphan_reaper.py`, `test_pool_turn.py`, `test_subagents.py`, `test_subagents_rest.py` | Tests |
 
 ## `CLAUDE_CONFIG_DIR=.claude_config/`
 
@@ -148,8 +151,10 @@ default in `_build_options()` so sessions behave as before:
 | Default model (no `--model`) is now Sonnet 5.5 on a subscription | Cost/behaviour change | Pick a model in the settings (catalog below) |
 
 Also in 0.2.x: zombie-CLI prevention on cancel (0.2.111), `ResultError` for terminal error exits
-(still lands as `SUBPROCESS_CRASHED`), `forward_subagent_text` / `verbatim_prompts` (keep both
-`False`: subagent text would surface as top-level text, and Archie sends `/compact` as a prompt).
+(still lands as `SUBPROCESS_CRASHED`), `forward_subagent_text` (**on** since 2026-10-12: subagent
+text and thinking are routed into `subagent_event` frames by `parent_tool_use_id`, so they no longer
+surface as the parent's text — see [Subagents](#subagents)) and `verbatim_prompts` (kept `False`:
+Archie sends `/compact` as a prompt).
 `permission_mode` stays explicitly `"default"` — 2.1.285 starts some SDK sessions in `auto` when
 none is configured.
 
@@ -170,6 +175,85 @@ Earlier stages:
   two monkey-patches (`_patch_sdk_message_parser`, `_patch_sdk_query_close`) be deleted.
 - **Stage B (done 2026-10-07)**: 0.1.81 → 0.2.164, above.
 - Details and the 2026-08-25 venv-drift incident: [agent sessions — SDK version](../architecture/agent-sessions.md).
+
+## Subagents
+
+Contract: [spec 12 §4.8](../specs/12-client-protocol.md#48-subagents-sa-); design and phases:
+[subagent view plan](../projects/subagent-view/PLAN.md). The harness-neutral pieces are
+`manager/types.py` (`SubagentStarted` / `SubagentProgress` / `SubagentFinished`, the
+`SubagentEvent` wrapper, `UnpromptedTurnStarted`) and `manager/subagents.py` (`SubagentRegistry`,
+`merge_summaries`); this section is how the Claude harness feeds them.
+
+**What CLI 2.1.292 sends** (live probe, 2026-10-12, `forward_subagent_text=True`):
+
+- Every `Agent` (alias `Task`) call is **backgrounded** — `task_started.is_backgrounded: true`, the
+  tool result is `Async agent launched successfully … agentId: …` with
+  `toolUseResult.status = "async_launched"` — even without `run_in_background`. The parent turn
+  usually ends ("waiting for the agents") while they run.
+- Subagent messages are `AssistantMessage` / `UserMessage` with `parent_tool_use_id` = the spawning
+  `Agent` tool_use id (text and thinking blocks included, thanks to `forward_subagent_text`).
+  Subagent `StreamEvent`s are not forwarded, so a subagent has no `text_delta`s.
+- `task_started` (with `tool_use_id`, `task_type: local_agent`, `subagent_type`, `run_id`,
+  `spawn_depth`), `task_progress` (`description` such as "Reading /etc/hostname", `last_tool_name`,
+  `usage{total_tokens, tool_uses, duration_ms}`), `task_updated` (`patch.status`: `completed` /
+  `failed` / `killed`) and `task_notification` (`status`, `summary` = the agent's final answer,
+  `usage`). `task_updated` normally comes just before the notification; for a stopped task the
+  notification may be missing. Background shells also produce `task_*` messages (`local_bash`,
+  `owned_by_subagent` / `parent_task_id` when a subagent started them).
+- When a background task of the **main** agent ends, the CLI starts a turn of its own: an `init`
+  system message, the reply, then a `ResultMessage` whose `origin` is
+  `{"kind": "task-notification", "runId": <the task's run_id>}`. The injected
+  `<task-notification>` prompt is **not** streamed (not even with `--replay-user-messages`); it is
+  only written to the JSONL (`queue-operation` enqueue + a `user` line with `origin`). Several
+  pending notifications can be dequeued together: the first injected turn then ends at once with an
+  empty result and the next one answers both.
+
+**How `_process_message()` maps it:**
+
+| CLI | Event(s) |
+|---|---|
+| Message with `parent_tool_use_id` | `SubagentEvent(tool_use_id=<parent>, event=<the usual TextComplete / ThinkingComplete / ToolUse / ToolResult / deltas>)`; never touches `status` |
+| `Agent`/`Task` tool_use (main or nested) | the usual `ToolUse`; the registry records the spawn (type, description, `run_in_background`, parent = the message's `parent_tool_use_id`) |
+| `task_started` (`local_agent`) | `SubagentStarted` (`background` = `run_in_background` or `is_backgrounded`); task id ↔ tool_use id mapped |
+| `task_progress` | `SubagentProgress(activity = description or last_tool_name, usage)` |
+| `task_notification` | `SubagentFinished(status, summary, usage)` — `completed`→`done`, `failed`→`failed`, `stopped`/`killed`→`stopped` |
+| `task_updated` terminal | `killed` → `SubagentFinished(stopped)` at once; `completed`/`failed` wait for the notification's summary and are flushed by the next unrelated message |
+| spawn's own tool result, not `async_launched` | `SubagentFinished` (a synchronous agent on older CLIs; a failed spawn) |
+| `init` with no `send()` waiting and a pending main-agent notification | `UnpromptedTurnStarted(text=<the <task-notification> prompt rebuilt from the task_notification message>)` → `user_message{source:"task_notification"}` + `status{processing}` |
+| `ResultMessage` | `TurnComplete(origin=<origin.kind>)`; `send()` ends only at a **prompted** one (`origin` None/`human`), so a notification turn that runs before a queued prompt never ends the user's turn |
+
+Exactly one `SubagentStarted` and one `SubagentFinished` per agent (the registry dedupes). Nested
+agents route flat: their own messages carry their own spawn id; `parent_tool_use_id` on
+`subagent_started` gives the chain. The string-result fallback (`tool_use_result` without result
+blocks) no longer uses `parent_tool_use_id` as the tool id when that id is a known spawn: such a
+result goes to the subagent with an empty id, never onto the parent's Agent card.
+
+**Out of turn.** Events dispatched while no `send()` is consuming (a background agent after the
+parent turn ended, a notification turn) go to the pool's out-of-turn sink instead of only the replay
+ring; events the receive loop dispatches after the `TurnComplete` that ends a `send()` are held in a
+backlog and handed over, in order, when `send()` returns. See
+[agent sessions — out-of-turn events](../architecture/agent-sessions.md#out-of-turn-events-and-subagents).
+
+**Stop (SA-9).** `stop_subagent(tool_use_id)` → `ClaudeSDKClient.stop_task(<task id>)`; the CLI
+answers `task_updated{killed}` (→ `subagent_finished{stopped}`) and, for a main-agent task, a
+notification turn. Verified live 2026-10-12.
+
+**History (SA-8).** `context/<sid>/subagents/agent-<agentId>.jsonl` (+ `.meta.json`
+`{agentType, description, toolUseId, spawnDepth, requestShape, parentAgentId}`), written
+**incrementally** while the agent runs — the file appears at spawn and grows with each message, so a
+running agent can be opened. `subagent_files.scan()` reads the parent JSONL (spawn calls, their
+results' `toolUseResult` `{agentId, status, totals}`, `<task-notification>` lines) and every
+transcript (nested spawns live in their parent agent's file), and keys each file by its spawning
+tool_use id: the sidecar's `toolUseId`; else the parent's `toolUseResult.agentId` / the
+`agentId: …` launch text / a notification's `<task-id>`; else a mid-2026 `queue-operation` line
+`{task_id, tool_use_id}`; else the spawn whose `prompt` equals the transcript's first user line
+(98 of 100 real transcripts matched, 2026-10-12; the other two had no spawn call in the parent).
+`agent-acompact-*` files are compaction helpers and skipped. An agent with no terminal line is
+`done` when its transcript ends with a plain answer, else `stopped`; the live registry overrides
+disk rows for an open session. Results are cached per file (mtime, size) — a 4 MB parent scans in
+~60 ms. The SDK's `list_subagents()` / `get_subagent_messages()` read the same files but locate the
+session through `CLAUDE_CONFIG_DIR/projects` and return raw SDK messages, so they are not used.
+SSH-remote sessions keep their files on the remote host: no history there, live frames only.
 
 ## Configuration (catalog + options)
 
@@ -282,3 +366,6 @@ through the `/browser-control` skill. Only the Claude harness honors this flag.
   windows for 4.6+ / 5.x, SSH-wrapper apostrophe fix.
 - 2026-10-08 — auto-memory off in the repo, the shared `MEMORY.md` block appended instead
   (memory parity across harnesses).
+- 2026-10-12 — subagents: routed by `parent_tool_use_id` (no longer flattened into the parent),
+  `Task*` lifecycle events, `forward_subagent_text` on, notification turns announced and broadcast
+  out of turn, `TurnComplete.origin`, subagent history endpoints, `stop_subagent`.

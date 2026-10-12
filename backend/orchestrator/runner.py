@@ -32,6 +32,10 @@ from manager.base_session import TurnAbandoned
 from manager.types import (
     PermissionRequest,
     PermissionResolved,
+    SubagentEvent,
+    SubagentFinished,
+    SubagentProgress,
+    SubagentStarted,
     TextComplete,
     TextDelta,
     ToolResult,
@@ -47,6 +51,8 @@ logger = logging.getLogger(__name__)
 
 # Finished turns a runner keeps for read_agent_session / peek.
 _MAX_FINISHED_TURNS = 100
+# Subagents summarised per turn (their events never enter the turn's ring).
+_MAX_SUBAGENTS_PER_TURN = 20
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +98,10 @@ class _TurnRecord:
     next_seq: int = 1
     last_assistant_text: str = ""
     pending_permission_ids: tuple[str, ...] = ()
+    # Subagents of this turn, by spawning tool_use_id: a one-line summary
+    # each (spec 12 §4.8).  Kept apart from ``events`` so a busy subagent
+    # cannot evict the parent's own events from the ring.
+    subagents: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -341,6 +351,7 @@ class BackgroundAgentRunner:
             "finished": record.finished,
             "next_seq": record.next_seq,
             "last_assistant_text": record.last_assistant_text,
+            "subagents": list(record.subagents.values()),
             "events": [
                 {
                     "seq": e.seq,
@@ -461,6 +472,30 @@ class BackgroundAgentRunner:
         if len(record.events) > self._peek_buffer_size:
             record.events.popleft()
 
+    def _note_subagent(self, record: _TurnRecord, event: Any) -> None:
+        """Summarise a subagent event (agent progress for the idle timeout,
+        but never an entry in the turn's ring)."""
+        record.last_progress_at = time.monotonic()
+        tid = event.tool_use_id
+        row = record.subagents.get(tid)
+        if row is None:
+            if len(record.subagents) >= _MAX_SUBAGENTS_PER_TURN:
+                return
+            row = record.subagents[tid] = {
+                "tool_use_id": tid, "agent_type": "", "description": "",
+                "status": "running", "activity": None,
+            }
+        if isinstance(event, SubagentStarted):
+            row["agent_type"] = event.agent_type
+            row["description"] = event.description
+        elif isinstance(event, SubagentProgress):
+            row["activity"] = event.activity or row["activity"]
+        elif isinstance(event, SubagentFinished):
+            row["status"] = event.status
+            row["summary"] = _excerpt(event.summary, 300)
+        elif isinstance(event, SubagentEvent) and isinstance(event.event, ToolUse):
+            row["activity"] = event.event.tool_name
+
     async def _drive(
         self,
         record: _TurnRecord,
@@ -519,6 +554,8 @@ class BackgroundAgentRunner:
                 elif isinstance(event, TurnComplete):
                     record.cost = event.cost or 0.0
                     record.turns = event.num_turns or 0
+                elif isinstance(event, (SubagentStarted, SubagentProgress, SubagentFinished, SubagentEvent)):
+                    self._note_subagent(record, event)
 
         async def _consume_with_retry() -> None:
             """Run _consume; if it raises TurnAbandoned, interrupt the SDK

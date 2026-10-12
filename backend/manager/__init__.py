@@ -43,6 +43,10 @@ from .types import (
     SessionStalled,
     SessionStatus,
     SessionTerminated,
+    SubagentEvent,
+    SubagentFinished,
+    SubagentProgress,
+    SubagentStarted,
     TerminationReason,
     TextComplete,
     TextDelta,
@@ -51,6 +55,7 @@ from .types import (
     ToolResult,
     ToolUse,
     TurnComplete,
+    UnpromptedTurnStarted,
 )
 
 
@@ -122,6 +127,11 @@ __all__ = [
     "PermissionResolved",
     "SessionStalled",
     "SessionTerminated",
+    "SubagentStarted",
+    "SubagentProgress",
+    "SubagentFinished",
+    "SubagentEvent",
+    "UnpromptedTurnStarted",
     "TerminationReason",
     # Data types
     "SessionInfo",

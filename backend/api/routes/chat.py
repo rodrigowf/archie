@@ -246,6 +246,16 @@ async def chat_ws(ws: WebSocket):
                     responder="user",
                 )
 
+            elif msg_type == "stop_subagent":
+                # Spec 12 SA-9: stop one subagent.  The outcome arrives as the
+                # normal subagent_finished{stopped}.
+                if sm is None or session_id is None:
+                    await ws.send_bytes(orjson.dumps({
+                        "type": "error", "error": "not_started",
+                    }))
+                    continue
+                await _handle_stop_subagent(ws, sm, msg.get("tool_use_id"))
+
             elif msg_type == "stop":
                 # User explicitly detaches from this session.  Do NOT cancel
                 # the in-flight turn — the user said "stop watching", not
@@ -422,6 +432,10 @@ async def _send_session_started(
     """
     from manager.context_windows import context_window_for
     ctx_window = context_window_for(sm.provider_name, getattr(sm._config, "model", None))
+    # Read before the replay batch is computed: no await may separate that
+    # batch from the envelope (frames broadcast in between would be neither
+    # replayed nor kept by the client, SEQ-5).
+    subagents = await _subagents_snapshot(ws, pool, sm, session_id)
     resume_state = pool.resume_state_for(session_id)
     status, replay_payloads = pool.replay_for_subscriber(session_id, resume_from)
 
@@ -429,6 +443,9 @@ async def _send_session_started(
         "type": "session_started",
         "session_id": session_id,
         "context_window": ctx_window,
+        # Spec 12 §4.8 / SA-3: every subagent known for this session (live
+        # registry + history on disk), oldest first.
+        "subagents": subagents,
     }
     if resume_state is not None:
         envelope["resume_state"] = resume_state
@@ -439,6 +456,55 @@ async def _send_session_started(
     if status == "ok" and replay_payloads:
         for payload in replay_payloads:
             await ws.send_bytes(orjson.dumps(payload))
+
+
+async def _subagents_snapshot(
+    ws: WebSocket, pool: SessionPool, sm: BaseSessionManager, session_id: str,
+) -> list[dict]:
+    import asyncio
+    from manager.subagents import merge_summaries
+
+    live = pool.subagents_for(session_id)
+    store = getattr(ws.app.state, "store", None)
+    sdk_id = sm.sdk_session_id if isinstance(sm.sdk_session_id, str) else None
+    disk: list[dict] = []
+    if store is not None and sdk_id:
+        try:
+            disk = await asyncio.to_thread(store.list_subagents, sdk_id)
+        except Exception:  # noqa: BLE001 — history is a nicety here
+            logger.exception("subagent history read failed for %s", sdk_id)
+    return merge_summaries(disk, live)
+
+
+async def _handle_stop_subagent(ws: WebSocket, sm: BaseSessionManager, tool_use_id: object) -> None:
+    from manager.base_session import SubagentNotFound, SubagentNotRunning
+
+    if not isinstance(tool_use_id, str) or not tool_use_id:
+        await ws.send_bytes(orjson.dumps({
+            "type": "error", "error": "invalid_stop_subagent",
+            "detail": "tool_use_id (non-empty string) is required",
+        }))
+        return
+    try:
+        await sm.stop_subagent(tool_use_id)
+    except NotImplementedError:
+        await ws.send_bytes(orjson.dumps({
+            "type": "error", "error": "unsupported",
+            "detail": f"{sm.provider_name} cannot stop a single subagent",
+        }))
+    except SubagentNotFound:
+        await ws.send_bytes(orjson.dumps({
+            "type": "error", "error": "unknown_subagent", "detail": tool_use_id,
+        }))
+    except SubagentNotRunning:
+        await ws.send_bytes(orjson.dumps({
+            "type": "error", "error": "subagent_not_running", "detail": tool_use_id,
+        }))
+    except Exception as e:  # noqa: BLE001
+        logger.exception("stop_subagent failed for %s", tool_use_id)
+        await ws.send_bytes(orjson.dumps({
+            "type": "error", "error": "stop_subagent_failed", "detail": str(e),
+        }))
 
 
 async def _handle_compact(ws: WebSocket, pool: SessionPool, session_id: str) -> None:

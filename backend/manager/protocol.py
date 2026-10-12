@@ -108,6 +108,20 @@ class ProviderAdapter(ABC):
         """
         return is_visible_message_default(obj)
 
+    # -- Subagents (spec 12 SA-8).  Harnesses that keep subagent history on
+    #    disk override these; the defaults mean "none".
+
+    def list_subagents(self, jsonl_path: Path) -> list[dict]:
+        """``SubagentSummary`` dicts (``manager.subagents``) for the session
+        stored at *jsonl_path*, oldest first."""
+        return []
+
+    def read_subagent_messages(self, jsonl_path: Path, tool_use_id: str) -> list[dict] | None:
+        """The transcript of the subagent spawned by *tool_use_id*, as
+        normalized messages (the ``read_messages`` shape, so ``to_previews``
+        applies).  ``None`` = unknown subagent; ``[]`` = known, no transcript."""
+        return None
+
     def visible_line_indices(self, objs: list[dict | None]) -> list[int]:
         """Indices of *objs* (parsed raw lines, ``None`` for blank or
         unparseable ones) that count as visible messages for

@@ -426,6 +426,16 @@ async def read_agent_session(
                 "last_assistant_text": snapshot.get("last_assistant_text", ""),
                 "events": snapshot.get("events", []),
             }
+    # Subagents the session spawned (spec 12 §4.8): one line each, so the
+    # orchestrator can tell "waiting on its agents" from "stuck".
+    rows = pool.subagents_for(session_id) if hasattr(pool, "subagents_for") else []
+    subagents = [
+        {k: row.get(k) for k in ("tool_use_id", "agent_type", "description", "status", "activity")}
+        for row in (rows if isinstance(rows, list) else [])[-10:]
+        if isinstance(row, dict)
+    ]
+    if subagents:
+        live["subagents"] = subagents
 
     if not messages and live["status"] == "idle":
         return json.dumps({

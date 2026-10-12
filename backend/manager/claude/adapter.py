@@ -78,6 +78,24 @@ class ClaudeAdapter(ProviderAdapter):
             if o is not None and o.get("type") in ("user", "assistant", "system")
         ]
 
+    def list_subagents(self, jsonl_path: Path) -> list[dict]:
+        from .subagent_files import scan
+        rows, _files = scan(jsonl_path)
+        return rows
+
+    def read_subagent_messages(self, jsonl_path: Path, tool_use_id: str) -> list[dict] | None:
+        from .subagent_files import scan
+        rows, files = scan(jsonl_path)
+        path = files.get(tool_use_id)
+        if path is None:
+            return [] if any(r.get("tool_use_id") == tool_use_id for r in rows) else None
+        # Same normalisation as the parent (a subagent transcript is a plain
+        # Claude JSONL: its first user line is the agent's prompt).
+        return [
+            o for o in _read_objs(path)
+            if o is not None and o.get("type") in ("user", "assistant", "system")
+        ]
+
     def visible_line_indices(self, objs: list[dict | None]) -> list[int]:
         """For orchestrator files, one index per visible folded message
         (its anchor line), so ``drop_last_n`` computed from REST data lands
