@@ -1685,7 +1685,7 @@ startVoice():                                    // allowed from off | error
 - **V-5.** Only the initiator forwards `voice_session_update` (G-32). Only the owner executes `voice_command`; a passive device ignores it (the server falls back to broadcast when the owner socket is stale, 01 §7.4).
 - **V-6.** No `status`/`turn_complete` framing exists in voice mode (G-4). The conversation reducer does not need it (§4.7).
 - **V-7.** After `voice_ended` the owner MAY re-send `start` (text) on the same socket; it is idempotent.
-- **V-8.** If the owner's socket drops, the server ends voice at once (G-31). On reconnect, the owner SHOULD re-arm with `voice_start` using the same config if voice was active at the drop (Android parity, 03 §3.3), and MUST NOT send a second plain `start` for the same reconnect (03 §3.3 "two start frames").
+- **V-8.** If the owner's socket drops, the server ends voice at once (G-31), unless a `voice_start{reattach}` from a new socket has already claimed ownership (the server moves ownership when that frame arrives, before the start completes). On reconnect, the owner SHOULD re-arm with `voice_start` using the same config if voice was active at the drop (Android parity, 03 §3.3), and MUST NOT send a second plain `start` for the same reconnect (03 §3.3 "two start frames").
 
 ### 7.4 Barge-in (owner)
 

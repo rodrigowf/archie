@@ -194,6 +194,7 @@ async def orchestrator_ws(ws: WebSocket):
                 session, subscribed = await _handle_start(ws, pool, msg, voice=False)
 
             elif msg_type == "voice_start":
+                _claim_voice_owner_for_reattach(pool, msg, ws)
                 # Serialize concurrent voice_start for the same local_id
                 # so a burst of duplicate triggers from a reconnecting
                 # client can't open multiple upstream WS handshakes. See
@@ -457,6 +458,29 @@ async def orchestrator_ws(ws: WebSocket):
                 )
             except Exception:  # noqa: BLE001
                 logger.exception("end_voice on disconnect failed")
+
+
+def _claim_voice_owner_for_reattach(pool: SessionPool, msg: dict, ws: WebSocket) -> None:
+    """Hand live voice to the socket of a ``voice_start{reattach}`` before the start runs.
+
+    A reattach ``voice_start`` is the owner device re-arming over its new
+    socket after a drop (spec 12 OPEN-2). The start itself takes ~1 s
+    (``session.update`` assembly) and only then registers the owner, while
+    the server often notices the old socket's death only once the device
+    is back on the network: if that close lands inside the window it
+    still names the owner and ``end_voice("client_disconnect")`` ends the
+    voice the re-arm is resuming (2026-10-13, POCO X7 Pro Wi-Fi drop: the
+    phone finalized, the late re-arm then restarted voice nobody held).
+    Any device that sends this becomes the owner when the start completes
+    anyway; claiming first only closes that window.
+    """
+    local_id = msg.get("local_id")
+    if not (msg.get("reattach") and local_id and pool.has_orchestrator() and pool.orchestrator_id == local_id):
+        return
+    session = pool.get_orchestrator()
+    if getattr(session, "is_voice", False) and not getattr(session, "voice_is_ending", False):
+        session.register_voice_owner(ws)
+        logger.info("voice_start reattach: voice ownership moved to the new socket session=%s", local_id)
 
 
 async def _handle_start(

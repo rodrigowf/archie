@@ -3,7 +3,7 @@ name: lifecycle
 category: archie/voice
 tags: [voice, lifecycle, voice-lifecycle, end_voice, restart_voice, wake-after-stop, ownership, voice_initiator, voice_owner_active, multi-device, session-update, self-heal, deferred-response-create, resumption-handle]
 created: 2026-06-04
-modified: 2026-10-08
+modified: 2026-10-13
 summary: The voice lifecycle state machine, end and restart paths, owner-scoped voice across devices, the session.update self-heal, and the rules they enforce.
 source: curated (consolidated from memory notes assistant/voice/voice_lifecycle_and_wake_after_stop.md, assistant/architecture/voice_subsystem.md, assistant/voice/feedback_voice_debug_diagnose_before_patching.md, auto-memory project_voice_initiator_flag_2026_06_06, project_voice_ghost_state_fix_2026_06_30, project_multidevice_voice_ownership_2026_07_21, project_voice_session_update_restart_race_2026_07_21, project_qwen_voice_gate_no_staleness_clear, project_voice_lifecycle_refactor_branch, feedback_clear_provider_state_on_rebuild, feedback_voice_debug_diagnose_before_patching; verified against code 2026-10-06)
 references:
@@ -153,7 +153,7 @@ of them.
 
 | Mechanism | What it does |
 |---|---|
-| `session.voice_owner_ws` | `register_voice_owner(ws)` after a successful `voice_start`. `clear_voice_owner_if(ws)` clears it, idempotent and checked by identity. The route's `finally` clears ownership **first** and only then calls `end_voice("client_disconnect")`, so a raise can't leave the pointer dangling. A passive subscriber's disconnect (an iPad refresh) never ends voice. |
+| `session.voice_owner_ws` | `register_voice_owner(ws)` after a successful `voice_start`. `clear_voice_owner_if(ws)` clears it, idempotent and checked by identity. The route's `finally` clears ownership **first** and only then calls `end_voice("client_disconnect")`, so a raise can't leave the pointer dangling. A passive subscriber's disconnect (an iPad refresh) never ends voice. A `voice_start{reattach}` (the owner re-arming over its new socket) claims ownership **before** the slow start runs (`_claim_voice_owner_for_reattach`): the server often notices the old socket's death only once the device is back, and inside the ~1 s start that close used to end the voice the re-arm was resuming (2026-10-13). |
 | `voice_initiator` on `session_started` | `true` only for the socket that asked for voice. Only the initiator forwards `voice_session_update` to its transport (`71f19ce`). Clients treat a missing flag as **non-owner** (Android: `9b24d1a`), so a cold start never starts voice by itself. |
 | `voice_command` | sent **only to the owner** (`_send_voice_command`). Broadcast only as a fallback when the owner's send fails or there is no owner. |
 | `voice_owner_active{active, owner_local_id}` | broadcast after `voice_start` (`true`) and in `voice_ended` (`false`). Non-owners set `remoteActive` and show a disabled "Active elsewhere" button. They don't change their own voice state, play audio or send `voice_*` frames. `owner_local_id` is the shared orchestrator id, the same on every device, so it **must not** be used to decide ownership. |
