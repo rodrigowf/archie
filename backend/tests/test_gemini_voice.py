@@ -404,10 +404,16 @@ def test_should_gate_event_default_false():
     assert p.should_gate_event({"toolResponse": {}}) is False
 
 
-def test_build_keepalive_chunk_default_none():
-    """No keepalive needed for Gemini Live."""
+def test_build_keepalive_chunk_is_20ms_of_silence():
+    """Gemini Live aborts a session after 150 s without input (1008)."""
+    import base64
+
     p = _make_provider()
-    assert p.build_keepalive_chunk() is None
+    chunk = p.build_keepalive_chunk()
+    assert chunk is not None
+    assert base64.b64decode(chunk) == b"\x00\x00" * 320  # 20 ms at 16 kHz
+    frame = p.format_audio_in(chunk)
+    assert frame["realtimeInput"]["audio"]["mimeType"] == "audio/pcm;rate=16000"
 
 
 # --- get_connection_info ----------------------------------------------------

@@ -3,8 +3,8 @@ name: gemini-live
 category: archie/voice
 tags: [voice, gemini, gemini-live, google, vertex-ai, ai-studio, websocket, voice-relay, goaway, session-resumption, manual-vad, schema-sanitiser]
 created: 2026-05-15
-modified: 2026-10-06
-summary: Gemini Live via the backend relay (AI Studio or Vertex); camelCase wire, schema sanitiser, bundled-transcription bug, manual VAD, goAway and resumption.
+modified: 2026-10-13
+summary: Gemini Live via the backend relay (AI Studio or Vertex); camelCase wire, schema sanitiser, bundled-transcription bug, manual VAD, goAway and resumption, the 150 s idle abort (keepalive), context window compression.
 source: curated (consolidated from memory notes assistant/voice/gemini_live_voice_adaptation.md, assistant/voice/voice_lifecycle_and_wake_after_stop.md, assistant/voice/qwen_omni_voice_adaptation.md, auto-memory feedback_clear_provider_state_on_rebuild; verified against code 2026-10-06)
 references:
   - architecture.md
@@ -211,15 +211,61 @@ punitive **1008 "policy violation"**.
 **The handle is valid only for the upstream WS that issued it.**
 `OrchestratorSession.stop_voice_relay()` clears `_resumption_handle` on every
 teardown (`5eb7804`). `restart_voice` always creates a fresh provider. Only
-the goAway reconnect inside the relay keeps the handle. Reusing a dead handle
-makes Google accept the handshake (you even get `setupComplete`) and then
-close the WS with 1008 "The operation was aborted." about 150 s later. On
-2026-06-04 three quick rebuilds all reused one dead handle, which showed up as
-a spike of 400 BadRequest errors in AI Studio. See
+the reconnects inside the relay keep the handle (goAway, and the idle-abort
+recovery below). On 2026-06-04 three quick rebuilds all reused one dead
+handle, which showed up as a spike of 400 BadRequest errors in AI Studio. See
 [lifecycle.md](lifecycle.md#clear-provider-server-side-state-on-rebuild).
+That note also blamed the dead handle for a 1008 "The operation was aborted."
+about 150 s later. That close is Google's idle abort (next section), and a
+handle stays usable after it: Google keeps handles for 2 h after a session
+ends.
+
+## The 150 s idle abort, keepalive and recovery
+
+Gemini closes a session that gets **no client input for 150 s** with WS
+**1008 "The operation was aborted."** It happens even mid-conversation:
+probed 2026-10-13, the abort lands at 150.1 s of silence. On 2026-10-12 three
+sessions died this way after the client's mic audio stopped reaching the
+backend (muted, or the client's socket dropped). Audio outside an
+`activityStart`/`activityEnd` window counts as input and never starts a turn.
+
+- **Keepalive**: `build_keepalive_chunk()` returns 20 ms of silent 16 kHz PCM.
+  The relay sends it (as `realtimeInput.audio`) after `keepalive_s = 30` s
+  without mic audio, then every ~15 s. It never sends one before
+  `setupComplete`; Gemini closes with 1008 on audio before the handshake.
+  The voice log shows `keepalive sent (idle=…)` lines whenever the client
+  stopped sending audio.
+- **Recovery**: if an abort happens anyway, `is_recoverable_error` returns
+  True when a resumption handle is saved, and `classify_close_reason` reports
+  `NETWORK`, recoverable. The relay reconnects (`RECOVERABLE_ERROR`, at most
+  2 per relay) with the handle, and Google restores the same session: the
+  probe's codeword survived the abort. With no handle, the abort stays fatal.
+- **Dropped connection**: the same applies when the socket breaks without a
+  close frame ("no close frame received or sent", or "keepalive ping
+  timeout" when Google stops answering pings). Resuming restored the session
+  in every probe, also after a cut 15 min into a session. Wi-Fi flaps on the
+  laptop produced several of these during testing; before this change each
+  one ended the conversation.
+
+## Context window compression
+
+Without compression Google caps an audio-only session at **15 min** and the
+context at the model's window (128k). Our context is mostly text: on
+2026-10-12, 31k–52k text tokens against 10k–15k audio after 5–8 minutes,
+from the system prompt (~15k) and tool results. The setup now sends
+`contextWindowCompression: {slidingWindow: {}}`. Google's defaults follow the
+model's window: compress when the context reaches 80% of it
+(`triggerTokens`) down to half of that (`targetTokens`). The window drops the
+oldest turns inside the same session, always starts at a user turn, and
+keeps the system instructions. The conversation is never rebuilt from text.
+`GEMINI_CONTEXT_TRIGGER_TOKENS` / `GEMINI_CONTEXT_TARGET_TOKENS` override the
+defaults. In the probe a 6000/3000 window cycled 6k→3k with the session
+intact; the system instruction stayed, and the oldest turn was forgotten.
 
 `classify_close_reason`: "exceeded its monthly spending cap" → `QUOTA_EXCEEDED`
-(fatal, 1011); session expired → `NETWORK` (recoverable); "denied access"
+(fatal, 1011); session expired → `NETWORK` (recoverable); "The operation
+was aborted." or a connection lost without a close frame, with a saved handle
+→ `NETWORK` (recoverable); "denied access"
 (1008) → `AUTH` (fatal, the hint suggests switching to Vertex); model
 unavailable → `MODEL_UNAVAILABLE`; rate limit → `RATE_LIMIT` (recoverable).
 

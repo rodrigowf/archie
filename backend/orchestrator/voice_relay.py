@@ -1246,21 +1246,32 @@ class VoiceRelay:
         :meth:`BaseVoiceProvider.build_keepalive_chunk` hook.  The loop
         only spawns when that hook returns a non-None chunk (see
         :meth:`start`).  Qwen-Omni uses this to keep its ASR pipeline
-        from timing out after multi-minute silences; other providers
-        leave the default ``None`` and the loop never runs.
+        from timing out after multi-minute silences; Gemini Live closes
+        a session after 150 s without input. OpenAI leaves the default
+        ``None`` and the loop never runs.
+
+        Runs for the relay's whole life, across reconnects: a tick that
+        lands while the upstream is being swapped (``_ws`` is None or
+        the new handshake is pending) is skipped, not fatal.
 
         Aborted on cancellation; logs each tick at debug level.
         """
-        assert self._ws is not None
         try:
             while not self._closed.is_set():
                 keepalive_s = self._voice_timeouts.keepalive_s
                 await asyncio.sleep(keepalive_s / 2)
-                if self._closed.is_set() or self._ws is None:
+                if self._closed.is_set():
                     break
+                if self._ws is None:
+                    continue  # mid-reconnect
                 # Skip if a real audio chunk went out within the interval.
                 idle = time.monotonic() - (self._last_audio_in_at or self._started_at)
                 if idle < keepalive_s:
+                    continue
+                # Never mid-handshake: Gemini closes with 1008 when audio
+                # arrives before ``setupComplete`` (e.g. during a goAway
+                # reconnect).
+                if not self._handshake_complete.is_set():
                     continue
                 try:
                     chunk = self._provider.build_keepalive_chunk()

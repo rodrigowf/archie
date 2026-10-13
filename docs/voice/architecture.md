@@ -196,8 +196,11 @@ or straight over WebRTC.
   `session.update` is rebuilt fresh (`rebuild_session_update`). After a
   reconnect Silero and the speech timer are reset. If a classifier result says
   `recoverable=False`, the relay stops trying at once.
-- **Keepalive**: if the provider has a `build_keepalive_chunk()` (Qwen), a
-  silent chunk is sent after every `keepalive_s = 30` s of mic silence.
+- **Keepalive**: if the provider has a `build_keepalive_chunk()` (Qwen and
+  Gemini), a silent chunk is sent once no mic audio has gone upstream for
+  `keepalive_s = 30` s, then every ~15 s. The loop lives as long as the relay:
+  ticks during a reconnect (no socket, or the new handshake pending) are
+  skipped, never sent early and never fatal.
 - **Shutdown**: `send_shutdown_frames(graceful_shutdown_frames())` within
   `graceful_shutdown_s`, then `stop()`.
 - **Errors**: on a fatal close the relay emits `voice_error{error: VoiceError}`

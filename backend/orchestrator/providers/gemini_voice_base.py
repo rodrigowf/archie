@@ -48,8 +48,10 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import base64
 import json
 import logging
+import os
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -73,6 +75,38 @@ from orchestrator.types import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _context_window_compression() -> dict[str, Any]:
+    """``contextWindowCompression`` for the setup frame.
+
+    An empty ``slidingWindow`` uses Google's defaults, which follow the
+    model's own window: compress once the context reaches 80% of it
+    (``triggerTokens``) down to half of that (``targetTokens``).
+    ``GEMINI_CONTEXT_TRIGGER_TOKENS`` / ``GEMINI_CONTEXT_TARGET_TOKENS``
+    override them.
+    """
+    config: dict[str, Any] = {"slidingWindow": {}}
+    for env, key in (
+        ("GEMINI_CONTEXT_TRIGGER_TOKENS", "triggerTokens"),
+        ("GEMINI_CONTEXT_TARGET_TOKENS", "targetTokens"),
+    ):
+        raw = os.environ.get(env)
+        if not raw:
+            continue
+        try:
+            value = int(raw)
+        except ValueError:
+            logger.warning("Ignoring invalid %s=%r", env, raw)
+            continue
+        if value <= 0:
+            logger.warning("Ignoring non-positive %s=%r", env, raw)
+            continue
+        if key == "targetTokens":
+            config["slidingWindow"]["targetTokens"] = value
+        else:
+            config["triggerTokens"] = value
+    return config
 
 # Default voice (overridable via constructor). The default *model*
 # differs per backend so each concrete subclass carries its own
@@ -592,6 +626,13 @@ class GeminiVoiceProviderBase(BaseVoiceProvider, ToolCallAccumulator, abc.ABC):
                 {"handle": self._resumption_handle}
                 if self._resumption_handle else {}
             ),
+            # Sliding-window context compression. Without it Google caps
+            # an audio-only session at 15 min and the 128k context fills
+            # (mostly text: the system prompt plus tool results). The
+            # window drops the oldest turns inside the SAME session and
+            # always keeps the system instructions, so the conversation
+            # and its recent audio survive (no text-only rebuild).
+            "contextWindowCompression": _context_window_compression(),
         }
         if system:
             setup["systemInstruction"] = {"parts": [{"text": system}]}
@@ -699,9 +740,19 @@ class GeminiVoiceProviderBase(BaseVoiceProvider, ToolCallAccumulator, abc.ABC):
         """Gemini Live: client sends ``setup`` first, server acks with ``setupComplete``."""
         return "client_first"
 
-    # No keepalive needed empirically — Gemini Live doesn't have Qwen's
-    # ASR-timeout pathology. If a similar problem surfaces, override
-    # build_keepalive_chunk() to return a short silent PCM chunk.
+    def build_keepalive_chunk(self) -> str | None:
+        """20 ms of silent 16 kHz PCM, sent after 30 s without mic audio.
+
+        Gemini Live closes a session that receives nothing for 150 s with
+        WS 1008 "The operation was aborted." (reproduced 2026-10-13: the
+        abort lands at 150.1 s of client silence; a 20 ms silent chunk
+        every 30 s keeps the session open). Mic audio stops reaching the
+        relay while the user is muted or the client's socket is down, so
+        the relay sends this through :meth:`format_audio_in` instead.
+        Audio outside an ``activityStart``/``activityEnd`` window never
+        starts a turn.
+        """
+        return base64.b64encode(b"\x00\x00" * 320).decode("ascii")
 
     def on_inbound_event(self, event: dict[str, Any]) -> None:
         """Track session-resumption handles and the goAway signal.
@@ -786,12 +837,35 @@ class GeminiVoiceProviderBase(BaseVoiceProvider, ToolCallAccumulator, abc.ABC):
         the close was a "BidiGenerateContent session expired" 1008
         triggered by a stale resumption handle (one-shot recovery).
 
+        Also reconnect, resuming with the saved handle, after a 1008
+        "The operation was aborted." — Google's close for a session that
+        got no input for 150 s. The keepalive should prevent it; if it
+        happens anyway the handle brings the same session back. Same for
+        a connection that broke without a close frame (network drop, or
+        the WS ping timing out): resuming restored the same session in
+        every probe (2026-10-13). The relay caps these attempts
+        (``RECOVERABLE_ERROR``).
+
         Other 1008 closes are treated as fatal: AI Studio's "project
         denied access" close shares the same code but isn't recoverable
         — retrying would just loop.
         """
         if self._goaway_received and self._resumption_handle:
             # Standard goAway recovery: rebuild with the live handle.
+            return True
+
+        if self._resumption_handle and self._is_aborted_close(exc):
+            logger.warning(
+                "gemini session aborted (1008, no input for 150 s?); "
+                "resuming with the saved handle"
+            )
+            return True
+
+        if self._resumption_handle and self._is_transport_drop(exc):
+            logger.warning(
+                "gemini connection dropped without a close frame; "
+                "resuming with the saved handle"
+            )
             return True
 
         # Stale-handle recovery: we DID have a handle on this attempt
@@ -824,6 +898,22 @@ class GeminiVoiceProviderBase(BaseVoiceProvider, ToolCallAccumulator, abc.ABC):
         """
         msg = str(exc)
         return "1008" in msg and "session expired" in msg.lower()
+
+    @staticmethod
+    def _is_aborted_close(exc: BaseException | None) -> bool:
+        """Detect Gemini's 1008 "The operation was aborted." close."""
+        msg = str(exc) if exc is not None else ""
+        return "1008" in msg and "operation was aborted" in msg.lower()
+
+    @staticmethod
+    def _is_transport_drop(exc: BaseException | None) -> bool:
+        """The connection broke without Google closing it.
+
+        ``websockets`` reports it as "no close frame received or sent",
+        or as "keepalive ping timeout" (our side gave up on pongs).
+        """
+        msg = (str(exc) if exc is not None else "").lower()
+        return "no close frame received" in msg or "keepalive ping timeout" in msg
 
     def classify_close_reason(
         self,
@@ -875,6 +965,32 @@ class GeminiVoiceProviderBase(BaseVoiceProvider, ToolCallAccumulator, abc.ABC):
             return VoiceError(
                 category=VoiceErrorCategory.NETWORK,
                 message="Gemini session resumption handle expired; reconnecting.",
+                recoverable=True,
+                recovery_hint=None,
+                provider_doc_url=None,
+                raw_close_code=close_code,
+                raw_close_reason=close_reason,
+                provider=self.provider_name,
+            )
+
+        # Idle abort (1008 "The operation was aborted.", no input for
+        # 150 s) or a dropped connection: recoverable only by resuming,
+        # so only with a handle.
+        if self._resumption_handle and self._is_transport_drop(exc):
+            return VoiceError(
+                category=VoiceErrorCategory.NETWORK,
+                message="Gemini voice connection dropped; resuming.",
+                recoverable=True,
+                recovery_hint=None,
+                provider_doc_url=None,
+                raw_close_code=close_code,
+                raw_close_reason=close_reason,
+                provider=self.provider_name,
+            )
+        if self._is_aborted_close(exc) and self._resumption_handle:
+            return VoiceError(
+                category=VoiceErrorCategory.NETWORK,
+                message="Gemini closed an idle voice session; resuming.",
                 recoverable=True,
                 recovery_hint=None,
                 provider_doc_url=None,
