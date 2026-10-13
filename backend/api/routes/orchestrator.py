@@ -77,6 +77,49 @@ def _voice_start_lock_for(local_id: str) -> asyncio.Lock:
     return lock
 
 
+def _fill_voice_defaults(
+    provider: str | None,
+    model: str | None,
+    voice_name: str | None,
+    language: str | None,
+    endpoint: str | None,
+) -> tuple[str | None, str | None, str | None, str | None, str | None]:
+    """Fill the voice fields a ``voice_start`` left out from the saved
+    defaults in ``assistant_config.json`` (Settings → Voice).
+
+    The web app's ``voice_start`` names no provider at all, so every
+    path that builds a voice connection must come through here — the
+    text→voice re-arm path skipped it and fell to the registry's
+    hard-coded ``openai`` default even with Gemini configured
+    (2026-10-13). Not for re-attaching to a LIVE call: there an omitted
+    field means "no change", and a filled-in default would read as
+    config drift and tear the call down.
+
+    The default model and voice belong to the default provider, so they
+    are only used when the provider is the default one — a client that
+    asks for another provider gets that provider's own defaults from
+    ``resolve_voice_target`` instead of a model id it doesn't serve.
+    """
+    if None not in (provider, model, voice_name, language, endpoint):
+        return provider, model, voice_name, language, endpoint
+    try:
+        from api.routes.config import _load_config as _load_app_config
+        app_cfg = _load_app_config()
+    except Exception:
+        logger.exception("Failed to load voice defaults from assistant_config.json")
+        return provider, model, voice_name, language, endpoint
+    default_provider = app_cfg.get("default_voice_provider")
+    provider = provider or default_provider
+    if provider == default_provider:
+        model = model or app_cfg.get("default_voice_model")
+        voice_name = voice_name or app_cfg.get("default_voice_name")
+    if language is None:
+        language = app_cfg.get("default_voice_transcription_language")
+    if endpoint is None:
+        endpoint = app_cfg.get("default_voice_endpoint")
+    return provider, model, voice_name, language, endpoint
+
+
 
 
 async def _safe_send_bytes(ws: WebSocket, payload: bytes) -> bool:
@@ -515,7 +558,15 @@ async def _handle_start(
             #
             # Equivalent to a fresh voice_start in every observable way
             # (session_started payload, voice_session_update, relay
-            # boot) except the JSONL is the existing one.
+            # boot) except the JSONL is the existing one — including the
+            # Settings → Voice defaults for whatever the client left out.
+            (
+                voice_provider_req, voice_model_req, voice_name_req,
+                voice_lang_req, voice_endpoint_req,
+            ) = _fill_voice_defaults(
+                voice_provider_req, voice_model_req, voice_name_req,
+                voice_lang_req, voice_endpoint_req,
+            )
             try:
                 await session.restart_voice(
                     voice_provider=voice_provider_req,
@@ -685,25 +736,14 @@ async def _handle_start(
     # endpoint=None → Vertex default, even when the user has configured AI
     # Studio. That breaks AI-Studio-named ids like
     # ``gemini-2.5-flash-native-audio-latest`` with a Vertex policy error.
-    if voice and (
-        voice_provider_req is None
-        or voice_model_req is None
-        or voice_name_req is None
-        or voice_lang_req is None
-        or voice_endpoint_req is None
-    ):
-        try:
-            from api.routes.config import _load_config as _load_app_config
-            app_cfg = _load_app_config()
-            voice_provider_req = voice_provider_req or app_cfg.get("default_voice_provider")
-            voice_model_req = voice_model_req or app_cfg.get("default_voice_model")
-            voice_name_req = voice_name_req or app_cfg.get("default_voice_name")
-            if voice_lang_req is None:
-                voice_lang_req = app_cfg.get("default_voice_transcription_language")
-            if voice_endpoint_req is None:
-                voice_endpoint_req = app_cfg.get("default_voice_endpoint")
-        except Exception:
-            logger.exception("Failed to load voice defaults from assistant_config.json")
+    if voice:
+        (
+            voice_provider_req, voice_model_req, voice_name_req,
+            voice_lang_req, voice_endpoint_req,
+        ) = _fill_voice_defaults(
+            voice_provider_req, voice_model_req, voice_name_req,
+            voice_lang_req, voice_endpoint_req,
+        )
 
     # Note: we deliberately do NOT inject ``ws.app.state.config`` here.
     # That snapshot is built once at app startup and never refreshed, so
