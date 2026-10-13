@@ -3,7 +3,7 @@ name: architecture
 category: archie/voice
 tags: [voice, realtime, multi-provider, openai, qwen, gemini, webrtc, voice-relay, voice-provider, canonical-events, vad, silero, voice-error, reconnect, voice-persister, echo-ducking, web, android, run-script]
 created: 2026-04-17
-modified: 2026-10-09
+modified: 2026-10-13
 summary: How realtime voice works across OpenAI, Qwen and Gemini; provider contract, the two transports, backend modules, clients, invariants, file map.
 source: curated (consolidated from memory notes assistant/voice/voice-multimodel-plan.md, assistant/architecture/voice_subsystem.md, assistant/architecture/voice_command_device_control.md, assistant/voice/gemini_live_voice_adaptation.md, assistant/voice/qwen_omni_voice_adaptation.md, assistant/android/android_peripheral_project.md, assistant/providers/openai_audio_model_gpt_audio.md; verified against code 2026-10-06)
 references:
@@ -143,8 +143,14 @@ The cascade in `PUT /api/config` (`backend/api/routes/config.py`): changing
 the provider resets model, voice and language to that provider's defaults;
 changing the model resets voice and language; changing only the voice or the
 language keeps the rest. A `voice_start` that leaves out `voice_*` fields
-gets these defaults. On a re-arm, a missing field means "keep the previous
-value". `orchestrator_meta` in the JSONL records provider, model, voice and
+gets these defaults (`_fill_voice_defaults` in
+`backend/api/routes/orchestrator.py`) whenever it builds a voice connection:
+a new session, or voice turned on in an open text conversation (the web app's
+`voice_start` names no provider, so before 2026-10-13 that path fell to the
+registry's hard-coded `openai` default even with Gemini configured). The
+default model and voice are only used for the default provider. Re-attaching
+to a LIVE call is different: there a missing field means "no change", so it
+is never filled in (a filled default would read as drift and rebuild the call). `orchestrator_meta` in the JSONL records provider, model, voice and
 language; when a field is missing, replay assumes openai / gpt-realtime /
 cedar / "".
 
@@ -278,6 +284,13 @@ block, but nothing loads one yet.
 - **Recording** (`audio_recorder.py`, off unless
   `voice_recording_enabled`): `AudioRecorder` writes an interleaved
   `audio.pcm` plus a chunk/segment index under `context/recordings/<session>/`.
+  `<session>` is the conversation's tab id, so every call of a conversation
+  shares one recording: a new call appends and continues its timeline 1 s
+  after the last recorded moment (`index.json` `calls` lists each call's
+  `offset_ms`, provider, model, voice), so the JSONL's
+  `[voice, recording: … ms]` references stay valid. A recording that can't be
+  continued (unreadable index, other sample rate) is renamed aside, never
+  overwritten.
   WS providers are recorded on the server. For WebRTC the owner client sends
   `voice_recording_chunk{channel: user|assistant, audio}` every 5 s (AudioWorklet
   `pcm-capture`). The `listen_recording` tool plays recordings back.
