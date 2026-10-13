@@ -713,6 +713,41 @@ async def test_dead_session_reaper_evicts_session_with_done_receive_loop():
 
 
 @pytest.mark.asyncio
+async def test_dead_session_reaper_stands_down_once_the_open_set_is_frozen():
+    """Shutdown: systemd's SIGTERM kills the claude subprocesses too. The
+    reaper must not close those sessions (and drop them from the open set)
+    while uvicorn waits for connections — 2026-10-13, a deploy closed two."""
+    pool = SessionPool()
+    sm = _dead_session_manager(
+        reason=TerminationReason.SUBPROCESS_CRASHED,
+        detail="Command failed with exit code 143",
+    )
+    _install(pool, sm)
+    pool.freeze_open_set()
+    await pool._reap_dead_sessions_once()
+    assert sm.local_id in pool._sessions
+
+
+def test_exit_signal_freezes_the_open_set_then_runs_uvicorns_handler():
+    import signal as _signal
+
+    from api.app import _freeze_open_set_on_exit_signal
+
+    calls: list[str] = []
+    pool = MagicMock()
+    pool.freeze_open_set.side_effect = lambda: calls.append("freeze")
+    saved = {sig: _signal.getsignal(sig) for sig in (_signal.SIGTERM, _signal.SIGINT)}
+    try:
+        _signal.signal(_signal.SIGTERM, lambda signum, frame: calls.append("uvicorn"))
+        _freeze_open_set_on_exit_signal(pool)
+        _signal.getsignal(_signal.SIGTERM)(_signal.SIGTERM, None)
+    finally:
+        for sig, handler in saved.items():
+            _signal.signal(sig, handler)
+    assert calls == ["freeze", "uvicorn"]
+
+
+@pytest.mark.asyncio
 async def test_dead_session_reaper_skips_healthy_sessions():
     """A session whose receive loop is still running is left alone."""
     pool = SessionPool()

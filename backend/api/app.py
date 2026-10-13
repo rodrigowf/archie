@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import signal
 from urllib.parse import quote
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -29,6 +30,36 @@ from .pool import SessionPool
 from .routes import accounts, agents, auth, browser, chat, config, debug, mcp, memory, orchestrator, sessions, skills, uploads, visualizations, voice
 
 logger = logging.getLogger(__name__)
+
+
+def _freeze_open_set_on_exit_signal(pool) -> None:
+    """Chain a handler in front of uvicorn's SIGTERM/SIGINT handlers that
+    freezes the pool's open set, then lets uvicorn shut down as usual.
+
+    systemd's stop signal reaches the whole cgroup, claude subprocesses
+    included; uvicorn then waits for connections to close (up to ~30 s)
+    before the lifespan shutdown runs ``close_all`` — long enough for the
+    dead-session reaper to close those sessions and save the open set
+    without them. Uvicorn (0.41) installs its handlers with
+    ``signal.signal`` before startup and restores its saved originals on
+    exit, so chaining here is safe. A no-op off the main thread (tests).
+    """
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            prev = signal.getsignal(sig)
+        except (ValueError, OSError):
+            continue
+        if not callable(prev):
+            continue
+
+        def _handler(signum, frame, _prev=prev):
+            pool.freeze_open_set()
+            _prev(signum, frame)
+
+        try:
+            signal.signal(sig, _handler)
+        except ValueError:  # not the main thread
+            return
 
 
 @asynccontextmanager
@@ -57,6 +88,8 @@ async def lifespan(app: FastAPI):
     app.state.pool = SessionPool()
     # What was open before the restart is open again (spec 12 OPEN-1), before any client connects.
     app.state.pool.restore_open_set(OpenSessionsStore(get_state_dir() / "open_sessions.json"))
+    # ...and a shutdown keeps it as it is the moment the exit signal arrives.
+    _freeze_open_set_on_exit_signal(app.state.pool)
     # agent_turn_finished carries the session's title (device notifications).
     app.state.pool.title_resolver = app.state.store.session_title
     # Background orphan reaper — last-line defense against leaked

@@ -853,12 +853,21 @@ class SessionPool:
             await asyncio.sleep(0.02)
         return self._stopping_orchestrator_id != local_id
 
+    def freeze_open_set(self) -> None:
+        """The backend is going down: what is open now is what the next
+        start restores. Called on the exit signal (``api/app.py``), before
+        uvicorn's graceful wait — systemd's SIGTERM reaches the claude
+        subprocesses too, and without the freeze the dead-session reaper
+        closed those sessions during the wait and saved the open set
+        without them (2026-10-13: a deploy closed two agent sessions)."""
+        self._open_set_frozen = True
+
     async def close_all(self) -> None:
         """Stop every active session in the pool. Used at app shutdown so
         SDK subprocesses (and the remote ssh+claude they spawn) don't leak
         across backend restarts.  The open set is frozen first: what is open
         now is restored at the next start."""
-        self._open_set_frozen = True
+        self.freeze_open_set()
         for sid in list(self._sessions.keys()):
             try:
                 await self.close(sid)
@@ -1046,6 +1055,8 @@ class SessionPool:
         ``close()`` already handles the per-session lock, in-flight turn
         cancellation, subscriber broadcasts, and SDK teardown.
         """
+        if self._open_set_frozen:
+            return  # shutting down: those subprocesses died with us, not on their own
         dead_ids: list[str] = []
         for sid, sm in list(self._sessions.items()):
             done_event = getattr(sm, "_receive_loop_done", None)

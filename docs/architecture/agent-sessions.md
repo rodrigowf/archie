@@ -3,7 +3,7 @@ name: agent-sessions
 category: archie/architecture
 tags: [agent-sessions, session-pool, session-manager, claude-agent-sdk, local-id, lifecycle, permissions, stall-watchdog, session-config, resume]
 created: 2026-02-23
-modified: 2026-10-12
+modified: 2026-10-13
 summary: How agent (chat) sessions run — SessionPool, session managers, dual IDs, out-of-turn events and subagents, lifecycle hardening, permissions, stall watchdog, per-session config.
 source: curated (consolidated from memory notes assistant/architecture/project-overview.md, assistant/architecture/permissions_branch_architecture.md, assistant/architecture/orchestrator-vision.md, auto-memory project_session_config.md, project_sdk_upgrade_path_2026_06_18.md, feedback_diagnose_via_direct_ws_probe.md; verified against code 2026-10-06)
 references:
@@ -114,7 +114,11 @@ WebSockets), `_locks` (one `asyncio.Lock` serializing `send()`), `_turn_tasks` (
   create, close, orchestrator start/stop and turn end (a no-op when unchanged), and `lifespan()`
   restores it before serving. A restored session is listed in `pool/live` as `idle` and spawns on
   first use under its old `local_id`: a client's `reattach` start (chat route) or the orchestrator's
-  runner (`ensure_live()`). `close_all()` freezes the set first, so a shutdown never empties it.
+  runner (`ensure_live()`). `close_all()` freezes the set first, so a shutdown never empties it — and so does the exit
+  signal itself (`_freeze_open_set_on_exit_signal` in `backend/api/app.py`, chained in front of
+  uvicorn's SIGTERM/SIGINT handlers): systemd's stop signal kills the claude subprocesses too, and
+  during uvicorn's ~30 s connection wait the dead-session reaper used to close them and save the set
+  without them (2026-10-13). The reaper stands down once the set is frozen.
   `stop_orchestrator(replacing=True)` (voice drift, ENDING drop) rebuilds the conversation in place:
   no close event, and it stays open as if restored until `set_orchestrator()`.
 - **Orchestrator slot** — at most one orchestrator. `stop_orchestrator()` parks the dying session in
