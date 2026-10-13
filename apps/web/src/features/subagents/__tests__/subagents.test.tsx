@@ -13,6 +13,7 @@ import { setupServices, teardownServices } from '../../../services/__tests__/fak
 import { ConversationPanel } from '../../conversation/ConversationPanel';
 import { preloadRich } from '../../conversation/lazyRich';
 import { fixtureRun, seedSession } from '../../conversation/__tests__/helpers';
+import { isAgentNotification } from '../../conversation/entries/NoticeRow';
 import { groupAgents } from '../AgentsSheet';
 import { AgentsButton } from '../AgentsButton';
 import { activityLine, formatElapsed, formatTokens, subagentElapsedMs, treeOrder } from '../labels';
@@ -122,6 +123,12 @@ describe('the agent card, tab row and agent tab', () => {
     expect(notice.textContent).toContain('Background agent');
     expect(notice.textContent).toContain('Agent "Digest logs" finished');
     expect(container.querySelectorAll('[data-kind="user"]')).toHaveLength(1);
+  });
+
+  it('a background shell command\'s notification is a "Background task", not an agent', () => {
+    expect(isAgentNotification('Agent "Digest logs" finished')).toBe(true);
+    expect(isAgentNotification('Background agent "Digest logs" completed.')).toBe(true);
+    expect(isAgentNotification('Background command "Run tests" completed (exit code 0)')).toBe(false);
   });
 
   it('a running background agent keeps its card running after the spawn card completed', () => {

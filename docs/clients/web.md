@@ -243,7 +243,8 @@ shown as an index and as tabs; their activity never enters the parent timeline. 
   Main); the main list and the composer stay mounted (hidden) meanwhile. The selected agent tab and the
   closed tabs are per-session UI state in the session store. State changes are announced in the shared
   live region (failures assertive); a `<task-notification>` notice reads "Background agent" with its
-  summary.
+  summary when a subagent reported, "Background task" when a background shell command did (the CLI
+  sends the same notification for both; Android matches).
 - **Bundle**: the tab row, the agent tab and the sheet are lazy chunks (`features/subagents/lazy.tsx`
   → `view.tsx`, `AgentsSheet.tsx`); the agent card's helpers come through the second entry
   `@/features/subagents/card` so the package barrel (initial) does not pull them in. The data layer is
