@@ -274,6 +274,8 @@ class DefaultVoiceSessionController(
             is VoiceInbound.Ending -> {
                 // A non-owner flipping to "Ending…" was the multi-device wedge (RS-12).
                 if (!isOwner()) return log.d(TAG, "Ignoring voice_ending — not the voice owner")
+                // A stale owner (the server re-reported us after the local end) has nothing to end.
+                if (!holdsLocalCall()) return log.d(TAG, "Ignoring voice_ending — no local call")
                 if (_state.value.phase != SessionPhase.ENDING) {
                     _state.update { it.copy(phase = SessionPhase.ENDING) }
                     armEndingTimeout("voice_ended ack timeout after voice_ending")
@@ -352,15 +354,27 @@ class DefaultVoiceSessionController(
 
     /** `voice_owner_active` (spec 12 §7.5 and V-13). */
     private fun onOwnerActive(active: Boolean) {
+        var stale = false
         val takenOver = synchronized(lock) {
             when {
                 !owner -> false
                 !active -> false // the end of voice: the owner's own voice_ended drives its state
                 ownerEchoesPending > 0 -> { ownerEchoesPending--; false } // the echo of our voice_start
-                else -> holdsLocalCallLocked()
+                holdsLocalCallLocked() -> true
+                else -> {
+                    // Ownership the server re-reported after our local end, and now another device's
+                    // voice: drop it, or that call's voice_ending wedged this one in "Ending" (2026-10-13).
+                    owner = false
+                    stale = true
+                    false
+                }
             }
         }
         if (takenOver) return ownershipLost("voice_owner_active from another device")
+        if (stale) {
+            log.i(TAG, "voice_owner_active from another device while holding no call — dropping stale ownership")
+            _state.update { it.copy(isOwner = false) }
+        }
         // Another device's voice: read-only "active elsewhere". The owner's own lifecycle drives its state.
         if (!isOwner()) _state.update { it.copy(remoteVoiceActive = active) }
     }
@@ -810,11 +824,16 @@ class DefaultVoiceSessionController(
     ) {
         val t: VoiceTransport?
         val token: Any?
+        val already = synchronized(lock) { finalized.also { if (it) owner = false } }
+        if (already) {
+            log.d(TAG, "finalizeVoiceStop ignored — already finalized for this session")
+            // Still leave ENDING and stale ownership: this call is the ENDING exit (OI-4), and a
+            // second one must not leave "Ending…" on screen forever (2026-10-13).
+            _state.update { it.copy(phase = if (it.phase == SessionPhase.ENDING) SessionPhase.OFF else it.phase, isOwner = false) }
+            return
+        }
         synchronized(lock) {
-            if (finalized) {
-                log.d(TAG, "finalizeVoiceStop ignored — already finalized for this session")
-                return
-            }
+            if (finalized) return // raced another finalize, which did the teardown
             finalized = true
             owner = false
             activeConfig = null
