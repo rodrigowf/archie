@@ -63,6 +63,15 @@ class WebRtcTransportParityTest {
         fun awaitOps(n: Int) {
             repeat(200) { if (teardownOps.size >= n) return; advance(10); Thread.sleep(5) }
         }
+
+        fun awaitSignal(match: (ProviderSignal) -> Boolean) {
+            repeat(200) { if (signals.any(match)) return; advance(10); Thread.sleep(5) }
+            error("signal never came: $signals")
+        }
+
+        fun awaitMirrored(n: Int) {
+            repeat(200) { if (mirrored.size >= n) return; advance(10); Thread.sleep(5) }
+        }
     }
 
     companion object {
@@ -185,7 +194,10 @@ class WebRtcTransportParityTest {
         assertEquals(ProviderPhase.ACTIVE, r.phase)
     }
 
-    /** RS-06: ICE FAILED tears down — never on the signalling thread, in order. */
+    /**
+     * RS-06: ICE FAILED tears down — never on the signalling thread, in order. On a live call it is
+     * a lost link, not an error (2026-10-13): the controller replaces the call.
+     */
     @Test
     fun rs06_iceFailedTearsDownOffTheSignallingThread() = runTest {
         val r = Rig(this)
@@ -195,8 +207,62 @@ class WebRtcTransportParityTest {
         r.awaitOps(5)
         assertEquals(ORDER, r.teardownOps)
         assertTrue(r.platform.ops.toString(), r.platform.ops.none { it.endsWith("@signaling_thread") })
+        assertTrue(r.signals.toString(), ProviderSignal.LinkFailed("Connection failed") in r.signals)
+        assertTrue(r.signals.none { it is ProviderSignal.Error })
+    }
+
+    /** ICE FAILED before the data channel ever opened: the call never existed — the old terminal error. */
+    @Test
+    fun iceFailedBeforeTheDataChannelOpenedIsAnError() = runTest {
+        val r = Rig(this)
+        r.platform.openDataChannelOnAnswer = false
+        r.connect()
+        r.advance(100)
+        r.platform.lastPeer.iceStateFromThread(IceState.FAILED)
+        r.awaitOps(5)
         assertEquals(ProviderPhase.ERROR, r.phase)
         assertTrue(ProviderSignal.Error("Connection failed") in r.signals)
+        assertTrue(r.signals.none { it is ProviderSignal.LinkFailed })
+    }
+
+    /** A live call's ICE drop is announced at once, and its recovery too; nothing is torn down. */
+    @Test
+    fun iceDisconnectOnALiveCallSignalsLinkDownThenLinkUp() = runTest {
+        val r = Rig(this)
+        r.connect()
+        r.advance(100)
+        r.platform.lastPeer.iceStateFromThread(IceState.DISCONNECTED)
+        r.platform.lastPeer.iceStateFromThread(IceState.DISCONNECTED)
+        r.awaitSignal { it == ProviderSignal.LinkDown }
+        r.platform.lastPeer.iceStateFromThread(IceState.CONNECTED)
+        r.awaitSignal { it == ProviderSignal.LinkUp }
+        assertEquals(1, r.signals.count { it == ProviderSignal.LinkDown })
+        assertTrue(r.teardownOps.isEmpty())
+        assertEquals(ProviderPhase.ACTIVE, r.phase)
+    }
+
+    /**
+     * A replaced call's tool result reaching the new call is dropped with its `response.create`
+     * (OpenAI would answer it with an `error`, which ends the call); this call's own results pass.
+     */
+    @Test
+    fun aToolResultForACallThisSessionNeverSawIsDropped() = runTest {
+        val r = Rig(this)
+        r.connect()
+        r.advance(100)
+        r.platform.lastPeer.messageFromThread(
+            """{"type":"response.function_call_arguments.done","call_id":"call_mine","name":"read_file","arguments":"{}"}""",
+        )
+        r.awaitMirrored(1)
+        val stale = obj("""{"type":"conversation.item.create","item":{"type":"function_call_output","call_id":"call_dead","output":"x"}}""")
+        val mine = obj("""{"type":"conversation.item.create","item":{"type":"function_call_output","call_id":"call_mine","output":"y"}}""")
+        val create = obj("""{"type":"response.create"}""")
+        val before = r.platform.lastPeer.sent.size
+        r.transport.handleBackendCommand(stale)
+        r.transport.handleBackendCommand(create)
+        r.transport.handleBackendCommand(mine)
+        r.transport.handleBackendCommand(create)
+        assertEquals(listOf(mine, create), r.platform.lastPeer.sent.drop(before).map { obj(it) })
     }
 
     /** RS-07 (`91a5df5`): an OpenAI `error` event tears down off the data-channel thread, in order. */

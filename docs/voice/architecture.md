@@ -430,6 +430,24 @@ change:
 - Mic source: `VOICE_RECOGNITION` below API 24, `VOICE_COMMUNICATION` from 24.
 - Route re-applied at +1 / +4 / +9 s after start. Cues on `STREAM_MUSIC`.
 
+**Link loss (P-2) covers two legs**: the orchestrator socket and the call's own
+media path (WebRTC ICE to OpenAI), which can die alone while the socket stays
+up (2026-10-13: a Wi-Fi re-association killed the call and voice ended with
+only a toast). One outage spans both legs: the moment either drops, the
+"reconnecting" tone repeats and `reconnectBanner` = "Reconnecting…" drives the
+dock, the top bar and the lite face. The outage ends with the "reconnected" cue
+when both legs are back, or with the failure cue after the 30 s budget.
+`WebRtcTransport` reports `LinkDown` on ICE DISCONNECTED, `LinkUp` on recovery and
+`LinkFailed` on ICE FAILED. An ICE failure before the data channel opened is still
+an error. If ICE is still down after `MEDIA_DISCONNECT_GRACE_MS` (5 s), or failed,
+the controller replaces the call on the same voice session. The wake word stays
+paused and audio focus is kept. The replacement sends a `voice_start` with
+`reattach` (the backend answers with a fresh `session.update` built from the
+conversation so far), gets a new token and opens a new transport, retrying every
+2 s. The transport drops a tool result for a call id it never saw, together with
+its `response.create`: it belongs to the dead call, and OpenAI would answer it
+with an `error` that ends the new call.
+
 Every constant and every regression scenario is in
 [inventory 04](../projects/frontend-refactor/inventory/04-android-voice-and-device.md).
 The `*Tuning` objects are pinned by parity tests against the old app's values.
