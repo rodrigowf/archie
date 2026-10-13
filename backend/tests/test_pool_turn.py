@@ -9,7 +9,7 @@ fan-out, error handling) — not the mock fixture used by ``test_api_chat``.
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -40,6 +40,9 @@ def _stub_session_manager(events: list, *, abandon_first: bool = False):
     sm.subprocess_pid = None
     sm.is_active = True
     sm.pending_permission_ids = MagicMock(return_value=[])
+    # A harness that cannot steer (spec 12 I-13): mid-turn sends queue.
+    sm.supports_steering = False
+    sm.steer = AsyncMock(return_value=False)
     # Real (unset) Event so the dead-session reaper's is_set() check
     # correctly classifies the stub as healthy.  Without this, MagicMock
     # auto-spawns a truthy attribute that the reaper would mistake for
@@ -157,7 +160,7 @@ async def test_send_or_queue_starts_turn_when_idle():
     _install(pool, sm)
 
     started_new = await pool.send_or_queue("test-session", "hello")
-    assert started_new is True
+    assert started_new == "started"
     assert pool.has_active_turn("test-session") is True
 
     # Drain so the task finishes cleanly.
@@ -194,9 +197,9 @@ async def test_send_or_queue_appends_to_queue_while_turn_running():
 
     # Queue two more while first is in flight.
     started_new = await pool.send_or_queue("test-session", "second")
-    assert started_new is False, "should have queued, not started new turn"
+    assert started_new == "queued", "should have queued, not started new turn"
     started_new = await pool.send_or_queue("test-session", "third")
-    assert started_new is False, "should have queued, not started new turn"
+    assert started_new == "queued", "should have queued, not started new turn"
 
     # Only "first" has been sent so far — queue is buffered until first
     # TurnComplete.
@@ -282,7 +285,7 @@ async def test_send_or_queue_drain_race_no_orphan_prompt():
 
     # Now send_or_queue when idle — must spawn fresh, not stash in queue.
     started_new = await pool.send_or_queue("test-session", "second")
-    assert started_new is True
+    assert started_new == "started"
 
     await asyncio.sleep(0.1)
     assert sends_received == ["first", "second"]

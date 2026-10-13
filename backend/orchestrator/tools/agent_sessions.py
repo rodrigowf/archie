@@ -471,7 +471,10 @@ async def read_agent_session(
         "can: spawn other agents, check progress or read persisted output via "
         "read_agent_session, answer permission requests via "
         "respond_to_agent_permission, or simply respond to the user. Use "
-        "interrupt_agent_session to stop a turn early."
+        "interrupt_agent_session to stop a turn early. If the agent is already "
+        "working on a turn (yours or the user's), the message goes INTO that turn: "
+        "the agent reads it at its next step and adjusts course without stopping "
+        "(status 'steered'). Use that to correct or redirect a running agent."
     ),
     input_schema={
         "type": "object",
@@ -506,6 +509,23 @@ async def send_to_agent_session(
 
     if not pool.is_open(session_id):
         return json.dumps({"error": f"No active session with ID {session_id}"})
+
+    # A turn is running: hand the message to it (spec 12 I-16) rather than
+    # waiting behind it.  Harnesses that cannot steer fall through.
+    if pool.turn_in_flight(session_id) and await pool.steer(session_id, message):
+        turn_id = runner.in_flight_turn(session_id)
+        return json.dumps({
+            "turn_id": turn_id,
+            "session_id": session_id,
+            "status": "steered",
+            "hint": (
+                "Delivered into the turn the agent is running; it reads it at its next step. "
+                + ("That turn's background event carries the result."
+                   if turn_id else
+                   "The user started that turn, so no background event will come: "
+                   "check the outcome with read_agent_session(session_id).")
+            ),
+        })
 
     try:
         handle = await runner.spawn(session_id, message)

@@ -164,23 +164,29 @@ async def chat_ws(ws: WebSocket):
                 # See the conversational-checkpoint policy in
                 # manager.claude.session._PERMISSION_GATING_PROMPT.
                 text_payload = msg.get("text", "")
+                denied = False
                 if text_payload:
                     pending_ids = list(sm.pending_permission_ids())
                     for rid in pending_ids:
-                        await pool.resolve_session_permission(
+                        denied = await pool.resolve_session_permission(
                             session_id,
                             rid,
                             "deny",
                             message=text_payload,
                             responder="user",
-                        )
-                # send_or_queue starts a fresh turn if the session is
-                # idle, or queues behind the in-flight turn if one is
-                # running.  This matches the VS Code Claude extension's
-                # "type-while-running" behavior — the queued prompt is
-                # picked up by _drive_turn as soon as the current
-                # TurnComplete arrives.  Explicit interrupts still go
-                # through msg_type == "interrupt" below.
+                        ) or denied
+                # The denial already carries the text into the running turn:
+                # a harness that steers only shows it (spec 12 I-16, §6.9).
+                if denied and sm.supports_steering and await pool.steer(
+                    session_id, text_payload, delivered=True,
+                ):
+                    continue
+                # send_or_queue delivers the message into the running turn
+                # (steering, spec 12 I-16) or starts a fresh turn when the
+                # session is idle; a harness that cannot steer queues it
+                # behind the turn (_drive_turn picks it up at its
+                # TurnComplete).  Explicit interrupts still go through
+                # msg_type == "interrupt" below.
                 try:
                     await pool.send_or_queue(session_id, text_payload, source_ws=ws)
                 except Exception as e:

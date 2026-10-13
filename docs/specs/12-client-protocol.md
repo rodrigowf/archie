@@ -440,6 +440,7 @@ These invariants are normative. Each one is checkable on the reducer's output, s
 | **I-13 Determinism** | Same initial state + same input sequence ⇒ same state, on every platform. |
 | **I-14 Focus** | The reducer has no notion of focus. No input may change the active view (FOCUS-1). |
 | **I-15 Transport errors are not content** | Socket errors, reconnect failures and start failures never create entries. |
+| **I-16 Steer** | A prompt that the server delivers into the running turn (`user_message{steered: true}`, sent to every subscriber, the sender included) joins the timeline at once, at the end: out of the tray when this client sent it (origin `local`), else as an `echo`. It does **not** end the turn (TL-2 exception) and does not change `status`; a block being streamed splits around it (I-5). |
 
 ### 4.2 Inputs
 
@@ -706,6 +707,12 @@ function reduce(f) {
 
   case "user_message": {
     if (f.queued) { queue.push({ text: f.text, owner: "remote" }); return }      // I-12
+    if (f.steered) {                                           // I-16: into the running turn; the turn goes on
+      const i = queue.findIndex(q => q.text == f.text)         // this client's tray item, or a remote one
+      const owner = i >= 0 ? queue.splice(i, 1)[0].owner : null
+      appendEntry({ kind: "user", text: f.text, origin: owner == "local" ? "local" : "echo", state: "sent" })
+      return
+    }
     if (f.source == "shared_inject") {
       const i = pendingInjects.indexOf(f.text)
       if (i >= 0) { pendingInjects.splice(i, 1); markInjectSent(f.text); return }
@@ -907,6 +914,8 @@ sender:    (local_send appended the entry) → status{processing} → content…
 queued:    sender: local_send while busy ⇒ tray; … turn_complete → status{processing} ⇒ pop tray into timeline
            observer: user_message{text,queued:true} ⇒ tray; … turn_complete → status{processing} ⇒ pop tray head into timeline
            (backend O-6 no longer re-echoes it; a pre-O-6 re-echo is swallowed via dispatchedFromTray). `dispatchedFromTray` is cleared on turn end.
+steered:   sender: local_send while busy ⇒ tray; user_message{text,steered:true} ⇒ out of the tray into the timeline; content… → turn_complete
+           observer: user_message{text,steered:true} ⇒ timeline; content… → turn_complete (I-16; one turn_complete for both)
 interrupt: sender: status{interrupted} (direct) ⇒ notice "interrupted", endTurn
 harness:   user_message{source:"task_notification"} → status{processing} → content… → turn_complete
            (a turn the CLI starts itself, §4.8; one that ends inside the user's turn sends no turn_complete)
@@ -914,7 +923,7 @@ harness:   user_message{source:"task_notification"} → status{processing} → c
 ```
 
 - **TL-1.** `turn_complete` MUST end the turn (`endTurn`) but MUST NOT close the run (I-2). The next run starts only after a non-assistant entry.
-- **TL-2.** A turn is also ended by: `status{interrupted}`, a turn-failure `error`, `session_stopped`, `session_terminated`, and a new `user_message`/`status{processing}` while `inTurn` (the observer of an interrupted turn, G-4).
+- **TL-2.** A turn is also ended by: `status{interrupted}`, a turn-failure `error`, `session_stopped`, `session_terminated`, and a new `user_message`/`status{processing}` while `inTurn` (the observer of an interrupted turn, G-4) — except `user_message{steered: true}`, which joins the running turn (I-16).
 - **TL-3.** Content arriving while `!inTurn` (observer attached mid-turn, replayed tail, slash-command output) implicitly starts a turn (`ensureAgentTurn`) without a prompt.
 
 #### 4.4.2 Orchestrator text turns
@@ -1375,7 +1384,12 @@ local_send(text)                                       // reducer: timeline entr
 WS→ {type:"send", text}
 ⇐ status{processing} (sender gets no user_message echo) … turn_complete
 ```
-Sending while busy is allowed and queues server-side (web parity; Android must allow it, 03 §5). The tray shows queued prompts with a "queued" chip; they move into the timeline when dispatched (I-12). If a permission is pending, the same send denies it with the text as feedback (§6.9).
+Sending while busy is allowed (Android must allow it, 03 §5). The client puts the text in the tray ("queued" chip) and sends it at once; the server decides what happens:
+
+- **Steer (I-16, Claude and Model Studio agents).** The server writes it to the running turn: the CLI hands it to the model at the turn's next model request ("the user sent a new message while you were working"), so the agent changes course without stopping. Every device, the sender included, gets `user_message{text, steered: true}` and shows it in the timeline at once. If the turn ends before another model request, the CLI answers it in a turn of its own right away; the server keeps that inside the same turn (no `turn_complete` in between, no new `status{processing}`), so clients see one turn.
+- **Queue (I-12, harnesses that cannot steer, or prompts already queued).** The server queues it behind the turn; the tray item moves into the timeline when it is dispatched.
+
+If a permission is pending, the same send denies it with the text as feedback (§6.9); a steering harness then only announces the text (`steered: true`) — the denial already carried it into the turn. The orchestrator's `send_to_agent_session` steers the same way when the session is working (status `steered` in the tool result).
 
 ### 6.2 Send (orchestrator)
 
@@ -1391,7 +1405,7 @@ The server serialises turns; there is no tray for the orchestrator. Other device
 agent:        local_interrupt(); WS→ {type:"interrupt"}  ⇐ status{interrupted} (direct)
 orchestrator: WS→ {type:"interrupt"}                    ⇐ status{interrupted} (broadcast) … error{interrupted} … status{idle}
 ```
-Stop also applies while the harness runs a turn of its own (a task-notification turn, §4.8): the server interrupts it and answers `status{interrupted}` to every device. Interrupt drops every server-queued prompt; the sender's tray is cleared (its texts MAY be restored into the input). `interrupt` does not stop a realtime voice response (G-34): in voice mode the Stop control is `voice_stop` (§7).
+Stop also applies while the harness runs a turn of its own (a task-notification turn, §4.8): the server interrupts it and answers `status{interrupted}` to every device. Interrupt drops every server-queued prompt; the sender's tray is cleared (its texts MAY be restored into the input). A steered prompt the CLI had not handed to the model yet is dropped too: the turn the CLI starts for it after the interrupt is interrupted at once and never reaches a client (the prompt stays in the timeline, unanswered). `interrupt` does not stop a realtime voice response (G-34): in voice mode the Stop control is `voice_stop` (§7).
 
 ### 6.4 Compact
 
@@ -1998,6 +2012,8 @@ IDs: **W-n** = item n of 02 §6.3; **W-6.1 / W-6.2** = the lists in 02 §6.1 / �
 | `queued_prompt_echoed_twice` | G-5, I-12 (observer) |
 | `queued_prompt_sender` | I-12 (sender) |
 | `queued_prompt_observer_no_reecho` | I-12 (observer, backend O-6: no re-echo) |
+| `steered_prompt_sender` | I-16 (sender: tray → timeline at the steered echo, split stream, one turn) |
+| `steered_prompt_observer` | I-16 (observer: the turn goes on, R-1 across the steered entry) |
 | `termination_banner` | §6.13 (reducer state; the view then closes, OPEN-3), R-6 |
 | `tool_result_after_interleaved_user_message` | R-1 across an inject entry |
 | `tool_result_after_voice_transcript` | R-1 across a transcript |
@@ -2057,6 +2073,7 @@ Only fixes that a client cannot reasonably work around. Everything else in 01 §
 | O-4 | Relay fatal failure → `end_voice("error")` (G-21) | §7.7 `voice_stop` + 5 s timeout |
 | O-5 | Do not stamp `session_stalled` with the previous seq (G-18) | SEQ-2 exemption |
 | O-6 | Skip the second `user_message` for prompts already announced as `queued` (G-5) | tray matching in `user_message` |
+| O-7 | Deliver a prompt sent while a turn runs into that turn (steer) and echo `user_message{steered: true}` to every subscriber; keep the CLI's follow-up turn for an undelivered steer inside the user's turn; Stop drops it (I-16, 2026-10-13) | I-12 queue for harnesses that cannot steer |
 
 ---
 

@@ -84,12 +84,28 @@ WebSockets), `_locks` (one `asyncio.Lock` serializing `send()`), `_turn_tasks` (
   abandoned turn is announced by whoever gives up (`_drive_turn`, the runner), and the runner's
   timeout adds an `error`.
 - **Session-owned turns** — the chat WS never drives a turn itself. `send_or_queue()` spawns
-  `_drive_turn()` as a pool-owned task if the session is idle, or queues the prompt (broadcast as
-  `user_message` with `queued: true`) behind the running turn; `_drive_turn` drains the queue after
-  each turn. A page reload only unsubscribes: the turn keeps running and the next subscriber picks
-  up the stream. `start_turn()` is the destructive variant (cancel + replace) used for slash
-  commands. `cancel_turn()` sends the SDK interrupt first, then cancels the task, and drops queued
-  prompts.
+  `_drive_turn()` as a pool-owned task if the session is idle. While a turn runs (a chat turn or
+  the orchestrator runner's `pool.send()`, `turn_in_flight()`), it **steers**: `pool.steer()` →
+  `sm.steer()` writes the prompt into the running turn and broadcasts `user_message{steered: true}`
+  to every subscriber, the sender included (spec 12 I-16, below). A harness that cannot steer
+  (`supports_steering = False`: Qwen, Gemini, Codex) queues the prompt instead (broadcast as
+  `user_message` with `queued: true`); `_drive_turn` drains the queue after each turn. A page
+  reload only unsubscribes: the turn keeps running and the next subscriber picks up the stream.
+  `start_turn()` is the destructive variant (cancel + replace) used for slash commands.
+  `cancel_turn()` sends the SDK interrupt first, then cancels the task, and drops queued prompts.
+- **Steering (Claude, Model Studio; 2026-10-13)** — the bundled CLI (2.1.292) accepts a user
+  message on stdin while a turn runs: it hands it to the model at the turn's next model request
+  (`status: requesting`) as "The user sent a new message while you were working", and records it
+  as an `attachment` line (`queued_command`, `commandMode: prompt`) that `ClaudeAdapter` reads
+  back as a user message. If the turn ends before another request, the CLI answers it in a turn
+  of its own right away. `ClaudeSessionManager` tracks undelivered steers per CLI turn
+  (`_steers`): a `ResultMessage` that ends our turn with steers left becomes
+  `TurnComplete(origin="steer-continues")` (`continues`), which `send()` and the pool treat like a
+  CLI-injected turn inside ours — not broadcast, the `send()` goes on to the next prompted
+  `TurnComplete` (cost carried onto it). A steer sent before the CLI started on the prompt waits
+  for the turn's `init` (≤ 10 s). After an interrupt the CLI still starts the turn for an
+  undelivered steer: the manager interrupts it at its `init` and swallows it, so Stop stops
+  everything. A permission denied with the typed text (§6.9) only announces it (`delivered=True`).
 - **`TurnAbandoned` retry** — if a turn produced zero SDK messages for 240 s (`_TURN_ABANDON_S`),
   `_drive_turn` broadcasts `status: retrying`, interrupts, waits 1 s and retries once; a second
   failure broadcasts `error: upstream_wedged`. Seen when the TCP path to the API silently wedged.

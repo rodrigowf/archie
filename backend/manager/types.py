@@ -90,13 +90,27 @@ class TurnComplete(Event):
     result: str | None = None
     #: Who started the turn: ``None`` / ``"human"`` = a prompt we sent;
     #: anything else (Claude: ``"task-notification"``, ``"channel"``, …) is a
-    #: turn the CLI injected on its own.  Not serialized.
+    #: turn the CLI injected on its own.  :data:`STEER_CONTINUES` marks the
+    #: end of our turn when the CLI goes on with a turn of its own for
+    #: messages steered into it (the user's turn is not over).  Not serialized.
     origin: str | None = None
 
     @property
     def prompted(self) -> bool:
         """True when this ends a turn our own ``send()`` started."""
         return self.origin in (None, "human")
+
+    @property
+    def continues(self) -> bool:
+        """True when the CLI goes on with a turn for steered messages
+        (spec 12 I-16): the end of one CLI turn, not of the user's turn."""
+        return self.origin == STEER_CONTINUES
+
+
+#: ``TurnComplete.origin`` of a CLI turn that ended while messages steered
+#: into it were still undelivered: the CLI answers them in a turn of its own,
+#: right after, inside the same ``send()``.
+STEER_CONTINUES = "steer-continues"
 
 
 # ---------------------------------------------------------------------------

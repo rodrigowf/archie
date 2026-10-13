@@ -91,6 +91,14 @@ private fun Draft.onUserMessage(f: ServerFrame.UserMessage) {
         return
     }
     if (f.queued) { queue.add(QueuedPrompt(f.text, QueueOwner.REMOTE)); return }   // I-12
+    if (f.steered) {
+        // I-16: the message went into the running turn — into the timeline now (out of the tray if this
+        // device sent it), and the turn goes on.
+        val i = queue.indexOfFirst { it.text == f.text }
+        val owner = if (i >= 0) queue.removeAt(i).owner else null
+        appendEntry(UserEntry(newEntryId(), f.text, if (owner == QueueOwner.LOCAL) UserOrigin.LOCAL else UserOrigin.ECHO, UserState.SENT))
+        return
+    }
     if (f.source == "shared_inject") {
         val i = pendingInjects.indexOf(f.text)
         if (i >= 0) { pendingInjects.removeAt(i); markInjectSent(f.text); return }

@@ -937,6 +937,14 @@ class Machine extends Draft {
           this.s.queue = this.s.queue.concat([{ text: f.text, owner: 'remote' }]); // I-12
           return;
         }
+        if (f.steered === true) {
+          // I-16: the message went into the running turn — into the timeline now (out of the tray
+          // if this device sent it), and the turn goes on
+          const qi = this.s.queue.findIndex((q) => q.text === f.text);
+          const q = qi >= 0 ? this.s.queue[qi] : undefined;
+          if (q) this.s.queue = this.s.queue.filter((_, k) => k !== qi);
+          return this.appendEntry(this.userEntry(f.text, q?.owner === 'local' ? 'local' : 'echo', 'sent'));
+        }
         if (f.source === 'task_notification') {
           // SA-7: a background subagent finished; never a user bubble, never pops the tray
           this.appendEntry(this.noticeEntry('background', f.text));

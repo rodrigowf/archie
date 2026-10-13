@@ -71,6 +71,8 @@ export interface UserMessageFrame extends Sequenced {
   type: 'user_message';
   text: string;
   queued?: boolean;
+  /** I-16: delivered into the running turn (every subscriber, the sender included, gets it). */
+  steered?: boolean;
   source?: string;
 }
 

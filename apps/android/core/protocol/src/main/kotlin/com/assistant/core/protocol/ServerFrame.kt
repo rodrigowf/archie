@@ -85,8 +85,10 @@ sealed interface ServerFrame {
     // ───────────── prompts and content ─────────────
 
     /**
-     * `{text}`, `{text, queued: true}` (chat), `{text, source: "shared_inject"}` (orchestrator voice) or
-     * `{text, source: "voice_message"}` (orchestrator: another device's `send_audio`; `text` = its prompt or "").
+     * `{text}`, `{text, queued: true}` (chat), `{text, steered: true}` (chat, I-16: delivered into the
+     * running turn, sent to every subscriber including the sender), `{text, source: "shared_inject"}`
+     * (orchestrator voice) or `{text, source: "voice_message"}` (orchestrator: another device's
+     * `send_audio`; `text` = its prompt or "").
      */
     data class UserMessage(
         val text: String,
@@ -94,6 +96,7 @@ sealed interface ServerFrame {
         val source: String? = null,
         override val seq: Long? = null,
         override val streamId: String? = null,
+        val steered: Boolean = false,
     ) : ServerFrame { override val type get() = "user_message" }
 
     data class TextDelta(

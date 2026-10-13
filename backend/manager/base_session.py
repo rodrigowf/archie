@@ -192,6 +192,17 @@ class BaseSessionManager(ABC):
     async def interrupt(self) -> None:
         """Stop the in-flight turn at the provider level."""
 
+    #: The harness can take messages into a running turn (:meth:`steer`).
+    supports_steering: bool = False
+
+    async def steer(self, text: str) -> bool:
+        """Deliver *text* into the turn the active ``send()`` is running
+        (spec 12 I-16): the harness hands it to the model mid-turn, at its
+        next model request, instead of after the turn.  Returns ``False``
+        when the harness cannot (the default) or no turn of ours is running
+        — the caller then queues the message behind the turn."""
+        return False
+
     # ------------------------------------------------------------------
     # Async context manager
     # ------------------------------------------------------------------

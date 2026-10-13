@@ -479,8 +479,9 @@ async def inject_message(
     session without going through the chat WebSocket. Drives the same
     ``pool.send_or_queue`` path the chat endpoint uses, so the message
     appears in the session's JSONL and broadcasts to every subscribed
-    WebSocket (including the live chat tab) — and queues behind any
-    in-flight turn rather than interrupting it.
+    WebSocket (including the live chat tab) — and goes into any
+    in-flight turn (steering, spec 12 I-16) rather than interrupting it.
+    ``delivery`` says how: ``steered``, ``started`` or ``queued``.
     """
     text = body.get("text")
     if not isinstance(text, str) or not text.strip():
@@ -511,13 +512,13 @@ async def inject_message(
         )
 
     try:
-        await pool.send_or_queue(local_id, text)
+        delivery = await pool.send_or_queue(local_id, text)
     except ValueError as e:
         raise HTTPException(404, detail=str(e))
     except Exception as e:
         raise HTTPException(500, detail=f"send_or_queue failed: {e}")
 
-    return {"ok": True, "local_id": local_id}
+    return {"ok": True, "local_id": local_id, "delivery": delivery}
 
 
 @router.post("/{local_id}/close", status_code=204)

@@ -1,0 +1,114 @@
+{
+  "name": "steered_prompt_observer",
+  "description": "Observer view (I-16): another device (or the orchestrator) sends into the running turn. user_message{steered:true} joins the timeline without ending the turn; a tool result after it still attaches to the card above (R-1) and the turn ends at its single turn_complete.",
+  "source": "synthetic (Claude CLI 2.1.292 probe 2026-10-13)",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "user_message",
+      "text": "run the tests"
+    },
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "toolu_1",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "pytest"
+      },
+      "seq": 1,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "user_message",
+      "text": "only the unit tests",
+      "steered": true
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "toolu_1",
+      "output": "12 passed",
+      "is_error": false,
+      "seq": 2,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_complete",
+      "text": "Ran only the unit tests: 12 passed.",
+      "seq": 3,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "usage": {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 990,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 50
+      },
+      "input_tokens": 1000,
+      "output_tokens": 50,
+      "num_turns": 2,
+      "session_id": "sdk-1",
+      "is_error": false,
+      "result": "",
+      "seq": 4,
+      "stream_id": "L1:1759500000000"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "run the tests",
+        "origin": "echo",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "toolu_1",
+            "tool_name": "Bash",
+            "tool_input": {
+              "command": "pytest"
+            },
+            "status": "done",
+            "output": "12 passed"
+          }
+        ]
+      },
+      {
+        "kind": "user",
+        "text": "only the unit tests",
+        "origin": "echo",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Ran only the unit tests: 12 passed.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "queue": [],
+    "state": {
+      "status": "idle"
+    }
+  }
+}

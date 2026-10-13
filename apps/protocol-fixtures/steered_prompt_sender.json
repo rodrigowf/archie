@@ -1,0 +1,122 @@
+{
+  "name": "steered_prompt_sender",
+  "description": "Sender view (I-16): a prompt sent while busy goes to the tray; the server delivers it into the running turn and echoes user_message{steered:true} to every subscriber, the sender included. It moves into the timeline at once, the text being streamed splits around it (I-5), and the turn goes on: one turn_complete for both.",
+  "source": "synthetic (Claude CLI 2.1.292 probe 2026-10-13)",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "text_delta",
+      "text": "Running the",
+      "seq": 1,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "user_message",
+      "text": "use pytest -x",
+      "steered": true
+    },
+    {
+      "type": "text_delta",
+      "text": " tests.",
+      "seq": 2,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_complete",
+      "text": "Running the tests.",
+      "seq": 3,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_complete",
+      "text": "Using pytest -x as you asked.",
+      "seq": 4,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "usage": {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 990,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 50
+      },
+      "input_tokens": 1000,
+      "output_tokens": 50,
+      "num_turns": 2,
+      "session_id": "sdk-1",
+      "is_error": false,
+      "result": "",
+      "seq": 5,
+      "stream_id": "L1:1759500000000"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "send",
+      "text": "run the tests"
+    },
+    {
+      "at": 2,
+      "type": "send",
+      "text": "use pytest -x"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "run the tests",
+        "origin": "local",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Running the",
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "kind": "user",
+        "text": "use pytest -x",
+        "origin": "local",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": " tests.",
+            "streaming": false
+          },
+          {
+            "type": "text",
+            "text": "Using pytest -x as you asked.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "queue": [],
+    "state": {
+      "status": "idle"
+    }
+  }
+}

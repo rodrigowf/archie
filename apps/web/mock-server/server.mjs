@@ -114,6 +114,7 @@ class Run {
     this.cost = 0;
     this.turns = 0;
     this.queue = [];
+    this.steers = []; // I-16: messages sent into the running turn
     this.busy = false;
     this.cancel = null;
     this.permissionWaiter = null;
@@ -331,6 +332,13 @@ class Run {
   }
 
   prompt(text, sender) {
+    if (this.busy && this.kind === 'agent' && this.provider === 'claude' && !this.queue.length) {
+      // I-16 (pool.steer): into the running turn, echoed to everyone, the sender included
+      this.steers.push(text);
+      this.record('user', text);
+      this.emit({ type: 'user_message', text, steered: true });
+      return;
+    }
     if (this.busy) {
       this.queue.push({ text, sender });
       if (this.kind === 'agent') this.emit({ type: 'user_message', text, queued: true }, sender);
@@ -348,6 +356,10 @@ class Run {
     this.emit({ type: 'status', status: agent ? 'processing' : 'streaming' });
     try {
       await (agent ? this.agentReply(text) : this.orchestratorReply(text));
+      if (agent && this.steers.length) {
+        const heard = this.steers.splice(0).join('; ');
+        await this.streamText(`(Mock) Noted mid-turn: ${heard}.`);
+      }
       if (agent) {
         this.turns += 1;
         this.cost += 0.0042;
@@ -652,6 +664,7 @@ class Run {
       return;
     }
     this.queue = [];
+    this.steers = []; // Stop stops the turn the CLI would start for them too
     if (this.cancel) this.cancel.cancelled = true;
     if (this.permissionWaiter) this.permissionWaiter.resolve({ decision: 'deny', responder: 'system', message: 'interrupted' });
     this.emit({ type: 'status', status: 'interrupted' }); // BF-2: every subscriber
@@ -881,7 +894,11 @@ class Engine {
     switch (type) {
       case 'send':
       case 'command':
-        if (run.permissionWaiter && msg.text) run.permissionWaiter.resolve({ decision: 'deny', responder: 'user', message: msg.text });
+        if (run.permissionWaiter && msg.text) {
+          run.permissionWaiter.resolve({ decision: 'deny', responder: 'user', message: msg.text });
+          // the denial carries the text into the turn: a steering harness only shows it (I-16, §6.9)
+          if (run.provider === 'claude') return run.emit({ type: 'user_message', text: String(msg.text), steered: true });
+        }
         return run.prompt(String(msg.text ?? ''), ws);
       case 'inject_text':
         if (run.voice.active) {

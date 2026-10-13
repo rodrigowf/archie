@@ -4,8 +4,9 @@
  * ring (tap → Compact), the 🎙 voice-message button (Archie, P-5) and the morphing primary
  * button Voice → Send → Stop.
  *
- * - Enter sends, Shift+Enter is a newline; **Enter while working sends a queued message**
- *   (inv02 F-16): agent prompts wait in the tray (I-12) as "Queued" chips above the field.
+ * - Enter sends, Shift+Enter is a newline; **Enter while working sends at once**: a Claude agent
+ *   takes the message into the running turn (I-16: a "Queued" chip until the server's steered echo
+ *   moves it into the timeline); other harnesses keep it in the tray (I-12) until their turn.
  * - Typing while a permission is pending answers it: the send denies it with the text as
  *   feedback (spec 12 §6.9; the server resolves it).
  * - The draft is per session and survives tab switches (panels stay mounted) and reloads
@@ -15,7 +16,7 @@
  * - Read-only views (H-3) show a Resume bar instead.
  */
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react';
-import { contextUsage, isBusy } from '@/protocol';
+import { contextUsage, isBusy, steersMidTurn } from '@/protocol';
 import { ArchieRuntime, errorMessage, getSessionRuntime, sharedFileText, uploadFile, AbortedError } from '@/services';
 import { generateUUID } from '@/platform';
 import {
@@ -78,6 +79,7 @@ function ComposerImpl({ localId }: ComposerProps) {
       readOnly: x.readOnly,
       draft: x.draft,
       working: isBusy(x.conv) || x.conv.inTurn,
+      steers: steersMidTurn(x.conv.ref),
       queue: x.conv.queue,
       percent: contextUsage(x.conv).percent,
       level: contextUsage(x.conv).level,
@@ -282,7 +284,7 @@ function ComposerImpl({ localId }: ComposerProps) {
 
   const showRing = !rec && (s.percent !== null || s.hasEntries);
   const agentTitle = GENERIC_AGENT_TITLE.test(title.trim()) ? '' : title;
-  const placeholder = placeholderFor({ kind: s.kind, title: agentTitle, working: s.working, permissionPending });
+  const placeholder = placeholderFor({ kind: s.kind, title: agentTitle, working: s.working, permissionPending, steers: s.steers });
 
   return (
     <div className={styles.wrap} data-composer="">

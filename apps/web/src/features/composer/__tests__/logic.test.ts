@@ -35,6 +35,7 @@ describe('copy and keys', () => {
       'Message Run the stall check on…',
     );
     expect(placeholderFor({ kind: 'agent', title: 'x', working: true, permissionPending: false })).toBe('Queue a message…');
+    expect(placeholderFor({ kind: 'agent', title: 'x', working: true, permissionPending: false, steers: true })).toBe('Add to the running turn…');
     expect(placeholderFor({ kind: 'agent', title: 'x', working: true, permissionPending: true })).toBe('Type to give feedback…');
   });
   it('Enter submits; Shift+Enter and IME composition do not', () => {

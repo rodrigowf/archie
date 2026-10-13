@@ -112,6 +112,7 @@ from ..types import (
     ThinkingDelta,
     ToolResult,
     ToolUse,
+    STEER_CONTINUES,
     TurnComplete,
     UnpromptedTurnStarted,
 )
@@ -201,6 +202,14 @@ _NOTE_TURN_WAIT_S = 10.0
 # prompt), our own turn must start (an ``init``) within this time, else the
 # CLI folded our prompt into that turn and send() ends here.
 _UNPROMPTED_GRACE_S = 20.0
+
+# A CLI turn ended with steered messages still undelivered: the CLI starts
+# the turn that answers them at once (same millisecond in probes); if none
+# starts within this time, they were delivered after all and send() ends.
+_STEER_TURN_GRACE_S = 5.0
+
+# A steer sent before the CLI started on our prompt waits this long for it.
+_STEER_START_WAIT_S = 10.0
 
 
 class SequencedEvent(NamedTuple):
@@ -440,6 +449,28 @@ class ClaudeSessionManager(BaseSessionManager):
         self._turn_gen: int = 0
         self._stale_notes_timer: asyncio.TimerHandle | None = None
 
+        # ── Steering (spec 12 I-16) ───────────────────────────────────────
+        # Messages written to the CLI during a turn of ours, not yet handed
+        # to the model: the turn generation each one arrived in.  The CLI
+        # delivers them at the turn's next model request (``status:
+        # requesting``, probes 2026-10-13); a turn that ends first is
+        # followed at once by a turn of the CLI's own that answers them.
+        self._steers: list[int] = []
+        # Set from a turn's ``init`` to its ResultMessage: a steer that lands
+        # between send()'s prompt and the CLI starting on it waits for this.
+        self._cli_turn_event = asyncio.Event()
+        # Set by interrupt() with steers undelivered: Stop stops everything,
+        # so the turn the CLI starts for them is interrupted at its init and
+        # never reaches anyone (``_swallow_turn``).
+        self._drop_steer_turn: bool = False
+        self._swallow_turn: bool = False
+        # Cost / model requests of CLI turns that ended with ``continues``:
+        # added to the TurnComplete that ends the user's turn.
+        self._carry_cost: float = 0.0
+        self._carry_turns: int = 0
+
+    supports_steering = True
+
     @property
     def provider_name(self) -> str:
         return "claude"
@@ -647,9 +678,44 @@ class ClaudeSessionManager(BaseSessionManager):
         the signal never reaches the CLI and the in-flight ``receive_response()``
         keeps streaming until the turn finishes naturally.
         """
+        if self._steers:
+            self._drop_steer_turn = True
         if self._client is not None:
             await self._client.interrupt()
         self._status = SessionStatus.INTERRUPTED
+
+    async def steer(self, text: str) -> bool:
+        """Write *text* to the CLI while our turn runs (spec 12 I-16).
+
+        The CLI hands it to the model at the turn's next model request, as
+        "the user sent a new message while you were working" — or, when the
+        turn ends before another request, in a turn of its own right after,
+        which this ``send()`` follows (``TurnComplete.continues``)."""
+        def our_turn_open() -> bool:
+            return (
+                self._client is not None and not self._receive_loop_done.is_set()
+                and self._event_inbox is not None and not self._inbox_closed
+            )
+        if not our_turn_open():
+            return False
+        if not self._cli_turn_active:
+            # send() wrote its prompt and the CLI has not started on it yet:
+            # wait for the turn's init, so the message joins that turn.
+            try:
+                await asyncio.wait_for(self._cli_turn_event.wait(), timeout=_STEER_START_WAIT_S)
+            except asyncio.TimeoutError:
+                return False
+            if not our_turn_open() or not self._cli_turn_active:
+                return False
+        # Recorded before the write: the turn may end while it is in flight.
+        self._steers.append(self._turn_gen)
+        try:
+            await self._client.query(text)
+        except Exception:
+            if self._turn_gen in self._steers:
+                self._steers.remove(self._turn_gen)
+            raise
+        return True
 
     # ------------------------------------------------------------------
     # Sending messages / commands
@@ -725,6 +791,11 @@ class ClaudeSessionManager(BaseSessionManager):
         inbox: asyncio.Queue[SequencedEvent | Event] = asyncio.Queue()
         self._event_inbox = inbox
         self._inbox_closed = False
+        # Steers of an earlier turn that Stop ended and whose own turn has not
+        # started: the CLI now answers them together with this prompt.
+        self._steers.clear()
+        self._drop_steer_turn = False
+        self._carry_cost, self._carry_turns = 0.0, 0
 
         # Last-tool tracking so the SessionStalled event can name the tool
         # the SDK was waiting on (the most useful single piece of context
@@ -834,7 +905,8 @@ class ClaudeSessionManager(BaseSessionManager):
                     if event.prompted:
                         turn_complete_seen = True
                     else:
-                        fold_deadline = loop.time() + _UNPROMPTED_GRACE_S
+                        grace = _STEER_TURN_GRACE_S if event.continues else _UNPROMPTED_GRACE_S
+                        fold_deadline = loop.time() + grace
         finally:
             # Detach the inbox: from here on events go out of turn (the
             # pool's sink broadcasts them) and into the replay ring.  The
@@ -1433,6 +1505,9 @@ class ClaudeSessionManager(BaseSessionManager):
         become the subagent lifecycle events.
         """
 
+        if self._swallow_turn and not isinstance(msg, ResultMessage):
+            return  # the turn for steers dropped by Stop (see interrupt())
+
         if self._session_reset_pending:
             # First message after a /clear that names a session: adopt it.
             new_sid = getattr(msg, "session_id", None)
@@ -1556,8 +1631,18 @@ class ClaudeSessionManager(BaseSessionManager):
             elif msg.subtype == "init":
                 # Every turn starts with an init message.
                 self._cli_turn_active = True
+                self._cli_turn_event.set()
                 self._turn_gen += 1
                 self._cancel_stale_notes()
+                if self._drop_steer_turn and self._steers and self._out_of_turn():
+                    # The CLI's turn for messages steered into a turn that
+                    # Stop ended: stop it too, unseen.
+                    self._steers.clear()
+                    self._drop_steer_turn = False
+                    self._swallow_turn = True
+                    if self._client is not None:
+                        asyncio.get_running_loop().create_task(self._client.interrupt())
+                    return
                 if self._out_of_turn() and self._pending_notifications:
                     # With no send() waiting, this is the turn the CLI starts
                     # for a background task that finished (spec 12 SA-7).
@@ -1577,6 +1662,10 @@ class ClaudeSessionManager(BaseSessionManager):
                 for note in list(self._pending_notifications):
                     if note.get("gen") == self._turn_gen:
                         self._pending_notifications.remove(note)
+                # Steered messages that arrived before this request go with it.
+                self._steers = [g for g in self._steers if g > self._turn_gen]
+                if not self._steers:
+                    self._drop_steer_turn = False
 
         elif isinstance(msg, AssistantMessage):
             parent = getattr(msg, "parent_tool_use_id", None)
@@ -1714,10 +1803,33 @@ class ClaudeSessionManager(BaseSessionManager):
             origin = origin if isinstance(origin, dict) else None
             origin_kind = origin.get("kind") if origin else None
             self._cli_turn_active = False
+            self._cli_turn_event.clear()
             if origin_kind == "task-notification":
                 self._settle_notification_turn(origin.get("runId"))
             if self._pending_notifications:
                 self._arm_stale_notes()
+            if self._swallow_turn:
+                self._swallow_turn = False
+                self._status = SessionStatus.IDLE
+                return
+            origin_out = origin_kind if isinstance(origin_kind, str) else None
+            if origin_out in (None, "human"):
+                if self._steers and not self._drop_steer_turn and not self._out_of_turn():
+                    # Steered messages still undelivered: the CLI answers them
+                    # in a turn of its own, right now — the user's turn goes on.
+                    origin_out = STEER_CONTINUES
+                    self._carry_cost += turn_cost or 0.0
+                    self._carry_turns += msg.num_turns or 0
+                elif self._carry_cost or self._carry_turns:
+                    turn_cost = (turn_cost or 0.0) + self._carry_cost
+                    num_turns = (msg.num_turns or 0) + self._carry_turns
+                    self._carry_cost, self._carry_turns = 0.0, 0
+                    yield TurnComplete(
+                        cost=turn_cost, usage=msg.usage or {}, num_turns=num_turns,
+                        session_id=msg.session_id, is_error=msg.is_error,
+                        result=msg.result, origin=origin_out,
+                    )
+                    return
             yield TurnComplete(
                 cost=turn_cost,
                 usage=msg.usage or {},
@@ -1725,7 +1837,7 @@ class ClaudeSessionManager(BaseSessionManager):
                 session_id=msg.session_id,
                 is_error=msg.is_error,
                 result=msg.result,
-                origin=origin_kind if isinstance(origin_kind, str) else None,
+                origin=origin_out,
             )
 
     # ------------------------------------------------------------------

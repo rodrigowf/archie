@@ -338,6 +338,11 @@ export function busy(status: SessionStatus): boolean {
   return BUSY_STATUSES.indexOf(status) >= 0;
 }
 
+/** I-16: harnesses whose agent sessions take a message into the running turn (Model Studio runs Claude Code). */
+export function steersMidTurn(ref: SessionRef): boolean {
+  return ref.kind === 'agent' && (ref.provider === 'claude' || ref.provider === 'modelstudio');
+}
+
 /** Only Claude agent sessions carry `seq` / `stream_id` (spec 12 §2.2). */
 export function seqCapable(ref: SessionRef): boolean {
   return ref.kind === 'agent' && ref.provider === 'claude';

@@ -373,6 +373,12 @@ class BackgroundAgentRunner:
         )
         return self._handle(record)
 
+    def in_flight_turn(self, session_id: str) -> str | None:
+        """The ``turn_id`` of this runner's unfinished turn on the session."""
+        turn_id = self._latest_by_session.get(session_id)
+        record = self._turns.get(turn_id) if turn_id else None
+        return turn_id if record is not None and not record.finished else None
+
     def peek(
         self,
         session_id: str,
@@ -790,7 +796,7 @@ class BackgroundAgentRunner:
             if isinstance(event, TextComplete) and event.text.strip():
                 record.foreign_text = event.text
             elif isinstance(event, TurnComplete):
-                if not event.prompted and record.subagents:
+                if not event.prompted and not event.continues and record.subagents:
                     record.obs_seq += 1
                     record.notification_turns += 1
                     record.last_nt_end_seq = record.obs_seq
@@ -929,6 +935,8 @@ class BackgroundAgentRunner:
                     if event.prompted:
                         record.cost += event.cost or 0.0
                         record.turns = event.num_turns or 0
+                    elif event.continues:
+                        pass  # its cost rides on the TurnComplete that ends the turn
                     elif record.last_finish_seq:
                         # A notification turn the CLI ran inside our send,
                         # after one of our subagents ended.

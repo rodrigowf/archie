@@ -3,7 +3,7 @@ name: system-overview
 category: archie/architecture
 tags: [architecture, components, data-flow, websocket, orchestrator, voice, state, context]
 created: 2026-02-23
-modified: 2026-10-06
+modified: 2026-10-13
 summary: Archie's components and end-to-end data flows (agent chat, orchestrator text, orchestrator voice) and where state lives.
 source: curated (consolidated from memory notes assistant/architecture/project-overview.md, assistant/architecture/orchestrator-vision.md, assistant/infrastructure/features_and_integrations_summary.md, assistant/infrastructure/repo_layout_cutover_2026_10.md; verified against code 2026-10-06)
 references:
@@ -88,7 +88,8 @@ go to the linked docs for each component's internals.
    a `ClaudeSDKClient`, which spawns the bundled `claude` CLI. The CLI writes
    `context/<sdk_session_id>.jsonl` itself. Watchers get `agent_session_opened`.
 4. `session_started` goes back; the client sends `{"type":"send","text":...}`.
-5. `pool.send_or_queue()` starts a pool-owned turn task (or queues behind the running one).
+5. `pool.send_or_queue()` starts a pool-owned turn task — or, while one runs, steers the prompt
+   into it (spec 12 I-16; harnesses that cannot steer queue it behind).
    `pool.send()` broadcasts `user_message` and `status: processing`, then iterates
    `sm.send()`: `client.query()` → the persistent receive loop turns SDK messages into typed events
    (`TextDelta`, `ToolUse`, `ToolResult`, `PermissionRequest`, `TurnComplete`, ...).

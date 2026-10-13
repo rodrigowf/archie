@@ -39,7 +39,7 @@ const SCHEMAS: Readonly<Record<ServerFrameType, Schema>> = {
     subagents: 'arr?',
   },
   status: { status: STR, detail: OPT_STR },
-  user_message: { text: STR, queued: OPT_BOOL, source: OPT_STR },
+  user_message: { text: STR, queued: OPT_BOOL, steered: OPT_BOOL, source: OPT_STR },
   text_delta: { text: STR },
   text_complete: { text: STR },
   thinking_delta: { text: STR },

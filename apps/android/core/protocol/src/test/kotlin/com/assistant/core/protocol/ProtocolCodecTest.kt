@@ -66,6 +66,7 @@ class ProtocolCodecTest {
         ServerFrame.SessionTerminated("subprocess_crashed", "exit 1", "sdk-1"),
         ServerFrame.Error("send_failed", "boom"),
         ServerFrame.UserMessage("second", queued = true),
+        ServerFrame.UserMessage("use pytest -x", steered = true),
         ServerFrame.UserMessage("[shared text]\nBuy milk", source = "shared_inject"),
         ServerFrame.UserMessage("", source = "voice_message"),
         ServerFrame.TextDelta("Hel", 1, "L1:1"),

@@ -2,8 +2,9 @@
  * Pure composer decisions (W-11), unit-tested without React.
  *
  * Primary button (IA §6, mockups "Composer states"): Voice (Archie, empty field, voice possible)
- * → Send (any text) → Stop (working and empty). Enter while working sends a *queued* message
- * (inv02 F-16 parity), so a non-empty field is always Send.
+ * → Send (any text) → Stop (working and empty). Enter while working sends at once — into the
+ * running turn (I-16) or queued behind it (I-12, harnesses that cannot steer) — so a non-empty
+ * field is always Send.
  */
 import type { ContextUsage } from '@/protocol';
 
@@ -37,10 +38,17 @@ export function ringTone(u: ContextUsage): 'primary' | 'warning' | 'error' {
   return u.level === 'warning' ? 'error' : u.level === 'caution' ? 'warning' : 'primary';
 }
 
-/** Placeholder copy: who the message goes to, or that it will queue / give feedback. */
-export function placeholderFor(o: { kind: 'agent' | 'orchestrator'; title: string; working: boolean; permissionPending: boolean }): string {
+/** Placeholder copy: who the message goes to, or that it joins the running turn / queues / gives feedback. */
+export function placeholderFor(o: {
+  kind: 'agent' | 'orchestrator';
+  title: string;
+  working: boolean;
+  permissionPending: boolean;
+  /** I-16: the harness takes a message into the running turn. */
+  steers?: boolean;
+}): string {
   if (o.permissionPending) return 'Type to give feedback…';
-  if (o.working && o.kind === 'agent') return 'Queue a message…';
+  if (o.working && o.kind === 'agent') return o.steers ? 'Add to the running turn…' : 'Queue a message…';
   if (o.kind === 'orchestrator') return 'Message Archie…';
   if (!o.title) return 'Message the agent…';
   const t = o.title.trim();

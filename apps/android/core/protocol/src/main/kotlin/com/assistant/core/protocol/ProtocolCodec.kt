@@ -71,6 +71,7 @@ object ProtocolCodec {
             "error" -> ServerFrame.Error(o.str("error"), o.str("detail"), seq, sid)
             "user_message" -> ServerFrame.UserMessage(
                 o.str("text") ?: "", o.bool("queued") == true, o.str("source"), seq, sid,
+                steered = o.bool("steered") == true,
             )
             "text_delta" -> ServerFrame.TextDelta(o.str("text") ?: "", seq, sid)
             "text_complete" -> ServerFrame.TextComplete(o.str("text") ?: "", seq, sid)
@@ -206,6 +207,7 @@ object ProtocolCodec {
                 is ServerFrame.UserMessage -> {
                     put("text", frame.text)
                     if (frame.queued) put("queued", true)
+                    if (frame.steered) put("steered", true)
                     put("source", frame.source)
                 }
                 is ServerFrame.TextDelta -> put("text", frame.text)

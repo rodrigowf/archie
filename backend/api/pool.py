@@ -1203,7 +1203,9 @@ class SessionPool:
                     if isinstance(event, TurnComplete):
                         self._pin_provider(sm)
                         self._save_open_set()  # a fresh session learns its sdk id here
-                        if not event.prompted:
+                        if event.continues:
+                            pass  # the CLI goes on answering steered messages (I-16)
+                        elif not event.prompted:
                             # A turn the CLI injected (task notification)
                             # ran before our prompt: ours is still to come.
                             final_text = None
@@ -1435,30 +1437,68 @@ class SessionPool:
         )
         self._turn_tasks[session_id] = task
 
+    def turn_in_flight(self, session_id: str) -> bool:
+        """A turn of ours runs on the session: a chat-tab turn task, or any
+        :meth:`send` (the orchestrator runner's included) holding the lock."""
+        task = self._turn_tasks.get(session_id)
+        lock = self._locks.get(session_id)
+        return (task is not None and not task.done()) or (lock is not None and lock.locked())
+
+    async def steer(
+        self, session_id: str, text: str, *, delivered: bool = False,
+    ) -> bool:
+        """Deliver *text* into the running turn (spec 12 I-16).
+
+        The harness hands it to the model mid-turn (Claude: at the turn's
+        next model request), so the user or the orchestrator can redirect
+        the work without stopping it.  Every subscriber, the sender
+        included, gets ``user_message{steered: true}``: the message joins
+        the timeline now and the turn goes on.
+
+        ``delivered=True``: the text already reached the turn another way
+        (a permission denied with it as feedback, §6.9) — only announce it.
+
+        Returns ``False`` (nothing sent) when no turn of ours is running or
+        the harness cannot steer; the caller then queues or starts a turn.
+        """
+        sm = self._sessions.get(session_id)
+        if sm is None or not self.turn_in_flight(session_id):
+            return False
+        if not delivered:
+            try:
+                if not await sm.steer(text):
+                    return False
+            except Exception:
+                logger.exception("steer failed for session %s", session_id)
+                return False
+        await self._broadcast_session(
+            session_id, {"type": "user_message", "text": text, "steered": True},
+        )
+        return True
+
     async def send_or_queue(
         self,
         session_id: str,
         text: str,
         *,
         source_ws: WebSocket | None = None,
-    ) -> bool:
-        """Send *text* if the session is idle; queue it behind the
-        in-flight turn if not.
+    ) -> str:
+        """Send *text* now: into the running turn when there is one
+        (``"steered"``, spec 12 I-16), else as a new turn (``"started"``).
+        A harness that cannot steer queues it behind the turn
+        (``"queued"``).
 
         Routine WS chat sends use this instead of :meth:`start_turn` so
-        a user typing mid-turn doesn't interrupt the running response —
-        matches the VS Code Claude extension's behavior of appending to
-        the CLI's input queue.  The pending queue drains automatically
-        inside :meth:`_drive_turn` after each TurnComplete.
+        a user typing mid-turn doesn't interrupt the running response.
+        The pending queue drains automatically inside :meth:`_drive_turn`
+        after each TurnComplete; while it holds prompts, later ones queue
+        too (FIFO).
 
         When the prompt is queued (rather than dispatched immediately),
         broadcasts a ``user_message`` event so subscribers see the
         queued text in the chat tab right away — by the time the
         eventual ``sm.send()`` for this prompt runs, ``pool.send`` will
         suppress the duplicate echo via ``exclude=source_ws``.
-
-        Returns ``True`` if the prompt started a new turn, ``False`` if
-        it was queued behind an existing one.
         """
         if session_id not in self._sessions:
             raise ValueError(f"No session with ID {session_id}")
@@ -1470,6 +1510,8 @@ class SessionPool:
         # cannot happen — _drive_turn's drain holds this same lock for
         # its check-and-pop.
         async with self._pending_locks[session_id]:
+            if not self._pending_prompts.get(session_id) and await self.steer(session_id, text):
+                return "steered"
             task = self._turn_tasks.get(session_id)
             if task is None or task.done():
                 # No turn in flight — spawn a fresh driver.  start_turn
@@ -1479,7 +1521,7 @@ class SessionPool:
                     self._drive_turn(session_id, text, source_ws),
                     name=f"turn-{session_id[:8]}",
                 )
-                return True
+                return "started"
 
             # Turn is running: enqueue.  Broadcast immediately so the
             # chat tab shows the queued user message right away.
@@ -1491,7 +1533,7 @@ class SessionPool:
                 {"type": "user_message", "text": text, "queued": True},
                 exclude=source_ws,
             )
-            return False
+            return "queued"
 
     async def _drive_turn(
         self,
