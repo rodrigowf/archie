@@ -68,6 +68,10 @@ class FakeChatBackend(initial: ConversationState) : ChatBackend {
         ApiResult.Ok(UploadResult(source.fileName, "/srv/uploads/${source.fileName}", "/uploads/${source.fileName}", 2048, "text/plain"))
     override fun inject(text: String) { injected += text }
     override fun touch() = Unit
+    val stoppedAgents = mutableListOf<String>()
+    override fun openSubagent(toolUseId: String) = apply(ConversationInput.OpenSubagent(toolUseId))
+    override fun releaseSubagent(toolUseId: String) = apply(ConversationInput.ReleaseSubagent(toolUseId))
+    override fun stopSubagent(toolUseId: String): SendResult { stoppedAgents += toolUseId; return sendResult }
 }
 
 class FakeChatVoice(initial: VoiceSessionState = VoiceSessionState()) : ChatVoice {

@@ -52,6 +52,7 @@ import signal
 import time
 from collections import deque
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -63,15 +64,23 @@ from .._ssh import (
     probe_host_reachable,
     resolve_remote_cli_path,
 )
-from ..base_session import BaseSessionManager, SessionDeadError, TurnAbandoned
+from ..base_session import (
+    BaseSessionManager,
+    SessionDeadError,
+    SubagentNotFound,
+    SubagentNotRunning,
+    TurnAbandoned,
+)
 from ..config import ManagerConfig
 from ..harness_catalog import EFFORT
 from ..memory_context import memory_instructions
+from ..subagents import SubagentRegistry, usage_dict
 from ..types import (
     CompactComplete,
     Event,
     SessionStalled,
     SessionStatus,
+    SubagentEvent,
     TerminationReason,
     TextComplete,
     TextDelta,
@@ -117,6 +126,36 @@ class SequencedEvent(NamedTuple):
 
     seq: int
     event: Event
+
+
+# Child-thread notifications that arrive before the spawnAgent item names
+# their thread are held (real 0.161: the child's turn/started comes before
+# the parent's item/completed).  Bounded so a stray thread can't grow it.
+_UNMAPPED_MAX_THREADS = 16
+_UNMAPPED_MAX_ITEMS = 500
+
+#: Child turn status → subagent status.
+_CHILD_TURN_STATUS = {"completed": "done", "failed": "failed", "interrupted": "stopped"}
+#: CollabAgentStatus words (items.agent_states) that end a subagent.
+_STATE_FINISH = {"completed": "done", "errored": "failed", "shut down": "stopped",
+                 "interrupted": "stopped", "not found": "stopped"}
+
+
+@dataclass
+class _ChildThread:
+    """A sub-agent thread spawned on this app-server (Codex multi-agent)."""
+
+    thread_id: str
+    tool_use_id: str  # the spawnAgent item id: the subagent's key
+    turn_id: str | None = None
+    open_texts: dict[str, list[str]] = field(default_factory=dict)
+    open_reasoning: dict[str, dict[str, Any]] = field(default_factory=dict)
+    open_tools: dict[str, str] = field(default_factory=dict)
+    last_text: str | None = None
+    error: str | None = None
+    tokens: int | None = None
+    tool_uses: int = 0
+    duration_ms: int = 0
 
 
 def kill_codex_subprocess(pid: int, *, sigterm_grace_s: float = 0.5) -> bool:
@@ -172,6 +211,17 @@ class CodexSessionManager(BaseSessionManager):
         self._open_tools: dict[str, str] = {}
         self._compacted_turn: str | None = None
         self._last_activity_at: float = 0.0
+
+        # Subagents (spec 12 §4.8): every spawnAgent call is a subagent whose
+        # child thread streams on this same connection.
+        self._subagents = SubagentRegistry()
+        self._children: dict[str, _ChildThread] = {}
+        self._unmapped: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+        # After the active send()'s TurnComplete is queued, nothing reads its
+        # inbox: later (child) events wait here until send() returns, then go
+        # out of turn in order (same contract as ClaudeSessionManager).
+        self._inbox_closed: bool = False
+        self._post_turn_backlog: list[SequencedEvent] = []
 
     @property
     def provider_name(self) -> str:
@@ -494,6 +544,9 @@ class CodexSessionManager(BaseSessionManager):
                 pass
         self._receive_task = None
         self._stderr_task = None
+        # Sub-agent threads die with the app-server (clients do the same on
+        # session_stopped / session_terminated, SA-3).
+        self._subagents.stop_all()
 
     async def interrupt(self) -> None:
         """``turn/interrupt`` the running turn; the process stays up."""
@@ -549,8 +602,11 @@ class CodexSessionManager(BaseSessionManager):
                 logger.warning("Codex session %s: previous turn did not stop", self._local_id)
 
         loop = asyncio.get_running_loop()
+        # Child events held back after the previous turn ended go out first.
+        self._flush_post_turn_backlog()
         inbox: asyncio.Queue[SequencedEvent | Event] = asyncio.Queue()
         self._event_inbox = inbox
+        self._inbox_closed = False
         self._begin_turn()
 
         try:
@@ -625,6 +681,8 @@ class CodexSessionManager(BaseSessionManager):
         finally:
             if self._event_inbox is inbox:
                 self._event_inbox = None
+                self._inbox_closed = False
+                self._flush_post_turn_backlog()
             self._drain_pending_permissions()
             self._turns += 1
             if self._status not in (SessionStatus.INTERRUPTED, SessionStatus.DISCONNECTED):
@@ -654,12 +712,28 @@ class CodexSessionManager(BaseSessionManager):
         seq = self._next_seq
         self._next_seq += 1
         self._replay_buffer.append((seq, event))
+        wrapped = SequencedEvent(seq=seq, event=event)
         inbox = self._event_inbox
-        if inbox is not None:
-            try:
-                inbox.put_nowait(SequencedEvent(seq=seq, event=event))
-            except asyncio.QueueFull:
-                logger.warning("send() inbox full for session %s; event dropped", self._local_id)
+        if inbox is None:
+            # No send() is consuming (a sub-agent still working after the
+            # parent turn ended): the pool broadcasts it (spec 12 §4.8).
+            self._emit_out_of_turn(wrapped)
+            return
+        if self._inbox_closed:
+            self._post_turn_backlog.append(wrapped)
+            return
+        try:
+            inbox.put_nowait(wrapped)
+        except asyncio.QueueFull:
+            logger.warning("send() inbox full for session %s; event dropped", self._local_id)
+            return
+        if isinstance(event, TurnComplete):
+            self._inbox_closed = True
+
+    def _flush_post_turn_backlog(self) -> None:
+        backlog, self._post_turn_backlog = self._post_turn_backlog, []
+        for item in backlog:
+            self._emit_out_of_turn(item)
 
     def replay_recent_events(self) -> list[tuple[int, Event]]:
         return list(self._replay_buffer)
@@ -694,9 +768,12 @@ class CodexSessionManager(BaseSessionManager):
 
     def _on_notification(self, method: str, params: dict[str, Any]) -> None:
         thread_id = params.get("threadId")
-        if thread_id and self._thread_id and thread_id != self._thread_id:
-            return  # another thread (e.g. a sub-agent) on this server
         self._last_activity_at = asyncio.get_running_loop().time()
+        if thread_id and self._thread_id and thread_id != self._thread_id:
+            # A sub-agent thread on this server: its own conversation, never
+            # the parent's turn, usage or errors.
+            self._on_child_notification(thread_id, method, params)
+            return
         for event in self._translate(method, params):
             if isinstance(event, TextDelta):
                 self._status = SessionStatus.STREAMING
@@ -737,8 +814,19 @@ class CodexSessionManager(BaseSessionManager):
             if call is not None and item.get("id"):
                 out.append(ToolUse(tool_use_id=item["id"], tool_name=call[0], tool_input=call[1]))
                 self._open_tools[item["id"]] = call[0]
+                if items.item_kind(item) == "collabAgentToolCall":
+                    self._collab_started(item, owner=None)
         elif method == "item/completed":
-            out.extend(self._item_completed(params.get("item") or {}))
+            item = params.get("item") or {}
+            if items.item_kind(item) == "collabAgentToolCall":
+                # subagent_started before the card's result (SA-2), the
+                # child's held-back events after it.
+                before, after = self._collab_completed(item, owner=None)
+                out.extend(before)
+                out.extend(self._item_completed(item))
+                out.extend(after)
+            else:
+                out.extend(self._item_completed(item))
         elif method == "turn/plan/updated":
             tool_id = f"plan-{params.get('turnId', '')}-{self._next_seq}"
             out.append(ToolUse(tool_use_id=tool_id, tool_name="TodoWrite", tool_input=items.plan_todos(params.get("plan"))))
@@ -847,6 +935,208 @@ class CodexSessionManager(BaseSessionManager):
         self._active_turn_id = None
         self._turn_idle.set()
         return out
+
+    # ------------------------------------------------------------------
+    # Subagents (spec 12 §4.8): Codex multi-agent child threads
+    # ------------------------------------------------------------------
+
+    def subagent_snapshot(self) -> list[dict]:
+        return self._subagents.summaries()
+
+    async def stop_subagent(self, tool_use_id: str) -> None:
+        """Interrupt the child thread's running turn (``turn/interrupt``)."""
+        rec = self._subagents.get(tool_use_id)
+        if rec is None:
+            raise SubagentNotFound(tool_use_id)
+        child = self._children.get(rec.harness_id or "")
+        if rec.status != "running" or child is None or not child.turn_id:
+            raise SubagentNotRunning(tool_use_id)
+        if self._rpc is None or self._rpc.closed:
+            raise SubagentNotRunning(tool_use_id)
+        await self._rpc.request(
+            "turn/interrupt", {"threadId": child.thread_id, "turnId": child.turn_id},
+            timeout=_REQUEST_TIMEOUT_S,
+        )
+
+    def _collab_started(self, item: dict[str, Any], owner: str | None) -> None:
+        """A collab call began; a spawnAgent call is the subagent's card."""
+        if items.collab_tool(item) != "spawnAgent" or not item.get("id"):
+            return
+        spawn = items.spawn_input(item)
+        self._subagents.spawn(
+            str(item["id"]), parent_tool_use_id=owner,
+            agent_type=spawn["subagent_type"], description=spawn["description"],
+            # Codex spawns are asynchronous, but the parent normally waits
+            # (wait_agent) inside its turn: not flagged as background.
+            background=False,
+        )
+
+    def _collab_completed(
+        self, item: dict[str, Any], owner: str | None,
+    ) -> tuple[list[Event], list[Event]]:
+        """A collab call ended: map spawned threads, apply reported states.
+
+        Returns ``(before, after)``: lifecycle events that go before the
+        card's own tool result, and the spawned thread's held-back events
+        that go after it.
+        """
+        out: list[Event] = []
+        item_id = str(item.get("id") or "")
+        status = str(item.get("status") or "").lower()
+        if items.collab_tool(item) == "spawnAgent" and item_id:
+            if item_id not in self._subagents:
+                self._collab_started(item, owner)
+            receivers = items.receiver_ids(item)
+            if status == "failed" or not receivers:
+                ev = self._subagents.finish(item_id, status="failed", summary="Could not start the agent")
+                return ([ev] if ev is not None else []), []
+            thread = receivers[0]
+            ev = self._subagents.start(item_id, harness_id=thread)
+            if ev is not None:
+                out.append(ev)
+            child = self._children[thread] = _ChildThread(thread_id=thread, tool_use_id=item_id)
+            after: list[Event] = []
+            for method, params in self._unmapped.pop(thread, []):
+                after.extend(self._translate_child(child, method, params))
+            return out, after
+        # wait / closeAgent / …: a final state ends an agent whose own turn
+        # end we did not see (e.g. shut down before it finished).
+        for thread, (state, message) in items.agent_states(item).items():
+            final = _STATE_FINISH.get(state)
+            child = self._children.get(thread)
+            if final and child is not None:
+                ev = self._subagents.finish(child.tool_use_id, status=final, summary=message)
+                if ev is not None:
+                    out.append(ev)
+        return out, []
+
+    def _on_child_notification(self, thread_id: str, method: str, params: dict[str, Any]) -> None:
+        child = self._children.get(thread_id)
+        if child is None:
+            held = self._unmapped.get(thread_id)
+            if held is None:
+                if len(self._unmapped) >= _UNMAPPED_MAX_THREADS:
+                    return
+                held = self._unmapped[thread_id] = []
+            if len(held) < _UNMAPPED_MAX_ITEMS:
+                held.append((method, params))
+            return
+        for event in self._translate_child(child, method, params):
+            self._inject_event(event)
+
+    def _translate_child(self, child: _ChildThread, method: str, params: dict[str, Any]) -> list[Event]:
+        """One child-thread notification → wrapped content + lifecycle events."""
+        tid = child.tool_use_id
+        inner: list[Event] = []
+        out: list[Event] = []
+        if method in ("item/agentMessage/delta", "item/plan/delta"):
+            delta = params.get("delta")
+            if isinstance(delta, str) and delta:
+                child.open_texts.setdefault(str(params.get("itemId")), []).append(delta)
+                inner.append(TextDelta(text=delta))
+        elif method == "item/reasoning/summaryTextDelta":
+            delta = params.get("delta")
+            if isinstance(delta, str) and delta:
+                state = child.open_reasoning.setdefault(str(params.get("itemId")), {"summary": False, "parts": 0})
+                state["summary"] = True
+                inner.append(ThinkingDelta(text=delta))
+        elif method == "item/reasoning/summaryPartAdded":
+            state = child.open_reasoning.setdefault(str(params.get("itemId")), {"summary": False, "parts": 0})
+            state["parts"] += 1
+            if state["parts"] > 1:
+                inner.append(ThinkingDelta(text="\n\n"))
+        elif method == "item/reasoning/textDelta":
+            delta = params.get("delta")
+            state = child.open_reasoning.setdefault(str(params.get("itemId")), {"summary": False, "parts": 0})
+            if isinstance(delta, str) and delta and not state["summary"]:
+                inner.append(ThinkingDelta(text=delta))
+        elif method == "item/started":
+            item = params.get("item") or {}
+            call = items.tool_call(item)
+            if call is not None and item.get("id"):
+                inner.append(ToolUse(tool_use_id=item["id"], tool_name=call[0], tool_input=call[1]))
+                child.open_tools[item["id"]] = call[0]
+                child.tool_uses += 1
+                self._subagents.note_activity(tid, call[0])
+                if items.item_kind(item) == "collabAgentToolCall":
+                    self._collab_started(item, owner=tid)
+        elif method == "item/completed":
+            item = params.get("item") or {}
+            item_id = str(item.get("id") or "")
+            kind = items.item_kind(item)
+            if kind in ("agentMessage", "plan"):
+                child.open_texts.pop(item_id, None)
+                text = items.message_text(item)
+                if text:
+                    inner.append(TextComplete(text=text))
+                    if kind == "agentMessage":
+                        child.last_text = text
+            elif kind == "reasoning":
+                child.open_reasoning.pop(item_id, None)
+                text = items.reasoning_text(item)
+                if text:
+                    inner.append(ThinkingComplete(text=text))
+            elif kind not in ("userMessage", "contextCompaction"):
+                call = items.tool_call(item)
+                if call is not None and item_id:
+                    if item_id not in child.open_tools:
+                        inner.append(ToolUse(tool_use_id=item_id, tool_name=call[0], tool_input=call[1]))
+                        child.tool_uses += 1
+                    child.open_tools.pop(item_id, None)
+                    output, is_error = items.tool_result(item)
+                    before: list[Event] = []
+                    after: list[Event] = []
+                    if kind == "collabAgentToolCall":
+                        before, after = self._collab_completed(item, owner=tid)
+                    wrapped_so_far = [SubagentEvent(tool_use_id=tid, event=e) for e in inner]
+                    card = SubagentEvent(
+                        tool_use_id=tid,
+                        event=ToolResult(tool_use_id=item_id, output=output, is_error=is_error),
+                    )
+                    return wrapped_so_far + before + [card] + after + out
+        elif method == "turn/started":
+            turn = params.get("turn") or {}
+            child.turn_id = turn.get("id") or child.turn_id
+            child.error = None
+        elif method == "thread/tokenUsage/updated":
+            total = (params.get("tokenUsage") or {}).get("total") or {}
+            if total.get("totalTokens") is not None:
+                child.tokens = int(total.get("totalTokens") or 0)
+            ev = self._subagents.progress(tid, activity=None, usage=self._child_usage(child))
+            if ev is not None:
+                out.append(ev)
+        elif method == "error":
+            err = params.get("error") or {}
+            if not params.get("willRetry"):
+                child.error = (err.get("message") if isinstance(err, dict) else str(err)) or "error"
+        elif method == "turn/completed":
+            turn = params.get("turn") or {}
+            for chunks in child.open_texts.values():
+                if chunks:
+                    inner.append(TextComplete(text="".join(chunks)))
+            child.open_texts.clear()
+            child.open_reasoning.clear()
+            status = str(turn.get("status") or "completed")
+            for tool_id in list(child.open_tools):
+                inner.append(ToolResult(tool_use_id=tool_id, output=status, is_error=True))
+            child.open_tools.clear()
+            if isinstance(turn.get("durationMs"), int):
+                child.duration_ms += turn["durationMs"]
+            child.turn_id = None
+            err = turn.get("error")
+            message = (err.get("message") if isinstance(err, dict) else None) or child.error
+            final = _CHILD_TURN_STATUS.get(status, "done")
+            summary = (message or "Agent failed") if final == "failed" else (
+                "Stopped" if final == "stopped" else child.last_text or ""
+            )
+            ev = self._subagents.finish(tid, status=final, summary=summary, usage=self._child_usage(child))
+            wrapped = [SubagentEvent(tool_use_id=tid, event=e) for e in inner]
+            return wrapped + ([ev] if ev is not None else []) + out
+        return [SubagentEvent(tool_use_id=tid, event=e) for e in inner] + out
+
+    @staticmethod
+    def _child_usage(child: _ChildThread) -> dict[str, Any]:
+        return usage_dict(child.tokens, child.tool_uses, child.duration_ms or None)
 
     # ------------------------------------------------------------------
     # Inbound: server → client requests

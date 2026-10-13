@@ -42,6 +42,14 @@ object ToolNameNormalizer {
         "end_voice_session", "listen_recording",
     )
 
+    /**
+     * Spec 12 §4.8 SA-2: raw names of the tool that spawns a subagent (normalised name `Task`):
+     * Claude Code / Model Studio `Agent` (alias `Task`), Qwen `agent` (alias `task`), Gemini `invoke_agent`.
+     */
+    val SUBAGENT_SPAWN_TOOLS: Set<String> = setOf("Agent", "Task", "agent", "task", "invoke_agent")
+
+    fun isSubagentSpawn(rawName: String): Boolean = rawName in SUBAGENT_SPAWN_TOOLS
+
     /** The name a renderer should dispatch on, for a tool shown in a conversation of [kind]. */
     fun normalize(name: String, kind: SessionKind): String =
         if (kind == SessionKind.ORCHESTRATOR) name else QWEN_TO_CLAUDE[name] ?: name

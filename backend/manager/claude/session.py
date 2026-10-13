@@ -11,7 +11,9 @@ import asyncio
 import json
 import logging
 import os
+import re
 import uuid
+from collections import deque
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -60,6 +62,18 @@ try:  # SDK ≥ 0.2.137; guarded so an older venv still imports this module.
 except ImportError:  # pragma: no cover — only on SDK < 0.2.137
     ConversationResetMessage = None  # type: ignore[assignment,misc]
 
+try:  # Task lifecycle system messages (SDK 0.2.x).  Subclasses of SystemMessage.
+    from claude_agent_sdk.types import (
+        TaskNotificationMessage,
+        TaskProgressMessage,
+        TaskStartedMessage,
+        TaskUpdatedMessage,
+    )
+except ImportError:  # pragma: no cover — older SDKs: no lifecycle frames
+    class _Never:  # isinstance() is always False
+        pass
+    TaskNotificationMessage = TaskProgressMessage = TaskStartedMessage = TaskUpdatedMessage = _Never  # type: ignore[misc,assignment]
+
 from .catalog import (
     DEFAULT_THINKING_BUDGET,
     EFFORT_LEVELS,
@@ -72,16 +86,24 @@ from .catalog import (
 
 from typing import NamedTuple
 
-from ..base_session import BaseSessionManager, SessionDeadError, TurnAbandoned
+from ..base_session import (
+    BaseSessionManager,
+    SessionDeadError,
+    SubagentNotFound,
+    SubagentNotRunning,
+    TurnAbandoned,
+)
 from ..config import ManagerConfig
 from ..memory_context import is_archie_project, memory_instructions
 from ..protocol import tool_result_text
+from ..subagents import SubagentRegistry, is_spawn_tool, spawn_fields, usage_dict, wire_status
 from ..types import (
     CompactComplete,
     Event,
     PermissionRequest,
     PermissionResolved,
     SessionStatus,
+    SubagentEvent,
     TerminationReason,
     TextComplete,
     TextDelta,
@@ -90,7 +112,9 @@ from ..types import (
     ThinkingDelta,
     ToolResult,
     ToolUse,
+    STEER_CONTINUES,
     TurnComplete,
+    UnpromptedTurnStarted,
 )
 
 # Tools that require explicit user (or orchestrator) approval before the SDK
@@ -167,7 +191,25 @@ _TURN_ABANDON_S = 240.0
 # Bounded so an idle session that nobody's watching for hours doesn't
 # accumulate megabytes of dropped events.  Each event is small (typically
 # a JSON payload <1 KB), so 500 entries ≈ 0.5 MB per session worst-case.
-_REPLAY_BUFFER_SIZE = 500
+_REPLAY_BUFFER_SIZE = 1000
+
+# A pending task notification whose turn the CLI did not start this long
+# after the session went idle was consumed some other way (folded into a
+# turn): forget it, so it is never announced for the wrong turn.
+_NOTE_TURN_WAIT_S = 10.0
+
+# After a CLI-started turn ended inside our send() (it ran before our
+# prompt), our own turn must start (an ``init``) within this time, else the
+# CLI folded our prompt into that turn and send() ends here.
+_UNPROMPTED_GRACE_S = 20.0
+
+# A CLI turn ended with steered messages still undelivered: the CLI starts
+# the turn that answers them at once (same millisecond in probes); if none
+# starts within this time, they were delivered after all and send() ends.
+_STEER_TURN_GRACE_S = 5.0
+
+# A steer sent before the CLI started on our prompt waits this long for it.
+_STEER_START_WAIT_S = 10.0
 
 
 class SequencedEvent(NamedTuple):
@@ -241,6 +283,39 @@ def _extract_subprocess_pid(client: ClaudeSDKClient) -> int | None:
         logger.debug("could not extract SDK subprocess pid", exc_info=True)
         return None
 
+
+
+def _last_cost_state(projects_dir: Path, session_id: str) -> float:
+    """``totalCostUSD`` of the last ``cost-state`` line in a session's JSONL.
+
+    The file is ``<projects_dir>/<mangled cwd>/<session_id>.jsonl``; the
+    session id is unique, so any project folder will do.  0.0 when there
+    is no such file or line.
+    """
+    try:
+        paths = list(projects_dir.glob(f"*/{session_id}.jsonl"))
+    except OSError:
+        return 0.0
+    total = 0.0
+    for path in paths[:1]:
+        try:
+            with path.open("rb") as fh:
+                for raw in fh:
+                    if b'"cost-state"' not in raw:
+                        continue
+                    try:
+                        obj = json.loads(raw)
+                    except ValueError:
+                        continue
+                    if not isinstance(obj, dict) or obj.get("type") != "cost-state":
+                        continue
+                    sid = obj.get("sessionId")
+                    cost = obj.get("totalCostUSD")
+                    if (sid in (None, session_id)) and isinstance(cost, (int, float)):
+                        total = float(cost)
+        except OSError:
+            return 0.0
+    return max(total, 0.0)
 
 def kill_claude_subprocess(pid: int, *, sigterm_grace_s: float = 0.5) -> bool:
     """Force-kill an orphaned bundled-claude subprocess identified by *pid*.
@@ -322,7 +397,6 @@ class ClaudeSessionManager(BaseSessionManager):
         # starts; changes on every subprocess (re)connect or backend
         # restart).  A frontend that holds ``(stream_id, seq)`` can ask
         # for everything newer; a mismatch falls back to REST.
-        from collections import deque
         self._replay_buffer: deque[tuple[int, Event]] = deque(
             maxlen=_REPLAY_BUFFER_SIZE,
         )
@@ -338,6 +412,64 @@ class ClaudeSessionManager(BaseSessionManager):
         # conversation (new session id / JSONL) on the same connection; the
         # next message that carries a session_id is the new one.
         self._session_reset_pending: bool = False
+        # ResultMessage.total_cost_usd is the CLI process's RUNNING total
+        # (every turn, /compact and background-notification turn adds to
+        # it; /clear zeroes it).  This is the last total seen on the current
+        # connection, so TurnComplete.cost can carry the turn's own delta.
+        self._cost_seen_total: float = 0.0
+
+        # ── Subagents and out-of-turn routing (spec 12 §4.8) ──────────────
+        # Live subagents keyed by the spawning Agent tool_use id.
+        self._subagents = SubagentRegistry()
+        # CLI tasks (task_started): task_id → {tool_use_id, notify_parent,
+        # run_id, description}.  ``notify_parent``: the task belongs to the
+        # main agent and runs in the background, so its end makes the CLI
+        # inject a ``<task-notification>`` turn into the parent.
+        self._tasks: dict[str, dict] = {}
+        # Notifications waiting for the turn the CLI will start for them
+        # (FIFO; the CLI emits no user message for that turn, so the
+        # announcement is built from the task_notification message).
+        self._pending_notifications: deque[dict] = deque()
+        # The notification announced for the CLI turn now running (if any).
+        self._announced_notification: dict | None = None
+        # A task_updated reported a terminal status: the summary normally
+        # follows in a task_notification, so the finish waits for it (or for
+        # the next unrelated message).  tool_use_id → wire status.
+        self._deferred_finish: dict[str, str] = {}
+        # Once the TurnComplete that ends the active send() is queued, later
+        # events must not land in that inbox (nothing will read them): they
+        # wait here until send() returns, then go out of turn in order.
+        self._inbox_closed: bool = False
+        self._post_turn_backlog: list[SequencedEvent] = []
+        # A CLI turn is running (from its ``init`` to its ResultMessage), and
+        # a counter of turns: a notification that arrived during turn N and
+        # is followed by a request in turn N (``status: requesting``) was
+        # folded into that request — the CLI starts no turn of its own for it.
+        self._cli_turn_active: bool = False
+        self._turn_gen: int = 0
+        self._stale_notes_timer: asyncio.TimerHandle | None = None
+
+        # ── Steering (spec 12 I-16) ───────────────────────────────────────
+        # Messages written to the CLI during a turn of ours, not yet handed
+        # to the model: the turn generation each one arrived in.  The CLI
+        # delivers them at the turn's next model request (``status:
+        # requesting``, probes 2026-10-13); a turn that ends first is
+        # followed at once by a turn of the CLI's own that answers them.
+        self._steers: list[int] = []
+        # Set from a turn's ``init`` to its ResultMessage: a steer that lands
+        # between send()'s prompt and the CLI starting on it waits for this.
+        self._cli_turn_event = asyncio.Event()
+        # Set by interrupt() with steers undelivered: Stop stops everything,
+        # so the turn the CLI starts for them is interrupted at its init and
+        # never reaches anyone (``_swallow_turn``).
+        self._drop_steer_turn: bool = False
+        self._swallow_turn: bool = False
+        # Cost / model requests of CLI turns that ended with ``continues``:
+        # added to the TurnComplete that ends the user's turn.
+        self._carry_cost: float = 0.0
+        self._carry_turns: int = 0
+
+    supports_steering = True
 
     @property
     def provider_name(self) -> str:
@@ -401,6 +533,11 @@ class ClaudeSessionManager(BaseSessionManager):
         """
         try:
             options = self._build_options()
+            # A new CLI process: its running cost total starts from what
+            # the CLI restores for a resumed session (or 0).
+            self._cost_seen_total = await asyncio.to_thread(
+                self._restored_cost_baseline, options,
+            )
             self._client = ClaudeSDKClient(options)
             await self._client.connect()
 
@@ -541,9 +678,44 @@ class ClaudeSessionManager(BaseSessionManager):
         the signal never reaches the CLI and the in-flight ``receive_response()``
         keeps streaming until the turn finishes naturally.
         """
+        if self._steers:
+            self._drop_steer_turn = True
         if self._client is not None:
             await self._client.interrupt()
         self._status = SessionStatus.INTERRUPTED
+
+    async def steer(self, text: str) -> bool:
+        """Write *text* to the CLI while our turn runs (spec 12 I-16).
+
+        The CLI hands it to the model at the turn's next model request, as
+        "the user sent a new message while you were working" — or, when the
+        turn ends before another request, in a turn of its own right after,
+        which this ``send()`` follows (``TurnComplete.continues``)."""
+        def our_turn_open() -> bool:
+            return (
+                self._client is not None and not self._receive_loop_done.is_set()
+                and self._event_inbox is not None and not self._inbox_closed
+            )
+        if not our_turn_open():
+            return False
+        if not self._cli_turn_active:
+            # send() wrote its prompt and the CLI has not started on it yet:
+            # wait for the turn's init, so the message joins that turn.
+            try:
+                await asyncio.wait_for(self._cli_turn_event.wait(), timeout=_STEER_START_WAIT_S)
+            except asyncio.TimeoutError:
+                return False
+            if not our_turn_open() or not self._cli_turn_active:
+                return False
+        # Recorded before the write: the turn may end while it is in flight.
+        self._steers.append(self._turn_gen)
+        try:
+            await self._client.query(text)
+        except Exception:
+            if self._turn_gen in self._steers:
+                self._steers.remove(self._turn_gen)
+            raise
+        return True
 
     # ------------------------------------------------------------------
     # Sending messages / commands
@@ -613,8 +785,17 @@ class ClaudeSessionManager(BaseSessionManager):
         # The receive loop wraps each dispatched event in ``SequencedEvent``;
         # we unwrap below.
         loop = asyncio.get_running_loop()
+        # Events held back after the previous turn ended go out first, in
+        # order (normally already flushed by that send()'s finally).
+        self._flush_post_turn_backlog()
         inbox: asyncio.Queue[SequencedEvent | Event] = asyncio.Queue()
         self._event_inbox = inbox
+        self._inbox_closed = False
+        # Steers of an earlier turn that Stop ended and whose own turn has not
+        # started: the CLI now answers them together with this prompt.
+        self._steers.clear()
+        self._drop_steer_turn = False
+        self._carry_cost, self._carry_turns = 0.0, 0
 
         # Last-tool tracking so the SessionStalled event can name the tool
         # the SDK was waiting on (the most useful single piece of context
@@ -633,6 +814,10 @@ class ClaudeSessionManager(BaseSessionManager):
         stall_notified_at: float | None = None
         messages_received = 0
         turn_complete_seen = False
+        # Set when a CLI-started turn ended inside this send(): our own turn
+        # must start (an init) by then, else the CLI folded our prompt into
+        # that turn and nothing more will come for it.
+        fold_deadline: float | None = None
 
         try:
             while not turn_complete_seen:
@@ -645,12 +830,29 @@ class ClaudeSessionManager(BaseSessionManager):
                         _STALL_REPEAT_INTERVAL_S - (now - stall_notified_at),
                     )
 
+                if fold_deadline is not None and self._cli_turn_active:
+                    fold_deadline = None  # our turn started
+                wait_s = max(next_notice_in, 0.5)
+                if fold_deadline is not None:
+                    wait_s = max(0.05, min(wait_s, fold_deadline - now))
                 try:
-                    item = await asyncio.wait_for(
-                        inbox.get(), timeout=max(next_notice_in, 0.5),
-                    )
+                    item = await asyncio.wait_for(inbox.get(), timeout=wait_s)
                 except asyncio.TimeoutError:
                     now = loop.time()
+                    if fold_deadline is not None and not self._cli_turn_active and now >= fold_deadline:
+                        # The CLI is idle and never started a turn for our
+                        # prompt: end this send() rather than wait forever.
+                        logger.warning(
+                            "Session %s: no turn of its own followed a CLI-started turn "
+                            "within %.0fs; ending send()", self._local_id, _UNPROMPTED_GRACE_S,
+                        )
+                        self._last_yielded_seq = None
+                        self._status = SessionStatus.IDLE
+                        yield TurnComplete(session_id=self._provider_session_id or "")
+                        turn_complete_seen = True
+                        continue
+                    if fold_deadline is not None and now < fold_deadline:
+                        continue
                     # If we've never received a single message and we've been
                     # waiting longer than _TURN_ABANDON_S, the upstream request
                     # never landed.  Give up so the caller can retry instead
@@ -696,16 +898,26 @@ class ClaudeSessionManager(BaseSessionManager):
 
                 yield event
 
+                # A turn the CLI injected on its own (a task notification
+                # that ran before our queued prompt) ends with its own
+                # TurnComplete: our turn is still to come.
                 if isinstance(event, TurnComplete):
-                    turn_complete_seen = True
+                    if event.prompted:
+                        turn_complete_seen = True
+                    else:
+                        grace = _STEER_TURN_GRACE_S if event.continues else _UNPROMPTED_GRACE_S
+                        fold_deadline = loop.time() + grace
         finally:
-            # Detach the inbox so subsequent events go to the replay buffer
-            # only.  The receive loop keeps running — that's the whole point
-            # of this refactor.  Permissions that were still pending at this
-            # point can never be answered through this stream, so resolve
-            # them as 'deny' to unblock the SDK.
+            # Detach the inbox: from here on events go out of turn (the
+            # pool's sink broadcasts them) and into the replay ring.  The
+            # receive loop keeps running.  Events the loop dispatched after
+            # our TurnComplete (held in the backlog) go first, in order.
+            # Permissions still pending can never be answered through this
+            # stream, so resolve them as 'deny' to unblock the SDK.
             if self._event_inbox is inbox:
                 self._event_inbox = None
+                self._inbox_closed = False
+                self._flush_post_turn_backlog()
             self._drain_pending_permissions()
 
     async def _receive_loop(self) -> None:
@@ -742,12 +954,17 @@ class ClaudeSessionManager(BaseSessionManager):
                     continue
                 try:
                     async for event in self._process_message(msg):
+                        ends_idle = isinstance(event, TurnComplete) and (
+                            event.prompted or self._out_of_turn()
+                        )
                         self._inject_event(event)
-                        if isinstance(event, TurnComplete):
+                        if ends_idle:
                             # The bundled CLI emitted a terminal ResultMessage
                             # — the turn is over even if nobody was listening.
                             # Status returns to IDLE so the pool/live endpoint
-                            # reflects reality.
+                            # reflects reality.  (An injected turn that ran
+                            # inside our send(), before our own prompt, does
+                            # not end it: our turn is still running.)
                             self._status = SessionStatus.IDLE
                 except Exception:
                     logger.exception(
@@ -792,6 +1009,9 @@ class ClaudeSessionManager(BaseSessionManager):
                     "SDK receive iterator ended without a terminal ResultMessage"
                 )
         finally:
+            # Subagents die with the CLI process (clients do the same on
+            # session_stopped / session_terminated, SA-3).
+            self._subagents.stop_all()
             # Order matters: set the done event BEFORE flipping status, so
             # any awaiter polling ``is_active`` after observing the event
             # sees a coherent state.
@@ -837,20 +1057,54 @@ class ClaudeSessionManager(BaseSessionManager):
         path (the latter via :meth:`_emit_permission_request` in the base
         class).
         """
+        inbox = self._event_inbox
+        if (
+            isinstance(event, TurnComplete) and not event.prompted
+            and inbox is not None and not self._inbox_closed
+        ):
+            # A CLI-started turn ended inside our send() (it ran before our
+            # prompt).  It is not the end of the user's turn: unsequenced and
+            # kept out of the replay ring, so no client ever ends the user's
+            # turn on it; send() and the pool only do their bookkeeping.
+            try:
+                inbox.put_nowait(event)
+            except asyncio.QueueFull:  # pragma: no cover — unbounded queue
+                pass
+            return
         seq = self._next_seq
         self._next_seq += 1
         self._replay_buffer.append((seq, event))
         wrapped = SequencedEvent(seq=seq, event=event)
-        inbox = self._event_inbox
-        if inbox is not None:
-            try:
-                inbox.put_nowait(wrapped)
-            except asyncio.QueueFull:
-                # asyncio.Queue() is unbounded by default; this is defensive.
-                logger.warning(
-                    "send() inbox full for session %s; event dropped",
-                    self._local_id,
-                )
+        if inbox is None:
+            # No send() is consuming: background subagents, a turn the CLI
+            # started on its own.  The pool broadcasts these (spec 12 §4.8).
+            self._emit_out_of_turn(wrapped)
+            return
+        if self._inbox_closed:
+            # The active send() already has its TurnComplete; it will hand
+            # these over, in order, when it returns.
+            self._post_turn_backlog.append(wrapped)
+            return
+        try:
+            inbox.put_nowait(wrapped)
+        except asyncio.QueueFull:
+            # asyncio.Queue() is unbounded by default; this is defensive.
+            logger.warning(
+                "send() inbox full for session %s; event dropped",
+                self._local_id,
+            )
+            return
+        if isinstance(event, TurnComplete) and event.prompted:
+            self._inbox_closed = True
+
+    def _out_of_turn(self) -> bool:
+        """True when no send() will read the next event."""
+        return self._event_inbox is None or self._inbox_closed
+
+    def _flush_post_turn_backlog(self) -> None:
+        backlog, self._post_turn_backlog = self._post_turn_backlog, []
+        for item in backlog:
+            self._emit_out_of_turn(item)
 
     def replay_recent_events(self) -> list[tuple[int, Event]]:
         """Snapshot of the replay ring as ``(seq, event)`` pairs, oldest → newest.
@@ -993,10 +1247,43 @@ class ClaudeSessionManager(BaseSessionManager):
         """
         return 0
 
+    def _turn_cost(self, total: float | None) -> float | None:
+        """This turn's cost from the CLI's running ``total_cost_usd``.
+
+        The total only grows on one connection, so the turn's cost is the
+        difference to the last total seen.  A total below it means the CLI
+        started over (new process, ``/clear``): the whole total is new.
+        """
+        if total is None:
+            return None
+        last = self._cost_seen_total
+        self._cost_seen_total = total
+        return total - last if total >= last else total
+
+    def _restored_cost_baseline(self, options: ClaudeAgentOptions) -> float:
+        """The running cost total the CLI starts a resumed session from.
+
+        At exit the CLI appends a ``cost-state`` line (``totalCostUSD``) to
+        the session's JSONL and, on ``--resume``, restores it: the first
+        total of the new process includes the earlier processes' cost
+        (verified with a two-process Haiku probe, CLI 2.1.x).  That cost is
+        not this connection's, so it is the delta baseline.  Local sessions
+        only (an SSH session's JSONL is on the remote machine); any read
+        problem means "no restore" (baseline 0, so the first turn counts
+        the whole total).
+        """
+        if not self._resume_id or self._config.ssh_host:
+            return 0.0
+        env = options.env if isinstance(options.env, dict) else {}
+        cfg_dir = env.get("CLAUDE_CONFIG_DIR") or os.environ.get("CLAUDE_CONFIG_DIR")
+        root = Path(cfg_dir) if cfg_dir else Path.home() / ".claude"
+        return _last_cost_state(root / "projects", self._resume_id)
+
     def _build_options(self) -> ClaudeAgentOptions:
         """Build SDK options from our config."""
         kwargs: dict = {
             "include_partial_messages": True,
+
             "setting_sources": ["project", "local"],
             "can_use_tool": self._can_use_tool,
             # Append a small policy onto the bundled Claude Code system prompt
@@ -1036,6 +1323,12 @@ class ClaudeSessionManager(BaseSessionManager):
             # When mcp_servers is provided, it overrides settings from .claude.json
             kwargs["mcp_servers"] = self._config.mcp_servers
 
+        if "forward_subagent_text" in getattr(ClaudeAgentOptions, "__dataclass_fields__", {}):
+            # Subagent text and thinking arrive as messages carrying
+            # ``parent_tool_use_id`` and are routed into subagent_event frames
+            # (spec 12 §4.8), so they never surface as the parent's text.
+            # (Guarded: SDKs before 0.2.x have no such option.)
+            kwargs["forward_subagent_text"] = True
         # Harness options (effort / thinking / fallback model) → SDK fields.
         kwargs.update(self._harness_option_kwargs())
         # Copy, never mutate the config's dict (it may be shared).
@@ -1204,7 +1497,16 @@ class ClaudeSessionManager(BaseSessionManager):
         return path
 
     async def _process_message(self, msg: object) -> AsyncIterator[Event]:
-        """Convert an SDK message into our typed Event stream."""
+        """Convert an SDK message into our typed Event stream.
+
+        Messages carrying ``parent_tool_use_id`` come from a subagent: they
+        are wrapped in :class:`SubagentEvent` (spec 12 §4.8) and never touch
+        the session status or the parent's events.  Task system messages
+        become the subagent lifecycle events.
+        """
+
+        if self._swallow_turn and not isinstance(msg, ResultMessage):
+            return  # the turn for steers dropped by Stop (see interrupt())
 
         if self._session_reset_pending:
             # First message after a /clear that names a session: adopt it.
@@ -1220,12 +1522,25 @@ class ClaudeSessionManager(BaseSessionManager):
                 self._provider_session_id = new_sid
                 self._session_reset_pending = False
 
+        if self._deferred_finish:
+            # A task_updated said "finished" and no task_notification with
+            # the summary followed: finish without it.
+            waiting_for = self._task_tool_use_id(msg) if isinstance(msg, TaskNotificationMessage) else None
+            for tid, status in list(self._deferred_finish.items()):
+                if tid == waiting_for:
+                    continue
+                del self._deferred_finish[tid]
+                ev = self._subagents.finish(tid, status=status)
+                if ev is not None:
+                    yield ev
+
         if ConversationResetMessage is not None and isinstance(msg, ConversationResetMessage):
             # /clear (or any flow that swaps the transcript mid-connection):
             # the CLI continues in a NEW conversation with a new session id
             # and JSONL.  The id is not in this message — it is on the next
             # message that carries one (handled above).
             self._session_reset_pending = True
+            self._cost_seen_total = 0.0  # the reset zeroes the CLI's totals
             return
 
         if isinstance(msg, StreamEvent):
@@ -1233,30 +1548,72 @@ class ClaudeSessionManager(BaseSessionManager):
             if not isinstance(event, dict):
                 logger.warning("StreamEvent.event is not a dict: %r", type(event))
                 return
-            evt_type = event.get("type", "")
-
-            if evt_type == "content_block_delta":
-                delta = event.get("delta", {})
-                if not isinstance(delta, dict):
-                    return
-                delta_type = delta.get("type", "")
-
-                if delta_type == "text_delta":
+            if event.get("type", "") != "content_block_delta":
+                return
+            delta = event.get("delta", {})
+            if not isinstance(delta, dict):
+                return
+            delta_type = delta.get("type", "")
+            parent = getattr(msg, "parent_tool_use_id", None)
+            out: Event | None = None
+            if delta_type == "text_delta":
+                if not parent:
                     self._status = SessionStatus.STREAMING
-                    yield TextDelta(text=delta.get("text", ""))
-
-                elif delta_type == "thinking_delta":
+                out = TextDelta(text=delta.get("text", ""))
+            elif delta_type == "thinking_delta":
+                if not parent:
                     self._status = SessionStatus.THINKING
-                    # Empty deltas = the CLI's "updates" display (see
-                    # _THINKING_DISPLAY); nothing to render.
-                    text = delta.get("thinking", "")
-                    if text:
-                        yield ThinkingDelta(text=text)
+                # Empty deltas = the CLI's "updates" display (see
+                # _THINKING_DISPLAY); nothing to render.
+                text = delta.get("thinking", "")
+                if text:
+                    out = ThinkingDelta(text=text)
+            # input_json_delta: tool input is streamed as partial JSON — we
+            # skip deltas and let the full ToolUseBlock handle it.
+            if out is not None:
+                yield SubagentEvent(tool_use_id=parent, event=out) if parent else out
 
-                elif delta_type == "input_json_delta":
-                    # Tool input is streamed as partial JSON — we skip deltas
-                    # and let the full ToolUseBlock from AssistantMessage handle it.
-                    pass
+        elif isinstance(msg, TaskStartedMessage):
+            for ev in self._on_task_started(msg):
+                yield ev
+
+        elif isinstance(msg, TaskProgressMessage):
+            tid = self._task_tool_use_id(msg)
+            if tid in self._subagents:
+                usage = msg.usage if isinstance(msg.usage, dict) else {}
+                ev = self._subagents.progress(
+                    tid,
+                    activity=msg.description or msg.last_tool_name,
+                    usage=usage_dict(usage.get("total_tokens"), usage.get("tool_uses"), usage.get("duration_ms")),
+                )
+                if ev is not None:
+                    yield ev
+
+        elif isinstance(msg, TaskNotificationMessage):
+            for ev in self._on_task_notification(msg):
+                yield ev
+
+        elif isinstance(msg, TaskUpdatedMessage):
+            tid = self._task_tool_use_id(msg)
+            patch = msg.patch if isinstance(msg.patch, dict) else {}
+            status = wire_status(msg.status or patch.get("status"))
+            raw_status = str(msg.status or patch.get("status") or "").lower()
+            if raw_status in ("running", "pending") and tid in self._subagents:
+                # Back to running after a finish: the CLI resumed it.
+                self._deferred_finish.pop(tid, None)
+                rec = self._subagents.get(tid)
+                ev = self._subagents.start(tid, reopen=True) if rec is not None and rec.finished_sent else None
+                if ev is not None:
+                    yield ev
+            elif status and tid in self._subagents:
+                if status == "stopped":
+                    # A stopped task's notification is often suppressed.
+                    self._deferred_finish.pop(tid, None)
+                    ev = self._subagents.finish(tid, status="stopped", summary="Stopped")
+                    if ev is not None:
+                        yield ev
+                else:
+                    self._deferred_finish[tid] = status
 
         elif isinstance(msg, SystemMessage):
             data = msg.data if isinstance(msg.data, dict) else {}
@@ -1271,19 +1628,70 @@ class ClaudeSessionManager(BaseSessionManager):
                 trigger = data.get("trigger", "manual")
                 summary = data.get("summary", "")
                 yield CompactComplete(trigger=trigger, summary=summary)
+            elif msg.subtype == "init":
+                # Every turn starts with an init message.
+                self._cli_turn_active = True
+                self._cli_turn_event.set()
+                self._turn_gen += 1
+                self._cancel_stale_notes()
+                if self._drop_steer_turn and self._steers and self._out_of_turn():
+                    # The CLI's turn for messages steered into a turn that
+                    # Stop ended: stop it too, unseen.
+                    self._steers.clear()
+                    self._drop_steer_turn = False
+                    self._swallow_turn = True
+                    if self._client is not None:
+                        asyncio.get_running_loop().create_task(self._client.interrupt())
+                    return
+                if self._out_of_turn() and self._pending_notifications:
+                    # With no send() waiting, this is the turn the CLI starts
+                    # for a background task that finished (spec 12 SA-7).
+                    # The init carries no run id and the JSONL line comes
+                    # later, so the oldest pending note is announced (the CLI
+                    # dequeues them in arrival order); the turn's
+                    # ResultMessage.origin.runId settles it.
+                    note = self._pending_notifications.popleft()
+                    self._announced_notification = note
+                    self._status = SessionStatus.STREAMING
+                    yield UnpromptedTurnStarted(text=note["text"], source="task_notification")
+            elif msg.subtype == "status" and data.get("status") == "requesting" and self._cli_turn_active:
+                # A model request of the main agent starts: notifications that
+                # arrived during this turn are folded into it (probe 2026-10-12:
+                # an agent finishing while the main agent waits on a tool is
+                # answered in the same turn, no turn of its own follows).
+                for note in list(self._pending_notifications):
+                    if note.get("gen") == self._turn_gen:
+                        self._pending_notifications.remove(note)
+                # Steered messages that arrived before this request go with it.
+                self._steers = [g for g in self._steers if g > self._turn_gen]
+                if not self._steers:
+                    self._drop_steer_turn = False
 
         elif isinstance(msg, AssistantMessage):
+            parent = getattr(msg, "parent_tool_use_id", None)
             for block in msg.content:
+                out: Event | None = None
                 if isinstance(block, TextBlock):
-                    yield TextComplete(text=block.text)
+                    out = TextComplete(text=block.text)
+                    if parent:
+                        self._subagents.note_text(parent, block.text)
 
                 elif isinstance(block, ThinkingBlock):
                     if block.thinking:
-                        yield ThinkingComplete(text=block.thinking)
+                        out = ThinkingComplete(text=block.thinking)
 
                 elif isinstance(block, ToolUseBlock):
-                    self._status = SessionStatus.TOOL_USE
-                    yield ToolUse(
+                    if is_spawn_tool(block.name):
+                        agent_type, description, background = spawn_fields(block.input)
+                        self._subagents.spawn(
+                            block.id, parent_tool_use_id=parent,
+                            agent_type=agent_type, description=description, background=background,
+                        )
+                    if parent:
+                        self._subagents.note_activity(parent, block.name)
+                    else:
+                        self._status = SessionStatus.TOOL_USE
+                    out = ToolUse(
                         tool_use_id=block.id,
                         tool_name=block.name,
                         tool_input=block.input,
@@ -1306,11 +1714,14 @@ class ClaudeSessionManager(BaseSessionManager):
                     # result.
                     if not block.tool_use_id and not content:
                         continue
-                    yield ToolResult(
+                    out = ToolResult(
                         tool_use_id=block.tool_use_id,
                         output=content or "",
                         is_error=block.is_error or False,
                     )
+
+                if out is not None:
+                    yield SubagentEvent(tool_use_id=parent, event=out) if parent else out
 
         elif isinstance(msg, UserMessage):
             # The real tool output lives in ``message.content`` as
@@ -1320,17 +1731,24 @@ class ClaudeSessionManager(BaseSessionManager):
             # output (Bash ``{stdout, stderr, interrupted, ...}``, Edit
             # ``{filePath, ...}``, MCP: a list) and has no tool_use_id, so
             # it is only a fallback for messages without result blocks.
+            parent = getattr(msg, "parent_tool_use_id", None)
             result_blocks = (
                 [b for b in msg.content if isinstance(b, ToolResultBlock)]
                 if isinstance(msg.content, list) else []
             )
             if result_blocks:
                 for block in result_blocks:
-                    yield ToolResult(
+                    result = ToolResult(
                         tool_use_id=block.tool_use_id or "",
                         output=tool_result_text(block.content),
                         is_error=bool(block.is_error),
                     )
+                    yield SubagentEvent(tool_use_id=parent, event=result) if parent else result
+                    if result.tool_use_id in self._subagents:
+                        # The spawning call's own result: a synchronous agent
+                        # ends here; an async launch names the agent id.
+                        for ev in self._on_spawn_result(result, msg.tool_use_result):
+                            yield ev
             # Fallback: no ToolResultBlock.  The SDK normally hands us a
             # dict, but some tools (notably the bundled web search/fetch
             # path on certain claude-cli versions) send the raw stdout as a
@@ -1339,26 +1757,29 @@ class ClaudeSessionManager(BaseSessionManager):
             # the UI showing a perpetual spinner.
             elif msg.tool_use_result:
                 result = msg.tool_use_result
+                # ``parent_tool_use_id`` names the spawning Agent call when
+                # the message comes from a subagent: the result belongs to
+                # the subagent's conversation (with an unknown id), never to
+                # the parent's Agent card.  Otherwise it stays the id of
+                # last resort, as before.
+                sub = parent if parent and parent in self._subagents else None
+                fallback_id = "" if sub else (parent or "")
+                out: Event | None = None
                 if isinstance(result, dict):
                     content = result.get("content", "")
                     if isinstance(content, list):
                         content = json.dumps(content)
-                    yield ToolResult(
-                        tool_use_id=result.get("tool_use_id", "")
-                            or (msg.parent_tool_use_id or ""),
+                    out = ToolResult(
+                        tool_use_id=result.get("tool_use_id", "") or fallback_id,
                         output=str(content),
                         is_error=result.get("is_error", False),
                     )
                 elif isinstance(result, str):
-                    yield ToolResult(
-                        tool_use_id=msg.parent_tool_use_id or "",
-                        output=result,
-                        is_error=False,
-                    )
+                    out = ToolResult(tool_use_id=fallback_id, output=result, is_error=False)
                 elif isinstance(result, list):
                     # MCP tools: a list of content items.
-                    yield ToolResult(
-                        tool_use_id=msg.parent_tool_use_id or "",
+                    out = ToolResult(
+                        tool_use_id=fallback_id,
                         output=tool_result_text(result),
                         is_error=False,
                     )
@@ -1367,22 +1788,263 @@ class ClaudeSessionManager(BaseSessionManager):
                         "UserMessage.tool_use_result is unsupported type: %r",
                         type(result),
                     )
+                if out is not None:
+                    yield SubagentEvent(tool_use_id=sub, event=out) if sub else out
 
         elif isinstance(msg, ResultMessage):
             self._turns += msg.num_turns
-            if msg.total_cost_usd is not None:
-                self._cost += msg.total_cost_usd
+            turn_cost = self._turn_cost(msg.total_cost_usd)
+            if turn_cost is not None:
+                self._cost += turn_cost
             # Always capture the SDK session ID from ResultMessage
             if msg.session_id:
                 self._provider_session_id = msg.session_id
+            origin = getattr(msg, "origin", None)  # SDK < 0.2.x: absent
+            origin = origin if isinstance(origin, dict) else None
+            origin_kind = origin.get("kind") if origin else None
+            self._cli_turn_active = False
+            self._cli_turn_event.clear()
+            if origin_kind == "task-notification":
+                self._settle_notification_turn(origin.get("runId"))
+            if self._pending_notifications:
+                self._arm_stale_notes()
+            if self._swallow_turn:
+                self._swallow_turn = False
+                self._status = SessionStatus.IDLE
+                return
+            origin_out = origin_kind if isinstance(origin_kind, str) else None
+            if origin_out in (None, "human"):
+                if self._steers and not self._drop_steer_turn and not self._out_of_turn():
+                    # Steered messages still undelivered: the CLI answers them
+                    # in a turn of its own, right now — the user's turn goes on.
+                    origin_out = STEER_CONTINUES
+                    self._carry_cost += turn_cost or 0.0
+                    self._carry_turns += msg.num_turns or 0
+                elif self._carry_cost or self._carry_turns:
+                    turn_cost = (turn_cost or 0.0) + self._carry_cost
+                    num_turns = (msg.num_turns or 0) + self._carry_turns
+                    self._carry_cost, self._carry_turns = 0.0, 0
+                    yield TurnComplete(
+                        cost=turn_cost, usage=msg.usage or {}, num_turns=num_turns,
+                        session_id=msg.session_id, is_error=msg.is_error,
+                        result=msg.result, origin=origin_out,
+                    )
+                    return
             yield TurnComplete(
-                cost=msg.total_cost_usd,
+                cost=turn_cost,
                 usage=msg.usage or {},
                 num_turns=msg.num_turns,
                 session_id=msg.session_id,
                 is_error=msg.is_error,
                 result=msg.result,
+                origin=origin_out,
             )
+
+    # ------------------------------------------------------------------
+    # Subagents (spec 12 §4.8)
+    # ------------------------------------------------------------------
+
+    def _task_tool_use_id(self, msg: object) -> str | None:
+        """The spawning tool_use id of a task message (direct, or via task_id)."""
+        tid = getattr(msg, "tool_use_id", None)
+        if not tid:
+            data = getattr(msg, "data", None)
+            if isinstance(data, dict):
+                tid = data.get("tool_use_id")
+        if not tid:
+            info = self._tasks.get(getattr(msg, "task_id", "") or "")
+            tid = info.get("tool_use_id") if info else None
+            if not tid:
+                rec = self._subagents.by_harness_id(getattr(msg, "task_id", None))
+                tid = rec.tool_use_id if rec else None
+        return tid or None
+
+    def _on_task_started(self, msg) -> list[Event]:
+        data = msg.data if isinstance(msg.data, dict) else {}
+        tid = self._task_tool_use_id(msg)
+        task_type = msg.task_type or data.get("task_type")
+        is_agent = bool(tid) and (task_type == "local_agent" or tid in self._subagents)
+        backgrounded = bool(data.get("is_backgrounded"))
+        rec = self._subagents.get(tid) if is_agent else None
+        owned_by_subagent = bool(
+            data.get("owned_by_subagent") or data.get("parent_task_id")
+            or (rec is not None and rec.parent_tool_use_id)
+        )
+        self._tasks[msg.task_id] = {
+            "tool_use_id": tid,
+            "description": msg.description or "",
+            "run_id": data.get("run_id"),
+            "is_agent": is_agent,
+            # Its end makes the CLI start a turn in the parent.
+            "notify_parent": backgrounded and not owned_by_subagent,
+        }
+        if not is_agent or not tid:
+            return []  # a background shell etc.: not a subagent
+        ev = self._subagents.start(
+            tid,
+            harness_id=msg.task_id,
+            agent_type=data.get("subagent_type") or "",
+            description=msg.description or "",
+            # The CLI runs every Agent call it backgrounds (2.1.292: all of
+            # them) after the parent turn may have ended.
+            background=backgrounded,
+            # A task_started for an agent that already finished: the CLI woke
+            # it again (its own background command ended; probe 2026-10-12,
+            # CLI 2.1.292: same task_id and tool_use_id, then its inner
+            # messages, task_updated completed and a second task_notification).
+            reopen=True,
+        )
+        self._subagents.get(tid).extra["task_id"] = msg.task_id  # what stop_task takes
+        return [ev] if ev is not None else []
+
+    def _on_task_notification(self, msg) -> list[Event]:
+        out: list[Event] = []
+        tid = self._task_tool_use_id(msg)
+        info = self._tasks.get(msg.task_id) or {}
+        rec = self._subagents.get(tid)
+        if info.get("notify_parent"):
+            info["notify_parent"] = False  # once per finish
+            self._pending_notifications.append({
+                "task_id": msg.task_id,
+                "run_id": info.get("run_id") or (msg.data or {}).get("run_id"),
+                "text": _task_notification_text(msg, tid, (rec.description or rec.agent_type or "agent") if rec else None),
+                # The turn it arrived in (None: idle).  See the requesting branch.
+                "gen": self._turn_gen if self._cli_turn_active else None,
+            })
+            if not self._cli_turn_active:
+                self._arm_stale_notes()
+        if rec is not None:
+            self._deferred_finish.pop(tid, None)
+            usage = msg.usage if isinstance(msg.usage, dict) else {}
+            fields = dict(
+                status=wire_status(msg.status) or "done",
+                summary=msg.summary or "",
+                usage=usage_dict(usage.get("total_tokens"), usage.get("tool_uses"), usage.get("duration_ms"))
+                if usage else None,
+            )
+            # Already finished (a task_updated flushed without a summary):
+            # a second subagent_finished fills summary/usage in (SA-3).
+            ev = self._subagents.finish(tid, **fields) or self._subagents.amend(tid, **fields)
+            if ev is not None:
+                out.append(ev)
+        return out
+
+    def _on_spawn_result(self, result: ToolResult, meta: object) -> list[Event]:
+        """The spawning Agent call got its tool result."""
+        meta = meta if isinstance(meta, dict) else {}
+        agent_id = meta.get("agentId")
+        if not agent_id:
+            m = _AGENT_ID_RE.search(result.output or "")
+            agent_id = m.group(1) if m else None
+        rec = self._subagents.get(result.tool_use_id)
+        if agent_id and rec is not None and not rec.harness_id:
+            # task_started's task_id wins: stop_task needs it (on CLI 2.1.292
+            # the two are the same id).
+            self._subagents.link(result.tool_use_id, str(agent_id))
+        raw = meta.get("status")
+        if raw == "async_launched" or meta.get("isAsync"):
+            return []  # still running; its end comes as task messages
+        if not result.is_error and raw is None and _AGENT_ID_RE.search(result.output or ""):
+            return []  # an async launch on a CLI without the metadata
+        status = "failed" if result.is_error else (wire_status(raw) or "done")
+        usage = None
+        if meta:
+            usage = usage_dict(meta.get("totalTokens"), meta.get("totalToolUseCount"), meta.get("totalDurationMs"))
+        ev = self._subagents.finish(result.tool_use_id, status=status, summary=result.output, usage=usage)
+        return [ev] if ev is not None else []
+
+    def _settle_notification_turn(self, run_id: object) -> None:
+        """A task-notification turn ended: forget the notification it answered."""
+        announced, self._announced_notification = self._announced_notification, None
+        if not run_id:
+            return
+        if announced is not None and announced.get("run_id") not in (None, run_id):
+            # The turn answered another notification than the one announced.
+            # Never re-queue the announced one: putting it back at the head
+            # made every later turn announce the wrong agent.  At worst its
+            # own turn (if any) then runs without an announcement.
+            logger.info(
+                "Session %s: notification turn %s answered a different task than announced (%s)",
+                self._local_id, run_id, announced.get("run_id"),
+            )
+        for note in list(self._pending_notifications):
+            if note.get("run_id") == run_id:
+                self._pending_notifications.remove(note)
+
+    def _arm_stale_notes(self) -> None:
+        """While idle with notifications pending, the CLI starts their turn at
+        once (well under a second in probes); if none started, they were
+        consumed otherwise — drop them (``awaits_unprompted_turn`` would
+        otherwise stay true forever)."""
+        self._cancel_stale_notes()
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._stale_notes_timer = loop.call_later(_NOTE_TURN_WAIT_S, self._drop_stale_notes)
+
+    def _cancel_stale_notes(self) -> None:
+        if self._stale_notes_timer is not None:
+            self._stale_notes_timer.cancel()
+            self._stale_notes_timer = None
+
+    def _drop_stale_notes(self) -> None:
+        self._stale_notes_timer = None
+        if self._cli_turn_active or not self._pending_notifications:
+            return
+        logger.info(
+            "Session %s: %d task notification(s) got no turn of their own; dropped",
+            self._local_id, len(self._pending_notifications),
+        )
+        self._pending_notifications.clear()
+
+    def subagent_snapshot(self) -> list[dict]:
+        return self._subagents.summaries()
+
+    def awaits_unprompted_turn(self) -> bool:
+        return bool(self._pending_notifications) or self._announced_notification is not None
+
+    async def stop_subagent(self, tool_use_id: str) -> None:
+        rec = self._subagents.get(tool_use_id)
+        if rec is None:
+            raise SubagentNotFound(tool_use_id)
+        task_id = rec.extra.get("task_id") or rec.harness_id
+        if rec.status != "running" or not task_id or self._client is None:
+            raise SubagentNotRunning(tool_use_id)
+        stop_task = getattr(self._client, "stop_task", None)
+        if stop_task is None:  # SDK < 0.2.x
+            raise NotImplementedError("this claude-agent-sdk cannot stop a single task")
+        await stop_task(task_id)
+
+
+# "agentId: a1b2…" in the text of an async Agent launch result.
+_AGENT_ID_RE = re.compile(r"agentId:\s*([A-Za-z0-9_-]+)")
+
+
+def _task_notification_text(msg, tool_use_id: str | None, description: str | None) -> str:
+    """The ``<task-notification>`` prompt of a CLI notification turn.
+
+    The CLI does not stream that prompt (it only writes it to the JSONL), so
+    it is rebuilt here from the task_notification message with the same tags
+    the JSONL line carries (``task-id``, ``tool-use-id``, ``output-file``,
+    ``status``, ``summary``, ``result``).
+    """
+    status = str(msg.status or "")
+    lines = ["<task-notification>", f"<task-id>{msg.task_id}</task-id>"]
+    if tool_use_id:
+        lines.append(f"<tool-use-id>{tool_use_id}</tool-use-id>")
+    if msg.output_file:
+        lines.append(f"<output-file>{msg.output_file}</output-file>")
+    lines.append(f"<status>{status}</status>")
+    if description:  # an agent: the CLI's wording, the report as <result>
+        verb = {"completed": "finished", "failed": "failed", "stopped": "was stopped"}.get(status, status)
+        lines.append(f'<summary>Agent "{description}" {verb}</summary>')
+        if msg.summary:
+            lines.append(f"<result>{msg.summary}</result>")
+    elif msg.summary:
+        lines.append(f"<summary>{msg.summary}</summary>")
+    lines.append("</task-notification>")
+    return "\n".join(lines)
 
 
 # Backward-compat alias — the historical name is widely imported.

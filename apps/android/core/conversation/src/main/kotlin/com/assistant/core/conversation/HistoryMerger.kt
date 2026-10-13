@@ -83,6 +83,14 @@ object HistoryMerger {
         }
         d.rebuildIndexes()
         d.history = HistoryState(loaded = true, startIndex = resp.startIndex, totalCount = resp.totalCount, hasMore = resp.hasMore)
+        d.toolsTouched = true
+        // SA-8: after a page that left a placeholder no lifecycle frame or row described, fetch the list once.
+        if (d.spawnSink == null && !d.subagentsListFetched && d.isAgent && d.ref.sdkId != null &&
+            d.subagents.values.any { !it.lifecycle }
+        ) {
+            d.subagentsListFetched = true
+            d.effects += ConversationEffect.FetchSubagentList
+        }
     }
 
     private fun resetContent(d: Draft) {
@@ -137,6 +145,7 @@ object HistoryMerger {
         if (!id.isNullOrEmpty()) {
             d.tools[id] = entryId
             d.orphans.remove(id)?.let { r -> d.updateTool(id) { d.applyResult(it, r, inferred = false) } }
+            d.spawnPlaceholder(tb)                                                      // SA-2 from history
         }
     }
 
@@ -174,6 +183,10 @@ object HistoryMerger {
     /** What the backend persists after the `[audio:<fmt>] ` prefix when a voice message had no prompt. */
     private const val AUDIO_NO_PROMPT = "(audio message)"
 
+    /** The header the CLI puts before a `<task-notification>` it feeds to a subagent (its own background command ended). */
+    private const val SYSTEM_NOTIFICATION = "[SYSTEM NOTIFICATION - NOT USER INPUT]"
+    private const val TASK_NOTIFICATION = "<task-notification>"
+
     /** §5.1 `classifyUserLine`: strips the backend's / CLI's text prefixes (G-11, §5.7). */
     fun classifyUserLine(text: String): UserLine {
         if (text.startsWith("[voice] ")) return UserLine.User(text.substring(8), UserOrigin.VOICE)
@@ -187,7 +200,12 @@ object HistoryMerger {
         if (text.startsWith("This session is being continued from a previous conversation")) {
             return UserLine.Notice(NoticeKind.COMPACTION, text)
         }
-        if (text.startsWith("<task-notification>")) return UserLine.Notice(NoticeKind.BACKGROUND, text)
+        if (text.startsWith(TASK_NOTIFICATION)) return UserLine.Notice(NoticeKind.BACKGROUND, text)
+        if (text.startsWith(SYSTEM_NOTIFICATION)) {
+            // BG-2: the notice is the <task-notification> block, without the CLI's header
+            val at = text.indexOf(TASK_NOTIFICATION)
+            if (at >= 0) return UserLine.Notice(NoticeKind.BACKGROUND, text.substring(at))
+        }
         if (COMMAND.containsMatchIn(text)) return UserLine.Notice(NoticeKind.COMMAND, text)
         return UserLine.User(text, UserOrigin.HISTORY)
     }

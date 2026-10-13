@@ -25,6 +25,10 @@ data class NotificationModel(
     val actions: List<NotificationAction>,
     /** A voice session is live: show a chronometer, keep it silent. */
     val voice: Boolean,
+    /** Voice only: the one-word state ("Listening", "Speaking", ...) for the media card's subtitle. */
+    val status: String = "",
+    /** Voice only: the mic is muted (the media card shows Unmute and says "Muted"). */
+    val muted: Boolean = false,
 )
 
 /**
@@ -55,7 +59,10 @@ object NotificationPolicy {
             } else {
                 listOf(NotificationAction.END)
             }
-            return NotificationModel(spec.voiceChannelId, spec.title, "${spec.appName} · $word", actions, voice = true)
+            return NotificationModel(
+                spec.voiceChannelId, spec.title, "${spec.appName} · $word", actions, voice = true,
+                status = if (s.isMuted) "Muted · $word" else word, muted = s.isMuted,
+            )
         }
         if (link is VoiceLinkState.Failed) {
             return NotificationModel(

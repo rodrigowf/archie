@@ -167,3 +167,51 @@ enum class QueueOwner(val wire: String) { LOCAL("local"), REMOTE("remote") }
 
 /** A prompt queued behind a running turn, shown in the tray (I-12). */
 data class QueuedPrompt(val text: String, val owner: QueueOwner)
+
+// ───────────────────────── subagents (spec 12 §4.8) ─────────────────────────
+
+enum class SubagentStatus(val wire: String) {
+    RUNNING("running"),
+    DONE("done"),
+    FAILED("failed"),
+    STOPPED("stopped");
+
+    val finished: Boolean get() = this != RUNNING
+
+    companion object {
+        fun fromWire(s: String?): SubagentStatus? = entries.firstOrNull { it.wire == s }
+    }
+}
+
+/**
+ * One subagent of this conversation (spec 12 §4.8 `Subagent`), keyed by the `tool_use_id` of the
+ * call that spawned it. Its own activity never enters the parent's timeline (SA-1): [conv] is its
+ * separate transcript, created only when the user opens it (SA-5) and run by the same reducer.
+ */
+data class Subagent(
+    val toolUseId: String,
+    val parentToolUseId: String? = null,
+    val agentType: String = "",
+    val description: String = "",
+    val background: Boolean = false,
+    val status: SubagentStatus = SubagentStatus.RUNNING,
+    val activity: String? = null,
+    val usage: com.assistant.core.protocol.SubagentUsage? = null,
+    val summary: String? = null,
+    val startedAt: String? = null,
+    val endedAt: String? = null,
+    /** The subagent's own transcript; `null` until opened (SA-5). */
+    val conv: ConversationState? = null,
+    /** Inner frames held while its first history page loads (SA-5); `null` = not loading. */
+    val held: PersistentList<com.assistant.core.protocol.ServerFrame>? = null,
+    /**
+     * A lifecycle frame or a server row (snapshot, list) described it: its status then comes only from
+     * those, never from the spawn card (SA-2; a background agent's card completes at launch).
+     */
+    val lifecycle: Boolean = false,
+    /** The first history page failed (SA-5): shown in its tab; the transcript starts at the live tail. */
+    val historyError: String? = null,
+) {
+    val open: Boolean get() = conv != null
+    val loading: Boolean get() = held != null
+}

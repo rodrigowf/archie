@@ -24,6 +24,7 @@ export {
   type InitialConversationOptions,
 } from './reducer/machine';
 export { classifyUserLine, normalizeOutput, type ClassifiedLine } from './history/classify';
+export { isSubagentTool, SUBAGENT_TOOL_NAMES } from './reducer/subagents';
 export {
   computeDropLastN,
   countPromptLines,
@@ -51,11 +52,14 @@ export {
   ACTIVE_SESSION_PLACEHOLDER,
   contextUsage,
   deriveTitle,
+  findSubagent,
   groupToolSteps,
   hasSdkId,
   isBusy,
   isRunLive,
   pendingPermission,
+  runningSubagents,
+  subagentPath,
   unmatchedResults,
   type ContextUsage,
   type GroupToolStepsOptions,

@@ -50,8 +50,8 @@ import com.assistant.core.design.icons.ArchieIcon
 import com.assistant.core.design.icons.ArchieIcons
 import com.assistant.core.design.theme.ArchieTheme
 
-/** Tool call state shown at the right of a card (mockup `.tc-st`). */
-enum class ToolStatus { Running, Waiting, Done, Error }
+/** Tool call state shown at the right of a card (mockup `.tc-st`). [Stopped]: a subagent the user or the session stopped. */
+enum class ToolStatus { Running, Waiting, Done, Error, Stopped }
 
 /** Where a card sits: alone (r16) or inside a group, where the group rounds the outer corners. */
 enum class ToolCardPlacement { Solo, Grouped }
@@ -80,6 +80,7 @@ fun ToolStatusIcon(status: ToolStatus) {
         ToolStatus.Waiting -> ArchieIcon(ArchieIcons.HourglassTop, "Waiting", size = 18.dp, tint = x.warning.color)
         ToolStatus.Done -> ArchieIcon(ArchieIcons.CheckCircle, "Done", size = 18.dp, tint = x.success.color)
         ToolStatus.Error -> ArchieIcon(ArchieIcons.Error, "Failed", size = 18.dp, tint = c.error)
+        ToolStatus.Stopped -> ArchieIcon(ArchieIcons.StopFilled, "Stopped", size = 18.dp, tint = c.onSurfaceVariant)
     }
 }
 
@@ -102,6 +103,8 @@ fun ToolCardShell(
     modifier: Modifier = Modifier,
     meta: (@Composable () -> Unit)? = null,
     placement: ToolCardPlacement = ToolCardPlacement.Solo,
+    /** Always visible under the header, collapsed or not (a subagent's live activity line, spec 12 §4.8). */
+    footer: (@Composable ColumnScope.() -> Unit)? = null,
     output: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     val c = ArchieTheme.colors
@@ -136,6 +139,10 @@ fun ToolCardShell(
                 }
                 ToolStatusIcon(status)
             }
+        }
+        if (footer != null) {
+            // Aligned with the name: 10 dp start padding + 28 dp tile + 12 dp gap.
+            Column(Modifier.fillMaxWidth().padding(start = 50.dp, end = 10.dp, bottom = 8.dp), content = footer)
         }
         if (output != null) {
             AnimatedVisibility(expanded, enter = expandVertically(tween(Motion.DurationShort4)), exit = shrinkVertically(tween(Motion.DurationShort4))) {

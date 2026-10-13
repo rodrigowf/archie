@@ -33,6 +33,7 @@ internal fun Draft.reduceFrame(f: ServerFrame) {
             queue.clear()
             status = SessionStatus.TERMINATED
             endTurn("terminated"); endVoice()
+            stopRunningSubagents()                                             // SA-3
             checkpoint = null
         }
         is ServerFrame.SessionStopped -> {
@@ -42,7 +43,15 @@ internal fun Draft.reduceFrame(f: ServerFrame) {
         is ServerFrame.VoiceEvent -> onVoiceEvent(f.event)
         is ServerFrame.VoiceOwnerActive -> if (f.active) voiceActive = true else endVoice()
         is ServerFrame.VoiceEnded, is ServerFrame.VoiceStopped -> endVoice()
-        is ServerFrame.SessionStarted -> if (f.voice == true) voiceActive = true
+        is ServerFrame.SessionStarted -> {
+            if (f.voice == true) voiceActive = true
+            if (isAgent) f.subagents?.forEach { upsertSummary(it) }            // SA-3 snapshot, in array order
+        }
+        // SA-1: subagent frames only ever touch `subagents` (never entries, tools, status, turn, stall, counters).
+        is ServerFrame.SubagentStarted -> onSubagentStarted(f)
+        is ServerFrame.SubagentProgress -> onSubagentProgress(f)
+        is ServerFrame.SubagentFinished -> onSubagentFinished(f)
+        is ServerFrame.SubagentEvent -> onSubagentEvent(f)
         is ServerFrame.NestedSessionEvent -> onNestedSessionEvent(f)
         is ServerFrame.AgentSessionClosed -> {
             // OPEN-3: this conversation itself left the pool (FOCUS-2: the flag must match its kind)
@@ -74,7 +83,22 @@ private fun Draft.onNestedSessionEvent(f: ServerFrame.NestedSessionEvent) {
 }
 
 private fun Draft.onUserMessage(f: ServerFrame.UserMessage) {
+    // SA-7: a CLI-injected task-notification turn is announced as a background notice (as BG-2 shows the
+    // same line from history); never a user bubble, never a tray pop.
+    if (f.source == "task_notification") {
+        appendEntry(NoticeEntry(newEntryId(), NoticeKind.BACKGROUND, f.text))
+        promptSinceTurnEnd = true                                             // its status{processing} is not a tray dispatch
+        return
+    }
     if (f.queued) { queue.add(QueuedPrompt(f.text, QueueOwner.REMOTE)); return }   // I-12
+    if (f.steered) {
+        // I-16: the message went into the running turn — into the timeline now (out of the tray if this
+        // device sent it), and the turn goes on.
+        val i = queue.indexOfFirst { it.text == f.text }
+        val owner = if (i >= 0) queue.removeAt(i).owner else null
+        appendEntry(UserEntry(newEntryId(), f.text, if (owner == QueueOwner.LOCAL) UserOrigin.LOCAL else UserOrigin.ECHO, UserState.SENT))
+        return
+    }
     if (f.source == "shared_inject") {
         val i = pendingInjects.indexOf(f.text)
         if (i >= 0) { pendingInjects.removeAt(i); markInjectSent(f.text); return }
@@ -206,6 +230,7 @@ private fun Draft.connectionOrSideError(code: String, detail: String?) {
 private fun Draft.closedByServer() {
     if (status != SessionStatus.TERMINATED) status = SessionStatus.STOPPED
     endTurn("stopped"); endVoice()
+    stopRunningSubagents()                                                   // SA-3
     if (awaitingSessionStarted) {                                            // no session_started will come (L-2)
         awaitingSessionStarted = false
         val held = preStart.toList()

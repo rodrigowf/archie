@@ -63,6 +63,9 @@ sealed interface ClientFrame {
     /** Chat: detach only. Orchestrator: stop it. Never sent from lifecycle paths (decision P-1). */
     data object Stop : ClientFrame { override val type get() = "stop" }
 
+    /** Spec 12 §4.8 SA-9: stop one subagent (chat WS). Answered by `subagent_finished{stopped}` or `error{unsupported}`. */
+    data class StopSubagent(val toolUseId: String) : ClientFrame { override val type get() = "stop_subagent" }
+
     data object VoiceStop : ClientFrame { override val type get() = "voice_stop" }
 
     data class SetModel(val model: String) : ClientFrame { override val type get() = "set_model" }

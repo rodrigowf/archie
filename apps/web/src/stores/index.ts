@@ -47,6 +47,8 @@ const placeholderSession = createStore<SessionState>(() => ({
   modelInfo: null,
   models: null,
   hidden: true,
+  subagentTab: null,
+  hiddenSubagentTabs: [],
 }));
 
 /** Re-renders when sessions are added, removed or re-keyed. */

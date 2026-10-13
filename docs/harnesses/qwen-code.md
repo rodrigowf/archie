@@ -3,7 +3,7 @@ name: qwen-code
 category: archie/harnesses
 tags: [qwen, qwen-code, harness, jsonl, stream-json, dashscope, spawn-per-turn, models, lazy-loading, catalog, harness-options, auto-memory]
 created: 2026-05-15
-modified: 2026-10-08
+modified: 2026-10-12
 summary: The Qwen Code harness (qwen-code 0.25.0) — spawn-per-turn qwen CLI, per-run system settings file, ~/.qwen symlinks into context/, JSONL normalization, model catalog + options, the auto-memory landmine.
 source: curated (consolidated from memory notes assistant/providers/qwen_code_adaptation.md, assistant/providers/provider_generalization.md; verified against code 2026-10-06)
 references:
@@ -16,6 +16,8 @@ references:
   - ../infrastructure/ssh-remote-execution.md
   - ../voice/qwen-omni.md
   - ../architecture/memory-and-search.md
+  - ../specs/12-client-protocol.md
+  - ../projects/subagent-view/PLAN.md
 ---
 
 # Qwen Code harness
@@ -38,9 +40,10 @@ Qwen Code as a chat harness is unrelated to the Qwen-Omni **voice** provider
 | `backend/manager/qwen/models.py` | `list_qwen_models()` / `QwenModelInfo` — model list from `~/.qwen/settings.json` (back-compat route) |
 | `backend/manager/qwen/catalog.py` | `load_qwen_catalog()` (the `HarnessSpec.catalog_loader`), DashScope live list, `qwen_model_traits()` family table, `option_applies()` |
 | `backend/manager/qwen/run_settings.py` | `build_run_settings()` — the per-run `QWEN_CODE_SYSTEM_SETTINGS_PATH` file; write/remove helpers |
+| `backend/manager/qwen/subagent_files.py` | Subagent history: `subagents/<sid>/agent-*.jsonl` + `.meta.json` → `SubagentSummary` rows; `qwen_subagent_dir()`, `transcript_report()` ([Subagents](#subagents)) |
 | `backend/api/routes/config.py` | `GET /api/config/harness/qwen/models` (old dropdown); the catalog is served by the generic `/api/config/harness/qwen/catalog` |
 | `backend/manager/context_windows.py` | Reads `contextWindowSize` per model from the settings file; family-table fallback for live-only ids |
-| `backend/tests/test_qwen_session.py`, `test_qwen_adapter.py`, `test_store_qwen.py`, `test_qwen_models.py`, `test_qwen_catalog.py`, `test_qwen_run_settings.py`, `test_qwen_session_ssh.py`, `test_qwen_session_e2e.py` | Tests (e2e runs the real CLI only with `QWEN_E2E=1`) |
+| `backend/tests/test_qwen_session.py`, `test_qwen_adapter.py`, `test_store_qwen.py`, `test_qwen_models.py`, `test_qwen_catalog.py`, `test_qwen_run_settings.py`, `test_qwen_session_ssh.py`, `test_qwen_session_e2e.py`, `test_qwen_subagents.py` | Tests (e2e runs the real CLI only with `QWEN_E2E=1`) |
 
 ## Storage and config symlinks
 
@@ -125,7 +128,9 @@ Qwen's stdout is Anthropic-shaped, and `_translate_event()` maps it:
 | `stream_event` `content_block_stop` | `TextComplete` / `ThinkingComplete` |
 | `assistant` (complete message) | `ToolUse` for each `tool_use` block |
 | `user` with `tool_result` blocks | `ToolResult` |
-| `result` | `TurnComplete` (`cost=None` — Qwen reports no cost; `session_id`, usage). On `is_error` with no `result` text, `error.message` (API errors, loop detection, `--max-wall-time`/tool-call budgets) — else the `subtype` — becomes `TurnComplete.result` |
+| `result` | `TurnComplete` (`cost=None` — Qwen reports no cost; `session_id`, usage). On `is_error` with no `result` text, `error.message` (API errors, loop detection, `--max-wall-time`/tool-call budgets) — else the `subtype` — becomes `TurnComplete.result`. A failed subagent's parentless error `result` is **not** a turn end ([Subagents](#subagents)) |
+| any line with `parent_tool_use_id` | the same mapping, wrapped in `SubagentEvent` ([Subagents](#subagents)) |
+| `system` `task_started` / `task_notification` | subagent lifecycle ([Subagents](#subagents)) |
 | `stream_event` `goal_state`, `control_response`, unknown `system` subtypes | ignored |
 
 Lifecycle: `_run_lifecycle()` pings SSH targets first, adopts the resume id, runs `_prewarm()`
@@ -228,6 +233,65 @@ builds, so clients pair each result with its call; keeps `usageMetadata` and `mo
 `system` lines. Tool-result lines are not visible turns and do not count as messages. Detection: `message.parts` without `content`, `role: "model"`, or a
 `system` line with `subtype`. Sessions are never marked orchestrator.
 
+## Subagents
+
+Contract: [spec 12 §4.8](../specs/12-client-protocol.md#48-subagents-sa-); plan:
+[subagent view](../projects/subagent-view/PLAN.md); the harness-neutral pieces (registry, events, the
+pool's out-of-turn path) are described in [claude-code.md → Subagents](claude-code.md#subagents) and
+[agent sessions](../architecture/agent-sessions.md#out-of-turn-events-and-subagents).
+
+**What qwen-code 0.25 sends** (live probes, 2026-10-12, qwen3.6-plus): the model's `agent` tool
+(`{description, prompt, subagent_type?, run_in_background?}`; `subagent_type` defaults to
+`general-purpose`) spawns a subagent keyed by that call's id.
+
+- **Foreground** agent: the subagent's lines carry `parent_tool_use_id` = the `agent` call id — first
+  a `user` line with its prompt (text), then its tool calls (`stream_event` `content_block_*` for the
+  `tool_use` block, numbered **from index 0 in the subagent's own message**, then the full
+  `assistant` message) and their `user` `tool_result`s. Subagent text and thinking are **not**
+  streamed; the agent's answer arrives as the parent-level `tool_result` of the `agent` call. No
+  `task_*` messages.
+- **Background** agent (`run_in_background: true`): the prompt `user` line (with the parent id), then
+  `system` `task_started {task_id: "<type>-<call id>", tool_use_id, description, subagent_type}`, the
+  `agent` call's result `Background agent launched successfully. task_id: …`; its inner tool calls
+  are **not streamed at all**. When it ends: a parent-level `user` text (`Background agent "…"
+  completed.`) and `system` `task_notification {task_id, tool_use_id, status, usage{total_tokens,
+  tool_uses, duration_ms}}` — no report text (the `<result>` goes to the model only). The CLI waits for
+  every background agent inside the same run, before its final `result` (one process per turn, so
+  nothing outlives the turn).
+- **Failed / cancelled** subagent (bundle `emitSubagentErrorResult`): a `result` line with **no**
+  `parent_tool_use_id`, `subtype: error_during_execution`, `is_error: true`, `duration_ms: 0`,
+  `duration_api_ms: 0`, `num_turns: 0`. Before 2026-10-12 this ended the user's turn early.
+
+**Mapping** (`_translate_event`):
+
+| Qwen | Event(s) |
+|---|---|
+| line with `parent_tool_use_id` | `SubagentEvent(<parent>, ToolUse / ToolResult / TextDelta / …)`; never changes `status` |
+| `agent` / `task` tool_use (main or nested) | the usual `ToolUse`, then `SubagentStarted` (`background` from `run_in_background`) |
+| the `agent` call's own result | foreground: `SubagentFinished(done/failed, summary = the result)`; a background launch only records the task id |
+| `task_started` (known call id) | background flag + task id; monitor tasks (unknown ids) are ignored |
+| `task_notification` | `UnpromptedTurnStarted` → `user_message{source:"task_notification"}` with the `<task-notification>` text Qwen writes to the JSONL (report read from the agent's transcript), then `SubagentFinished(status, summary, usage)` |
+| parentless error `result` with zero durations while an agent runs | `SubagentFinished(failed, error.message)` for the agent that spoke last (else the newest running one); the turn goes on |
+| final `result` | agents still running → `SubagentFinished(stopped)`, then `TurnComplete` |
+
+`block_meta` (open content blocks) is keyed by `(parent_tool_use_id, index)` and each subagent has
+its own text/thinking buffers, so a subagent's block 0 can't close the parent's. If the process ends
+without a final `result` (kill, interrupt), the running agents go out as `subagent_finished{stopped}`
+through the pool's out-of-turn sink. **Stop (SA-9)** is unsupported (`error{unsupported}`): stdin is
+closed after the prompt, so the CLI's `task_stop` can't be reached.
+
+**History (SA-8).** `subagent_files.scan()` reads, next to `chats/<sid>.jsonl` in the project data dir
+(`context/` for the repo): `subagents/<sid>/agent-<agentId>.jsonl` (same line format as a session,
+`isSidechain: true`, written while the agent runs) and `agent-<agentId>.meta.json` `{agentId,
+agentType, description, toolUseId, parentAgentId, status, isBackgrounded, createdAt,
+lastUpdatedAt, depth}`; the parent JSONL adds spawn calls with no sidecar (failed before starting)
+and the `<task-notification>` usage. Summary = the transcript's last non-thought answer; nesting
+from `parentAgentId`; a row with no terminal status is `done` with an answer, else `stopped` (the
+live registry wins for an open session). Transcripts are read with `QwenAdapter.read_messages()`.
+For the live report of a background agent the session reads
+`~/.qwen/projects/<sanitized cwd>/subagents/<sid>/agent-<task id>.jsonl` (`QWEN_HOME` honoured);
+SSH sessions keep their files on the remote: no report text and no history there.
+
 ## Models (old dropdown)
 
 `GET /api/config/harness/qwen/models` (still used by the Android and legacy UIs) returns whatever
@@ -262,8 +326,8 @@ asks for that provider. Saving an orchestrator model whose SDK is missing return
   hand in the repo are *not* covered — set the same keys in `.qwen/settings.json` or run with
   `--bare` if that matters.
 - **Never set `QWEN_RUNTIME_DIR` / `QWEN_HOME` for production runs** — they move `projects/` (and so
-  the chats) away from the `context/` symlink. `QWEN_HOME` is honoured by `models.py`/`catalog.py`
-  only, for tests.
+  the chats) away from the `context/` symlink. `QWEN_HOME` is honoured by `models.py`/`catalog.py`/
+  `subagent_files.py` only, for tests.
 - **Provider entries are sealed**: per-model generation knobs must be on the `modelProviders`
   entry, not in `model.generationConfig` (silently ignored). `samplingParams` on a non-DashScope /
   non-GPT host suppresses Qwen's own `reasoning` injection — the `thinking` option goes through
@@ -326,3 +390,7 @@ steps — and the subprocess plus stdin/stdout path gives that uniformly.
   from `error.message`, yolo warning suppressed.
 - 2026-10-08 — `MEMORY.md` block via `--append-system-prompt` in the repo (memory parity with
   Claude Code).
+- 2026-10-12 — subagents (spec 12 §4.8): `parent_tool_use_id` lines routed into `subagent_event`,
+  lifecycle from `agent` calls / `task_started` / `task_notification`, a failed subagent's
+  parentless error `result` no longer ends the turn, `block_meta` keyed by (parent, index), history
+  from `subagents/<sid>/`.

@@ -95,6 +95,15 @@ describe('classifyUserLine and normalizeOutput', () => {
     expect(classifyUserLine('[audio:webm] what is this?')).toEqual({ kind: 'user', text: 'what is this?', origin: 'audio' });
   });
 
+  it('BG-2: a task notification is a background notice, also after the CLI header (subagent transcripts)', () => {
+    const block = '<task-notification>\n<task-id>b9</task-id>\n<status>completed</status>\n</task-notification>';
+    expect(classifyUserLine(block)).toEqual({ kind: 'notice', notice: 'background', text: block });
+    const header = '[SYSTEM NOTIFICATION - NOT USER INPUT]\nThis is an automated background-task event, NOT a message from the user.\n\n';
+    expect(classifyUserLine(header + block)).toEqual({ kind: 'notice', notice: 'background', text: block });
+    expect(classifyUserLine('[SYSTEM NOTIFICATION - NOT USER INPUT] hi')).toEqual({ kind: 'user', text: '[SYSTEM NOTIFICATION - NOT USER INPUT] hi', origin: 'history' });
+    expect(classifyUserLine('see <task-notification>')).toEqual({ kind: 'user', text: 'see <task-notification>', origin: 'history' });
+  });
+
   it('R-3 output normalisation', () => {
     expect(normalizeOutput('s')).toBe('s');
     expect(normalizeOutput(null)).toBe('');

@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,35 +57,40 @@ fun Spinner(
     color: Color = ArchieTheme.colors.primary,
     strokeWidth: Dp = 2.dp,
 ) {
-    val angle = if (ArchieTheme.reduceMotion) {
-        0f
+    // The angle is read only in the graphics layer: the spinner turns without recomposition, relayout
+    // or a new semantics modifier every frame (accessibility services walk the tree on each change).
+    val angle: State<Float>? = if (ArchieTheme.reduceMotion) {
+        null
     } else {
-        val t = rememberInfiniteTransition(label = "spinner")
-        val a by t.animateFloat(
+        rememberInfiniteTransition(label = "spinner").animateFloat(
             initialValue = 0f,
             targetValue = 360f,
             animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Restart),
             label = "spinner-angle",
         )
-        a
     }
-    Canvas(modifier.size(size).semantics { contentDescription = "Working" }) {
+    Canvas(
+        modifier
+            .size(size)
+            .graphicsLayer { rotationZ = angle?.value ?: 0f }
+            .then(SpinnerSemantics),
+    ) {
         val w = strokeWidth.toPx()
-        rotate(angle) {
-            // A CSS border ring with a transparent right side: the visible arc runs from the
-            // bottom-right diagonal round to the top-right diagonal.
-            drawArc(
-                color = color,
-                startAngle = 45f,
-                sweepAngle = 270f,
-                useCenter = false,
-                topLeft = androidx.compose.ui.geometry.Offset(w / 2, w / 2),
-                size = androidx.compose.ui.geometry.Size(this.size.width - w, this.size.height - w),
-                style = Stroke(width = w),
-            )
-        }
+        // A CSS border ring with a transparent right side: the visible arc runs from the
+        // bottom-right diagonal round to the top-right diagonal.
+        drawArc(
+            color = color,
+            startAngle = 45f,
+            sweepAngle = 270f,
+            useCenter = false,
+            topLeft = androidx.compose.ui.geometry.Offset(w / 2, w / 2),
+            size = androidx.compose.ui.geometry.Size(this.size.width - w, this.size.height - w),
+            style = Stroke(width = w),
+        )
     }
 }
+
+private val SpinnerSemantics: Modifier = Modifier.semantics { contentDescription = "Working" }
 
 /** Session/tab live state (IA §3): idle dot, working spinner, needs-you hand, disconnected warning. */
 enum class LiveStatus { Idle, Working, NeedsYou, Disconnected, Off }

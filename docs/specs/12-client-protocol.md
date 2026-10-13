@@ -406,7 +406,8 @@ onWatcherEvent(e):               // only arrives on the orchestrator WS, even un
 - **OPEN-3. Closed = gone, everywhere, at once.** When a conversation leaves the pool — `agent_session_closed{session_id, is_orchestrator}` (check the flag, FOCUS-2), `error{session_closed}`, or a `pool/live` read without its row (OPEN-4) — every client closes its view immediately, whether it is active or not, without a `close` request (the server already closed it). If it was active, focus moves to its neighbouring view, as after an explicit close. Orchestrator: `orchestratorRef = null`, voice ends (§7), the Archie slot shows the empty "New conversation" state. A client MAY show a one-line notice ("Closed on another device"; for `session_terminated{reason}` the reason). *Rationale:* until 2026-10-10 a view the user had looked at stayed as a "Stopped" tab (FOCUS-3, now removed), listed under "Open now" with no session behind it, and its next automatic `start` re-opened the session on the server for every device.
 - **OPEN-4. Reconcile on every read.** Clients read `pool/live` on every orchestrator socket open and every visible/foreground (§3.5), and after each `session_started` of an agent view (ST-2, one read for both): views whose row is missing close (OPEN-3), the others take the row's status (ST-2), rows with no view here are listed (OPEN-1). Watcher events keep it current in between: `agent_session_opened` adds the row on every device, `agent_session_closed` removes it.
 - **MC-1.** Mutations are not broadcast (G-27). After rename, delete, duplicate, rewind, fork, close and config writes, the acting client refreshes its own stores. Other clients see changes on their next `refreshList()` (visible, watcher event, or any `turn_complete`).
-- **TURN-1.** Turn watcher events (added 2026-10-09 for device notifications). `pool.send()` (`backend/api/pool.py`), the path of every agent turn (chat tabs and the orchestrator's runner; never the orchestrator's own turns), tells every pool watcher:
+- **TURN-1.** Turn watcher events (added 2026-10-09 for device notifications). `pool.send()` (`backend/api/pool.py`), the path of every agent turn (chat tabs and the orchestrator's runner; never the orchestrator's own turns), and the pool's out-of-turn path (a turn the harness starts on its own, e.g. a Claude task-notification turn, §4.8) tell every pool watcher (a prompt sent while such a harness turn runs is echoed only after it ends — bounded
+  wait, 30 s):
   - `agent_turn_started{session_id, sdk_session_id, provider}` when a turn begins;
   - `agent_turn_finished{session_id, sdk_session_id, provider, title, status, preview, error}` when it ends. `session_id` is the agent's `localId`. `status` is `ok` | `error` | `interrupted`: a turn stopped through `pool.interrupt` (chat Stop, `cancel_turn`, a superseding prompt, the runner's cancel) is `interrupted` even though the SDK still sends a `TurnComplete`; an `is_error` `TurnComplete`, an exception, an abandoned turn after its retry and the runner's timeout are `error` (the timeout arrives as `interrupted` then `error`). `title` is the session's custom title or first prompt (null when unknown: use MC-2). `preview` is one line of the turn's final assistant text (markdown markers dropped, ≤ 200 chars); `error` the failure detail when `status == "error"`. An unknown `status` reads as `ok`.
 
@@ -439,6 +440,7 @@ These invariants are normative. Each one is checkable on the reducer's output, s
 | **I-13 Determinism** | Same initial state + same input sequence ⇒ same state, on every platform. |
 | **I-14 Focus** | The reducer has no notion of focus. No input may change the active view (FOCUS-1). |
 | **I-15 Transport errors are not content** | Socket errors, reconnect failures and start failures never create entries. |
+| **I-16 Steer** | A prompt that the server delivers into the running turn (`user_message{steered: true}`, sent to every subscriber, the sender included) joins the timeline at once, at the end: out of the tray when this client sent it (origin `local`), else as an `echo`. It does **not** end the turn (TL-2 exception) and does not change `status`; a block being streamed splits around it (I-5). |
 
 ### 4.2 Inputs
 
@@ -705,6 +707,12 @@ function reduce(f) {
 
   case "user_message": {
     if (f.queued) { queue.push({ text: f.text, owner: "remote" }); return }      // I-12
+    if (f.steered) {                                           // I-16: into the running turn; the turn goes on
+      const i = queue.findIndex(q => q.text == f.text)         // this client's tray item, or a remote one
+      const owner = i >= 0 ? queue.splice(i, 1)[0].owner : null
+      appendEntry({ kind: "user", text: f.text, origin: owner == "local" ? "local" : "echo", state: "sent" })
+      return
+    }
     if (f.source == "shared_inject") {
       const i = pendingInjects.indexOf(f.text)
       if (i >= 0) { pendingInjects.splice(i, 1); markInjectSent(f.text); return }
@@ -727,7 +735,7 @@ function reduce(f) {
 
   case "turn_complete":
     if (ref.kind == "agent") {
-      counters.cost += f.cost ?? 0
+      counters.cost += f.cost ?? 0            // f.cost = this turn's own cost (USD), never a running total
       counters.turns += f.num_turns ?? 1
       const it = f.input_tokens ?? f.usage?.input_tokens
       if (typeof it == "number" && it > 0) counters.contextTokens = it
@@ -906,12 +914,16 @@ sender:    (local_send appended the entry) → status{processing} → content…
 queued:    sender: local_send while busy ⇒ tray; … turn_complete → status{processing} ⇒ pop tray into timeline
            observer: user_message{text,queued:true} ⇒ tray; … turn_complete → status{processing} ⇒ pop tray head into timeline
            (backend O-6 no longer re-echoes it; a pre-O-6 re-echo is swallowed via dispatchedFromTray). `dispatchedFromTray` is cleared on turn end.
+steered:   sender: local_send while busy ⇒ tray; user_message{text,steered:true} ⇒ out of the tray into the timeline; content… → turn_complete
+           observer: user_message{text,steered:true} ⇒ timeline; content… → turn_complete (I-16; one turn_complete for both)
 interrupt: sender: status{interrupted} (direct) ⇒ notice "interrupted", endTurn
+harness:   user_message{source:"task_notification"} → status{processing} → content… → turn_complete
+           (a turn the CLI starts itself, §4.8; one that ends inside the user's turn sends no turn_complete)
            observer: nothing until the next user_message/status{processing} ⇒ endTurn("superseded")
 ```
 
 - **TL-1.** `turn_complete` MUST end the turn (`endTurn`) but MUST NOT close the run (I-2). The next run starts only after a non-assistant entry.
-- **TL-2.** A turn is also ended by: `status{interrupted}`, a turn-failure `error`, `session_stopped`, `session_terminated`, and a new `user_message`/`status{processing}` while `inTurn` (the observer of an interrupted turn, G-4).
+- **TL-2.** A turn is also ended by: `status{interrupted}`, a turn-failure `error`, `session_stopped`, `session_terminated`, and a new `user_message`/`status{processing}` while `inTurn` (the observer of an interrupted turn, G-4) — except `user_message{steered: true}`, which joins the running turn (I-16).
 - **TL-3.** Content arriving while `!inTurn` (observer attached mid-turn, replayed tail, slash-command output) implicitly starts a turn (`ensureAgentTurn`) without a prompt.
 
 #### 4.4.2 Orchestrator text turns
@@ -931,7 +943,7 @@ exception path:   status{streaming} → … → error{send_failed|send_audio_fai
 Before backend O-3 the orchestrator did not echo typed prompts to other devices (G-22); it now echoes typed prompts and voice messages (VM-1). Background-agent wake turns stream a reply with no prompt at all (01 §5.1). `background_notification` lines exist only in the JSONL and are never sent live (`orchestrator/session.py:1654-1670`).
 
 - **BG-1.** When the first assistant content of an orchestrator text turn arrives, the turn was not started by this client (`turnIsLocal == false`), **and the entry immediately before the new run is not a user entry** (since backend O-3, prompts typed on other devices arrive as `user_message` echoes and voice messages as `user_message{source:"voice_message"}` echoes (VM-1); both are visible prompts, not background), the reducer appends `notice{background}` before the run (`maybeBackgroundNotice`). UI copy: "Background update" with the explanation "The orchestrator replied to a background task or to another device." This keeps the reply in its own run and visibly unprompted.
-- **BG-2.** History lines `<task-notification>…` (Claude Code background tasks) become `notice{background, text: <line>}` (§5.1).
+- **BG-2.** History lines `<task-notification>…` (Claude Code background tasks) become `notice{background, text: <line>}` (§5.1). In a subagent's transcript the CLI puts a header before the block (`[SYSTEM NOTIFICATION - NOT USER INPUT]` and a few lines of explanation; the agent's own background command ended): such a line is the same notice, its `text` the line from `<task-notification>` on, without the header.
 
 #### 4.4.4 Errors
 
@@ -1048,6 +1060,133 @@ function voiceTurnEnd() {
 - **VT-2.** Passive viewers render transcripts exactly like the owner, for every provider. WS providers: the backend relay broadcasts every provider event. OpenAI (WebRTC): the owner mirrors its data-channel events as `voice_event`, and the backend re-broadcasts the transcript ones (the event types of the table above) to every other subscriber, never back to the owner, which renders from its data channel (`api/routes/orchestrator.py` `_mirror_to_passive_viewers`). Before 2026-10-10 the backend did not, and passive viewers saw only tool cards (G-32).
 - **VT-3.** `voice_ended`/`voice_stopped`, `voice_owner_active{active:false}` and `voice_local_end` run `endVoice()` on **every** device, owner or passive, so voice tool cards always finish (A-4.3 compounding paths). This is conversation state; it is separate from the passive device's own voice-button state (§7.5).
 
+### 4.8 Subagents (SA-*)
+
+A session can spawn **subagents** — nested agents started by a tool call: Claude Code / Model Studio
+`Agent` (alias `Task`), Qwen `agent` (alias `task`), Gemini `invoke_agent`, Codex `spawnAgent`.
+A subagent is identified by the **`tool_use_id` of the call that spawned it** (Codex: the
+`collabAgentToolCall` item id of the `spawnAgent` call). Its own activity never enters the parent's
+timeline; it is a separate conversation the user opens in its own tab (UI: [web.md](../clients/web.md),
+[android.md](../clients/android.md)). Before 2026-10 the backend flattened subagent tool calls into the
+parent stream and dropped everything else.
+
+**Frames (agent chat WS, server → client).** All four are seq-stamped like the other content frames of a
+Claude agent session (§3.6) — the wrapper carries `seq`/`stream_id`, an inner `frame` never does.
+
+```ts
+subagent_started  { tool_use_id, parent_tool_use_id: string|null,   // null = spawned by the main agent
+                    agent_type: string, description: string, background: boolean,
+                    started_at: string /* ISO-8601 */ }
+subagent_progress { tool_use_id, activity: string /* one line, e.g. "Grep" */,
+                    usage: { tokens: number|null, tool_uses: number|null, duration_ms: number|null } }
+subagent_finished { tool_use_id, status: "done"|"failed"|"stopped", summary: string,
+                    usage: {…as above…}, ended_at: string }
+subagent_event    { tool_use_id, frame: Frame }   // frame ∈ text_delta, text_complete, thinking_delta,
+                                                  // thinking_complete, tool_use, tool_result
+```
+
+`session_started` (chat WS) carries `subagents: SubagentSummary[]` — every subagent the backend knows for
+this session (running and finished), oldest first. A CLI-injected task-notification turn (a background
+subagent finished and the parent reacts) is announced with `user_message{text, source:"task_notification"}`
+before its `status{processing}`. That `user_message` carries `seq`/`stream_id` (it is in the replay ring, so a reconnecting client gets it
+replayed), unlike a prompt echo (SEQ-3); clients accept it with or without them. A subagent the CLI folds into a running turn (it finished while that
+turn was still working) gets no task-notification turn of its own. Note (CLI 2.1.292): the
+CLI runs **every** Agent call in the background, so the parent turn usually ends before its subagents, and
+several queued notifications can produce a turn with no content (TL-5 applies: it leaves no trace beyond its
+notice).
+
+**Client model.** `Conversation` gains `subagents: OrderedMap<tool_use_id, Subagent>` (insertion = first
+sight):
+
+```ts
+Subagent = { tool_use_id, parent_tool_use_id: string|null, agent_type: string, description: string,
+             background: boolean, status: "running"|"done"|"failed"|"stopped",
+             activity: string|null, usage: {tokens, tool_uses, duration_ms} | null, summary: string|null,
+             started_at: string|null, ended_at: string|null,
+             conv: Conversation | null,          // the subagent's own transcript; null until opened (SA-5)
+             held: Frame[] | null }              // inner frames held while its first history page loads
+```
+
+```ts
+function upsertSubagent(id, fields) {            // creates in first-sight order, then merges non-null fields
+  const s = subagents.get(id) ?? subagents.set(id, blankSubagent(id))   // status "running", rest null/""
+  for (const k in fields) if (fields[k] !== undefined && fields[k] !== null) s[k] = fields[k]
+  return s
+}
+case "subagent_started":  upsertSubagent(f.tool_use_id, { status: "running", ...pick(f, "parent_tool_use_id",
+                                         "agent_type", "description", "background", "started_at") }); return
+case "subagent_progress": upsertSubagent(f.tool_use_id, { activity: f.activity, usage: f.usage }); return
+case "subagent_finished": { const s = upsertSubagent(f.tool_use_id, { status: f.status, summary: f.summary,
+                                        usage: f.usage, ended_at: f.ended_at })
+                            if (s.conv) endTurnOf(s.conv, "subagent_finished"); return }
+case "subagent_event": {
+  const s = upsertSubagent(f.tool_use_id, {})
+  if (f.frame.type == "tool_use") s.activity = f.frame.tool_name
+  if (s.held) s.held.push(f.frame)
+  else if (s.conv) reduceInner(s.conv, f.frame)    // §4.3 reducer, no seq handling (SA-4)
+  return                                           // conv == null: nothing else is kept (SA-5)
+}
+```
+
+**Resumed agents.** The CLI can wake an agent that already finished (it backgrounded its own command and
+ended its turn; when the command ends the agent runs on). The backend then sends `subagent_started` again
+(same `tool_use_id`, the first `started_at`), the new run's frames, and a second `subagent_finished`.
+`subagent_started` for an agent that is already finished sets it back to `running` (the CLI resumed it): it
+is a live lifecycle frame, not a stale row, so SA-3's "terminal statuses stick" does not apply to it. An open
+transcript's turn restarts through TL-3 with the new inner content. Fixtures `subagent_resumed_after_finish`,
+`subagent_resumed_still_running`.
+
+- **SA-1. Never in the parent timeline.** `subagent_*` frames MUST NOT change the parent's `entries`,
+  `tools`, `status`, `inTurn`, `stall` or `counters`, and MUST NOT start a turn (TL-3 does not apply).
+- **SA-2. Placeholders from spawn cards.** A `ToolBlock` whose normalised tool name is `Task` (§ tool
+  normalisation: `Agent`, `Task`, `agent`, `task`, `invoke_agent`) — live or from history — MUST
+  `upsertSubagent(tool_use_id, {agent_type: input.subagent_type ?? input.agent_name ?? "",
+  description: input.description ?? ""})` when it is created (an empty string never overwrites a known
+  value). When that block gets its result and the subagent has seen no `subagent_started`,
+  `subagent_finished` or server row (SA-3 snapshot, SA-8 list) — a harness without lifecycle frames, or
+  history — its status follows the block: `done`→`done`, `error`→`failed`, `no_result`→`stopped`;
+  `summary` = the output. A subagent that has seen one of those takes status only from them (a background
+  agent's spawn card completes at launch while the agent keeps running).
+- **SA-3. Snapshot.** Each `session_started.subagents[i]` is `upsertSubagent`ed in array order (never
+  deletes). **Terminal statuses stick (rows only):** a server row (this snapshot or the SA-8 list) may move a `running`
+  subagent to a terminal status but never a terminal one back to `running` (a row computed before the live
+  `subagent_finished` can arrive after it). This applies only to a terminal status that came from a lifecycle
+  frame or an earlier server row: a status that only the spawn card set (SA-2) is always corrected by a row (a
+  background agent's card from history reads `done` at launch while the list says `running`). A later `subagent_finished` always applies (the backend may send a
+  second one that fills in `summary`/`usage`). `session_stopped` / `session_terminated` set every `running` subagent to `stopped`.
+- **SA-4. Inner frames.** `reduceInner(conv, frame)` is the §4.3 reducer applied to the subagent's own
+  conversation (kind `agent`, the parent's provider), bypassing §3.6 (the parent's checkpoint already
+  deduplicated the wrapper). Inner content outside a turn starts one (TL-3); `subagent_finished` ends it — when it arrives while `held`
+  is non-null (the first page is still loading) the end is queued in `held` behind the held frames, so the
+  transcript never stays "working" after the page lands.
+- **SA-5. Lazy transcripts (memory).** A subagent's `conv` is created only when the user opens it
+  (`openSubagent`). Until then the client keeps only the `Subagent` summary; inner frames update
+  `activity` and are dropped. Opening: create `conv`, set `held = []`, fetch the first page of
+  `GET /api/sessions/{sdkId}/subagents/{tool_use_id}/messages`, apply it as `history_page{replace}` to
+  `conv` (§5.1), then feed `held` in order through `reduceInner` (the §5.4 overlap dedupe applies) and set
+  `held = null`. A failed fetch still releases `held` (the transcript then starts at the live tail) and
+  shows the history error in that tab. The client MAY drop the `conv` of a subagent that is not on screen
+  (`releaseSubagent`: `conv = null`, `held = null`) and re-open it later the same way; it SHOULD keep at
+  most 3 materialised transcripts per session (the visible one and the 2 most recently viewed).
+- **SA-6. Nesting.** A subagent with `parent_tool_use_id` set was spawned by another subagent. Its inner
+  frames arrive keyed by its own `tool_use_id` (routing is flat; the backend never nests wrappers).
+  Clients show the path (`Main › Explore › worker`) from the `parent_tool_use_id` chain.
+- **SA-7. Task notifications.** `user_message{source:"task_notification"}` MUST append
+  `notice{background, text}` (as BG-2 does for the same line in history), never a user bubble, and MUST
+  NOT pop the tray.
+- **SA-8. REST.** `GET /api/sessions/{sdkId}/subagents` → `{subagents: SubagentSummary[]}` (from the
+  live registry and the harness's files on disk; old Claude files without a `toolUseId` are matched
+  through the parent's `toolUseResult.agentId`). `GET /api/sessions/{sdkId}/subagents/{tool_use_id}/messages`
+  → the `PaginatedMessagesResponse` shape of §5.1 (404 when unknown; an empty page when the harness keeps
+  no transcript). After the first history page of a view that created any SA-2 placeholder, the client
+  fetches the list once and upserts every row.
+- **SA-9. Stop.** `stop_subagent{tool_use_id}` (client → server, chat WS) asks the harness to stop one
+  subagent (Claude `stop_task`, Codex `turn/interrupt` on the child thread). The answer is the normal `subagent_finished
+  {status:"stopped"}`; harnesses that cannot stop one answer `error{unsupported}`. Other answers: `error{unknown_subagent}`,
+  `error{subagent_not_running}`, `error{invalid_stop_subagent}`, `error{stop_subagent_failed}` (protocol class, §4.4.4; `detail` is human text).
+
+`SubagentSummary` = the `Subagent` fields without `conv`/`held`.
+
 ---
 
 ## 5. History (REST) and merging with live events
@@ -1128,6 +1267,8 @@ function classifyUserLine(text): Entry {
   if (text.startsWith("[Request interrupted by user"))   return notice("interrupted", "")
   if (text.startsWith("This session is being continued from a previous conversation")) return notice("compaction", text)
   if (text.startsWith("<task-notification>"))           return notice("background", text)
+  if (text.startsWith("[SYSTEM NOTIFICATION - NOT USER INPUT]") && text.includes("<task-notification>"))
+                                                         return notice("background", text.slice(text.indexOf("<task-notification>")))
   if (/^<(command-name|command-message|command-args|local-command-stdout|local-command-stderr|local-command-caveat)>/.test(text))
                                                          return notice("command", text)
   return user(text, "history")
@@ -1227,7 +1368,7 @@ Reconcile never adds, removes or reorders entries. It only fills tool results. I
 | Voice and audio turns carry text prefixes | G-11 | `classifyUserLine` strips them and sets `origin`. |
 | CLI meta lines (`<command-name>`, compaction summary, "[Request interrupted…]", `<task-notification>`) appear as user lines | 01 §6.2 | Rendered as notices, not user bubbles. |
 | Live and history structure of a wake turn differ (live: separate run after `notice{background}`; history: merged into the previous run) | G-22 | Accepted. |
-| Subagent (Task) events may appear flat in the live stream but not in history | 01 §4.4 AMBIGUOUS | Tolerate ids that never appear in history; R-2/R-9 keep their results reachable. |
+| Subagent transcripts are not in the parent's history | by design (§4.8) | Each subagent has its own history endpoint (SA-8); the parent keeps only the spawn card. |
 | A `tool_use` whose result was never written (session died mid-tool) | — | `no_result` "No output recorded". |
 
 ---
@@ -1243,7 +1384,12 @@ local_send(text)                                       // reducer: timeline entr
 WS→ {type:"send", text}
 ⇐ status{processing} (sender gets no user_message echo) … turn_complete
 ```
-Sending while busy is allowed and queues server-side (web parity; Android must allow it, 03 §5). The tray shows queued prompts with a "queued" chip; they move into the timeline when dispatched (I-12). If a permission is pending, the same send denies it with the text as feedback (§6.9).
+Sending while busy is allowed (Android must allow it, 03 §5). The client puts the text in the tray ("queued" chip) and sends it at once; the server decides what happens:
+
+- **Steer (I-16, Claude and Model Studio agents).** The server writes it to the running turn: the CLI hands it to the model at the turn's next model request ("the user sent a new message while you were working"), so the agent changes course without stopping. Every device, the sender included, gets `user_message{text, steered: true}` and shows it in the timeline at once. If the turn ends before another model request, the CLI answers it in a turn of its own right away; the server keeps that inside the same turn (no `turn_complete` in between, no new `status{processing}`), so clients see one turn.
+- **Queue (I-12, harnesses that cannot steer, or prompts already queued).** The server queues it behind the turn; the tray item moves into the timeline when it is dispatched.
+
+If a permission is pending, the same send denies it with the text as feedback (§6.9); a steering harness then only announces the text (`steered: true`) — the denial already carried it into the turn. The orchestrator's `send_to_agent_session` steers the same way when the session is working (status `steered` in the tool result).
 
 ### 6.2 Send (orchestrator)
 
@@ -1259,7 +1405,7 @@ The server serialises turns; there is no tray for the orchestrator. Other device
 agent:        local_interrupt(); WS→ {type:"interrupt"}  ⇐ status{interrupted} (direct)
 orchestrator: WS→ {type:"interrupt"}                    ⇐ status{interrupted} (broadcast) … error{interrupted} … status{idle}
 ```
-Interrupt drops every server-queued prompt; the sender's tray is cleared (its texts MAY be restored into the input). `interrupt` does not stop a realtime voice response (G-34): in voice mode the Stop control is `voice_stop` (§7).
+Stop also applies while the harness runs a turn of its own (a task-notification turn, §4.8): the server interrupts it and answers `status{interrupted}` to every device. Interrupt drops every server-queued prompt; the sender's tray is cleared (its texts MAY be restored into the input). A steered prompt the CLI had not handed to the model yet is dropped too: the turn the CLI starts for it after the interrupt is interrupted at once and never reaches a client (the prompt stays in the timeline, unanswered). `interrupt` does not stop a realtime voice response (G-34): in voice mode the Stop control is `voice_stop` (§7).
 
 ### 6.4 Compact
 
@@ -1832,7 +1978,7 @@ IDs: **W-n** = item n of 02 §6.3; **W-6.1 / W-6.2** = the lists in 02 §6.1 / �
 `shared/protocol-fixtures/` contains synthetic fixtures (recorded ones will be added from live transcripts, README charter quality gate). The schema, the input vocabulary and the normalisation are defined in `shared/protocol-fixtures/README.md`. Summary:
 
 - A fixture runner builds a `Conversation` from `session`, applies `initial_history` as `history_page{replace}` (modelling §5.2: REST first, then the held frames), then feeds `events` in order through `onFrame` (§3.6) and the reducer (§4.3), executing each `client_actions` item before the event whose index is its `at`.
-- It normalises the state and compares it with `expected`: `entries`, `orphan_results` and `unattributed_results` are compared exactly; `queue` exactly when present; `state` keys only when present.
+- It normalises the state and compares it with `expected`: `entries`, `orphan_results` and `unattributed_results` are compared exactly; `queue` and `subagents` exactly when present; `state` keys only when present.
 - Both platforms MUST pass every fixture in CI (web: vitest; Android: JUnit in `:core`). A fixture that fails on one platform is a spec bug or a platform bug, never "platform difference".
 
 | Fixture | Covers |
@@ -1866,6 +2012,8 @@ IDs: **W-n** = item n of 02 §6.3; **W-6.1 / W-6.2** = the lists in 02 §6.1 / �
 | `queued_prompt_echoed_twice` | G-5, I-12 (observer) |
 | `queued_prompt_sender` | I-12 (sender) |
 | `queued_prompt_observer_no_reecho` | I-12 (observer, backend O-6: no re-echo) |
+| `steered_prompt_sender` | I-16 (sender: tray → timeline at the steered echo, split stream, one turn) |
+| `steered_prompt_observer` | I-16 (observer: the turn goes on, R-1 across the steered entry) |
 | `termination_banner` | §6.13 (reducer state; the view then closes, OPEN-3), R-6 |
 | `tool_result_after_interleaved_user_message` | R-1 across an inject entry |
 | `tool_result_after_voice_transcript` | R-1 across a transcript |
@@ -1877,6 +2025,16 @@ IDs: **W-n** = item n of 02 §6.3; **W-6.1 / W-6.2** = the lists in 02 §6.1 / �
 | `voice_mode_tool_result_gemini` | R-3 (object output), VT-3 |
 | `voice_passive_viewer_no_wedge` | W-1, V-12, VT-3 |
 | `shared_inject_voice_echo` | §7.9, A-4.4.4 |
+| `subagent_foreground_unopened` | SA-1, SA-2, SA-5 (unopened: summary only) |
+| `subagent_open_mid_run` | SA-4, SA-5 (held frames across the first history page) |
+| `subagent_background_after_turn` | SA-2 (lifecycle wins over the spawn card), SA-1, SA-7 |
+| `subagent_placeholder_without_lifecycle` | SA-2 (Gemini `invoke_agent`, no lifecycle frames) |
+| `subagent_nested_failed_stopped_history` | SA-2 from history, SA-6, failed/stopped |
+| `subagent_finished_while_page_loading` | SA-4, SA-5 (finish queued behind held frames) |
+| `subagent_stale_row_terminal_sticks` | SA-3, SA-8 (terminal statuses stick) |
+| `subagent_row_overrides_spawn_card` | SA-2, SA-3, SA-8 (a row corrects a card-derived status) |
+| `subagent_resumed_after_finish` | §4.8 resumed agents (second `subagent_started` → running, second finish), SA-7 |
+| `subagent_resumed_still_running` | §4.8 resumed agents (a finished agent is `running` again after `subagent_started`) |
 
 ---
 
@@ -1915,6 +2073,7 @@ Only fixes that a client cannot reasonably work around. Everything else in 01 §
 | O-4 | Relay fatal failure → `end_voice("error")` (G-21) | §7.7 `voice_stop` + 5 s timeout |
 | O-5 | Do not stamp `session_stalled` with the previous seq (G-18) | SEQ-2 exemption |
 | O-6 | Skip the second `user_message` for prompts already announced as `queued` (G-5) | tray matching in `user_message` |
+| O-7 | Deliver a prompt sent while a turn runs into that turn (steer) and echo `user_message{steered: true}` to every subscriber; keep the CLI's follow-up turn for an undelivered steer inside the user's turn; Stop drops it (I-16, 2026-10-13) | I-12 queue for harnesses that cannot steer |
 
 ---
 

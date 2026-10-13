@@ -14,8 +14,9 @@
  */
 import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { setSessionHidden } from '@/services';
-import { createSessionStore, getSessionEntry, useSession, useSessionRegistryVersion, type SessionStore } from '@/stores';
+import { createSessionStore, getSessionEntry, useSession, useSessionRegistryVersion, useShallow, type SessionStore } from '@/stores';
 import { initialConversation } from '@/protocol';
+import { SubagentBar, SubagentBody, SubagentHostContext, SubagentTabs, subagentPanelId } from '@/features/subagents';
 import { ErrorCards, StallCard } from './cards/cards';
 import { useRichModule } from './lazyRich';
 import { ConversationEmpty } from './ConversationEmpty';
@@ -65,6 +66,15 @@ export const InlineCards = memo(function InlineCards({ localId }: { localId: str
 function ConversationPanelImpl({ localId, hidden, composer, onMessageAction, onStartVoice, onSuggestion }: ConversationPanelProps) {
   const store = useSessionStore(localId);
   const kind = useSession(localId, (s) => s.conv.ref.kind);
+  // spec 12 §4.8: the agent tab shown (null = Main); only a tab of a known subagent counts
+  const { hasAgents, subTab } = useSession(
+    localId,
+    useShallow((s) => {
+      const list = s.conv.ref.kind === 'agent' ? s.conv.subagents : [];
+      const tab = s.subagentTab;
+      return { hasAgents: list.length > 0, subTab: tab && list.some((x) => x.tool_use_id === tab) ? tab : null };
+    }),
+  );
   const [pending, setPending] = useState<MessageActionRequest | null>(null);
 
   useEffect(() => {
@@ -76,22 +86,40 @@ function ConversationPanelImpl({ localId, hidden, composer, onMessageAction, onS
 
   return (
     <div className={styles.panel} data-hidden={hidden ? '' : undefined} data-kind={kind}>
-      <>
+      <SubagentHostContext.Provider value={kind === 'agent' ? localId : null}>
         <MessageActionsContext.Provider value={actions}>
-          <MessageList
-            localId={localId}
-            store={store}
-            hidden={hidden}
-            empty={<ConversationEmpty kind={kind} onStartVoice={onStartVoice} onSuggestion={suggest} />}
-          />
+          {hasAgents ? <SubagentTabs localId={localId} /> : null}
+          <div
+            className={styles.tabBody}
+            hidden={subTab !== null}
+            {...(hasAgents ? { role: 'tabpanel', id: subagentPanelId(localId, null), 'aria-labelledby': `${subagentPanelId(localId, null)}-tab` } : {})}
+          >
+            <MessageList
+              localId={localId}
+              store={store}
+              hidden={hidden || subTab !== null}
+              empty={<ConversationEmpty kind={kind} onStartVoice={onStartVoice} onSuggestion={suggest} />}
+            />
+          </div>
+          {subTab !== null ? (
+            <div className={styles.tabBody} role="tabpanel" id={subagentPanelId(localId, subTab)} aria-labelledby={`${subagentPanelId(localId, subTab)}-tab`}>
+              <SubagentBody key={subTab} localId={localId} store={store} toolUseId={subTab} hidden={hidden} />
+            </div>
+          ) : null}
           {/* data-conversation-dock: the floating voice controls stay above it (VoiceOverlayHost) */}
           <div className={styles.dock} data-conversation-dock="">
             <InlineCards localId={localId} />
-            {composer ? <div className={styles.composerSlot}>{composer}</div> : null}
+            {subTab !== null ? <SubagentBar localId={localId} toolUseId={subTab} /> : null}
+            {/* the composer stays mounted (recording, menus) while an agent's tab is shown */}
+            {composer ? (
+              <div className={styles.composerSlot} hidden={subTab !== null}>
+                {composer}
+              </div>
+            ) : null}
           </div>
           {onMessageAction ? null : <MessageActionHost pending={pending} onDone={() => setPending(null)} />}
         </MessageActionsContext.Provider>
-      </>
+      </SubagentHostContext.Provider>
     </div>
   );
 }

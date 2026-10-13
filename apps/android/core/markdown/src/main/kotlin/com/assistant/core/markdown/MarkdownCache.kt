@@ -40,7 +40,8 @@ class MarkdownCache(private val capacity: Int = DEFAULT_CAPACITY) {
     fun clear() = synchronized(map) { map.clear() }
 
     companion object {
-        const val DEFAULT_CAPACITY: Int = 200
+        /** Main + tool reports + agent tabs (2026-10-12: 200 thrashed with subagent transcripts open). */
+        const val DEFAULT_CAPACITY: Int = 400
 
         /** The process-wide cache used by [com.assistant.core.markdown.ui.rememberMarkdown]. */
         val Shared: MarkdownCache = MarkdownCache()

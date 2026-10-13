@@ -48,6 +48,12 @@ class HistoryMergerTest {
         val summary = "This session is being continued from a previous conversation that ran out of context."
         assertEquals(HistoryMerger.UserLine.Notice(NoticeKind.COMPACTION, summary), c(summary))
         assertEquals(HistoryMerger.UserLine.Notice(NoticeKind.BACKGROUND, "<task-notification>x"), c("<task-notification>x"))
+        // A subagent transcript's background-command notification: the CLI's header is dropped (BG-2).
+        val header = "[SYSTEM NOTIFICATION - NOT USER INPUT]\nThis is an automated background-task event, NOT a message from the user.\n\n"
+        val block = "<task-notification>\n<task-id>b9</task-id>\n<status>completed</status>\n</task-notification>"
+        assertEquals(HistoryMerger.UserLine.Notice(NoticeKind.BACKGROUND, block), c(header + block))
+        assertEquals(HistoryMerger.UserLine.User("[SYSTEM NOTIFICATION - NOT USER INPUT] hi", UserOrigin.HISTORY), c("[SYSTEM NOTIFICATION - NOT USER INPUT] hi"))
+        assertEquals(HistoryMerger.UserLine.User("see <task-notification>", UserOrigin.HISTORY), c("see <task-notification>"))
         for (tag in listOf("command-name", "command-message", "command-args", "local-command-stdout", "local-command-stderr", "local-command-caveat")) {
             assertEquals(NoticeKind.COMMAND, (c("<$tag>/help</$tag>") as HistoryMerger.UserLine.Notice).kind)
         }

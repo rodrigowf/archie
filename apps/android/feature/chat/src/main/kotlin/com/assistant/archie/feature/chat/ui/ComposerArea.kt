@@ -88,6 +88,10 @@ fun ComposerArea(
     modifier: Modifier = Modifier,
     clock: () -> Long = System::currentTimeMillis,
     voiceLevel: (() -> Float?)? = null,
+    /** Spec 12 §4.8: the session's subagents (the Agents button shows only when there is one). */
+    agentsTotal: Int = 0,
+    agentsRunning: Int = 0,
+    onAgents: () -> Unit = {},
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (queue.isNotEmpty()) QueueTray(queue)
@@ -103,7 +107,7 @@ fun ComposerArea(
                     )
                 }
                 if (voice is VoiceUi.ReconnectFailed) VoiceControls(voice, onAction, clock = clock)
-                Composer(composer, counters, draft, onAction, onAttach)
+                Composer(composer, counters, draft, onAction, onAttach, agentsTotal, agentsRunning, onAgents)
             }
         }
     }
@@ -172,6 +176,9 @@ private fun Composer(
     draft: String,
     onAction: (ChatAction) -> Unit,
     onAttach: () -> Unit,
+    agentsTotal: Int,
+    agentsRunning: Int,
+    onAgents: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
@@ -208,6 +215,8 @@ private fun Composer(
             }
         },
         trailing = {
+            // Zero-state hidden, so it never becomes the "gear by the composer" IA §6 removed.
+            if (agentsTotal > 0) AgentsButton(agentsTotal, agentsRunning, onAgents)
             composer.context?.let { f -> ContextRing(f, { contextDialog = true }) }
             if (composer.canRecord) {
                 ArchieIconButton(

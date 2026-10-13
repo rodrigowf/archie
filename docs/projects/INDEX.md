@@ -9,6 +9,7 @@ not about Archie live in private memory, not here.
 |---|---|---|---|
 | [frontend-refactor/](frontend-refactor/README.md) | 2026-10-03 → | Cut over 2026-10-05; field tests and remaining bugs tracked in the handoff | [README.md](frontend-refactor/README.md) (charter, decisions D1–D8), [plan/23-coordinator-handoff.md](frontend-refactor/plan/23-coordinator-handoff.md) (resume point) |
 | [history-search/](history-search/RESULTS.md) | 2026-10-06 | Shipped; open items in RESULTS | [PLAN.md](history-search/PLAN.md), [RESULTS.md](history-search/RESULTS.md) |
+| [subagent-view/](subagent-view/PLAN.md) | 2026-10-12 → | Proposed | [PLAN.md](subagent-view/PLAN.md) |
 
 ## frontend-refactor/ — the 2026-10 web + Android rebuild
 - [frontend-refactor/README.md](frontend-refactor/README.md) — Charter: goals, issues R1–R7, decisions D1–D8, document map, phases, working rules.
@@ -21,3 +22,6 @@ not about Archie live in private memory, not here.
 ## history-search/ — the 2026-10-06 search rebuild
 - [history-search/PLAN.md](history-search/PLAN.md) — Goal, eval method and the improvement plan for conversation + memory search.
 - [history-search/RESULTS.md](history-search/RESULTS.md) — Frozen eval set, baseline and measured results per change, held-out test, open items.
+
+## subagent-view/ — showing a session's subagents (2026-10-12)
+- [subagent-view/PLAN.md](subagent-view/PLAN.md) — What happens to subagent events today (all harnesses), best practices, protocol + UI design (inline card, agents sheet, nested agent tabs), phases, open decisions.

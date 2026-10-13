@@ -140,7 +140,7 @@ describe('queued send while working (inv02 F-16, I-12)', () => {
     const field = screen.getByRole('textbox', { name: 'Message' });
     await user.type(field, 'first{Enter}');
     await act(async () => ws.emit({ type: 'status', status: 'processing' }));
-    expect((field).getAttribute('placeholder')).toBe('Queue a message…');
+    expect((field).getAttribute('placeholder')).toBe('Add to the running turn…'); // a Claude agent (I-16)
     await user.type(field, 'then run the tests{Enter}');
     expect(sent(ws)).toEqual([
       { type: 'send', text: 'first' },
@@ -156,6 +156,22 @@ describe('queued send while working (inv02 F-16, I-12)', () => {
     expect(sent(ws).pop()).toEqual({ type: 'interrupt' });
     expect((field as HTMLTextAreaElement).value).toBe('then run the tests');
     expect(screen.queryByRole('list', { name: 'Waiting to send' })).toBeNull();
+  });
+
+  it('the server steering the message into the running turn moves the chip into the timeline (I-16)', async () => {
+    const user = userEvent.setup();
+    const { rt, ws } = agent();
+    render(<Composer localId="A1" />);
+    const field = screen.getByRole('textbox', { name: 'Message' });
+    await user.type(field, 'first{Enter}');
+    await act(async () => ws.emit({ type: 'status', status: 'processing' }));
+    await user.type(field, 'use pytest -x{Enter}');
+    expect(screen.getByRole('list', { name: 'Waiting to send' })).toBeTruthy();
+    await act(async () => ws.emit({ type: 'user_message', text: 'use pytest -x', steered: true }));
+    expect(screen.queryByRole('list', { name: 'Waiting to send' })).toBeNull();
+    expect(rt.conv.queue).toEqual([]);
+    expect(rt.conv.inTurn).toBe(true); // the turn goes on
+    expect(rt.conv.entries.filter((e) => e.kind === 'user').map((e) => (e.kind === 'user' ? e.text : ''))).toEqual(['first', 'use pytest -x']);
   });
 
   it('a remote queued prompt shows as "Queued · other device" and leaves the tray on dispatch', async () => {

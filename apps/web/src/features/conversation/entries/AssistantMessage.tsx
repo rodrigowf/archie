@@ -9,7 +9,7 @@
  * run is in the timeline (R-1, TC-1; R7).
  */
 import { memo, useMemo, type ReactNode } from 'react';
-import { groupToolSteps, type AssistantEntry, type Block, type SessionKind, type ToolBlock } from '@/protocol';
+import { groupToolSteps, isSubagentTool, type AssistantEntry, type Block, type SessionKind, type ToolBlock } from '@/protocol';
 import { StepGroup, ToolCard } from '@/features/tools';
 import styles from '../Conversation.module.css';
 import { PermissionBlockView, TextBlockView, ThinkingBlockView } from './blocks';
@@ -25,6 +25,11 @@ export interface AssistantMessageProps {
   /** `stall.last_tool_use_id` while the view is stalled. */
   readonly stalledToolUseId: string | null;
   readonly actions?: ReactNode;
+}
+
+/** Agent spawn cards never fold into an "N steps" group: each agent stays visible (spec 12 §4.8). */
+function agentCard(b: ToolBlock): boolean {
+  return isSubagentTool(b.tool_name);
 }
 
 function visualsOf(blocks: readonly ToolBlock[]): ReactNode[] {
@@ -60,7 +65,7 @@ function renderBlock(b: Block, p: AssistantMessageProps, isTail: boolean): React
 
 function AssistantMessageImpl(p: AssistantMessageProps) {
   const { entry, live, grouping } = p;
-  const items = useMemo(() => groupToolSteps(entry.blocks, { live, enabled: grouping }), [entry.blocks, live, grouping]);
+  const items = useMemo(() => groupToolSteps(entry.blocks, { live, enabled: grouping, solo: agentCard }), [entry.blocks, live, grouping]);
   const lastBlock = entry.blocks[entry.blocks.length - 1];
   return (
     <div className={styles.assistantRow}>

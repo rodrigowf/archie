@@ -9,11 +9,19 @@ import com.assistant.core.protocol.ServerFrame
 
 /** Entry point of one reducer step. */
 internal fun Draft.apply(input: ConversationInput) {
+    applyInput(input)
+    if (toolsTouched) syncSpawnStatus()                                      // SA-2 (top level only)
+}
+
+private fun Draft.applyInput(input: ConversationInput) {
     when (input) {
         is ConversationInput.Frame -> onFrame(input.frame)
         is ConversationInput.HistoryPage -> {
             HistoryMerger.applyPage(this, input.mode, input.page)
-            if (input.mode == PageMode.REPLACE && reloading) finishReload()
+            if (input.mode == PageMode.REPLACE && reloading) {
+                refetchOpenSubagents()                                         // §5.6: before the buffered frames, so theirs are held
+                finishReload()
+            }
         }
         ConversationInput.BeginReload -> reloading = true
         ConversationInput.ReloadFailed -> if (reloading) { gapPossible = true; finishReload() }
@@ -49,6 +57,11 @@ internal fun Draft.apply(input: ConversationInput) {
             val keep = agentApprovals.filter { it.localId != input.localId }
             agentApprovals.clear(); agentApprovals.addAll(keep)
         }
+        is ConversationInput.OpenSubagent -> openSubagent(input.toolUseId)
+        is ConversationInput.SubagentPage -> subagentPage(input.toolUseId, input.page)
+        is ConversationInput.SubagentPageFailed -> subagentPageFailed(input.toolUseId, input.message)
+        is ConversationInput.ReleaseSubagent -> releaseSubagent(input.toolUseId)
+        is ConversationInput.SubagentList -> input.rows.forEach { upsertSummary(it) }
     }
 }
 

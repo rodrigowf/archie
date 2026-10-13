@@ -223,6 +223,46 @@ export interface AgentApproval {
   readonly tool_input: Readonly<Record<string, unknown>>;
 }
 
+/** spec 12 §4.8: a subagent's lifecycle state. */
+export type SubagentStatus = 'running' | 'done' | 'failed' | 'stopped';
+
+/** spec 12 §4.8 `subagent_progress.usage` / `subagent_finished.usage`. */
+export interface SubagentUsage {
+  readonly tokens: number | null;
+  readonly tool_uses: number | null;
+  readonly duration_ms: number | null;
+}
+
+/**
+ * spec 12 §4.8 `Subagent`: a nested agent spawned by a Task-like tool call, keyed by that call's
+ * `tool_use_id`. Lives in `Conversation.subagents` (insertion order = first sight). Its own
+ * transcript `conv` exists only while it is materialised (SA-5).
+ */
+export interface Subagent {
+  readonly tool_use_id: string;
+  readonly parent_tool_use_id: string | null;
+  readonly agent_type: string;
+  readonly description: string;
+  readonly background: boolean;
+  readonly status: SubagentStatus;
+  readonly activity: string | null;
+  readonly usage: SubagentUsage | null;
+  readonly summary: string | null;
+  readonly started_at: string | null;
+  readonly ended_at: string | null;
+  /** The subagent's own transcript; null until opened (SA-5). */
+  readonly conv: Conversation | null;
+  /** Inner frames held while its first history page loads (SA-5); null otherwise. */
+  readonly held: readonly ServerFrame[] | null;
+  /**
+   * Internal: lifecycle frames (or a server row) were seen, so the status comes only from them and
+   * never from the spawn card's result (SA-2). Not part of the normalised fixture form.
+   */
+  readonly lifecycle: boolean;
+  /** Internal: the transcript fetch failed (SA-5: shown in the agent's tab). */
+  readonly loadError: string | null;
+}
+
 /** spec 12 §2.3 */
 export interface Conversation {
   readonly ref: SessionRef;
@@ -250,6 +290,10 @@ export interface Conversation {
   readonly connectionBanner: ConnectionBanner | null;
   readonly gapPossible: boolean;
   readonly agentApprovals: readonly AgentApproval[];
+  /** spec 12 §4.8: every subagent known for this session, in first-sight order (never deleted). */
+  readonly subagents: readonly Subagent[];
+  /** SA-8: the subagent list was fetched once after a history page with placeholders. */
+  readonly subagentsListed: boolean;
 
   readonly checkpoint: Checkpoint | null;
   readonly counters: Counters;
@@ -292,6 +336,11 @@ export const BUSY_STATUSES: readonly SessionStatus[] = [
 /** `busy(status)` (spec 12 §2.5). */
 export function busy(status: SessionStatus): boolean {
   return BUSY_STATUSES.indexOf(status) >= 0;
+}
+
+/** I-16: harnesses whose agent sessions take a message into the running turn (Model Studio runs Claude Code). */
+export function steersMidTurn(ref: SessionRef): boolean {
+  return ref.kind === 'agent' && (ref.provider === 'claude' || ref.provider === 'modelstudio');
 }
 
 /** Only Claude agent sessions carry `seq` / `stream_id` (spec 12 §2.2). */

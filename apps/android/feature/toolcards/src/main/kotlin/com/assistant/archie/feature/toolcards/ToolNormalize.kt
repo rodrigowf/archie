@@ -33,6 +33,7 @@ object ToolNormalize {
         "write_todos" to "TodoWrite",
         "agent" to "Task",
         "task" to "Task",
+        "invoke_agent" to "Task",           // Gemini CLI subagents (spec 12 §4.8 SA-2)
         "ask_user_question" to "AskUserQuestion",
         "exit_plan_mode" to "ExitPlanMode",
         "save_memory" to "SaveMemory",
@@ -86,6 +87,10 @@ object ToolNormalize {
                 move("dir_path", "path")
             }
             "Glob", "ListFiles" -> move("dir_path", "path")
+            "Task" -> {                      // Gemini invoke_agent {agent_name, objective}
+                move("agent_name", "subagent_type")
+                move("objective", "description")
+            }
             "TodoWrite" -> {
                 val todos = cur()["todos"] as? JsonArray
                 if (todos != null && todos.any { it is JsonObject && it["content"] == null && (it["description"] as? JsonPrimitive)?.isString == true }) {

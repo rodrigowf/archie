@@ -12,6 +12,18 @@
   background: var(--md-sys-color-surface);
 }
 
+/* ---------- agent tabs (spec 12 §4.8): one body per sub-tab; the main list stays mounted ---------- */
+.tabBody {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.tabBody[hidden] {
+  display: none;
+}
+
 .listWrap {
   position: relative;
   display: flex;

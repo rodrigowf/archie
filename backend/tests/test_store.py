@@ -387,6 +387,75 @@ class TestSessionStoreDeleteSession:
             f"{sid}.config.json", f"{sid}.jsonl", f"{sid}.summary.json",
         ]
 
+    def test_delete_moves_the_session_state_dir_with_subagent_transcripts(self, tmp_path):
+        """``context/<sid>/`` (subagent transcripts, tool results) goes to the
+        trash with the JSONL instead of staying behind as an orphan."""
+        context_dir = tmp_path / "context"
+        sid = "11111111-2222-3333-4444-555555555555"
+        subs = context_dir / sid / "subagents"
+        subs.mkdir(parents=True)
+        (subs / "agent-a1.jsonl").write_text("{}")
+        (subs / "agent-a1.meta.json").write_text('{"toolUseId": "t1"}')
+        (context_dir / sid / "tool-results").mkdir()
+        (context_dir / f"{sid}.jsonl").write_text("{}")
+        other = context_dir / "99999999-2222-3333-4444-555555555555"
+        other.mkdir()
+
+        store = SessionStore(tmp_path)
+        assert store.delete_session(sid, skip_index_cleanup=True) is True
+
+        trash = context_dir / "trash"
+        assert not (context_dir / sid).exists()
+        assert (trash / sid / "subagents" / "agent-a1.jsonl").is_file()
+        assert (trash / sid / "subagents" / "agent-a1.meta.json").is_file()
+        assert (trash / sid / "tool-results").is_dir()
+        assert other.is_dir()  # another session's state dir is untouched
+
+    def test_delete_state_dir_follows_the_collision_suffix(self, tmp_path):
+        context_dir = tmp_path / "context"
+        trash = context_dir / "trash"
+        sid = "11111111-2222-3333-4444-555555555555"
+        (trash / sid).mkdir(parents=True)
+        (trash / sid / "old.txt").write_text("old")
+        (trash / f"{sid}.jsonl").write_text("old")
+        (context_dir / sid / "subagents").mkdir(parents=True)
+        (context_dir / sid / "subagents" / "agent-a2.jsonl").write_text("new")
+        (context_dir / f"{sid}.jsonl").write_text("new")
+
+        store = SessionStore(tmp_path)
+        assert store.delete_session(sid, skip_index_cleanup=True) is True
+
+        assert (trash / sid / "old.txt").read_text() == "old"
+        moved = [p for p in trash.glob(f"{sid}.*") if p.is_dir()]
+        assert len(moved) == 1 and (moved[0] / "subagents" / "agent-a2.jsonl").read_text() == "new"
+        # The directory carries the JSONL's suffix.
+        assert (trash / f"{moved[0].name}.jsonl").read_text() == "new"
+        assert not (context_dir / sid).exists()
+
+    def test_delete_state_dir_only_collision_gets_its_own_suffix(self, tmp_path):
+        context_dir = tmp_path / "context"
+        trash = context_dir / "trash"
+        sid = "11111111-2222-3333-4444-555555555555"
+        (trash / sid).mkdir(parents=True)  # a stray dir, no trashed JSONL
+        (context_dir / sid).mkdir(parents=True)
+        (context_dir / sid / "x.txt").write_text("new")
+        (context_dir / f"{sid}.jsonl").write_text("new")
+
+        store = SessionStore(tmp_path)
+        assert store.delete_session(sid, skip_index_cleanup=True) is True
+        assert (trash / f"{sid}.jsonl").read_text() == "new"
+        moved = [p for p in trash.glob(f"{sid}.*") if p.is_dir()]
+        assert len(moved) == 1 and (moved[0] / "x.txt").read_text() == "new"
+
+    def test_delete_without_a_state_dir_still_works(self, tmp_path):
+        context_dir = tmp_path / "context"
+        context_dir.mkdir()
+        sid = "11111111-2222-3333-4444-555555555555"
+        (context_dir / f"{sid}.jsonl").write_text("{}")
+        store = SessionStore(tmp_path)
+        assert store.delete_session(sid, skip_index_cleanup=True) is True
+        assert sorted(p.name for p in (context_dir / "trash").iterdir()) == [f"{sid}.jsonl"]
+
     def test_delete_sidecars_follow_the_collision_suffix(self, tmp_path):
         context_dir = tmp_path / "context"
         trash = context_dir / "trash"

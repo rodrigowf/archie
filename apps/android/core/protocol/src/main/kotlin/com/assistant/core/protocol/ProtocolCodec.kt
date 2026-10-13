@@ -60,6 +60,7 @@ object ProtocolCodec {
                 voiceConnectionInfo = o.obj("voice_connection_info")
                     ?.let { decodeDto<ConnectionInfoDto>(it) }?.toModel(),
                 voiceConnectionError = o.str("voice_connection_error"),
+                subagents = o.arr("subagents")?.mapNotNull { (it as? JsonObject)?.let(::decodeSubagentSummary) },
                 seq = seq, streamId = sid,
             )
             "status" -> ServerFrame.Status(o.str("status"), o.str("detail"), seq, sid)
@@ -70,6 +71,7 @@ object ProtocolCodec {
             "error" -> ServerFrame.Error(o.str("error"), o.str("detail"), seq, sid)
             "user_message" -> ServerFrame.UserMessage(
                 o.str("text") ?: "", o.bool("queued") == true, o.str("source"), seq, sid,
+                steered = o.bool("steered") == true,
             )
             "text_delta" -> ServerFrame.TextDelta(o.str("text") ?: "", seq, sid)
             "text_complete" -> ServerFrame.TextComplete(o.str("text") ?: "", seq, sid)
@@ -104,6 +106,15 @@ object ProtocolCodec {
             "permission_resolved" -> ServerFrame.PermissionResolved(
                 o.str("request_id"), o.str("decision"), o.str("responder"), o.str("message"), seq, sid,
             )
+            "subagent_started" -> ServerFrame.SubagentStarted(
+                o.str("tool_use_id"), o.str("parent_tool_use_id"), o.str("agent_type"), o.str("description"),
+                o.bool("background"), o.str("started_at"), seq, sid,
+            )
+            "subagent_progress" -> ServerFrame.SubagentProgress(o.str("tool_use_id"), o.str("activity"), decodeUsage(o.obj("usage")), seq, sid)
+            "subagent_finished" -> ServerFrame.SubagentFinished(
+                o.str("tool_use_id"), o.str("status"), o.str("summary"), decodeUsage(o.obj("usage")), o.str("ended_at"), seq, sid,
+            )
+            "subagent_event" -> ServerFrame.SubagentEvent(o.str("tool_use_id"), o.obj("frame")?.let { decodeServer(it) }, seq, sid)
             "model_changed" -> ServerFrame.ModelChanged(o.obj("model_info")?.let { decodeDto<OrchestratorModelInfoDto>(it) }, seq, sid)
             "model_info" -> ServerFrame.ModelInfo(o.obj("model_info")?.let { decodeDto<OrchestratorModelInfoDto>(it) }, seq, sid)
             "models_list" -> ServerFrame.ModelsList(
@@ -185,6 +196,7 @@ object ProtocolCodec {
                     put("voice_session_update", frame.voiceSessionUpdate)
                     put("voice_connection_info", frame.voiceConnectionInfo?.toJson())
                     put("voice_connection_error", frame.voiceConnectionError)
+                    frame.subagents?.let { l -> put("subagents", JsonArray(l.map(::encodeSubagentSummary))) }
                 }
                 is ServerFrame.Status -> { put("status", frame.status); put("detail", frame.detail) }
                 is ServerFrame.SessionStopped, is ServerFrame.Ping, is ServerFrame.VoiceStopped -> Unit
@@ -195,6 +207,7 @@ object ProtocolCodec {
                 is ServerFrame.UserMessage -> {
                     put("text", frame.text)
                     if (frame.queued) put("queued", true)
+                    if (frame.steered) put("steered", true)
                     put("source", frame.source)
                 }
                 is ServerFrame.TextDelta -> put("text", frame.text)
@@ -232,6 +245,21 @@ object ProtocolCodec {
                 is ServerFrame.PermissionResolved -> {
                     put("request_id", frame.requestId); put("decision", frame.decision)
                     put("responder", frame.responder); put("message", frame.message)
+                }
+                is ServerFrame.SubagentStarted -> {
+                    put("tool_use_id", frame.toolUseId); put("parent_tool_use_id", frame.parentToolUseId)
+                    put("agent_type", frame.agentType); put("description", frame.description)
+                    put("background", frame.background); put("started_at", frame.startedAt)
+                }
+                is ServerFrame.SubagentProgress -> {
+                    put("tool_use_id", frame.toolUseId); put("activity", frame.activity); put("usage", encodeUsage(frame.usage))
+                }
+                is ServerFrame.SubagentFinished -> {
+                    put("tool_use_id", frame.toolUseId); put("status", frame.status); put("summary", frame.summary)
+                    put("usage", encodeUsage(frame.usage)); put("ended_at", frame.endedAt)
+                }
+                is ServerFrame.SubagentEvent -> {
+                    put("tool_use_id", frame.toolUseId); put("frame", frame.frame?.let { encodeServer(it) })
                 }
                 is ServerFrame.ModelChanged -> put("model_info", frame.modelInfo?.let { encodeDto(it) })
                 is ServerFrame.ModelInfo -> put("model_info", frame.modelInfo?.let { encodeDto(it) })
@@ -315,6 +343,7 @@ object ProtocolCodec {
                 put("message", frame.message); put("session_id", frame.sessionId)
             }
             is ClientFrame.SetModel -> put("model", frame.model)
+            is ClientFrame.StopSubagent -> put("tool_use_id", frame.toolUseId)
             is ClientFrame.VoiceEvent -> put("event", frame.event)
             is ClientFrame.VoiceAudioIn -> put("audio", frame.audio)
             is ClientFrame.VoiceRecordingChunk -> { put("channel", frame.channel); put("audio", frame.audio) }
@@ -364,6 +393,7 @@ object ProtocolCodec {
                 o.str("request_id") ?: return null, o.str("decision") ?: return null, o.str("message"), o.str("session_id"),
             )
             "stop" -> ClientFrame.Stop
+            "stop_subagent" -> ClientFrame.StopSubagent(o.str("tool_use_id") ?: return null)
             "voice_stop" -> ClientFrame.VoiceStop
             "set_model" -> ClientFrame.SetModel(o.str("model") ?: return null)
             "get_model" -> ClientFrame.GetModel
@@ -375,6 +405,10 @@ object ProtocolCodec {
             else -> null
         }
     }
+
+    /** `GET /api/sessions/{sdkId}/subagents` → its rows (malformed rows dropped). */
+    fun decodeSubagentList(o: JsonObject): List<SubagentSummary> =
+        o.arr("subagents")?.mapNotNull { (it as? JsonObject)?.let(::decodeSubagentSummary) } ?: emptyList()
 
     // ───────────────────────── helpers ─────────────────────────
 

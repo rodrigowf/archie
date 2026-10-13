@@ -107,6 +107,13 @@ data class ConversationState(
     val reloading: Boolean = false,
     val reloadBuffer: PersistentList<ServerFrame> = persistentListOf(),
 
+    /** Spec 12 §4.8: subagents in first-sight order (SA-2, SA-3). */
+    val subagents: PersistentMap<String, Subagent> = persistentMapOf(),
+    /** SA-8: the subagent list was fetched once for this view. */
+    val subagentsListFetched: Boolean = false,
+    /** SA-5: materialised subagents, most recently viewed first (at most [MAX_OPEN_SUBAGENTS]). */
+    val subagentLru: PersistentList<String> = persistentListOf(),
+
     /** Counter for live ids (deterministic, I-13). */
     val nextId: Long = 1,
 ) {
@@ -128,7 +135,20 @@ data class ConversationState(
     fun reachableOrphans(): Map<String, PendingResult> =
         orphanResults.filter { (_, r) -> r.origin == ResultOrigin.LIVE || !history.hasMore }
 
+    /** The tool card with [toolUseId], if this timeline has one. */
+    fun toolBlock(toolUseId: String): ToolBlock? {
+        val entryId = tools[toolUseId] ?: return null
+        val e = entries.lastOrNull { it.id == entryId } as? AssistantEntry ?: return null
+        return e.blocks.firstOrNull { it is ToolBlock && it.toolUseId == toolUseId } as? ToolBlock
+    }
+
+    /** Running subagents (the Agents button badge). */
+    fun runningSubagents(): Int = subagents.values.count { it.status == SubagentStatus.RUNNING }
+
     companion object {
+        /** SA-5: the visible transcript and the 2 most recently viewed. */
+        const val MAX_OPEN_SUBAGENTS = 3
+
         /**
          * A new view (spec 12 §2.3 initial values). For an agent session that `pool/live` reports busy,
          * ST-2 applies: `inTurn = true` with that status.
@@ -195,6 +215,24 @@ sealed interface ConversationInput {
 
     /** Orchestrator view: the agent view [localId] saw its turn end; drop its approvals (PM-5). */
     data class ClearAgentApprovals(val localId: String) : ConversationInput
+
+    /**
+     * SA-5 `openSubagent`: create the subagent's transcript and hold its inner frames until its first
+     * history page ([SubagentPage] / [SubagentPageFailed]). Already open: only the LRU order changes.
+     */
+    data class OpenSubagent(val toolUseId: String) : ConversationInput
+
+    /** SA-5: the first page of `GET …/subagents/{toolUseId}/messages` (applied as `history_page{replace}`). */
+    data class SubagentPage(val toolUseId: String, val page: PaginatedMessagesDto) : ConversationInput
+
+    /** SA-5: that fetch failed; the held frames are released and [message] shows in the tab. */
+    data class SubagentPageFailed(val toolUseId: String, val message: String) : ConversationInput
+
+    /** SA-5 `releaseSubagent`: drop the transcript (summary kept). */
+    data class ReleaseSubagent(val toolUseId: String) : ConversationInput
+
+    /** SA-8: the rows of `GET /api/sessions/{sdkId}/subagents`. */
+    data class SubagentList(val rows: List<com.assistant.core.protocol.SubagentSummary>) : ConversationInput
 }
 
 /** Work the reducer asks its owner (the repository) to do. The reducer itself performs no I/O (L-1). */
@@ -228,6 +266,12 @@ sealed interface ConversationEffect {
      * [detail]: the `session_terminated` detail when the session ended (crash, lost host) rather than closed.
      */
     data class Closed(val termination: Termination?) : ConversationEffect
+
+    /** SA-5: fetch the first page of the subagent's transcript → [ConversationInput.SubagentPage] / `SubagentPageFailed`. */
+    data class FetchSubagentPage(val toolUseId: String) : ConversationEffect
+
+    /** SA-8: fetch `GET /api/sessions/{sdkId}/subagents` once → [ConversationInput.SubagentList]. */
+    data object FetchSubagentList : ConversationEffect
 }
 
 data class ReduceResult(val state: ConversationState, val effects: List<ConversationEffect>)

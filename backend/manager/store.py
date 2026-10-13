@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 import shutil
 import uuid as _uuid
 from datetime import datetime, timezone
@@ -35,6 +36,8 @@ from .protocol import (
     is_visible_message_default,
 )
 from .types import MessagePreview, SessionDetail, SessionInfo
+
+logger = logging.getLogger(__name__)
 
 
 __all__ = ["SessionStore", "_extract_text", "_parse_timestamp"]
@@ -301,6 +304,60 @@ class SessionStore:
         has_more = start_idx > 0
         return previews[start_idx:end_idx], total_count, has_more
 
+    # ------------------------------------------------------------------
+    # Subagents (spec 12 SA-8) — read through the session's provider adapter
+    # ------------------------------------------------------------------
+
+    def list_subagents(self, session_id: str) -> list[dict]:
+        """Subagents the session's files on disk know of (``SubagentSummary``
+        dicts, oldest first); [] when none or the session is unknown."""
+        jsonl_path = self._locate_jsonl(session_id)
+        if jsonl_path is None:
+            return []
+        adapter = self._resolve_adapter(jsonl_path)
+        if adapter is None:
+            return []
+        try:
+            return adapter.list_subagents(jsonl_path)
+        except Exception:  # noqa: BLE001 — a bad file must not break session_started
+            import logging
+            logging.getLogger(__name__).exception("list_subagents failed for %s", session_id)
+            return []
+
+    def get_subagent_messages_paginated(
+        self,
+        session_id: str,
+        tool_use_id: str,
+        limit: int = 50,
+        before_index: int | None = None,
+    ) -> tuple[list[MessagePreview], int, bool] | None:
+        """One page of a subagent's transcript, like :meth:`get_messages_paginated`.
+
+        ``None`` when the session or the subagent is unknown on disk.
+        """
+        jsonl_path = self._locate_jsonl(session_id)
+        if jsonl_path is None:
+            return None
+        adapter = self._resolve_adapter(jsonl_path)
+        if adapter is None:
+            return None
+        messages_raw = adapter.read_subagent_messages(jsonl_path, tool_use_id)
+        if messages_raw is None:
+            return None
+        provider_name = self._effective_provider(session_id, adapter.provider_name)
+        previews = [
+            dataclasses.replace(p, provider=provider_name)
+            for p in adapter.to_previews(messages_raw)
+        ]
+        total_count = len(previews)
+        if before_index is None:
+            start_idx = max(0, total_count - limit)
+            end_idx = total_count
+        else:
+            end_idx = min(before_index, total_count)
+            start_idx = max(0, end_idx - limit)
+        return previews[start_idx:end_idx], total_count, start_idx > 0
+
     def get_session_info(self, session_id: str) -> SessionInfo | None:
         """Get lightweight summary info for a single session."""
         jsonl_path = self._locate_jsonl(session_id)
@@ -347,8 +404,9 @@ class SessionStore:
         return self._load_titles()
 
     def delete_session(self, session_id: str, *, skip_index_cleanup: bool = False) -> bool:
-        """Soft-delete a session: move its JSONL (and its ``.config.json`` /
-        ``.summary.json`` sidecars) into context/trash/.
+        """Soft-delete a session: move its JSONL, its ``.config.json`` /
+        ``.summary.json`` sidecars and its state directory (``<sid>/``:
+        subagent transcripts, tool results) into context/trash/.
 
         The history-index cleanup (:func:`remove_session_from_index`, a SQLite
         transaction) can be skipped with ``skip_index_cleanup=True`` by
@@ -388,6 +446,19 @@ class SessionStore:
                     path.rename(trash_dir / f"{stem}{suffix}{ext}")
                 except OSError:
                     pass
+        # The session's state directory next to the JSONL (Claude:
+        # ``<sid>/subagents/`` transcripts, ``<sid>/tool-results/``) goes too,
+        # under the same suffix (its own if only the directory collides).
+        state_dir = jsonl_path.with_suffix("")
+        if state_dir.is_dir() and not state_dir.is_symlink():
+            dir_target = trash_dir / f"{jsonl_path.stem}{suffix}"
+            if dir_target.exists():
+                ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+                dir_target = trash_dir / f"{jsonl_path.stem}.{ts}"
+            try:
+                state_dir.rename(dir_target)
+            except OSError:
+                logger.warning("Could not move %s to the trash", state_dir, exc_info=True)
         self._pin_cache.pop(session_id, None)
 
         titles = self._load_titles()

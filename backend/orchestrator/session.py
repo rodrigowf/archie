@@ -16,6 +16,7 @@ import enum
 import json
 import logging
 import uuid
+import weakref
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -71,6 +72,30 @@ logger = logging.getLogger(__name__)
 # to have an OpenAI key configured than an Anthropic one in this environment.
 # Override globally by editing ``summarizer_model`` in assistant_config.json.
 DEFAULT_SUMMARIZER_MODEL = "gpt-5.1"
+
+# A text turn (typed, or a wake for a finished agent turn) makes the history
+# summary stale. Refresh it this long after the LAST turn, so a burst of turns
+# costs one summary and the next voice start finds it ready (2026-10-13: two
+# wake turns after a call left it stale, and the next start's prompt went over
+# OpenAI Realtime's instructions cap).
+SUMMARY_IDLE_REFRESH_S = 300.0
+
+# One summarization per conversation at a time: concurrent requests (three
+# devices opening the conversation, a voice start during a refresh) wait for
+# the running one and then use its result instead of paying for their own.
+# Keyed per event loop as well, since an asyncio.Lock binds to one loop.
+_SUMMARY_LOCKS: "weakref.WeakValueDictionary[tuple[int, str], asyncio.Lock]" = (
+    weakref.WeakValueDictionary()
+)
+
+
+def _summary_lock(jsonl_path: Path) -> asyncio.Lock:
+    key = (id(asyncio.get_running_loop()), str(jsonl_path))
+    lock = _SUMMARY_LOCKS.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _SUMMARY_LOCKS[key] = lock
+    return lock
 
 
 class VoiceLifecycle(enum.Enum):
@@ -141,12 +166,34 @@ def _strip_audio_blocks(message: dict[str, Any], audio_format: str) -> None:
     message["content"] = " ".join([f"[audio:{audio_format}]", *texts]).strip()
 
 
+def _notification_entry(n: Notification) -> dict[str, Any]:
+    """A drained notification as a ``background_notification`` JSONL line (minus timestamp)."""
+    entry: dict[str, Any] = {
+        "type": "background_notification",
+        "notification_id": n.notification_id,
+        "turn_id": n.turn_id,
+        "session_id": n.session_id,
+        "session_title": n.session_title,
+        "origin_tool_use_id": n.origin_tool_use_id,
+        "status": n.status,
+        "cost": n.cost,
+        "turns": n.turns,
+        "duration_seconds": n.duration_seconds,
+        "error": n.error,
+    }
+    if n.subagents:
+        entry["subagents"] = n.subagents
+    if n.preview:
+        entry["preview"] = n.preview
+    return entry
+
+
 def _render_notifications(notes: list[Notification]) -> str:
     """Render a batch of background-agent notifications as a status block.
 
-    Status lines only (per design choice): the orchestrator must call
-    read_agent_session to retrieve actual content. Keeps the synthetic
-    prompt cheap and forces explicit follow-up reads.
+    Status lines plus at most a one-line ``last_message`` excerpt: the
+    orchestrator must still call read_agent_session for the actual content.
+    Keeps the synthetic prompt cheap and forces explicit follow-up reads.
     """
     if not notes:
         return ""
@@ -163,8 +210,12 @@ def _render_notifications(notes: list[Notification]) -> str:
             bits.append(f"cost=${n.cost:.4f}")
         if n.turns:
             bits.append(f"turns={n.turns}")
+        if n.subagents:
+            bits.append(f"subagents={n.subagents}")
         if n.error:
             bits.append(f'error="{n.error}"')
+        if n.preview:
+            bits.append('last_message="' + n.preview.replace('"', "'") + '"')
         lines.append(", ".join(bits) + "]")
     if any(n.status != "succeeded" for n in notes):
         lines.append(
@@ -351,6 +402,9 @@ class OrchestratorSession:
         self._injection_until: float = 0.0
         self._injection_active: bool = False
         self._injection_watchdog: asyncio.Task[None] | None = None
+        # Debounced history-summary refresh after text turns (see
+        # SUMMARY_IDLE_REFRESH_S).
+        self._idle_summary_timer: asyncio.Task[None] | None = None
 
     @property
     def local_id(self) -> str:
@@ -760,18 +814,22 @@ class OrchestratorSession:
         """Load history fresh from JSONL, clip tool results, split by token
         budget, and summarize the older prefix.
 
-        The summary of the older prefix is the expensive part — a 15-25s
-        LLM call on long sessions. We consult ``summary_cache`` first
-        (sibling ``.summary.json`` file keyed on JSONL size+mtime). On
-        cache hit we skip the LLM call entirely. On miss we compute
-        synchronously (so the caller still gets a correct prompt) and
-        write the result back so the next call is fast.
+        The summary of the older prefix is the expensive part — an LLM
+        call of a minute or more on long sessions. We consult
+        ``summary_cache`` first (sibling ``.summary.json``; see
+        ``_match_cached_summary``) and skip the LLM call whenever it still
+        covers the prefix. On miss we compute synchronously (so the caller
+        still gets a correct prompt) — or wait for the refresh already
+        running — and write the result back so the next call is fast.
 
         Returns (recent_verbatim_messages, summary_or_none).
         """
         if self._jsonl_path is None or not self._jsonl_path.is_file():
             return [], None
 
+        # Key a fresh summary to the JSONL as it was READ, not as it is
+        # when the minutes-long LLM call returns (see summary_cache.write).
+        jsonl_key = summary_cache.current_key(self._jsonl_path)
         history = HistoryLoader(self._jsonl_path).load()
         if not history:
             return [], None
@@ -784,131 +842,197 @@ class OrchestratorSession:
 
         summary: str | None = None
         if older:
-            prefix_tokens = sum(estimate_message_tokens(m) for m in older)
-            target_words = summary_target_word_range(len(older), prefix_tokens)
-
-            cached = summary_cache.read(self._jsonl_path)
-            if cached is not None:
-                # Hit. The cache key is (jsonl_size, jsonl_mtime_ns) so
-                # any new turn appended to the JSONL invalidates this.
-                # We don't re-verify the input slice — the splitter is
-                # deterministic given file content.
-                logger.info(
-                    "history summary cache HIT for %s (input_messages=%d, "
-                    "summary_chars=%d, generated_at=%s)",
-                    self._jsonl_path.name, cached.input_message_count,
-                    len(cached.summary_text), cached.generated_at,
-                )
-                summary = cached.summary_text
-            else:
-                # Stat-stale miss — but if all that happened is "new turns
-                # were appended and they all stayed in the recent-verbatim
-                # window", the older prefix is byte-identical to what the
-                # stale cache summarised. Try the stale cache: if its
-                # ``input_message_count`` matches the current older slice,
-                # the summary still describes the same prefix and we can
-                # use it as-is without a 60-90s LLM call.
-                #
-                # When older grew (some previously-recent messages crossed
-                # into older), we still use the stale summary and let those
-                # delta messages ride along by extending ``recent`` with
-                # them — the prompt gets older-summary + a slightly larger
-                # verbatim tail. Imprecise but cheap and correct; the
-                # background refresh on end_voice will catch up.
-                stale = summary_cache.read_any(self._jsonl_path)
-                stale_usable = (
-                    stale is not None
-                    and stale.input_message_count <= len(older)
-                )
-                if stale_usable:
-                    delta = len(older) - stale.input_message_count
-                    logger.info(
-                        "history summary cache STALE-REUSE for %s "
-                        "(cached_input=%d, current_older=%d, delta=%d, "
-                        "generated_at=%s)",
-                        self._jsonl_path.name, stale.input_message_count,
-                        len(older), delta, stale.generated_at,
-                    )
-                    summary = stale.summary_text
-                    if delta > 0:
-                        # Promote the delta (previously-recent messages
-                        # that crossed into older) back into verbatim so
-                        # the prompt loses no context vs. a fresh summary.
-                        recent = older[stale.input_message_count:] + recent
-                else:
-                    logger.info(
-                        "history summary cache MISS for %s — recomputing "
-                        "(input_messages=%d, target_words=%s)",
-                        self._jsonl_path.name, len(older), target_words,
-                    )
-                    summary = await self._summarize_history(
-                        older, target_words=target_words
-                    )
-                    # Write through. Failures are logged inside summary_cache
-                    # and never propagate — at worst the next call recomputes.
-                    if summary:
-                        summary_cache.write(
-                            self._jsonl_path,
-                            summary_text=summary,
-                            input_message_count=len(older),
-                            summary_target_words=target_words,
-                            summarizer_model=getattr(
-                                self._config, "summarizer_model", None
-                            ),
+            matched = self._match_cached_summary(older, recent)
+            if matched is None:
+                # Miss. If a background refresh is already summarising this
+                # conversation, wait for it and use its result rather than
+                # paying for a second LLM call.
+                async with _summary_lock(self._jsonl_path):
+                    matched = self._match_cached_summary(older, recent)
+                    if matched is None:
+                        prefix_tokens = sum(estimate_message_tokens(m) for m in older)
+                        target_words = summary_target_word_range(len(older), prefix_tokens)
+                        logger.info(
+                            "history summary cache MISS for %s — recomputing "
+                            "(input_messages=%d, target_words=%s)",
+                            self._jsonl_path.name, len(older), target_words,
                         )
+                        summary = await self._summarize_history(
+                            older, target_words=target_words
+                        )
+                        # Write through. Failures are logged inside summary_cache
+                        # and never propagate — at worst the next call recomputes.
+                        if summary:
+                            summary_cache.write(
+                                self._jsonl_path,
+                                summary_text=summary,
+                                input_message_count=len(older),
+                                summary_target_words=target_words,
+                                summarizer_model=getattr(
+                                    self._config, "summarizer_model", None
+                                ),
+                                jsonl_key=jsonl_key,
+                            )
+            if matched is not None:
+                summary, recent = matched
 
         self._history_summary = summary
         return recent, summary
 
+    def _match_cached_summary(
+        self,
+        older: list[dict[str, Any]],
+        recent: list[dict[str, Any]],
+    ) -> tuple[str, list[dict[str, Any]]] | None:
+        """Serve the voice prompt from the cached summary, if it can.
+
+        The JSONL is append-only, so the cached summary describes the first
+        ``input_message_count`` messages for as long as they exist. Validity
+        is that count, not the file's size/mtime:
+
+        - count == len(older): exact HIT — new turns stayed in the verbatim
+          window, the older prefix is the one that was summarised.
+        - count < len(older): STALE-REUSE — messages crossed into ``older``
+          since; they are promoted back into the verbatim window so the
+          prompt loses nothing (no truncation, ever). The background
+          refreshes keep this delta small.
+        - no cache, or count > len(older) (history rewritten): None, the
+          caller summarises.
+
+        Returns ``(summary_text, recent_messages)``.
+        """
+        cached = summary_cache.read_any(self._jsonl_path)
+        if (
+            cached is None
+            or cached.input_message_count <= 0
+            or cached.input_message_count > len(older)
+        ):
+            return None
+        delta = len(older) - cached.input_message_count
+        if delta == 0:
+            logger.info(
+                "history summary cache HIT for %s (input_messages=%d, "
+                "summary_chars=%d, generated_at=%s)",
+                self._jsonl_path.name, cached.input_message_count,
+                len(cached.summary_text), cached.generated_at,
+            )
+            return cached.summary_text, recent
+        logger.info(
+            "history summary cache STALE-REUSE for %s "
+            "(cached_input=%d, current_older=%d, delta=%d, generated_at=%s)",
+            self._jsonl_path.name, cached.input_message_count,
+            len(older), delta, cached.generated_at,
+        )
+        return cached.summary_text, older[cached.input_message_count:] + recent
+
     async def refresh_summary_cache_if_stale(self) -> bool:
         """Compute and persist the history summary for the current JSONL
-        state, but only if the cache is missing or stale.
+        state, but only if it no longer covers the conversation's older
+        prefix.
 
-        Safe to call from anywhere — short-circuits cheaply on cache hit.
+        Safe to call from anywhere and as often as wanted:
+
+        - fresh cache (JSONL unchanged since) → returns at once;
+        - JSONL grew but the older prefix didn't (new turns stayed in the
+          verbatim window) → the cache is re-dated, no LLM call;
+        - a summary for this conversation already running → waits for it,
+          then re-checks (normally finding it fresh).
+
         Returns True if a new summary was written, False otherwise.
 
         Used by:
-        - Session stop (write the summary the next reopen will need)
-        - Background safety nets (boot warmup, history reopen)
+        - voice stop and session stop (the next voice start needs it)
+        - a text ``start`` (conversation opened / app reconnected)
+        - text turns, debounced (``_schedule_idle_summary_refresh``)
         """
         if self._jsonl_path is None or not self._jsonl_path.is_file():
             return False
         if summary_cache.is_fresh(self._jsonl_path):
             return False
 
-        try:
-            history = HistoryLoader(self._jsonl_path).load()
-        except Exception:  # noqa: BLE001
-            logger.exception("summary refresh: history load failed")
-            return False
-        if not history:
-            return False
+        async with _summary_lock(self._jsonl_path):
+            if summary_cache.is_fresh(self._jsonl_path):
+                return False  # written by the refresh we waited for
+            jsonl_key = summary_cache.current_key(self._jsonl_path)
+            try:
+                history = HistoryLoader(self._jsonl_path).load()
+            except Exception:  # noqa: BLE001
+                logger.exception("summary refresh: history load failed")
+                return False
+            if not history:
+                return False
 
-        clipped = truncate_tool_results(history)
-        older, _ = split_by_token_budget(clipped, RECENT_VERBATIM_TOKENS)
-        if not older:
-            return False
+            clipped = truncate_tool_results(history)
+            older, _ = split_by_token_budget(clipped, RECENT_VERBATIM_TOKENS)
+            if not older:
+                return False
 
-        prefix_tokens = sum(estimate_message_tokens(m) for m in older)
-        target_words = summary_target_word_range(len(older), prefix_tokens)
-        try:
-            summary = await self._summarize_history(
-                older, target_words=target_words
+            cached = summary_cache.read_any(self._jsonl_path)
+            if cached is not None and cached.input_message_count == len(older):
+                # Same older prefix → same summary. Re-date it for free.
+                summary_cache.write(
+                    self._jsonl_path,
+                    summary_text=cached.summary_text,
+                    input_message_count=cached.input_message_count,
+                    summary_target_words=cached.summary_target_words,
+                    summarizer_model=cached.summarizer_model,
+                    jsonl_key=jsonl_key,
+                )
+                return False
+
+            prefix_tokens = sum(estimate_message_tokens(m) for m in older)
+            target_words = summary_target_word_range(len(older), prefix_tokens)
+            try:
+                summary = await self._summarize_history(
+                    older, target_words=target_words
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("summary refresh: _summarize_history failed")
+                return False
+            if not summary:
+                return False
+
+            summary_cache.write(
+                self._jsonl_path,
+                summary_text=summary,
+                input_message_count=len(older),
+                summary_target_words=target_words,
+                summarizer_model=getattr(self._config, "summarizer_model", None),
+                jsonl_key=jsonl_key,
             )
-        except Exception:  # noqa: BLE001
-            logger.exception("summary refresh: _summarize_history failed")
-            return False
-        if not summary:
-            return False
+            return True
 
-        summary_cache.write(
-            self._jsonl_path,
-            summary_text=summary,
-            input_message_count=len(older),
-            summary_target_words=target_words,
-            summarizer_model=getattr(self._config, "summarizer_model", None),
+    def _schedule_idle_summary_refresh(self) -> None:
+        """(Re)start the idle timer after a text turn: refresh the history
+        summary once no turn has run for ``SUMMARY_IDLE_REFRESH_S``.
+
+        Debounced — each turn restarts the wait, so a busy stretch costs
+        one summary at its end, not one per turn. Skipped while voice is on
+        (``end_voice`` refreshes when the call ends).
+        """
+        if self._jsonl_path is None:
+            return
+        timer = self._idle_summary_timer
+        if timer is not None and not timer.done():
+            timer.cancel()
+        try:
+            self._idle_summary_timer = asyncio.get_running_loop().create_task(
+                self._idle_summary_refresh(),
+                name=f"summary-refresh-idle-{self._local_id}",
+            )
+        except RuntimeError:  # no running loop (generator finalised at exit)
+            self._idle_summary_timer = None
+
+    async def _idle_summary_refresh(self) -> None:
+        await asyncio.sleep(SUMMARY_IDLE_REFRESH_S)
+        if self._voice or self.is_busy:
+            return  # voice: end_voice refreshes; busy: that turn re-arms us
+        # Detached, so a turn that re-arms the timer can't cancel a
+        # summary that is already being paid for.
+        asyncio.create_task(
+            self.refresh_summary_cache_if_stale(),
+            name=f"summary-refresh-idle-run-{self._local_id}",
         )
-        return True
 
     @property
     def needs_voice_relay(self) -> bool:
@@ -1739,21 +1863,15 @@ class OrchestratorSession:
             pending = self._notifications.drain()
             if not prompt and not pending:
                 return  # racing wake; nothing to deliver
+            # The turn grows the JSONL → the history summary goes stale.
+            # Armed here as well as after the turn, in case the consumer
+            # abandons the stream mid-turn.
+            self._schedule_idle_summary_refresh()
             # Persist a JSONL line for each drained notification so the run
             # is replayable (ties back to the originating tool_use_id).
             for n in pending:
                 self._writer.append({
-                    "type": "background_notification",
-                    "notification_id": n.notification_id,
-                    "turn_id": n.turn_id,
-                    "session_id": n.session_id,
-                    "session_title": n.session_title,
-                    "origin_tool_use_id": n.origin_tool_use_id,
-                    "status": n.status,
-                    "cost": n.cost,
-                    "turns": n.turns,
-                    "duration_seconds": n.duration_seconds,
-                    "error": n.error,
+                    **_notification_entry(n),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
             # Build the actual prompt the LLM sees.  Notifications go FIRST
@@ -1795,6 +1913,7 @@ class OrchestratorSession:
                 )
             async for event in self._run_agent_with(turn_provider, effective_prompt):
                 yield event
+        self._schedule_idle_summary_refresh()  # restart the wait from the turn's end
 
     def build_silent_text_inject(self, text: str) -> list[dict[str, Any]]:
         """Persist a shared-text user turn and return silent-inject voice commands.
@@ -1862,22 +1981,13 @@ class OrchestratorSession:
         # Audio mode also drains notifications — prepend them to the audio's
         # accompanying text prompt so the LLM sees them first in this turn.
         async with self._busy_lock:
+            self._schedule_idle_summary_refresh()  # see send()
             user_text = text_prompt  # persisted as typed; notifications get their own lines
             pending = self._notifications.drain()
             if pending:
                 for n in pending:
                     self._writer.append({
-                        "type": "background_notification",
-                        "notification_id": n.notification_id,
-                        "turn_id": n.turn_id,
-                        "session_id": n.session_id,
-                        "session_title": n.session_title,
-                        "origin_tool_use_id": n.origin_tool_use_id,
-                        "status": n.status,
-                        "cost": n.cost,
-                        "turns": n.turns,
-                        "duration_seconds": n.duration_seconds,
-                        "error": n.error,
+                        **_notification_entry(n),
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     })
                 rendered = _render_notifications(pending)
@@ -1885,6 +1995,7 @@ class OrchestratorSession:
 
             async for event in self._send_audio_inner(audio_data, audio_format, text_prompt, user_text=user_text):
                 yield event
+        self._schedule_idle_summary_refresh()
 
     async def _send_audio_inner(
         self,
@@ -2107,6 +2218,9 @@ class OrchestratorSession:
                 self.refresh_summary_cache_if_stale(),
                 name=f"summary-refresh-{self._local_id}",
             )
+        if self._idle_summary_timer is not None and not self._idle_summary_timer.done():
+            self._idle_summary_timer.cancel()  # the refresh just above covers it
+        self._idle_summary_timer = None
         # Cancel the injection watchdog if it's still scheduled
         if self._injection_watchdog is not None and not self._injection_watchdog.done():
             self._injection_watchdog.cancel()

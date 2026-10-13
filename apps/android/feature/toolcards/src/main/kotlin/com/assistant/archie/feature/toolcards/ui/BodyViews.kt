@@ -155,9 +155,12 @@ internal fun PreText(text: String, json: Boolean = false) {
     }
 }
 
+/** Tool reports / plans longer than this parse off the main thread. */
+internal const val TOOL_MARKDOWN_SYNC_LIMIT = 2_000
+
 @Composable
 internal fun RichMarkdown(text: String, cacheId: String, onLink: (String) -> Unit) {
-    Markdown(text, Modifier.fillMaxWidth().padding(horizontal = 4.dp), style = richMarkdownStyle(), onLinkClick = onLink, cacheId = cacheId)
+    Markdown(text, Modifier.fillMaxWidth().padding(horizontal = 4.dp), style = richMarkdownStyle(), onLinkClick = onLink, cacheId = cacheId, syncLimit = TOOL_MARKDOWN_SYNC_LIMIT)
 }
 
 @Composable

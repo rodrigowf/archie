@@ -71,9 +71,18 @@ Triggers (in order of how the cache stays warm):
    background refresh so a subsequent wake-word voice_start finds the
    cache warm. A ``start`` that re-attaches to an already-live session
    returns before this point and does not refresh.
-3. Read trigger fallback — ``_build_history_for_prompt`` itself
-   reads the cache, falls back to synchronous compute on miss, and
-   writes back so the next call is fast.
+3. Idle after text turns — each text turn restarts a debounced timer
+   (``SUMMARY_IDLE_REFRESH_S`` in ``orchestrator/session.py``); when the
+   conversation has been quiet that long, one refresh runs.
+4. Read trigger fallback — ``_build_history_for_prompt`` itself
+   reads the cache, falls back to synchronous compute on miss (or waits
+   for the refresh already running), and writes back so the next call
+   is fast.
+
+Validity for the voice prompt is the summary's ``input_message_count``
+(it covers the first N messages of an append-only JSONL), not the stat
+key: the stat key only says "nothing changed at all". A refresh whose
+older prefix didn't move just re-dates the cache, without an LLM call.
 
 Not implemented (and deliberately so):
 
@@ -123,6 +132,11 @@ def cache_path_for(jsonl_path: Path) -> Path:
     the JSONL itself and so per-file conflicts stay local.
     """
     return jsonl_path.with_suffix(".summary.json")
+
+
+def current_key(jsonl_path: Path) -> tuple[int, int] | None:
+    """The JSONL's current freshness key, for :func:`write`'s ``jsonl_key``."""
+    return _stat_key(jsonl_path)
 
 
 def _stat_key(jsonl_path: Path) -> tuple[int, int] | None:
@@ -214,6 +228,7 @@ def write(
     input_message_count: int,
     summary_target_words: tuple[int, int] | None,
     summarizer_model: str | None,
+    jsonl_key: tuple[int, int] | None = None,
 ) -> None:
     """Atomically write the summary cache next to ``jsonl_path``.
 
@@ -224,11 +239,18 @@ def write(
     the JSONL changing under us) results in a no-op rather than a
     stale cache.
 
+    ``jsonl_key`` is the JSONL's ``(size, mtime_ns)`` from
+    :func:`current_key` taken when the history was READ, before the
+    LLM call. Pass it: a summary takes minutes, and keying it to the
+    JSONL as it is at write time would mark turns appended meanwhile
+    as covered. Without it the key is taken now (fine for instant
+    writes).
+
     Never raises — failure is logged and the next read just sees a
     cache miss.
     """
     cp = cache_path_for(jsonl_path)
-    key = _stat_key(jsonl_path)
+    key = jsonl_key or _stat_key(jsonl_path)
     if key is None:
         logger.warning(
             "summary_cache write skipped: JSONL %s vanished", jsonl_path

@@ -31,6 +31,12 @@ export interface SessionState {
   readonly models: readonly ModelInfo[] | null;
   /** The panel is hidden (frozen snapshot). */
   readonly hidden: boolean;
+  /**
+   * Subagent view state (spec 12 §4.8 UI, not protocol): the agent tab shown in this panel
+   * (`tool_use_id`; null = Main) and the finished agent tabs the user closed ("Close finished").
+   */
+  readonly subagentTab: string | null;
+  readonly hiddenSubagentTabs: readonly string[];
 }
 
 export type SessionStore = StoreApi<SessionState>;
@@ -79,6 +85,8 @@ export function createSessionStore(o: CreateSessionStoreOptions): SessionStoreHa
     modelInfo: null,
     models: null,
     hidden: o.hidden === true,
+    subagentTab: null,
+    hiddenSubagentTabs: [],
   }));
   let pending: Conversation | null = null;
   let cancel: (() => void) | null = null;

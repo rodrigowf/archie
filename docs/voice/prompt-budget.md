@@ -3,7 +3,7 @@ name: prompt-budget
 category: archie/voice
 tags: [voice, openai-realtime, token-budget, system-prompt, summarizer, summary-cache, history, prompt-sizing, 16384-cap]
 created: 2026-07-21
-modified: 2026-10-07
+modified: 2026-10-13
 summary: How the voice system prompt stays under OpenAI Realtime's 16,384-token cap without truncating anything; Rodrigo's two sizing rules.
 source: curated (consolidated from memory notes assistant/architecture/voice_prompt_budget.md, assistant/architecture/feedback_dont_hard_cap_or_force_lossless_summary.md, assistant/voice/voice_lifecycle_and_wake_after_stop.md; verified against code 2026-10-06)
 references:
@@ -104,15 +104,17 @@ The Jetson venv has tiktoken; the laptop venv may not.
 2. `split_by_token_budget(clipped, RECENT_VERBATIM_TOKENS)` walks back from the
    newest message and keeps messages verbatim until the budget runs out.
    Everything older is the *prefix* to summarise.
-3. Get the summary of the prefix:
-   - **HIT**: `summary_cache.read()` is fresh. The key is the JSONL's
-     `(size, mtime_ns)`. No LLM call.
-   - **STALE-REUSE**: the cache is stale but `read_any()` returns a summary whose
-     `input_message_count <= len(older)`. Reuse it. If the prefix grew, move the
-     new messages back into the verbatim window
-     (`recent = older[stale.input_message_count:] + recent`), so nothing is lost.
-   - **MISS**: call `_summarize_history()` synchronously and write the result to
-     the cache.
+3. Get the summary of the prefix (`_match_cached_summary`). The JSONL is
+   append-only, so a summary stays valid for as long as it covers the prefix:
+   validity is its `input_message_count`, not the file's `(size, mtime_ns)`.
+   - **HIT**: `input_message_count == len(older)`. No LLM call.
+   - **STALE-REUSE**: `input_message_count < len(older)`. Reuse it and move the
+     messages it doesn't cover back into the verbatim window
+     (`recent = older[cached.input_message_count:] + recent`), so nothing is lost.
+   - **MISS** (no cache, or the history was rewritten): take the conversation's
+     summary lock — if a background refresh is already running, wait for it and
+     use its result — otherwise call `_summarize_history()` synchronously and
+     write the result to the cache.
 
 The log lines `history summary cache HIT / STALE-REUSE / MISS` show which path
 ran.
@@ -124,16 +126,33 @@ word, and the rest are in the digest. In steady state the two do not overlap
 
 ### Keeping the cache warm
 
-A synchronous summary on a long session takes 15–90 s. It used to sit between
-`voice_start` and `session_started`, so the second wake word after a call
-froze for 60–90 s. Three triggers keep the cache warm now:
+A synchronous summary on a long session takes from 15 s to several minutes
+(a GPT-5-class summarizer over a ~50k-token prefix; ~4 min on 2026-10-13). It
+used to sit between `voice_start` and `session_started`, so the second wake
+word after a call froze for 60–90 s. These triggers keep the cache warm:
 
-- `end_voice` starts a background `refresh_summary_cache_if_stale()` task (see
-  [lifecycle.md](lifecycle.md)).
-- A text `start` that opens a new orchestrator session (`_handle_start` in
-  `backend/api/routes/orchestrator.py`) starts the same refresh, so a wake word
-  a few seconds later finds it warm.
-- STALE-REUSE covers a restart that comes before the refresh finishes.
+- `end_voice` and session `stop` start a background
+  `refresh_summary_cache_if_stale()` task (see [lifecycle.md](lifecycle.md)).
+- A text `start` (`_handle_start` in `backend/api/routes/orchestrator.py`:
+  the conversation opened, an app reconnected) starts the same refresh.
+- **Idle after text turns**: every text turn (typed, or a wake for a finished
+  agent turn) restarts a `SUMMARY_IDLE_REFRESH_S` (5 min) timer; when it runs
+  out the refresh runs once. A busy stretch costs one summary at its end. Added
+  2026-10-13: two wake turns after a call left the summary stale for 8 hours,
+  and the next start's prompt went over OpenAI's cap (17,609 tokens).
+- STALE-REUSE covers a start that comes before a refresh finishes.
+
+What keeps this cheap:
+
+- `refresh_summary_cache_if_stale()` returns at once when the JSONL is
+  unchanged, and only **re-dates** the cache (no LLM call) when the file grew
+  but the older prefix did not (new turns stayed in the verbatim window).
+- One summarization per conversation at a time (`_summary_lock`): three
+  devices opening a conversation, or a voice start during a refresh, share
+  one LLM call.
+- The cache is keyed to the JSONL as it was **read** (`summary_cache.write(…,
+  jsonl_key=current_key(path))`), so turns appended during a minutes-long
+  summary are not marked as covered.
 
 When the cache is not fresh at voice start, the route sends
 `voice_status: summarizing` to the initiator only. The UI then shows

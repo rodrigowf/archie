@@ -157,6 +157,9 @@ const LIVE = [
   'voice_transcript_coalescing_gemini',
   'orchestrator_error_no_turn_complete',
   'orchestrator_parallel_tools',
+  'subagent_foreground_unopened',
+  'subagent_background_after_turn',
+  'subagent_placeholder_without_lifecycle',
 ];
 
 describe('mock server replays scenarios faithfully (W-05 DoD)', () => {
@@ -171,6 +174,7 @@ describe('mock server replays scenarios faithfully (W-05 DoD)', () => {
     expect(actual.orphan_results).toStrictEqual(exp.orphan_results ?? []);
     expect(actual.unattributed_results).toStrictEqual(exp.unattributed_results ?? []);
     if (exp.queue !== undefined) expect(actual.queue).toStrictEqual(exp.queue);
+    if (exp.subagents !== undefined) expect(actual.subagents).toStrictEqual(exp.subagents);
     const expState = Object.fromEntries(Object.entries(exp.state ?? {}).filter(([k]) => keys.indexOf(k) >= 0));
     expect(actual.state).toStrictEqual(expState);
   });
@@ -228,7 +232,7 @@ describe('mock server echo mode', () => {
     ws.close();
   });
 
-  it('plan: permission request answered by a follow-up send (deny with feedback), queued prompt echo, interrupt', async () => {
+  it('plan: permission request answered by a follow-up send (deny with feedback, steered echo), mid-turn steer, interrupt', async () => {
     const a = await socket('/api/sessions/chat');
     const b = await socket('/api/sessions/chat');
     a.ws.send(JSON.stringify({ type: 'start', local_id: 'echo-2' }));
@@ -239,10 +243,17 @@ describe('mock server echo mode', () => {
     await b.until((f) => f.type === 'user_message' && f.text === 'make a plan');
     await a.until((f) => f.type === 'permission_request');
     a.ws.send(JSON.stringify({ type: 'send', text: 'no, smaller steps' }));
-    await b.until((f) => f.type === 'user_message' && f.queued === true);
+    await b.until((f) => f.type === 'user_message' && f.steered === true);
+    await a.until((f) => f.type === 'user_message' && f.steered === true); // I-13: the sender too
     await a.until((f) => f.type === 'permission_resolved' && f.decision === 'deny' && f.message === 'no, smaller steps');
+    await a.until((f) => f.type === 'turn_complete');
+    a.ws.send(JSON.stringify({ type: 'send', text: 'please use a tool' }));
+    await a.until((f) => f.type === 'tool_use' && a.frames.filter((x) => x.type === 'turn_complete').length === 1);
+    a.ws.send(JSON.stringify({ type: 'send', text: 'and be quick' })); // mid-turn: steered, no second turn
+    await b.until((f) => f.type === 'user_message' && f.steered === true && f.text === 'and be quick');
     await a.until((f) => f.type === 'turn_complete' && a.frames.filter((x) => x.type === 'turn_complete').length === 2);
-    expect(b.frames.filter((f) => f.type === 'user_message' && f.text === 'no, smaller steps')).toHaveLength(1); // O-6
+    expect(b.frames.filter((f) => f.type === 'user_message' && f.text === 'no, smaller steps')).toHaveLength(1);
+    expect(a.frames.some((f) => f.type === 'text_complete' && String(f.text).includes('and be quick'))).toBe(true);
     a.ws.send(JSON.stringify({ type: 'send', text: 'stall please' }));
     await b.until((f) => f.type === 'session_stalled');
     a.ws.send(JSON.stringify({ type: 'interrupt' }));

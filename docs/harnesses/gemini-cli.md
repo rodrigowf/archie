@@ -3,7 +3,7 @@ name: gemini-cli
 category: archie/harnesses
 tags: [gemini, gemini-cli, harness, jsonl, stream-json, skip-trust, glob-resolver, spawn-per-turn, api-key, workspace-settings, catalog, thinking]
 created: 2026-05-15
-modified: 2026-10-08
+modified: 2026-10-12
 summary: The Gemini CLI harness (pinned 0.63.0) — spawn-per-turn gemini --prompt, API-key-only auth since the oauth-personal shutdown, env-templated workspace settings, catalog + options, JSONL log semantics, landmines.
 source: curated (consolidated from memory notes assistant/providers/gemini_cli_adaptation.md, assistant/providers/provider_generalization.md; upgraded to CLI 0.63.0 and verified live 2026-10-07)
 references:
@@ -16,6 +16,8 @@ references:
   - ../infrastructure/ssh-remote-execution.md
   - ../voice/gemini-live.md
   - ../architecture/memory-and-search.md
+  - ../specs/12-client-protocol.md
+  - ../projects/subagent-view/PLAN.md
 ---
 
 # Gemini CLI harness
@@ -64,11 +66,12 @@ A possible future harness: Google's successor, **Antigravity CLI** (`agy`).
 |---|---|
 | `backend/manager/gemini/session.py` | `GeminiSessionManager`, `GeminiAbandoned(TurnAbandoned)`, `_ThoughtTail` (thinking from the JSONL), process-tree reaping, `_gemini_executable()` (`GEMINI_CLI_PATH` or `gemini`) |
 | `backend/manager/gemini/adapter.py` | `GeminiAdapter` (log replay: upserts, snapshots, rewinds), `gemini_session_is_resumable()`, `HarnessSpec(name="gemini")`, `_gemini_jsonl_candidates()` (glob), `_gemini_discover_sessions()`, `_read_gemini_session_id()` |
+| `backend/manager/gemini/subagent_files.py` | `invoke_agent` outcome parsing (`SubagentProgress`, the model-facing text) and subagent history from the chat files ([Subagents](#subagents)) |
 | `backend/manager/gemini/catalog.py` | `load_gemini_catalog()` (the spec's `catalog_loader`), model families, per-model clamping of thinking values |
 | `backend/manager/gemini/workspace_settings.py` | Archie's keys for `<repo>/.gemini/settings.json`, `ensure_workspace_settings()`; stdlib-only, also run as a script by the installer |
 | `install/cli-runtime/gemini/settings.json` | The seed — byte-identical to `workspace_settings.render_seed()` (a test keeps them equal) |
 | `GEMINI.md` (repo root) | Symlink → `context/AGENTS.md`, committed in git |
-| `backend/tests/test_gemini_{adapter,session,session_ssh,catalog,workspace_settings}.py` | Tests (subprocess mocked; two use real process groups) |
+| `backend/tests/test_gemini_{adapter,session,session_ssh,catalog,workspace_settings,subagents}.py` | Tests (subprocess mocked; two use real process groups) |
 
 ## CLI surface
 
@@ -206,7 +209,8 @@ The CLI hard-codes:
 
 `<project-label>` is what `~/.gemini/projects.json` maps the cwd to (first run: the cwd basename,
 `assistant`); `-<n>` appears only for same-minute collisions (0.63). Subagent sessions go to
-`chats/<parentId>/<id>.jsonl` (ignored by our non-recursive globs). The installer (`--with-gemini`,
+`chats/<parentId>/<agentId>.jsonl` (ignored by our non-recursive globs; read as subagent
+transcripts, [Subagents](#subagents)). The installer (`--with-gemini`,
 step 3c) replaces the label directory with a symlink:
 
 ```
@@ -288,7 +292,7 @@ that replays to exactly the earlier turns. Detection: a header with `sessionId` 
 | `message` role `user` | echo of the prompt | skipped |
 | `message` role `assistant`, `delta: true` | text chunk | `TextDelta`; accumulated into `TextComplete` |
 | `tool_use` | `tool_name`, `tool_id`, `parameters` | `ToolUse` |
-| `tool_result` | `tool_id`, `status`, `output` (display text, also on errors since 0.63), `error.message` | `ToolResult` (`is_error` when `status == "error"`) |
+| `tool_result` | `tool_id`, `status`, `output` (display text, also on errors since 0.63 — **only when the tool's display is a string**), `error.message` | `ToolResult` (`is_error` when `status == "error"`); for `invoke_agent` see [Subagents](#subagents) |
 | `error` | `severity` `warning` (loop detected, blocked tool) or `error` (quota, invalid stream), `message` | logged; an error's message becomes the turn's error text if the turn fails |
 | `result` | `status`, `error?{type, message}`, `stats {input_tokens, output_tokens, total_tokens, cached, models{…}}` | `TurnComplete` with usage (`cached` → `cache_read_input_tokens`); `status: "error"` → `is_error` + message |
 
@@ -303,6 +307,45 @@ only): at each `tool_use` / `tool_result` / `result` and at EOF it reads the new
 `ThinkingDelta` + `ThinkingComplete` for thoughts not seen before (messages already on disk when the
 turn started — including the ones a resume snapshot restates — count as seen). A step's thinking
 therefore arrives after its text or tool call, not before it; reopened history shows it first.
+
+## Subagents
+
+Contract: [spec 12 §4.8](../specs/12-client-protocol.md#48-subagents-sa-); plan:
+[subagent view](../projects/subagent-view/PLAN.md). Gemini support is **post-hoc**: started at the
+call, finished at its result, no live inner events (live would need tailing the subagent's chat
+file — a later phase).
+
+**What 0.63 does** (live probe 2026-10-12, gemini-2.5-flash, the built-in `generalist` agent): the
+model calls `invoke_agent {agent_name, prompt}` (`tool_id` like `invoke_agent__invoke_agent_<ms>_0`).
+stream-json carries **nothing** from inside the subagent, and its `tool_result` has **no `output`**:
+stream-json only copies a string `resultDisplay`, and a local subagent's display is a
+`SubagentProgress` object. The parent chat file records the finished call in its `toolCalls` entry:
+`status`, `agentId`, `resultDisplay = {isSubagentProgress, agentName, recentActivity: [≤ a few
+{id, type: "tool_call"|"thought", content, args, status}], state: "completed"|"error"|"cancelled",
+result, terminateReason: "GOAL"|"TIMEOUT"|"MAX_TURNS"|"ERROR"|"ERROR_NO_COMPLETE_TASK_CALL"|…}`
+and, as the function response, the text the model saw (`Subagent 'x' finished.\nTermination Reason:
+R\nResult:\n<json>` or `Subagent 'x' failed. Error: …`). The agent hands its answer over through a
+`complete_task` call whose args are the result JSON (default `{"response": "…"}`). Its own chat is
+`chats/<parent session id>/<agentId>.jsonl` (header `kind: "subagent"`, same record format), written
+while it runs.
+
+**Live mapping.** `invoke_agent` `tool_use` → `ToolUse` + `SubagentStarted` (`agent_type` =
+`agent_name`, description = the prompt's first line). At its `tool_result` the manager first reads
+the outcome — from `output` when it is a string (`SubagentProgress` JSON or the model-facing text),
+else from the call's `toolCalls` entry in the session file (`_subagent_outcome`, re-polled up to ~2.5 s;
+local sessions only) — then emits the `ToolResult` with the **readable answer** as output (not the
+progress blob) and `SubagentFinished` (`GOAL` → `done`, `ABORTED`/`cancelled` → `stopped`, any other
+reason or `state: "error"` → `failed`; summary = the answer, else the error; usage = the child chat's
+tokens and tool calls). A process that ends with the agent unreported finishes it `stopped` through
+the out-of-turn sink. Stop (SA-9) is unsupported.
+
+**History.** `subagent_files.scan()` lists the parent's `invoke_agent` calls, maps each to
+`chats/<sid>/<agentId>.jsonl` (a still-running call has no `agentId` yet: matched by its prompt
+against the child chats' first user message) and takes status / summary from the `toolCalls` entry.
+The transcript is the child chat through `GeminiAdapter.read_messages()` plus the answer as a final
+text block (the chat itself ends at `complete_task`); without a child file it is synthesised from the
+prompt, `recentActivity` and the answer. The parent's history card shows the answer too. Nested
+`invoke_agent` inside a subagent is not followed.
 
 ## Interrupt and process cleanup
 
@@ -402,3 +445,6 @@ local-only. See [ssh-remote-execution](../infrastructure/ssh-remote-execution.md
   log-replay adapter (upserts, snapshots, rewinds, functionResponse turns, hidden session context),
   errors surfaced instead of empty turns, stub cleanup, live thinking from the JSONL, single-process
   CLI + process-tree reaping for interrupts.
+- 2026-10-12 — subagents (spec 12 §4.8), post-hoc: `invoke_agent` → `subagent_started` at the call,
+  `subagent_finished` + a readable card at the result (outcome read back from the session file,
+  since stream-json drops the `SubagentProgress`), history from `chats/<sid>/<agentId>.jsonl`.

@@ -86,6 +86,14 @@ class SessionDeadError(RuntimeError):
         self.detail = detail
 
 
+class SubagentNotFound(LookupError):
+    """``stop_subagent`` for a tool_use_id the session does not know."""
+
+
+class SubagentNotRunning(RuntimeError):
+    """``stop_subagent`` for a subagent that already finished."""
+
+
 class BaseSessionManager(ABC):
     """Abstract base for all session managers.
 
@@ -144,6 +152,13 @@ class BaseSessionManager(ABC):
         self._pending_permissions: dict[str, asyncio.Future[tuple[str, str | None, str]]] = {}
         self._event_inbox: asyncio.Queue[Event] | None = None
 
+        # Out-of-turn events (spec 12 §4.8): what the harness emits while no
+        # ``send()`` is consuming — a background subagent still working after
+        # the parent turn ended, a turn the CLI started on its own.  The pool
+        # installs a sink that broadcasts them; harnesses that never produce
+        # such events ignore it.
+        self._out_of_turn_sink: "Callable[[object], None] | None" = None
+
     # ------------------------------------------------------------------
     # Abstract / required interface
     # ------------------------------------------------------------------
@@ -176,6 +191,17 @@ class BaseSessionManager(ABC):
     @abstractmethod
     async def interrupt(self) -> None:
         """Stop the in-flight turn at the provider level."""
+
+    #: The harness can take messages into a running turn (:meth:`steer`).
+    supports_steering: bool = False
+
+    async def steer(self, text: str) -> bool:
+        """Deliver *text* into the turn the active ``send()`` is running
+        (spec 12 I-16): the harness hands it to the model mid-turn, at its
+        next model request, instead of after the turn.  Returns ``False``
+        when the harness cannot (the default) or no turn of ours is running
+        — the caller then queues the message behind the turn."""
+        return False
 
     # ------------------------------------------------------------------
     # Async context manager
@@ -278,6 +304,54 @@ class BaseSessionManager(ABC):
         """
         async for event in self.send(slash_command):
             yield event
+
+    # ------------------------------------------------------------------
+    # Subagents and out-of-turn events (spec 12 §4.8)
+    # ------------------------------------------------------------------
+
+    def set_out_of_turn_sink(self, sink: "Callable[[object], None] | None") -> None:
+        """Install the pool's receiver for events produced outside ``send()``.
+
+        Called synchronously with each item (a harness-specific wrapper such
+        as Claude's ``SequencedEvent``, or a bare :class:`Event`) in dispatch
+        order; it must not block or raise.
+        """
+        self._out_of_turn_sink = sink
+
+    def _emit_out_of_turn(self, item: object) -> None:
+        sink = self._out_of_turn_sink
+        if sink is None:
+            return
+        try:
+            sink(item)
+        except Exception:  # noqa: BLE001 — a broken sink must not kill the receive loop
+            import logging
+            logging.getLogger(__name__).exception(
+                "out-of-turn sink failed for session %s", self._local_id,
+            )
+
+    def subagent_snapshot(self) -> list[dict]:
+        """Live subagents of this session as ``SubagentSummary`` dicts (spawn
+        order).  History on disk is merged in by the caller
+        (:func:`manager.subagents.merge_summaries`).  Default: none."""
+        return []
+
+    def awaits_unprompted_turn(self) -> bool:
+        """True while the harness owes a turn of its own: a background task
+        ended and the turn that reports on it (Claude: ``<task-notification>``)
+        has not run yet, or is running.  The orchestrator runner keeps a
+        delegated turn open until it ran.  Default: never."""
+        return False
+
+    async def stop_subagent(self, tool_use_id: str) -> None:
+        """Ask the harness to stop one running subagent (spec 12 SA-9).
+
+        The outcome arrives as the normal ``subagent_finished{stopped}``.
+        Raises :class:`NotImplementedError` when the harness cannot stop a
+        single subagent, :class:`SubagentNotFound` / :class:`SubagentNotRunning`
+        otherwise.
+        """
+        raise NotImplementedError(f"{type(self).__name__} cannot stop a subagent")
 
     # ------------------------------------------------------------------
     # Permission gating — shared resolution; injection is subclass-specific

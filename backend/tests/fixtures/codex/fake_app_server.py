@@ -13,6 +13,12 @@ by a keyword in the prompt:
 * ``approve``  asks the client for a command approval first
 * ``crash``    the process exits mid-turn
 * ``turnerr``  turn/start returns a JSON-RPC error
+* ``spawn``    a multi-agent spawnAgent: the child thread streams on the same
+               connection (its first notifications before the spawn item
+               completes, as in a real 0.161 run), then a wait_agent call.
+               With ``later`` the parent turn ends first and the child keeps
+               going; with ``stopme`` the child runs until a turn/interrupt
+               names its thread.
 
 Every request received is appended (one JSON object per line) to the file
 named by ``FAKE_CODEX_LOG``; argv goes on the first line.
@@ -26,9 +32,11 @@ import time
 
 LOG = os.environ.get("FAKE_CODEX_LOG")
 THREAD = "01a118ca-0000-7000-8000-000000000001"
+CHILD = "01a118ca-0000-7000-8000-0000000000c1"
 _lock = threading.Lock()
 _pending: dict = {}
 _interrupt = threading.Event()
+_child_interrupt = threading.Event()
 _next_id = [1000]
 
 
@@ -68,12 +76,68 @@ def agent(turn, text, item_id="msg_1"):
     item("completed", {"type": "agentMessage", "id": item_id, "text": text, "phase": "final_answer"}, turn)
 
 
+def citem(event, it, turn):
+    note(f"item/{event}", {"item": it, "threadId": CHILD, "turnId": turn})
+
+
+def run_child(cturn, stop=False):
+    citem("completed", {"type": "userMessage", "id": "cu1", "content": [{"type": "text", "text": "Read note.txt"}]}, cturn)
+    cmd = {"type": "commandExecution", "id": "exec-child-1", "command": "/bin/bash -c 'cat note.txt'",
+           "cwd": "/tmp", "status": "inProgress", "aggregatedOutput": None, "exitCode": None}
+    citem("started", cmd, cturn)
+    citem("completed", dict(cmd, status="completed", aggregatedOutput="hello world\n", exitCode=0), cturn)
+    note("thread/tokenUsage/updated", {"threadId": CHILD, "turnId": cturn, "tokenUsage": {
+        "total": {"totalTokens": 9803, "inputTokens": 9689, "cachedInputTokens": 0, "outputTokens": 114},
+        "last": {"totalTokens": 9803, "inputTokens": 9689, "cachedInputTokens": 0, "outputTokens": 114},
+        "modelContextWindow": 258400}})
+    if stop:
+        _child_interrupt.wait(20)
+        note("turn/completed", {"threadId": CHILD, "turn": {"id": cturn, "items": [], "status": "interrupted",
+                                                           "error": None, "durationMs": 900}})
+        return
+    note("error", {"threadId": CHILD, "turnId": cturn, "willRetry": False, "error": {"message": "child hiccup"}})
+    citem("started", {"type": "agentMessage", "id": "cmsg", "text": ""}, cturn)
+    note("item/agentMessage/delta", {"threadId": CHILD, "turnId": cturn, "itemId": "cmsg", "delta": "hello world"})
+    citem("completed", {"type": "agentMessage", "id": "cmsg", "text": "hello world", "phase": "final_answer"}, cturn)
+    note("turn/completed", {"threadId": CHILD, "turn": {"id": cturn, "items": [], "status": "completed",
+                                                       "error": None, "durationMs": 4242}})
+
+
+def run_spawn(turn, text):
+    sid = "exec-spawn-1"
+    base = {"type": "collabAgentToolCall", "id": sid, "tool": "spawnAgent", "senderThreadId": THREAD,
+            "prompt": "Read note.txt and report it", "reasoningEffort": "low"}
+    item("started", dict(base, status="inProgress", receiverThreadIds=[], model="", agentsStates={}), turn)
+    cturn = "child-turn-1"
+    note("thread/status/changed", {"threadId": CHILD, "status": {"type": "active", "activeFlags": []}})
+    note("turn/started", {"threadId": CHILD, "turn": {"id": cturn, "status": "inProgress"}})
+    item("completed", dict(base, status="completed", receiverThreadIds=[CHILD], model="gpt-6-luna",
+                           agentsStates={CHILD: {"status": "pendingInit", "message": None}}), turn)
+    if "later" in text or "stopme" in text:
+        agent(turn, "spawned", "msg_p")
+        finish(turn)
+        time.sleep(0.2)
+        run_child(cturn, stop="stopme" in text)
+        return
+    wid = "exec-wait-1"
+    wait = {"type": "collabAgentToolCall", "id": wid, "tool": "wait", "senderThreadId": THREAD,
+            "receiverThreadIds": [CHILD], "prompt": None, "model": None}
+    item("started", dict(wait, status="inProgress", agentsStates={}), turn)
+    run_child(cturn)
+    item("completed", dict(wait, status="completed",
+                           agentsStates={CHILD: {"status": "completed", "message": "hello world"}}), turn)
+    agent(turn, "The agent said hello world", "msg_p")
+    finish(turn)
+
+
 def run_turn(turn, text):
     note("turn/started", {"threadId": THREAD, "turn": {"id": turn, "status": "inProgress"}})
     item("completed", {"type": "userMessage", "id": "u1", "content": [{"type": "text", "text": text}]}, turn)
     if "crash" in text:
         os._exit(3)
-    if "hello" in text:
+    if "spawn" in text:
+        run_spawn(turn, text)
+    elif "hello" in text:
         rid = "rs_1"
         item("started", {"type": "reasoning", "id": rid, "summary": [], "content": []}, turn)
         note("item/reasoning/summaryPartAdded", {"threadId": THREAD, "turnId": turn, "itemId": rid, "summaryIndex": 0})
@@ -179,7 +243,7 @@ def main():
             send({"id": mid, "result": {"turn": {"id": turn, "status": "inProgress"}}})
             threading.Thread(target=run_turn, args=(turn, text), daemon=True).start()
         elif method == "turn/interrupt":
-            _interrupt.set()
+            (_child_interrupt if params.get("threadId") == CHILD else _interrupt).set()
             send({"id": mid, "result": {}})
         else:
             send({"id": mid, "error": {"code": -32601, "message": f"unknown method {method}"}})

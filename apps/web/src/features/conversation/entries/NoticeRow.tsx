@@ -47,6 +47,20 @@ function Divider({ icon, label, sub, detail }: { icon: IconName; label: string; 
   );
 }
 
+const TASK_SUMMARY = /<summary>([\s\S]*?)<\/summary>/;
+
+/** A CLI `<task-notification>` (spec 12 SA-7 live, BG-2 history): a background task reported back. */
+export function taskNotificationSummary(text: string): string | null {
+  if (!text.startsWith('<task-notification>')) return null;
+  const m = TASK_SUMMARY.exec(text);
+  return m && m[1] ? m[1].trim() : 'A background task reported back.';
+}
+
+/** The CLI sends the same notification for a subagent (`Agent "x" finished`) and a background shell command. */
+export function isAgentNotification(summary: string): boolean {
+  return /^(Background\s+)?agent\b/i.test(summary);
+}
+
 function NoticeRowImpl({ entry }: { entry: NoticeEntry }) {
   switch (entry.notice) {
     case 'compaction': {
@@ -55,7 +69,12 @@ function NoticeRowImpl({ entry }: { entry: NoticeEntry }) {
       const label = before && after ? `Context compacted · ${before} → ${after} tokens` : 'Context compacted';
       return <Divider icon="compress" label={label} detail={entry.text || undefined} />;
     }
-    case 'background':
+    case 'background': {
+      const task = taskNotificationSummary(entry.text);
+      if (task !== null) {
+        const agent = isAgentNotification(task);
+        return <Divider icon={agent ? 'smart_toy' : 'terminal'} label={agent ? 'Background agent' : 'Background task'} sub={task} detail={entry.text} />;
+      }
       return (
         <Divider
           icon="bolt"
@@ -64,6 +83,7 @@ function NoticeRowImpl({ entry }: { entry: NoticeEntry }) {
           detail={entry.text || undefined}
         />
       );
+    }
     case 'interrupted':
       return (
         <div className={styles.sysRow}>

@@ -1,8 +1,8 @@
 /**
  * Conformance suite (spec 12 §11, spec 13 §3.2): every fixture in FIXTURES_DIR, no skips.
  * Each fixture is replayed through the binary-frame decoder and the state machine, normalised
- * and compared with `expected`: entries, orphan_results, unattributed_results exactly; queue when
- * present; state keys when present.
+ * and compared with `expected`: entries, orphan_results, unattributed_results exactly; queue and
+ * subagents when present; state keys when present.
  */
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -28,6 +28,7 @@ describe('protocol fixtures', () => {
     expect(actual.orphan_results).toStrictEqual(exp.orphan_results ?? []);
     expect(actual.unattributed_results).toStrictEqual(exp.unattributed_results ?? []);
     if (exp.queue !== undefined) expect(actual.queue).toStrictEqual(exp.queue);
+    if (exp.subagents !== undefined) expect(actual.subagents).toStrictEqual(exp.subagents);
     expect(actual.state).toStrictEqual(exp.state ?? {});
   });
 
@@ -39,6 +40,8 @@ describe('protocol fixtures', () => {
     for (const input of inputs) {
       conv = deepFreeze(runInputs(conv, [input]).conv); // throws (strict mode) if the step mutates its input
     }
-    expect(normalise(conv).entries).toStrictEqual(normalise(runFixture(fx).conv).entries);
+    const fresh = normalise(runFixture(fx).conv);
+    expect(normalise(conv).entries).toStrictEqual(fresh.entries);
+    expect(normalise(conv).subagents).toStrictEqual(fresh.subagents);
   });
 });

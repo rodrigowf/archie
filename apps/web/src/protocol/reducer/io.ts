@@ -45,7 +45,28 @@ export type ConversationInput =
   | { readonly type: 'sdk_id'; readonly sdkId: string }
   | { readonly type: 'dismiss_banner' }
   /** Orchestrator view: drop approvals of an agent whose turn ended (§6.9). */
-  | { readonly type: 'clear_agent_approvals'; readonly localId: string };
+  | { readonly type: 'clear_agent_approvals'; readonly localId: string }
+  // subagents (§4.8)
+  /** `openSubagent` (SA-5): create its `conv`, hold its inner frames, fetch its first page (effect). */
+  | { readonly type: 'open_subagent'; readonly toolUseId: string }
+  /**
+   * A subagent transcript page (SA-5). `replace`: the first page, then the held frames are applied
+   * (`response: null` = the fetch failed: the held frames are released, `error` shown in its tab).
+   * `prepend`: an older page (§5.3) of an open transcript.
+   */
+  | {
+      readonly type: 'subagent_page';
+      readonly toolUseId: string;
+      readonly mode: 'replace' | 'prepend';
+      readonly response: MessagesPage | null;
+      readonly error?: string | null;
+    }
+  /** `releaseSubagent` (SA-5): drop its transcript (`conv = null`, `held = null`). */
+  | { readonly type: 'release_subagent'; readonly toolUseId: string }
+  /** SA-8: the rows of `GET …/subagents`, upserted in order. */
+  | { readonly type: 'subagents_list'; readonly rows: readonly unknown[] }
+  /** Internal (SA-4): `subagent_finished` ends the turn of a subagent's own conversation. */
+  | { readonly type: 'end_turn' };
 
 export type Effect =
   /** Send this message on the conversation's socket (text frame). */
@@ -65,7 +86,11 @@ export type Effect =
   /** Protocol error (§4.4.4): log + transient toast. */
   | { readonly type: 'protocol_error'; readonly code: string; readonly detail: string | null }
   /** `error{orchestrator_stopping}`: re-send `start` after the delay, once (T-12). */
-  | { readonly type: 'retry_start'; readonly delayMs: number };
+  | { readonly type: 'retry_start'; readonly delayMs: number }
+  /** SA-5: `GET …/subagents/{toolUseId}/messages` (first page) → `subagent_page{replace}`. */
+  | { readonly type: 'fetch_subagent_page'; readonly toolUseId: string }
+  /** SA-8: `GET …/subagents` once → `subagents_list`. */
+  | { readonly type: 'fetch_subagents' };
 
 export interface StepResult<S> {
   readonly state: S;

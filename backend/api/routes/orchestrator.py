@@ -77,6 +77,49 @@ def _voice_start_lock_for(local_id: str) -> asyncio.Lock:
     return lock
 
 
+def _fill_voice_defaults(
+    provider: str | None,
+    model: str | None,
+    voice_name: str | None,
+    language: str | None,
+    endpoint: str | None,
+) -> tuple[str | None, str | None, str | None, str | None, str | None]:
+    """Fill the voice fields a ``voice_start`` left out from the saved
+    defaults in ``assistant_config.json`` (Settings → Voice).
+
+    The web app's ``voice_start`` names no provider at all, so every
+    path that builds a voice connection must come through here — the
+    text→voice re-arm path skipped it and fell to the registry's
+    hard-coded ``openai`` default even with Gemini configured
+    (2026-10-13). Not for re-attaching to a LIVE call: there an omitted
+    field means "no change", and a filled-in default would read as
+    config drift and tear the call down.
+
+    The default model and voice belong to the default provider, so they
+    are only used when the provider is the default one — a client that
+    asks for another provider gets that provider's own defaults from
+    ``resolve_voice_target`` instead of a model id it doesn't serve.
+    """
+    if None not in (provider, model, voice_name, language, endpoint):
+        return provider, model, voice_name, language, endpoint
+    try:
+        from api.routes.config import _load_config as _load_app_config
+        app_cfg = _load_app_config()
+    except Exception:
+        logger.exception("Failed to load voice defaults from assistant_config.json")
+        return provider, model, voice_name, language, endpoint
+    default_provider = app_cfg.get("default_voice_provider")
+    provider = provider or default_provider
+    if provider == default_provider:
+        model = model or app_cfg.get("default_voice_model")
+        voice_name = voice_name or app_cfg.get("default_voice_name")
+    if language is None:
+        language = app_cfg.get("default_voice_transcription_language")
+    if endpoint is None:
+        endpoint = app_cfg.get("default_voice_endpoint")
+    return provider, model, voice_name, language, endpoint
+
+
 
 
 async def _safe_send_bytes(ws: WebSocket, payload: bytes) -> bool:
@@ -515,7 +558,15 @@ async def _handle_start(
             #
             # Equivalent to a fresh voice_start in every observable way
             # (session_started payload, voice_session_update, relay
-            # boot) except the JSONL is the existing one.
+            # boot) except the JSONL is the existing one — including the
+            # Settings → Voice defaults for whatever the client left out.
+            (
+                voice_provider_req, voice_model_req, voice_name_req,
+                voice_lang_req, voice_endpoint_req,
+            ) = _fill_voice_defaults(
+                voice_provider_req, voice_model_req, voice_name_req,
+                voice_lang_req, voice_endpoint_req,
+            )
             try:
                 await session.restart_voice(
                     voice_provider=voice_provider_req,
@@ -685,25 +736,14 @@ async def _handle_start(
     # endpoint=None → Vertex default, even when the user has configured AI
     # Studio. That breaks AI-Studio-named ids like
     # ``gemini-2.5-flash-native-audio-latest`` with a Vertex policy error.
-    if voice and (
-        voice_provider_req is None
-        or voice_model_req is None
-        or voice_name_req is None
-        or voice_lang_req is None
-        or voice_endpoint_req is None
-    ):
-        try:
-            from api.routes.config import _load_config as _load_app_config
-            app_cfg = _load_app_config()
-            voice_provider_req = voice_provider_req or app_cfg.get("default_voice_provider")
-            voice_model_req = voice_model_req or app_cfg.get("default_voice_model")
-            voice_name_req = voice_name_req or app_cfg.get("default_voice_name")
-            if voice_lang_req is None:
-                voice_lang_req = app_cfg.get("default_voice_transcription_language")
-            if voice_endpoint_req is None:
-                voice_endpoint_req = app_cfg.get("default_voice_endpoint")
-        except Exception:
-            logger.exception("Failed to load voice defaults from assistant_config.json")
+    if voice:
+        (
+            voice_provider_req, voice_model_req, voice_name_req,
+            voice_lang_req, voice_endpoint_req,
+        ) = _fill_voice_defaults(
+            voice_provider_req, voice_model_req, voice_name_req,
+            voice_lang_req, voice_endpoint_req,
+        )
 
     # Note: we deliberately do NOT inject ``ws.app.state.config`` here.
     # That snapshot is built once at app startup and never refreshed, so
@@ -901,7 +941,6 @@ async def _attach_voice_payload(
     # UI so it can show a "summarizing" yellow state instead of the
     # default "preparing" that suggests imminent readiness. Also tells
     # the user something is happening so they don't try repeatedly.
-    pool_for_status = session._context.get("pool")
     # ``summarizing`` is a *pre-connect* state — only meaningful when the
     # user is waiting for the relay to come up. On a reconnect to a live
     # relay (the WS dropped briefly, Android re-attached) the relay
@@ -927,20 +966,17 @@ async def _attach_voice_payload(
                 "status": "summarizing",
             },
         })
-        # Directed send to the initiator only — broadcasting this used
-        # to flash a "Summarizing..." spinner on every other device
-        # subscribed to the same orchestrator session, making it look
-        # like both devices were trying to start a conversation. The
-        # initiator is the one waiting on the slow LLM round-trip; no
-        # other client needs to react. Falls back to broadcast if we
-        # don't have an initiator handle (e.g. server-initiated rearm).
-        try:
-            if initiator_ws is not None:
+        # Directed send to the initiator only — the one waiting on the slow
+        # LLM round-trip. Never broadcast: the only caller without an
+        # initiator socket is a passive device attaching to someone else's
+        # call, and a broadcast left every other device's face stuck on
+        # "Preparing" (2026-10-12, A300M) — nothing ever ends that phase on
+        # a device that didn't start the call.
+        if initiator_ws is not None:
+            try:
                 await _safe_send_bytes(initiator_ws, summarizing_msg)
-            elif pool_for_status is not None:
-                await pool_for_status.broadcast_orchestrator(orjson.loads(summarizing_msg))
-        except Exception:  # noqa: BLE001
-            logger.exception("voice_status:summarizing send failed")
+            except Exception:  # noqa: BLE001
+                logger.exception("voice_status:summarizing send failed")
 
     _t_su = time.monotonic()
     session_update = await session.get_session_update()

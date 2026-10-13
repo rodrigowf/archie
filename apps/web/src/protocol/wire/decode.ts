@@ -36,9 +36,10 @@ const SCHEMAS: Readonly<Record<ServerFrameType, Schema>> = {
     voice_session_update: OPT_OBJ,
     voice_connection_info: OPT_OBJ,
     voice_connection_error: OPT_STR,
+    subagents: 'arr?',
   },
   status: { status: STR, detail: OPT_STR },
-  user_message: { text: STR, queued: OPT_BOOL, source: OPT_STR },
+  user_message: { text: STR, queued: OPT_BOOL, steered: OPT_BOOL, source: OPT_STR },
   text_delta: { text: STR },
   text_complete: { text: STR },
   thinking_delta: { text: STR },
@@ -93,6 +94,10 @@ const SCHEMAS: Readonly<Record<ServerFrameType, Schema>> = {
   voice_ending: { reason: OPT_STR, session_id: OPT_STR },
   voice_ended: { reason: OPT_STR, session_id: OPT_STR },
   voice_stopped: {},
+  subagent_started: { tool_use_id: STR, parent_tool_use_id: OPT_STR, agent_type: STR, description: STR, background: OPT_BOOL, started_at: OPT_STR },
+  subagent_progress: { tool_use_id: STR, activity: OPT_STR, usage: OPT_OBJ },
+  subagent_finished: { tool_use_id: STR, status: STR, summary: OPT_STR, usage: OPT_OBJ, ended_at: OPT_STR },
+  subagent_event: { tool_use_id: STR, frame: OBJ },
 };
 
 export function isPlainObject(x: unknown): x is Record<string, unknown> {

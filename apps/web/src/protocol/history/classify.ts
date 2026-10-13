@@ -12,6 +12,9 @@ const VOICE_RECORDING = /^\[voice, recording: [^\]]*\] ?/;
 const AUDIO = /^\[audio:[A-Za-z0-9]+\] ?/;
 /** What the backend persists after the `[audio:<fmt>] ` prefix when a voice message had no prompt. */
 const AUDIO_NO_PROMPT = '(audio message)';
+/** The header the CLI puts before a `<task-notification>` it feeds to a subagent (its own background command ended). */
+const SYSTEM_NOTIFICATION = '[SYSTEM NOTIFICATION - NOT USER INPUT]';
+const TASK_NOTIFICATION = '<task-notification>';
 const COMMAND = /^<(command-name|command-message|command-args|local-command-stdout|local-command-stderr|local-command-caveat)>/;
 
 function user(text: string, origin: UserOrigin): ClassifiedLine {
@@ -35,7 +38,12 @@ export function classifyUserLine(text: string): ClassifiedLine {
   if (text.startsWith('[shared file] ') || text.startsWith('[shared text]')) return user(text, 'inject');
   if (text.startsWith('[Request interrupted by user')) return notice('interrupted', '');
   if (text.startsWith('This session is being continued from a previous conversation')) return notice('compaction', text);
-  if (text.startsWith('<task-notification>')) return notice('background', text);
+  if (text.startsWith(TASK_NOTIFICATION)) return notice('background', text);
+  if (text.startsWith(SYSTEM_NOTIFICATION)) {
+    // BG-2: the notice is the <task-notification> block, without the CLI's header
+    const at = text.indexOf(TASK_NOTIFICATION);
+    if (at >= 0) return notice('background', text.slice(at));
+  }
   if (COMMAND.test(text)) return notice('command', text);
   return user(text, 'history');
 }

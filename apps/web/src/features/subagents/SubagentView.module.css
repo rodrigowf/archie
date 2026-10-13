@@ -1,0 +1,347 @@
+/*
+ * Subagent views (lazy chunk, PLAN §4.4): the agent tab row, the agent tab's breadcrumb, body
+ * and read-only bar, and the agents sheet rows. No flex `gap` (Safari 12): margins.
+ */
+
+/* ---------- tab row ---------- */
+
+.tabRow {
+  display: flex;
+  flex: none;
+  align-items: center;
+  min-width: 0;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface);
+}
+
+.tabs {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tabTools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  padding-right: 8px;
+}
+
+.tabTools > * + * {
+  margin-left: 2px;
+}
+
+.tabLead {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  margin-right: 8px;
+}
+
+/* ---------- agent tab: breadcrumb ---------- */
+
+.crumbs {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 840px;
+  margin: 0 auto;
+  padding: 8px 28px 4px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-label-large-size);
+  line-height: 20px;
+}
+
+.crumbList {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.crumb {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.crumbSep {
+  margin: 0 2px;
+}
+
+.crumbLink {
+  max-width: 220px;
+  padding: 2px 4px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--md-sys-color-primary);
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.crumbHere {
+  max-width: 260px;
+  padding: 2px 4px;
+  overflow: hidden;
+  color: var(--md-sys-color-on-surface);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crumbStatus {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  font-size: var(--md-sys-typescale-label-medium-size);
+}
+
+.crumbStatus > * + * {
+  margin-left: 6px;
+}
+
+/* ---------- agent tab: read-only bar (Composer `.readOnly`) ---------- */
+
+.viewBar {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 60px;
+  padding: 6px 6px 6px 18px;
+  border-radius: 28px;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.viewBar > * + * {
+  margin-left: 8px;
+}
+
+.viewBarIcon {
+  flex: none;
+}
+
+.viewBarText {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viewBarText strong {
+  color: var(--md-sys-color-on-surface);
+  font-weight: 600;
+}
+
+@media (--compact) {
+  .crumbs {
+    padding: 8px 12px 4px;
+  }
+
+  .viewBar {
+    padding-left: 12px;
+  }
+
+  .viewBarIcon {
+    display: none;
+  }
+}
+
+/* ---------- agents sheet ---------- */
+
+.list {
+  padding: 0 0 8px;
+}
+
+.group + .group {
+  margin-top: 12px;
+}
+
+.groupTitle {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 8px 16px 4px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-title-small-size);
+  font-weight: var(--md-sys-typescale-title-small-weight);
+  line-height: 20px;
+}
+
+.groupCount {
+  margin-left: 8px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+}
+
+.rowMain {
+  display: flex;
+  position: relative;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+  min-height: 60px;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: none;
+  color: var(--md-sys-color-on-surface);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nest {
+  flex: none;
+  margin-right: 6px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.rowTile {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-right: 12px;
+  border-radius: 10px;
+  background: var(--md-ext-color-tool-task-container);
+  color: var(--md-ext-color-on-tool-task-container);
+}
+
+.rowText {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.rowHead {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.rowType {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  color: var(--md-ext-color-tool-task);
+  font-size: var(--md-sys-typescale-title-small-size);
+  font-weight: var(--md-sys-typescale-title-small-weight);
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowDesc {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: 8px;
+  overflow: hidden;
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowLine {
+  overflow: hidden;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowMeta {
+  display: flex;
+  flex: none;
+  align-items: center;
+  margin-left: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-label-medium-size);
+}
+
+.rowMeta > * + * {
+  margin-left: 8px;
+}
+
+.emptyList {
+  margin: 16px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.sheetFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ---------- agent tab body ---------- */
+
+.agentBody {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.agentError {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 840px;
+  margin: 0 auto;
+  padding: 4px 28px 0;
+}
+
+@media (--compact) {
+  .agentError {
+    padding: 4px 12px 0;
+  }
+}
+
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+}
+
+.loading > * + * {
+  margin-top: 12px;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}

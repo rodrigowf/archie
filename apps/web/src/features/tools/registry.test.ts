@@ -27,6 +27,8 @@ describe('normalizeToolName (F-05, TC-4)', () => {
     ['list_directory', 'ListFiles'],
     ['read_many_files', 'ReadManyFiles'],
     ['Agent', 'Task'],
+    ['invoke_agent', 'Task'],
+    ['task', 'Task'],
     ['Bash', 'Bash'],
     ['mcp__x__y', 'mcp__x__y'],
   ])('agent: %s → %s', (raw, canonical) => {
@@ -57,6 +59,10 @@ describe('normalizeToolInput', () => {
     expect(normalizeToolInput('Read', { absolute_path: '/x' })).toEqual({ file_path: '/x' });
     expect(normalizeToolInput('Grep', { pattern: 'p', include: '*.ts' })).toEqual({ pattern: 'p', glob: '*.ts' });
     expect(normalizeToolInput('ListFiles', { dir_path: 'src' })).toEqual({ path: 'src' });
+    expect(normalizeToolInput('Task', { agent_name: 'codebase_investigator', objective: 'Map the router' })).toEqual({
+      subagent_type: 'codebase_investigator',
+      description: 'Map the router',
+    });
     expect(normalizeToolInput('TodoWrite', { todos: [{ description: 'a', status: 'pending' }] })).toEqual({
       todos: [{ description: 'a', content: 'a', status: 'pending' }],
     });

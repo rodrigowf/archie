@@ -31,6 +31,11 @@ data class FlattenOptions(
     val loadingOlder: Boolean = false,
     /** Fold runs of ≥ 2 consecutive tool calls into "N steps" groups (IA §9.3). */
     val grouping: Boolean = true,
+    /**
+     * Open every card of the live run (the Main tab). An agent tab passes false: only the card that is
+     * still running opens by itself, so a transcript entered mid-run is not a wall of expanded outputs.
+     */
+    val expandLiveRun: Boolean = true,
 )
 
 class FlattenResult(
@@ -53,7 +58,15 @@ class ChatListFlattener(
     private val describe: (ToolBlock, SessionKind) -> ToolDescriptor,
     private val markdown: (blockId: String, text: String, streaming: Boolean) -> MdSnapshot,
 ) {
-    fun flatten(state: ConversationState, options: FlattenOptions = FlattenOptions()): FlattenResult {
+    /**
+     * [subagents]: where `Task` cards find their subagent (spec 12 §4.8). A subagent's own transcript
+     * has none of its own (routing is flat, SA-6), so its view passes the session's map.
+     */
+    fun flatten(
+        state: ConversationState,
+        options: FlattenOptions = FlattenOptions(),
+        subagents: Map<String, com.assistant.core.conversation.Subagent> = state.subagents,
+    ): FlattenResult {
         val out = ArrayList<ChatItem>(state.entries.size * 3)
         var streaming = false
         fun gap(g: Gap) = if (out.isEmpty()) Gap.None else g
@@ -91,12 +104,13 @@ class ChatListFlattener(
                     while (i < blocks.size) {
                         when (val b = blocks[i]) {
                             is ToolBlock -> {
-                                var j = i
-                                while (j < blocks.size && blocks[j] is ToolBlock) j++
+                                // Agent spawn cards never fold into an "N steps" group (spec 12 §4.8, web parity).
+                                var j = i + 1
+                                if (!isAgentCard(b)) while (j < blocks.size && blocks[j] is ToolBlock && !isAgentCard(blocks[j] as ToolBlock)) j++
                                 @Suppress("UNCHECKED_CAST")
                                 val run = blocks.subList(i, j) as List<ToolBlock>
                                 val liveRun = tailLive && j == blocks.size
-                                addRun(out, e.id, run, liveRun, state, options, ::gap)
+                                addRun(out, e.id, run, liveRun, state, options, subagents, ::gap)
                                 i = j
                                 continue
                             }
@@ -150,21 +164,30 @@ class ChatListFlattener(
         liveRun: Boolean,
         state: ConversationState,
         options: FlattenOptions,
+        subagents: Map<String, com.assistant.core.conversation.Subagent>,
         gap: (Gap) -> Gap,
     ) {
         val descriptors = run.map { describe(it, state.kind) }
-        fun cardExpanded(b: ToolBlock, d: ToolDescriptor): Boolean =
-            options.cardToggles[ChatItem.toolKey(entryId, b)] ?: (d.defaultOpen || liveRun || b.executing)
+        fun agentOf(b: ToolBlock) = if (subagents.isEmpty() || b.toolUseId.isEmpty()) null
+        else subagents[b.toolUseId]?.let { com.assistant.archie.feature.chat.model.AgentUiMapper.run(it) }
+        fun cardExpanded(b: ToolBlock, d: ToolDescriptor): Boolean {
+            options.cardToggles[ChatItem.toolKey(entryId, b)]?.let { return it }
+            // An agent card shows its status in the footer: it never opens by itself (its Report is heavy).
+            if (isAgentCard(b) && subagents.containsKey(b.toolUseId)) return false
+            return d.defaultOpen || b.executing ||
+                (if (options.expandLiveRun) liveRun else b.status == com.assistant.core.conversation.ToolStatus.RUNNING)
+        }
 
         if (run.size < 2 || !options.grouping) {
             run.forEachIndexed { k, b ->
-                out += ChatItem.ToolCard(entryId, b, descriptors[k], GroupPosition.Solo, cardExpanded(b, descriptors[k]), gap(Gap.Item))
+                out += ChatItem.ToolCard(entryId, b, descriptors[k], GroupPosition.Solo, cardExpanded(b, descriptors[k]), gap(Gap.Item), agentOf(b))
             }
             return
         }
         val firstKey = ChatItem.toolKey(entryId, run[0])
         val groupKey = "g:$firstKey"
-        val auto = liveRun || run.any { it.executing }
+        val auto = run.any { it.executing } ||
+            (if (options.expandLiveRun) liveRun else run.any { it.status == com.assistant.core.conversation.ToolStatus.RUNNING })
         val expanded = options.groupToggles[groupKey] ?: auto
         val status = groupStatus(run)
         out += ChatItem.ToolGroup(
@@ -184,11 +207,31 @@ class ChatListFlattener(
                 run.lastIndex -> GroupPosition.Last
                 else -> GroupPosition.Middle
             }
-            out += ChatItem.ToolCard(entryId, b, descriptors[k], pos, cardExpanded(b, descriptors[k]), if (k == 0) Gap.Group else Gap.Tight)
+            out += ChatItem.ToolCard(entryId, b, descriptors[k], pos, cardExpanded(b, descriptors[k]), if (k == 0) Gap.Group else Gap.Tight, agentOf(b))
         }
     }
 
     companion object {
+        /** A subagent spawn card (spec 12 §4.8 SA-2 names). */
+        fun isAgentCard(b: ToolBlock): Boolean = com.assistant.core.conversation.ToolNameNormalizer.isSubagentSpawn(b.toolName)
+
+        /**
+         * The list with only the agent cards' [ChatItem.ToolCard.agent] refreshed from [subagents]: what a
+         * subagent frame changes in Main when its entries did not move (no re-flatten, no markdown).
+         */
+        fun patchAgents(items: List<ChatItem>, subagents: Map<String, com.assistant.core.conversation.Subagent>): List<ChatItem> {
+            var out: ArrayList<ChatItem>? = null
+            for (i in items.indices) {
+                val it = items[i] as? ChatItem.ToolCard ?: continue
+                if (!isAgentCard(it.block) || it.block.toolUseId.isEmpty()) continue
+                val run = subagents[it.block.toolUseId]?.let { s -> com.assistant.archie.feature.chat.model.AgentUiMapper.run(s) }
+                if (run == it.agent) continue
+                if (out == null) out = ArrayList(items)
+                out[i] = it.copy(agent = run)
+            }
+            return out ?: items
+        }
+
         fun status(b: ToolBlock): ToolStatusUi = when (b.status) {
             ToolStatus.RUNNING -> ToolStatusUi.Running
             ToolStatus.DONE -> ToolStatusUi.Done

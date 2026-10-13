@@ -73,8 +73,23 @@ class ClaudeAdapter(ProviderAdapter):
         objs = _read_objs(jsonl_path)
         if _is_orchestrator_file(objs):
             return [msg for msg, _anchor in fold_orchestrator_lines(objs)]
+        return [o for o in map(_as_message, objs) if o is not None]
+
+    def list_subagents(self, jsonl_path: Path) -> list[dict]:
+        from .subagent_files import scan
+        rows, _files = scan(jsonl_path)
+        return rows
+
+    def read_subagent_messages(self, jsonl_path: Path, tool_use_id: str) -> list[dict] | None:
+        from .subagent_files import scan
+        rows, files = scan(jsonl_path)
+        path = files.get(tool_use_id)
+        if path is None:
+            return [] if any(r.get("tool_use_id") == tool_use_id for r in rows) else None
+        # Same normalisation as the parent (a subagent transcript is a plain
+        # Claude JSONL: its first user line is the agent's prompt).
         return [
-            o for o in objs
+            o for o in _read_objs(path)
             if o is not None and o.get("type") in ("user", "assistant", "system")
         ]
 
@@ -82,9 +97,12 @@ class ClaudeAdapter(ProviderAdapter):
         """For orchestrator files, one index per visible folded message
         (its anchor line), so ``drop_last_n`` computed from REST data lands
         on the same place in the file.  Other files: the per-line rule."""
-        if not _is_orchestrator_file(objs):
-            return super().visible_line_indices(objs)
         from ..protocol import is_visible_message_default
+        if not _is_orchestrator_file(objs):
+            return [
+                i for i, obj in enumerate(objs)
+                if (msg := _as_message(obj)) is not None and is_visible_message_default(msg)
+            ]
         return [
             anchor for msg, anchor in fold_orchestrator_lines(objs)
             if is_visible_message_default(msg)
@@ -146,6 +164,35 @@ class ClaudeAdapter(ProviderAdapter):
             message_count=message_count,
             is_orchestrator=is_orchestrator,
         )
+
+
+def _as_message(obj: dict | None) -> dict | None:
+    """A line as a REST message: user / assistant / system lines as they
+    are, and a message the user sent mid-turn (spec 12 I-16) as the user
+    message it was.  The CLI records one it handed to the running turn as
+    an ``attachment`` line (``queued_command``, ``commandMode: prompt``);
+    one answered in a turn of its own is a plain user line already.  None
+    for every other line."""
+    if obj is None:
+        return None
+    if obj.get("type") in ("user", "assistant", "system"):
+        return obj
+    att = obj.get("attachment") if obj.get("type") == "attachment" else None
+    if (
+        isinstance(att, dict) and att.get("type") == "queued_command"
+        and att.get("commandMode") == "prompt"
+        and isinstance(att.get("prompt"), str) and att["prompt"].strip()
+    ):
+        return {
+            "type": "user",
+            "uuid": obj.get("uuid"),
+            "parentUuid": obj.get("parentUuid"),
+            "timestamp": obj.get("timestamp") or att.get("timestamp"),
+            "sessionId": obj.get("sessionId"),
+            "message": {"role": "user", "content": att["prompt"]},
+            "steered": True,
+        }
+    return None
 
 
 def _read_objs(jsonl_path: Path) -> list[dict | None]:

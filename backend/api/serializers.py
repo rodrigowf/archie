@@ -11,6 +11,10 @@ from manager.types import (
     PermissionResolved,
     SessionStalled,
     SessionTerminated,
+    SubagentEvent,
+    SubagentFinished,
+    SubagentProgress,
+    SubagentStarted,
     TextComplete,
     TextDelta,
     ThinkingComplete,
@@ -18,6 +22,7 @@ from manager.types import (
     ToolResult,
     ToolUse,
     TurnComplete,
+    UnpromptedTurnStarted,
 )
 
 
@@ -95,7 +100,53 @@ def serialize_event(event: Event) -> dict[str, Any]:
             "detail": event.detail,
             "sdk_session_id": event.sdk_session_id,
         }
+    # Subagents (spec 12 §4.8).  The wrapper is what gets seq/stream_id
+    # (pool._wrap_payload); the inner frame never carries them.
+    if isinstance(event, SubagentEvent):
+        return {
+            "type": "subagent_event",
+            "tool_use_id": event.tool_use_id,
+            "frame": serialize_event(event.event),
+        }
+    if isinstance(event, SubagentStarted):
+        return {
+            "type": "subagent_started",
+            "tool_use_id": event.tool_use_id,
+            "parent_tool_use_id": event.parent_tool_use_id,
+            "agent_type": event.agent_type,
+            "description": event.description,
+            "background": event.background,
+            "started_at": event.started_at,
+        }
+    if isinstance(event, SubagentProgress):
+        return {
+            "type": "subagent_progress",
+            "tool_use_id": event.tool_use_id,
+            "activity": event.activity,
+            "usage": _subagent_usage(event.usage),
+        }
+    if isinstance(event, SubagentFinished):
+        return {
+            "type": "subagent_finished",
+            "tool_use_id": event.tool_use_id,
+            "status": event.status,
+            "summary": event.summary,
+            "usage": _subagent_usage(event.usage),
+            "ended_at": event.ended_at,
+        }
+    if isinstance(event, UnpromptedTurnStarted):
+        # SA-7: the CLI's own turn, announced like an echoed prompt.
+        return {"type": "user_message", "text": event.text, "source": event.source}
     return {"type": "unknown"}
+
+
+def _subagent_usage(usage: dict[str, Any] | None) -> dict[str, Any]:
+    u = usage or {}
+    return {
+        "tokens": u.get("tokens"),
+        "tool_uses": u.get("tool_uses"),
+        "duration_ms": u.get("duration_ms"),
+    }
 
 
 def serialize_orchestrator_event(event: object) -> dict[str, Any]:

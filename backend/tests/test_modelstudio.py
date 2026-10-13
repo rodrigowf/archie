@@ -379,6 +379,35 @@ class TestCost:
         assert tc.cost == 0.5 and sm.cost == 0.5
 
 
+class TestSubagents:
+    """Model Studio runs on Claude Code: subagents take the Claude path
+    (spec 12 §4.8) unchanged — routing, lifecycle, history hooks."""
+
+    @pytest.mark.asyncio
+    async def test_subagent_events_routed_like_claude(self, env):
+        from claude_agent_sdk import AssistantMessage, ToolUseBlock
+        from manager.types import SubagentEvent, ToolUse
+
+        sm = _sm()
+        spawn = AssistantMessage(content=[ToolUseBlock(id="toolu_a", name="Agent", input={
+            "subagent_type": "Explore", "description": "Find it", "prompt": "Do it."})], model="m")
+        inner = AssistantMessage(content=[ToolUseBlock(id="toolu_b", name="Grep", input={"pattern": "x"})],
+                                 model="m", parent_tool_use_id="toolu_a")
+        events = []
+        for m in (spawn, inner):
+            events += [e async for e in sm._process_message(m)]
+        assert isinstance(events[0], ToolUse) and events[0].tool_name == "Agent"
+        assert isinstance(events[1], SubagentEvent) and events[1].tool_use_id == "toolu_a"
+        assert sm.subagent_snapshot()[0]["agent_type"] == "Explore"
+
+    def test_history_hooks_are_claudes(self):
+        from manager.claude.adapter import ClaudeAdapter
+        from manager.modelstudio.adapter import ModelStudioAdapter
+
+        assert ModelStudioAdapter.list_subagents is ClaudeAdapter.list_subagents
+        assert ModelStudioAdapter.read_subagent_messages is ClaudeAdapter.read_subagent_messages
+
+
 # ── provider pinning (pool, first TurnComplete) ───────────────────────
 
 

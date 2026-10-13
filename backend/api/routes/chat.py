@@ -17,6 +17,8 @@ disconnect.  See ``_handle_command``.
 from __future__ import annotations
 
 import logging
+import weakref
+
 import orjson
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -162,23 +164,29 @@ async def chat_ws(ws: WebSocket):
                 # See the conversational-checkpoint policy in
                 # manager.claude.session._PERMISSION_GATING_PROMPT.
                 text_payload = msg.get("text", "")
+                denied = False
                 if text_payload:
                     pending_ids = list(sm.pending_permission_ids())
                     for rid in pending_ids:
-                        await pool.resolve_session_permission(
+                        denied = await pool.resolve_session_permission(
                             session_id,
                             rid,
                             "deny",
                             message=text_payload,
                             responder="user",
-                        )
-                # send_or_queue starts a fresh turn if the session is
-                # idle, or queues behind the in-flight turn if one is
-                # running.  This matches the VS Code Claude extension's
-                # "type-while-running" behavior — the queued prompt is
-                # picked up by _drive_turn as soon as the current
-                # TurnComplete arrives.  Explicit interrupts still go
-                # through msg_type == "interrupt" below.
+                        ) or denied
+                # The denial already carries the text into the running turn:
+                # a harness that steers only shows it (spec 12 I-16, §6.9).
+                if denied and sm.supports_steering and await pool.steer(
+                    session_id, text_payload, delivered=True,
+                ):
+                    continue
+                # send_or_queue delivers the message into the running turn
+                # (steering, spec 12 I-16) or starts a fresh turn when the
+                # session is idle; a harness that cannot steer queues it
+                # behind the turn (_drive_turn picks it up at its
+                # TurnComplete).  Explicit interrupts still go through
+                # msg_type == "interrupt" below.
                 try:
                     await pool.send_or_queue(session_id, text_payload, source_ws=ws)
                 except Exception as e:
@@ -245,6 +253,16 @@ async def chat_ws(ws: WebSocket):
                     message=msg.get("message"),
                     responder="user",
                 )
+
+            elif msg_type == "stop_subagent":
+                # Spec 12 SA-9: stop one subagent.  The outcome arrives as the
+                # normal subagent_finished{stopped}.
+                if sm is None or session_id is None:
+                    await ws.send_bytes(orjson.dumps({
+                        "type": "error", "error": "not_started",
+                    }))
+                    continue
+                await _handle_stop_subagent(ws, sm, msg.get("tool_use_id"))
 
             elif msg_type == "stop":
                 # User explicitly detaches from this session.  Do NOT cancel
@@ -422,6 +440,10 @@ async def _send_session_started(
     """
     from manager.context_windows import context_window_for
     ctx_window = context_window_for(sm.provider_name, getattr(sm._config, "model", None))
+    # Read before the replay batch is computed: no await may separate that
+    # batch from the envelope (frames broadcast in between would be neither
+    # replayed nor kept by the client, SEQ-5).
+    subagents = await _subagents_snapshot(ws, pool, sm, session_id)
     resume_state = pool.resume_state_for(session_id)
     status, replay_payloads = pool.replay_for_subscriber(session_id, resume_from)
 
@@ -429,6 +451,9 @@ async def _send_session_started(
         "type": "session_started",
         "session_id": session_id,
         "context_window": ctx_window,
+        # Spec 12 §4.8 / SA-3: every subagent known for this session (live
+        # registry + history on disk), oldest first.
+        "subagents": subagents,
     }
     if resume_state is not None:
         envelope["resume_state"] = resume_state
@@ -439,6 +464,75 @@ async def _send_session_started(
     if status == "ok" and replay_payloads:
         for payload in replay_payloads:
             await ws.send_bytes(orjson.dumps(payload))
+
+
+# History part of session_started.subagents, read once per live session:
+# everything the session produced since it (re)started is in the manager's
+# live registry, so the files on disk only add what came before — re-reading
+# the growing JSONL on every start / reattach would be a full scan each time
+# (the per-file cache misses as soon as the file grows).  Keyed by manager,
+# value (sdk id, rows); a /clear (new sdk id) reads once more.
+_HISTORY_ONCE: "weakref.WeakKeyDictionary[BaseSessionManager, tuple[str, list[dict]]]" = weakref.WeakKeyDictionary()
+
+
+async def _subagents_snapshot(
+    ws: WebSocket, pool: SessionPool, sm: BaseSessionManager, session_id: str,
+) -> list[dict]:
+    import asyncio
+    from manager.subagents import merge_summaries
+
+    live = pool.subagents_for(session_id)
+    store = getattr(ws.app.state, "store", None)
+    sdk_id = sm.sdk_session_id if isinstance(sm.sdk_session_id, str) else None
+    disk: list[dict] = []
+    if store is not None and sdk_id and getattr(sm, "is_resumed", True) is not False:
+        cached = _HISTORY_ONCE.get(sm)
+        if cached is not None and cached[0] == sdk_id:
+            disk = cached[1]
+        else:
+            try:
+                disk = await asyncio.to_thread(store.list_subagents, sdk_id)
+            except Exception:  # noqa: BLE001 — history is a nicety here
+                logger.exception("subagent history read failed for %s", sdk_id)
+            else:
+                try:
+                    _HISTORY_ONCE[sm] = (sdk_id, disk)
+                except TypeError:  # not weak-referenceable (test doubles)
+                    pass
+    # A brand-new session (not resumed) has no history: its live registry is all.
+    return merge_summaries(disk, live)
+
+
+async def _handle_stop_subagent(ws: WebSocket, sm: BaseSessionManager, tool_use_id: object) -> None:
+    from manager.base_session import SubagentNotFound, SubagentNotRunning
+
+    if not isinstance(tool_use_id, str) or not tool_use_id:
+        await ws.send_bytes(orjson.dumps({
+            "type": "error", "error": "invalid_stop_subagent",
+            "detail": "No agent was named to stop.",
+        }))
+        return
+    try:
+        await sm.stop_subagent(tool_use_id)
+    except NotImplementedError:
+        await ws.send_bytes(orjson.dumps({
+            "type": "error", "error": "unsupported",
+            "detail": "This session can't stop a single agent.",
+        }))
+    except SubagentNotFound:
+        await ws.send_bytes(orjson.dumps({
+            "type": "error", "error": "unknown_subagent", "detail": "Unknown agent.",
+        }))
+    except SubagentNotRunning:
+        await ws.send_bytes(orjson.dumps({
+            "type": "error", "error": "subagent_not_running", "detail": "This agent already finished.",
+        }))
+    except Exception as e:  # noqa: BLE001
+        logger.exception("stop_subagent failed for %s", tool_use_id)
+        await ws.send_bytes(orjson.dumps({
+            "type": "error", "error": "stop_subagent_failed",
+            "detail": "Couldn't stop the agent. Try again.",
+        }))
 
 
 async def _handle_compact(ws: WebSocket, pool: SessionPool, session_id: str) -> None:

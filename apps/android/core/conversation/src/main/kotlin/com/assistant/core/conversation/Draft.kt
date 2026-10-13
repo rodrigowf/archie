@@ -64,6 +64,20 @@ internal class Draft(s: ConversationState) {
     var reloading = s.reloading
     val reloadBuffer = s.reloadBuffer.builder()
 
+    val subagents = s.subagents.builder()
+    var subagentsListFetched = s.subagentsListFetched
+    val subagentLru = s.subagentLru.builder()
+    /** A tool card was created or changed this step: SA-2 status sync runs at the end of the step. */
+    var toolsTouched = false
+    /** SA-2 calls this step (a history page that saw any asks for the SA-8 list). */
+    var spawnCards = 0
+    /**
+     * Set on the Draft of a subagent's own transcript (SA-4): spawn cards found there are upserted
+     * into the top-level conversation's map (routing is flat, SA-6) with [spawnParent] as parent.
+     */
+    var spawnSink: Draft? = null
+    var spawnParent: String? = null
+
     var nextId = s.nextId
     /** Set while converting a REST page: ids derive from the absolute history index. */
     var historyIds: HistoryIdSource? = null
@@ -110,6 +124,9 @@ internal class Draft(s: ConversationState) {
         preStart = preStart.build(),
         reloading = reloading,
         reloadBuffer = reloadBuffer.build(),
+        subagents = subagents.build(),
+        subagentsListFetched = subagentsListFetched,
+        subagentLru = subagentLru.build(),
         nextId = nextId,
     )
 
@@ -153,6 +170,7 @@ internal class Draft(s: ConversationState) {
         val bi = e.blocks.indexOfFirst { it is ToolBlock && it.toolUseId == toolUseId }
         if (bi < 0) return false
         list[i] = e.copy(blocks = e.blocks.set(bi, f(e.blocks[bi] as ToolBlock)))
+        toolsTouched = true
         return true
     }
 
@@ -174,6 +192,7 @@ internal class Draft(s: ConversationState) {
                 val bi = e.blocks.indexOfFirst { it.id == blockId }
                 if (bi >= 0) {
                     list[i] = e.copy(blocks = e.blocks.set(bi, f(e.blocks[bi])))
+                    toolsTouched = true
                     return
                 }
             }
@@ -193,7 +212,7 @@ internal class Draft(s: ConversationState) {
                     nb[j] = n
                 }
             }
-            if (nb != null) entries[i] = e.copy(blocks = nb.build())
+            if (nb != null) { entries[i] = e.copy(blocks = nb.build()); toolsTouched = true }
         }
     }
 
@@ -392,6 +411,7 @@ internal class Draft(s: ConversationState) {
                 if (input != null && input.isNotEmpty()) n = n.copy(toolInput = input)
                 n
             }
+            tool(id)?.let { spawnPlaceholder(it) }                                                     // SA-2
             return
         }
         if (scope == BlockScope.TURN) maybeBackgroundNotice()
@@ -400,6 +420,7 @@ internal class Draft(s: ConversationState) {
         if (!id.isNullOrEmpty()) {
             tools[id] = entryId
             orphans.remove(id)?.let { r -> updateTool(id) { applyResult(it, r, inferred = false) } }   // R-2
+            spawnPlaceholder(tb)                                                                       // SA-2
         }
     }
 

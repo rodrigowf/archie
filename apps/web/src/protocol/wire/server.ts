@@ -57,6 +57,8 @@ export interface SessionStartedFrame extends Sequenced {
   voice_session_update?: Record<string, unknown>;
   voice_connection_info?: Record<string, unknown>;
   voice_connection_error?: string;
+  /** spec 12 §4.8 SA-3: every subagent the backend knows for this session (chat WS). */
+  subagents?: unknown[];
 }
 
 export interface StatusFrame extends Sequenced {
@@ -69,6 +71,8 @@ export interface UserMessageFrame extends Sequenced {
   type: 'user_message';
   text: string;
   queued?: boolean;
+  /** I-16: delivered into the running turn (every subscriber, the sender included, gets it). */
+  steered?: boolean;
   source?: string;
 }
 
@@ -260,6 +264,49 @@ export interface OrchestratorSwitchFrame extends Sequenced {
   from_session_id?: string | null;
 }
 
+/** spec 12 §4.8 usage block of `subagent_progress` / `subagent_finished` (fields may be missing or null). */
+export interface SubagentUsageWire {
+  tokens?: number | null;
+  tool_uses?: number | null;
+  duration_ms?: number | null;
+}
+
+/** spec 12 §4.8: a subagent started (seq-stamped like the other content frames). */
+export interface SubagentStartedFrame extends Sequenced {
+  type: 'subagent_started';
+  tool_use_id: string;
+  /** null = spawned by the main agent (SA-6). */
+  parent_tool_use_id?: string | null;
+  agent_type: string;
+  description: string;
+  background?: boolean | null;
+  started_at?: string | null;
+}
+
+export interface SubagentProgressFrame extends Sequenced {
+  type: 'subagent_progress';
+  tool_use_id: string;
+  activity?: string | null;
+  usage?: SubagentUsageWire | null;
+}
+
+export interface SubagentFinishedFrame extends Sequenced {
+  type: 'subagent_finished';
+  tool_use_id: string;
+  /** `done` | `failed` | `stopped` (anything else reads as `done`). */
+  status: string;
+  summary?: string | null;
+  usage?: SubagentUsageWire | null;
+  ended_at?: string | null;
+}
+
+/** spec 12 §4.8: one frame of the subagent's own stream (never seq-stamped inside). */
+export interface SubagentEventFrame extends Sequenced {
+  type: 'subagent_event';
+  tool_use_id: string;
+  frame: Record<string, unknown>;
+}
+
 /** `created` | `modified` | `deleted` (advisory: an atomic save or rsync reports a create). */
 export type ContentChangeKind = 'created' | 'modified' | 'deleted';
 
@@ -383,6 +430,10 @@ export type ServerFrame =
   | VoiceEndingFrame
   | VoiceEndedFrame
   | VoiceStoppedFrame
+  | SubagentStartedFrame
+  | SubagentProgressFrame
+  | SubagentFinishedFrame
+  | SubagentEventFrame
   | UnknownFrame;
 
 export type ServerFrameType = Exclude<ServerFrame['type'], 'unknown'>;
@@ -412,4 +463,9 @@ export interface MessagesPage {
   total_count: number;
   has_more: boolean;
   start_index: number;
+}
+
+/** spec 12 §4.8 SA-8 `GET /api/sessions/{sdkId}/subagents`. Rows are `SubagentSummary` (validated by the reducer). */
+export interface SubagentsListResponse {
+  subagents: unknown[];
 }

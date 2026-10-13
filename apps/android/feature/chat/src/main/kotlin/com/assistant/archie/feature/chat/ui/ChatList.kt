@@ -432,7 +432,14 @@ private fun NoticeLine(item: ChatItem.Notice, modifier: Modifier) {
                 Text(item.text.ifBlank { "The reply failed" }, style = ArchieTheme.typography.labelMedium, color = c.onErrorContainer)
             }
             NoticeKind.INTERRUPTED -> SystemLine("Interrupted", icon = ArchieIcons.Stop)
-            NoticeKind.BACKGROUND -> SystemLine(item.text.ifBlank { "Archie started on its own" }.lineSequence().first(), icon = ArchieIcons.Bolt)
+            NoticeKind.BACKGROUND -> {
+                val task = taskNotificationSummary(item.text)
+                when {
+                    task == null -> SystemLine(item.text.ifBlank { "Archie started on its own" }.lineSequence().first(), icon = ArchieIcons.Bolt)
+                    isAgentNotification(task) -> SystemLine("Background agent · $task", icon = ArchieIcons.SmartToy)
+                    else -> SystemLine("Background task · $task", icon = ArchieIcons.Terminal)
+                }
+            }
             NoticeKind.COMMAND -> SystemLine(item.text.lineSequence().firstOrNull().orEmpty().take(120), icon = ArchieIcons.Terminal)
             NoticeKind.COMPACTION -> SystemLine("Context compacted", icon = ArchieIcons.Compress)
         }
@@ -478,3 +485,14 @@ private const val FOLD_LINES = 25
 
 private fun Modifier.longPress(onLongPress: () -> Unit): Modifier =
     pointerInput(onLongPress) { detectTapGestures(onLongPress = { onLongPress() }) }
+
+private val TASK_SUMMARY = Regex("<summary>([\\s\\S]*?)</summary>")
+
+/** A CLI `<task-notification>` (spec 12 SA-7 live, BG-2 history): its one-line summary, else null. Web: NoticeRow.tsx. */
+internal fun taskNotificationSummary(text: String): String? {
+    if (!text.startsWith("<task-notification>")) return null
+    return TASK_SUMMARY.find(text)?.groupValues?.get(1)?.trim()?.ifEmpty { null } ?: "A background task reported back."
+}
+
+/** The CLI sends the same notification for a subagent (`Agent "x" finished`) and a background shell command. */
+internal fun isAgentNotification(summary: String): Boolean = Regex("^(Background\\s+)?agent\\b", RegexOption.IGNORE_CASE).containsMatchIn(summary)

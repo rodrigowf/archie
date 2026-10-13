@@ -88,6 +88,91 @@ class TurnComplete(Event):
     session_id: str = ""
     is_error: bool = False
     result: str | None = None
+    #: Who started the turn: ``None`` / ``"human"`` = a prompt we sent;
+    #: anything else (Claude: ``"task-notification"``, ``"channel"``, …) is a
+    #: turn the CLI injected on its own.  :data:`STEER_CONTINUES` marks the
+    #: end of our turn when the CLI goes on with a turn of its own for
+    #: messages steered into it (the user's turn is not over).  Not serialized.
+    origin: str | None = None
+
+    @property
+    def prompted(self) -> bool:
+        """True when this ends a turn our own ``send()`` started."""
+        return self.origin in (None, "human")
+
+    @property
+    def continues(self) -> bool:
+        """True when the CLI goes on with a turn for steered messages
+        (spec 12 I-16): the end of one CLI turn, not of the user's turn."""
+        return self.origin == STEER_CONTINUES
+
+
+#: ``TurnComplete.origin`` of a CLI turn that ended while messages steered
+#: into it were still undelivered: the CLI answers them in a turn of its own,
+#: right after, inside the same ``send()``.
+STEER_CONTINUES = "steer-continues"
+
+
+# ---------------------------------------------------------------------------
+# Subagents (spec 12 §4.8) — harness-neutral.  A subagent is keyed by the
+# ``tool_use_id`` of the tool call that spawned it.
+# ---------------------------------------------------------------------------
+
+#: Statuses of a subagent on the wire.
+SUBAGENT_STATUSES = ("running", "done", "failed", "stopped")
+
+
+@dataclass(frozen=True, slots=True)
+class SubagentStarted(Event):
+    """A subagent began running."""
+
+    tool_use_id: str
+    parent_tool_use_id: str | None  # None = spawned by the main agent
+    agent_type: str
+    description: str
+    background: bool
+    started_at: str  # ISO-8601
+
+
+@dataclass(frozen=True, slots=True)
+class SubagentProgress(Event):
+    """One-line activity and running totals of a subagent."""
+
+    tool_use_id: str
+    activity: str
+    #: ``{"tokens", "tool_uses", "duration_ms"}`` — values may be None.
+    usage: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class SubagentFinished(Event):
+    """A subagent ended: ``status`` is ``done`` | ``failed`` | ``stopped``."""
+
+    tool_use_id: str
+    status: str
+    summary: str = ""
+    usage: dict[str, Any] = field(default_factory=dict)
+    ended_at: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SubagentEvent(Event):
+    """An ordinary content event (text, thinking, tool call / result) emitted
+    by a subagent.  Wrapped so consumers that only know the parent's events
+    never mistake it for one (status, stall watchdog, previews, runner)."""
+
+    tool_use_id: str  # the subagent's spawning tool call
+    event: Event
+
+
+@dataclass(frozen=True, slots=True)
+class UnpromptedTurnStarted(Event):
+    """The harness started a turn of its own (Claude: a background task
+    finished and the CLI injects a ``<task-notification>`` prompt).  Sent to
+    clients as ``user_message{text, source}`` followed by ``status{processing}``."""
+
+    text: str
+    source: str = "task_notification"
 
 
 @dataclass(frozen=True, slots=True)

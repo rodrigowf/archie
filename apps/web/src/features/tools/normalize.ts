@@ -28,6 +28,7 @@ export const SNAKE_TO_CLAUDE: Readonly<Record<string, string>> = {
   write_todos: 'TodoWrite',
   agent: 'Task',
   task: 'Task',
+  invoke_agent: 'Task', // Gemini CLI subagents (spec 12 §4.8 SA-2)
   ask_user_question: 'AskUserQuestion',
   exit_plan_mode: 'ExitPlanMode',
   save_memory: 'SaveMemory',
@@ -100,6 +101,10 @@ export function normalizeToolInput(name: string, input: ToolInput): ToolInput {
     case 'Glob':
     case 'ListFiles':
       move('dir_path', 'path');
+      break;
+    case 'Task':
+      move('agent_name', 'subagent_type'); // Gemini invoke_agent (same mapping as Android ToolNormalize)
+      move('objective', 'description');
       break;
     case 'TodoWrite': {
       const todos = out.todos;

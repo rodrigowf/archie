@@ -45,6 +45,11 @@ const INPUT_TYPES = [
   'sdk_id',
   'dismiss_banner',
   'clear_agent_approvals',
+  'open_subagent',
+  'subagent_page',
+  'release_subagent',
+  'subagents_list',
+  'end_turn',
 ];
 
 function isInput(x: ConversationInput | Record<string, unknown>): x is ConversationInput {

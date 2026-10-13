@@ -267,8 +267,12 @@ not Node). Details, storage and landmines: [codex-cli.md](codex-cli.md).
 ## Pitfalls
 
 - `detect_provider` order matters: a loose heuristic in an early adapter claims other harnesses'
-  files. Claude's adapter matches `message.content` without `parts`; Qwen's matches `message.parts`,
-  `role: "model"` or `system` lines with `subtype`; Gemini's matches its header / `type: "gemini"`.
+  files. Claude's adapter matches `message.content` without `parts`; Qwen's matches `message.parts`
+  or `role: "model"`, and answers no at the first `message.content` line — `system` lines with
+  `subtype` count only in a file with no message line, since Claude writes them too
+  (`compact_boundary`, `local_command`); Gemini's matches its header / `type: "gemini"`. The app
+  registers Qwen before Claude: until 2026-10-12 every compacted Claude session was read by the Qwen
+  adapter and its history came back as empty messages.
 - Qwen and Gemini share `comm_prefix="node"`. The reaper only kills PIDs the pool tracked, so the
   shared prefix cannot hit a stranger, but whichever Node spec registered first supplies the kill
   helper (both call `_proc.kill_subprocess(pid, comm_prefix="node")`, so the result is the same).

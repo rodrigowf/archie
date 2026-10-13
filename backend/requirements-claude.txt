@@ -32,7 +32,13 @@
 #   bundled binary once before restarting the backend:
 #   <venv>/lib/python3.*/site-packages/claude_agent_sdk/_bundled/claude --version
 # Rollback: pip install 'claude-agent-sdk==0.1.81' + restart (JSONLs stay
-# compatible both ways).
+# compatible both ways).  Subagent support degrades instead of breaking:
+# 0.1.81 has no Task* lifecycle messages, no forward_subagent_text option,
+# no ResultMessage.origin and no stop_task, so session.py reads those with
+# getattr / guarded imports — after a rollback agents show only as spawn
+# cards (subagent tool calls still routed, no subagent text, no
+# subagent_started/finished, stop_subagent answers "unsupported") and every
+# turn reads as prompted.
 #
 # The pin is load-bearing, and a venv can silently drift from it: on
 # 2026-08-25 the installed SDK was 0.1.39, two fixes short of the old floor.

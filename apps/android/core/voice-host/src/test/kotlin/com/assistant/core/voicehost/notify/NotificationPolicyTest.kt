@@ -74,6 +74,20 @@ class NotificationPolicyTest {
         assertEquals("lite: End only", listOf(END), model(live, lite).actions)
     }
 
+    /** The media card (main app) shows the bare state word, and says when the mic is muted. */
+    @Test
+    fun voiceStatusForTheMediaCard() {
+        val live = VoiceUiState(session = VoiceSessionState(phase = SessionPhase.ACTIVE, isOwner = true), wake = WakeHealth.PAUSED_FOR_VOICE)
+        assertEquals("Listening", model(live).status)
+        assertEquals(false, model(live).muted)
+        val muted = model(live.copy(session = live.session.copy(phase = SessionPhase.THINKING, isMuted = true)))
+        assertEquals("Muted · Thinking", muted.status)
+        assertTrue(muted.muted)
+        assertEquals("", model(VoiceUiState(wake = WakeHealth.ARMED)).status)
+        assertTrue(main.mediaControls)
+        assertEquals("lite keeps the old notification", false, lite.mediaControls)
+    }
+
     /** Another device's voice is not ours: the notification stays a host notification. */
     @Test
     fun remoteVoiceDoesNotShowAsOurs() {

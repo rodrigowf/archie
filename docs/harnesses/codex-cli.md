@@ -3,7 +3,7 @@ name: codex-cli
 category: archie/harnesses
 tags: [codex, codex-cli, openai, harness, app-server, json-rpc, rollout, persistent-process]
 created: 2026-10-07
-modified: 2026-10-08
+modified: 2026-10-12
 summary: The OpenAI Codex harness — one persistent `codex app-server` per session (JSON-RPC over stdio), CODEX_HOME choice, rollout storage and adapter, catalog/options, landmines.
 source: curated (implemented and verified against Codex CLI 0.161.0 on 2026-10-07)
 references:
@@ -16,6 +16,8 @@ references:
   - ../infrastructure/installation.md
   - ../infrastructure/ssh-remote-execution.md
   - ../architecture/memory-and-search.md
+  - ../specs/12-client-protocol.md
+  - ../projects/subagent-view/PLAN.md
 ---
 
 # Codex CLI harness
@@ -33,13 +35,14 @@ ChatGPT login (`codex login`); no API credits are used.
 |---|---|
 | `backend/manager/codex/session.py` | `CodexSessionManager`, `CodexAbandoned(TurnAbandoned)`, `kill_codex_subprocess()`, the notification → event mapping, the SSH bootstrap |
 | `backend/manager/codex/rpc.py` | `CodexRpc` — minimal JSON-RPC peer (request/notify, response futures, server→client requests answered from tasks) |
-| `backend/manager/codex/items.py` | `ThreadItem` → tool call / tool result / TodoWrite mapping, shared by the live stream and the history adapter |
+| `backend/manager/codex/items.py` | `ThreadItem` → tool call / tool result / TodoWrite mapping, shared by the live stream and the history adapter; multi-agent helpers (`collab_tool`, `agent_states`, `spawn_input`) |
+| `backend/manager/codex/subagent_files.py` | Subagent history: spawn items of a rollout → child-thread rollouts → `SubagentSummary` rows ([Subagents](#subagents)) |
 | `backend/manager/codex/adapter.py` | `CodexAdapter` (rollout JSONL, three generations), `HarnessSpec(name="codex")`, `_codex_jsonl_candidates()`, `_codex_discover_sessions()` |
 | `backend/manager/codex/catalog.py` | `load_codex_catalog()` — models (live `model/list` → `models_cache.json` → built-in) and options |
 | `backend/manager/codex/home.py` | `codex_home()` (dedicated vs shared), `sessions_roots()`, `home_for_thread()`, `codex_env()`, `codex_executable()` |
 | `AGENTS.md` (repo root) | Symlink → `context/AGENTS.md` — the file Codex reads natively; committed like `CLAUDE.md` / `QWEN.md` / `GEMINI.md` |
 | `install/{linux,apple}/install.sh`, `install/windows/install.ps1` | `--with-codex` (`-WithCodex`): seeds `~/.codex-archie/config.toml` (from `install/cli-runtime/codex-home/`; an existing file only gets `[features] memories = false` added or replaced, via `install/codex-home-config.py`), links its `sessions/`, links `.agents/skills` → `context/skills`, installs the CLI pinned to `CODEX_CLI_VERSION` (0.161.0, `install/harness-versions.env`; warns on a different version), login hint; root `AGENTS.md` link. Without Node/npm (`--no-node`, e.g. the Jetson) it installs the static `codex-<arch>-unknown-linux-musl` binary from GitHub release `rust-v<version>` into `/usr/local/bin` (or `~/.local/bin` + `CODEX_CLI_PATH`). `install-with-agent.*` can install Codex as the driver CLI; `install/doctor.sh` checks binary, auth, config (incl. `memories = false`) and links |
-| `backend/tests/test_codex_session.py`, `test_codex_adapter.py`, `fixtures/codex/` | Tests: a scripted fake app-server (`fake_app_server.py`) and a trimmed real rollout |
+| `backend/tests/test_codex_session.py`, `test_codex_adapter.py`, `test_codex_subagents.py`, `fixtures/codex/` | Tests: a scripted fake app-server (`fake_app_server.py`, incl. multi-agent `spawn` scenarios) and a trimmed real rollout |
 
 ## Binary and process
 
@@ -89,6 +92,7 @@ interrupted first so its `turn/completed` cannot end the new turn.
 | `error` (`willRetry: false`) | stashed; shown on a failed turn |
 | `thread/compacted` / `contextCompaction` item | `CompactComplete("auto")` (once per turn) |
 | `turn/completed` | open texts → `TextComplete`, open tools → error `ToolResult`, then `TurnComplete(cost=None, num_turns=1, session_id=thread, is_error=status=="failed", result=last answer / "interrupted" / error)`; a failed turn also emits `Codex error: …` as text |
+| any notification whose `threadId` is not the session's thread | a multi-agent child thread: its own conversation ([Subagents](#subagents)), never the parent's turn, usage or errors |
 
 Tool items (`items.py`), live camelCase and rollout PascalCase/snake_case alike:
 
@@ -99,7 +103,9 @@ Tool items (`items.py`), live camelCase and rollout PascalCase/snake_case alike:
 | `fileChange`, several files | `apply_patch {changes: [{path, kind, diff}]}` |
 | `mcpToolCall` | `mcp__<server>__<tool>` with the arguments |
 | `webSearch` | `WebSearch {query}` |
-| `dynamicToolCall`, `collabAgentToolCall` (`Task`), `imageView` (`Read`), `imageGeneration` | as named |
+| `collabAgentToolCall` `spawnAgent` | `Task {description: <prompt's first line>, prompt, subagent_type: "agent", model?}` — the subagent's card; result `Started agent <nickname or thread id>` |
+| `collabAgentToolCall` other tools | `wait_agent` / `send_input` / `close_agent` / `resume_agent` / `interrupt_agent` / `send_message` / `followup_task` / `list_agents` `{agents: [thread ids], prompt?}`; result one `<agent>: <status> — <message>` line per agent |
+| `dynamicToolCall`, `imageView` (`Read`), `imageGeneration` | as named |
 
 Server → client requests: command/file approvals are accepted (`accept` / legacy `approved`),
 permission requests granted for the turn, `requestUserInput` answered empty, MCP elicitations
@@ -113,6 +119,66 @@ The stall watchdog matches the other harnesses (first `SessionStalled` after 120
 lines, unblocks the active `send()` with an error `TurnComplete`, and the pool's dead-session
 reaper broadcasts `session_terminated`; later `send()`s raise `SessionDeadError`. The manager
 keeps the same `(stream_id, seq)` replay ring as Claude for WebSocket resume.
+
+## Subagents
+
+Contract: [spec 12 §4.8](../specs/12-client-protocol.md#48-subagents-sa-); plan:
+[subagent view](../projects/subagent-view/PLAN.md); the harness-neutral pieces are in
+[claude-code.md → Subagents](claude-code.md#subagents) and
+[agent sessions](../architecture/agent-sessions.md#out-of-turn-events-and-subagents).
+
+**What 0.161 sends** (`features.multi_agent` is on by default; live probes 2026-10-12, gpt-5.6-luna,
+ChatGPT free plan). The model calls `spawn_agent` / `wait_agent` / `close_agent` …; the parent thread
+gets `collabAgentToolCall` items `{id, tool: "spawnAgent"|"wait"|"closeAgent"|…, status,
+senderThreadId, receiverThreadIds, prompt, model, agentsStates: {thread: {status, message}}}`.
+Each sub-agent is **its own thread on the same app-server connection**: its `turn/started`,
+`item/*`, deltas, `thread/tokenUsage/updated`, `error` and `turn/completed` notifications carry the
+child's `threadId`. Facts that shape the code:
+
+- no `thread/started` arrives for a child (no nickname / role on the live wire);
+- the child's first notifications (`thread/status/changed`, `turn/started`) arrive **before** the
+  parent's `spawnAgent` `item/completed` that names the child in `receiverThreadIds` (the
+  `item/started` has `receiverThreadIds: []`);
+- a spawn returns at once; the parent normally `wait`s, but when it doesn't, its turn completes while
+  the child keeps streaming;
+- `turn/interrupt {threadId: <child>, turnId: <child turn>}` stops one child (its `turn/completed`
+  comes back `interrupted`).
+
+**Mapping.** The subagent key is the `spawnAgent` item id (the `Task` card). `_on_notification`
+routes every other-thread notification to `_on_child_notification`: a thread not mapped yet is held
+(≤ 16 threads × 500 notifications) until a `spawnAgent` `item/completed` names it, then replayed.
+`spawnAgent` `item/started` → the `Task` `ToolUse` (registry spawn); `item/completed` →
+`SubagentStarted` **before** the card's `ToolResult` (SA-2), then the held child events. Child items
+→ `SubagentEvent(<spawn id>, …)` with the same item mapping as the parent (per-child open
+texts / reasoning / tools); child `thread/tokenUsage/updated` → `SubagentProgress(usage.tokens =
+total)`; child `turn/completed` → `SubagentFinished` (`completed`→`done` with the last answer,
+`failed`→`failed` with the error, `interrupted`→`stopped`; usage = tokens, tool calls, turn
+`durationMs`). A final state in a later `wait`/`closeAgent` `agentsStates` (`shutdown`, `errored`, …)
+finishes an agent whose own end was not seen. A child that spawns makes a nested subagent
+(`parent_tool_use_id` = the child's key). Later turns of the same child (`send_input`) keep routing
+as `subagent_event` frames; the lifecycle frames stay one start / one finish. Not flagged
+`background` (the parent normally waits).
+
+**Out of turn.** Child events after the parent's `TurnComplete` go to the pool's out-of-turn sink
+(seq-stamped in the session's stream); events dispatched after the `TurnComplete` was queued but
+before `send()` returns are held and flushed in order — the same contract as the Claude manager.
+**Stop (SA-9)**: `stop_subagent` sends `turn/interrupt` for the child's running turn (verified live:
+`subagent_finished{stopped}` ~2 s later). App-server teardown finishes every running child as
+`stopped`.
+
+**History (SA-8).** A child's rollout sits next to the parent's:
+`sessions/YYYY/MM/DD/rollout-<ts>-<child thread>.jsonl`, `session_meta` `{parent_thread_id,
+source: {subagent: {thread_spawn: {parent_thread_id, depth, agent_nickname, agent_role}}}}`. In
+rollouts the collab items are snake case (`tool: "spawn_agent"`, `receiver_thread_ids`,
+`receiver_agents: [{thread_id, agent_nickname}]`, `agents_states: {thread: "pending_init" |
+{"completed": msg} | {"errored": err} | "shutdown"}`). `subagent_files.scan()` walks the parent's
+spawn items, finds each child rollout (same sessions root first, then every root), and reads its
+`task_complete` (`last_agent_message`, `duration_ms`) / `turn_aborted`, last `token_count` and tool
+items; nested spawns recurse (depth ≤ 6). The transcript is the child rollout through
+`CodexAdapter.read_messages()` (its first user message is the prompt). **Child rollouts are never
+listed as sessions**: `_codex_discover_sessions()` skips rollouts whose `session_meta` names a
+parent thread (`_rollout_meta()`, cached per path), so the history list and the history index only
+see parents.
 
 ## CODEX_HOME, login and storage
 
@@ -141,7 +207,9 @@ scans.
   `sessions_roots()`: `context/codex/sessions`, the active home, the dedicated home, the shared home.
 - `_codex_discover_sessions()` lists every rollout under `context/codex/sessions` and the dedicated
   home, but in the **shared** home only those whose `session_meta.payload.originator` is `archie`
-  (VS Code and the TUI write there too). The originator is cached per path.
+  (VS Code and the TUI write there too), and never a multi-agent child thread's rollout
+  (`session_meta` names a parent thread — it is shown inside its parent, [Subagents](#subagents)).
+  Originator and parent are cached per path.
 - The homes are per machine, so they are only searched when the store's project dir is this
   install's own (`PROJECT_ROOT`); any other project dir (tests, a second checkout) sees only its own
   `context/codex/sessions`.
@@ -259,3 +327,7 @@ PID, not `codex`.
   file write, resume in a new process, `turn/interrupt`, history through `/api/sessions/<id>`.
 - 2026-10-08 — dedicated `~/.codex-archie` logins on both machines; memory block as
   `developerInstructions`; Codex rollouts in the history indexer's change hash.
+- 2026-10-12 — subagents (spec 12 §4.8): child-thread notifications routed into `subagent_*` frames
+  (held until the spawn item names the thread), out-of-turn delivery after the parent turn,
+  `stop_subagent` via `turn/interrupt`, only `spawnAgent` is a `Task` card, history from child
+  rollouts, child rollouts excluded from session discovery.

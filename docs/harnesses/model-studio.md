@@ -3,7 +3,7 @@ name: model-studio
 category: archie/harnesses
 tags: [harness, model-studio, dashscope, claude-code, glm, deepseek, kimi, qwen, anthropic-compatible, provider-pinning, harness-catalog, thinking]
 created: 2026-10-07
-modified: 2026-10-08
+modified: 2026-10-12
 summary: The Model Studio harness — Claude Code's agent loop driving GLM, DeepSeek, Kimi and Qwen through Alibaba Model Studio's Anthropic-compatible endpoint; env contract, provider pinning, catalog/options, landmines.
 source: curated (implementation + live verification 2026-10-07, CLI 2.1.292, claude-agent-sdk 0.2.164)
 references:
@@ -14,6 +14,7 @@ references:
   - ../architecture/agent-sessions.md
   - ../infrastructure/ssh-remote-execution.md
   - ../infrastructure/installation.md
+  - ../specs/12-client-protocol.md
 ---
 
 # Model Studio harness (`modelstudio`)
@@ -43,7 +44,7 @@ Claude Code's agent loop on GLM, DeepSeek, Kimi and Qwen models.
 | `backend/manager/claude/session.py` | Hooks the subclass overrides: `_ssh_prefix`, `_record_cli_models()`, `_ssh_auth_env()` (claude behaviour unchanged) |
 | `backend/api/pool.py` `_pin_provider()` + `backend/api/routes/session_config.py` `pin_session_provider()` | Provider pinning on the first turn (all harnesses) |
 | `backend/manager/store.py` `_effective_provider()` | Listing overlay: pinned `modelstudio` over detected `claude` |
-| `backend/tests/test_modelstudio.py` | Registration, catalog, env (local + SSH), options, cost, pinning (chat + orchestrator paths), store overlay |
+| `backend/tests/test_modelstudio.py` | Registration, catalog, env (local + SSH), options, cost, subagents (inherited), pinning (chat + orchestrator paths), store overlay |
 
 ## Env contract
 
@@ -61,6 +62,16 @@ Claude Code's agent loop on GLM, DeepSeek, Kimi and Qwen models.
 
 The model passed to the CLI is never empty or a Claude id: `None`, `default`, `sonnet`,
 `claude-…` and similar become the harness default (`glm-5.1`).
+
+## Subagents
+
+Inherited unchanged from the Claude harness ([claude-code.md → Subagents](claude-code.md#subagents),
+spec 12 [§4.8](../specs/12-client-protocol.md#48-subagents-sa-)): `_process_message()` only wraps
+the parent's to null the cost, so `parent_tool_use_id` routing, the `Task*` lifecycle, out-of-turn
+events and `stop_subagent` (`stop_task`) are Claude's; `ModelStudioAdapter` inherits
+`list_subagents` / `read_subagent_messages`, and the files sit in the same
+`context/<sid>/subagents/` layout. Subagents run on the chosen model (`CLAUDE_CODE_SUBAGENT_MODEL`,
+[Env contract](#env-contract)). Covered by `TestSubagents` in `test_modelstudio.py`; not probed live.
 
 ## Provider pinning (why resume works)
 

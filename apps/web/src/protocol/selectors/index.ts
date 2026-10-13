@@ -9,6 +9,7 @@ import {
   type OrphanResult,
   type PermissionBlock,
   type SessionRef,
+  type Subagent,
   type ToolBlock,
   type ToolResultData,
 } from '../types';
@@ -36,6 +37,8 @@ export interface GroupToolStepsOptions {
   readonly live?: boolean;
   /** Minimum consecutive tool calls that form a group (default 2). */
   readonly minSize?: number;
+  /** Tool blocks that always render alone and break a group (agent spawn cards, spec 12 §4.8). */
+  readonly solo?: (b: ToolBlock) => boolean;
 }
 
 /** Consecutive tool blocks (≥ 2) of one run → a step group. Order is never changed (I-3). */
@@ -46,14 +49,15 @@ export function groupToolSteps(blocks: readonly Block[], opts: GroupToolStepsOpt
   let i = 0;
   while (i < blocks.length) {
     const b = blocks[i] as Block;
-    if (!enabled || b.type !== 'tool') {
+    const solo = opts.solo;
+    if (!enabled || b.type !== 'tool' || (solo && solo(b))) {
       out.push({ kind: 'block', block: b });
       i += 1;
       continue;
     }
     let j = i;
     const group: ToolBlock[] = [];
-    while (j < blocks.length && (blocks[j] as Block).type === 'tool') {
+    while (j < blocks.length && (blocks[j] as Block).type === 'tool' && !(solo && solo(blocks[j] as ToolBlock))) {
       group.push(blocks[j] as ToolBlock);
       j += 1;
     }
@@ -135,4 +139,30 @@ export function deriveTitle(list: readonly SessionListItem[], ref: Pick<SessionR
   if (bySdk) return real(bySdk.title) ?? placeholder;
   const byLocal = list.find((s) => s.local_id === ref.localId);
   return real(byLocal?.title) ?? placeholder;
+}
+
+// ───────────────────────────── subagents (spec 12 §4.8) ─────────────────────────────
+
+/** The subagent with this spawn-card id, or null. */
+export function findSubagent(conv: Pick<Conversation, 'subagents'>, toolUseId: string): Subagent | null {
+  for (const s of conv.subagents) if (s.tool_use_id === toolUseId) return s;
+  return null;
+}
+
+/** SA-6: the chain root → `toolUseId` through `parent_tool_use_id` (cycles and unknown parents stop it). */
+export function subagentPath(conv: Pick<Conversation, 'subagents'>, toolUseId: string): Subagent[] {
+  const out: Subagent[] = [];
+  let cur = findSubagent(conv, toolUseId);
+  while (cur && out.indexOf(cur) < 0) {
+    out.unshift(cur);
+    cur = cur.parent_tool_use_id ? findSubagent(conv, cur.parent_tool_use_id) : null;
+  }
+  return out;
+}
+
+/** Number of subagents still running (the composer's Agents badge). */
+export function runningSubagents(conv: Pick<Conversation, 'subagents'>): number {
+  let n = 0;
+  for (const s of conv.subagents) if (s.status === 'running') n += 1;
+  return n;
 }

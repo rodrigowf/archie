@@ -312,6 +312,18 @@ class ConversationRepository(
         archieHandle()?.post(ConversationInput.LocalSendAudio)
     }
 
+    /**
+     * Spec 12 §4.8 SA-5: materialise subagent [toolUseId]'s transcript (fetch its first page, hold its
+     * live frames meanwhile). The reducer keeps at most 3 per conversation, releasing the least recent.
+     */
+    fun openSubagent(key: ConversationKey, toolUseId: String) = handle(key)?.post(ConversationInput.OpenSubagent(toolUseId))
+
+    /** SA-5: drop a subagent's transcript (its summary stays). */
+    fun releaseSubagent(key: ConversationKey, toolUseId: String) = handle(key)?.post(ConversationInput.ReleaseSubagent(toolUseId))
+
+    /** SA-9: ask the harness to stop one subagent; the answer is `subagent_finished{stopped}` or `error{unsupported}`. */
+    fun stopSubagent(key: ConversationKey, toolUseId: String): SendResult? = handle(key)?.sendFrame(ClientFrame.StopSubagent(toolUseId))
+
     /** §5.3 older page; a page that does not abut triggers a canonical reload (A-4.4.6). */
     fun loadOlder(key: ConversationKey) {
         val h = handle(key) ?: return
@@ -595,6 +607,29 @@ class ConversationRepository(
             }
         }
 
+        /**
+         * SA-5: the subagent's first page. No sdk id yet, or 404 (unknown / no transcript kept): an empty
+         * page (the transcript starts at the live tail). Other failures still release its held frames and
+         * show the error in its tab.
+         */
+        private suspend fun fetchSubagentPage(toolUseId: String) {
+            val sdkId = state.value.ref.sdkId
+            if (sdkId == null) {
+                post(ConversationInput.SubagentPage(toolUseId, PaginatedMessagesDto()))
+                return
+            }
+            val input = when (val r = api.subagentMessages(sdkId, toolUseId, limit = PAGE_SIZE)) {
+                is ApiResult.Ok -> ConversationInput.SubagentPage(toolUseId, r.value)
+                is ApiResult.HttpError -> if (r.code == 404) {
+                    ConversationInput.SubagentPage(toolUseId, PaginatedMessagesDto())
+                } else {
+                    ConversationInput.SubagentPageFailed(toolUseId, r.errorMessage() ?: "Couldn't load this agent's steps")
+                }
+                else -> ConversationInput.SubagentPageFailed(toolUseId, r.errorMessage() ?: "Couldn't load this agent's steps")
+            }
+            post(input)
+        }
+
         private suspend fun fetchPage(sdkId: String): ApiResult<PaginatedMessagesDto> =
             when (val r = api.messages(sdkId, limit = PAGE_SIZE)) {
                 is ApiResult.HttpError -> if (r.code == 404) ApiResult.Ok(PaginatedMessagesDto()) else r
@@ -632,6 +667,11 @@ class ConversationRepository(
                     delay(e.delayMillis); post(ConversationInput.Resync)
                 }
                 is ConversationEffect.SideError -> _events.tryEmit(ConversationEvent.SideError(key, e.code, e.detail))
+                is ConversationEffect.FetchSubagentPage -> jobs += scope.launch { fetchSubagentPage(e.toolUseId) }
+                ConversationEffect.FetchSubagentList -> jobs += scope.launch {
+                    val sdkId = state.value.ref.sdkId ?: return@launch
+                    api.subagents(sdkId).getOrNull()?.takeIf { it.isNotEmpty() }?.let { post(ConversationInput.SubagentList(it)) }
+                }
                 // OPEN-3; launched so the close does not cancel this consumer mid-step.
                 is ConversationEffect.Closed -> scope.launch { if (handle(key) === this@Handle) closedByServer(key, e.termination) }
             }

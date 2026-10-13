@@ -47,6 +47,8 @@ sealed interface ServerFrame {
         val voiceSessionUpdate: JsonObject? = null,
         val voiceConnectionInfo: ConnectionInfo? = null,
         val voiceConnectionError: String? = null,
+        /** Chat only (spec 12 §4.8 SA-3): every subagent the backend knows for this session, oldest first. */
+        val subagents: List<SubagentSummary>? = null,
         override val seq: Long? = null,
         override val streamId: String? = null,
     ) : ServerFrame { override val type get() = "session_started" }
@@ -83,8 +85,10 @@ sealed interface ServerFrame {
     // ───────────── prompts and content ─────────────
 
     /**
-     * `{text}`, `{text, queued: true}` (chat), `{text, source: "shared_inject"}` (orchestrator voice) or
-     * `{text, source: "voice_message"}` (orchestrator: another device's `send_audio`; `text` = its prompt or "").
+     * `{text}`, `{text, queued: true}` (chat), `{text, steered: true}` (chat, I-16: delivered into the
+     * running turn, sent to every subscriber including the sender), `{text, source: "shared_inject"}`
+     * (orchestrator voice) or `{text, source: "voice_message"}` (orchestrator: another device's
+     * `send_audio`; `text` = its prompt or "").
      */
     data class UserMessage(
         val text: String,
@@ -92,6 +96,7 @@ sealed interface ServerFrame {
         val source: String? = null,
         override val seq: Long? = null,
         override val streamId: String? = null,
+        val steered: Boolean = false,
     ) : ServerFrame { override val type get() = "user_message" }
 
     data class TextDelta(
@@ -204,6 +209,52 @@ sealed interface ServerFrame {
         override val seq: Long? = null,
         override val streamId: String? = null,
     ) : ServerFrame { override val type get() = "permission_resolved" }
+
+    // ───────────── subagents (chat WS, spec 12 §4.8) ─────────────
+
+    /** A subagent started; [parentToolUseId] null = spawned by the main agent. */
+    data class SubagentStarted(
+        val toolUseId: String?,
+        val parentToolUseId: String? = null,
+        val agentType: String? = null,
+        val description: String? = null,
+        val background: Boolean? = null,
+        val startedAt: String? = null,
+        override val seq: Long? = null,
+        override val streamId: String? = null,
+    ) : ServerFrame { override val type get() = "subagent_started" }
+
+    /** One-line activity ("Grep") and usage of a running subagent. */
+    data class SubagentProgress(
+        val toolUseId: String?,
+        val activity: String? = null,
+        val usage: SubagentUsage? = null,
+        override val seq: Long? = null,
+        override val streamId: String? = null,
+    ) : ServerFrame { override val type get() = "subagent_progress" }
+
+    /** [status]: `done` | `failed` | `stopped`. */
+    data class SubagentFinished(
+        val toolUseId: String?,
+        val status: String? = null,
+        val summary: String? = null,
+        val usage: SubagentUsage? = null,
+        val endedAt: String? = null,
+        override val seq: Long? = null,
+        override val streamId: String? = null,
+    ) : ServerFrame { override val type get() = "subagent_finished" }
+
+    /**
+     * One content frame of subagent [toolUseId] (`text_*`, `thinking_*`, `tool_use`, `tool_result`).
+     * The wrapper carries `seq`/`stream_id`; the inner [frame] never does (SA-4). `null` when the
+     * inner frame does not decode.
+     */
+    data class SubagentEvent(
+        val toolUseId: String?,
+        val frame: ServerFrame?,
+        override val seq: Long? = null,
+        override val streamId: String? = null,
+    ) : ServerFrame { override val type get() = "subagent_event" }
 
     // ───────────── orchestrator-only ─────────────
 

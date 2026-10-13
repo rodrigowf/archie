@@ -114,6 +114,10 @@ object Fixtures {
             when (a.str("mode")) { "prepend" -> PageMode.PREPEND; "reconcile" -> PageMode.RECONCILE; else -> PageMode.REPLACE },
             page(a["response"]!!.jsonObject),
         )
+        "open_subagent" -> ConversationInput.OpenSubagent(a.str("tool_use_id")!!)
+        "subagent_rest_page" -> ConversationInput.SubagentPage(a.str("tool_use_id")!!, page(a["response"]!!.jsonObject))
+        "release_subagent" -> ConversationInput.ReleaseSubagent(a.str("tool_use_id")!!)
+        "subagent_list" -> ConversationInput.SubagentList(ProtocolCodec.decodeSubagentList(a["response"]!!.jsonObject))
         else -> error("unknown client action ${a.str("type")}")
     }
 

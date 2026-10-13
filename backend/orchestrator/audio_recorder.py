@@ -8,6 +8,13 @@ Recordings are stored in context/recordings/<session_id>/ with:
 - audio.pcm — raw PCM16 24kHz mono, interleaved user and assistant chunks
 - index.json — chunk index mapping byte offsets to timestamps and channels
 
+``session_id`` is the conversation's tab id, so every voice call in that
+conversation shares one recording: a new call APPENDS to it and continues
+its timeline (``calls`` lists where each call starts). It used to reopen
+``audio.pcm`` with ``"wb"``, so each call erased the conversation's earlier
+audio and left the JSONL's ``[voice, recording: … ms]`` references
+pointing at nothing (2026-10-13).
+
 The orchestrator can later play back these recordings using timestamps
 from audio_segment entries in conversation history.
 """
@@ -17,6 +24,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -103,6 +111,10 @@ class RecordingMetadata:
     assistant_duration_ms: int = 0
     segments: list[dict[str, Any]] = field(default_factory=list)
     chunks: list[dict[str, Any]] = field(default_factory=list)
+    # One entry per voice call: started_at / ended_at (unix), offset_ms
+    # (where the call starts on the recording's timeline), provider, model,
+    # voice. Recordings from before appending have none.
+    calls: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -118,6 +130,7 @@ class RecordingMetadata:
             "assistant_duration_ms": self.assistant_duration_ms,
             "segments": self.segments,
             "chunks": self.chunks,
+            "calls": self.calls,
         }
 
     @classmethod
@@ -135,6 +148,7 @@ class RecordingMetadata:
             assistant_duration_ms=data.get("assistant_duration_ms", 0),
             segments=data.get("segments", []),
             chunks=data.get("chunks", []),
+            calls=data.get("calls", []),
         )
 
 
@@ -167,6 +181,9 @@ class AudioRecorder:
     _metadata: RecordingMetadata = field(init=False, repr=False)
     _started: bool = field(init=False, default=False, repr=False)
     _start_time: float = field(init=False, default=0.0, repr=False)
+    # Timeline position of this call's first moment: 0 for a new recording,
+    # just past the previous call's end when appending.
+    _time_base_ms: int = field(init=False, default=0, repr=False)
     _current_user_segment_start: int = field(init=False, default=-1, repr=False)
     _current_assistant_segment_start: int = field(init=False, default=-1, repr=False)
     _turn_index: int = field(init=False, default=0, repr=False)
@@ -197,8 +214,17 @@ class AudioRecorder:
 
         try:
             self._dir.mkdir(parents=True, exist_ok=True)
-            self._audio_file = open(self._dir / "audio.pcm", "wb")
+            self._continue_previous_recording()
+            self._audio_file = open(self._dir / "audio.pcm", "ab")
             self._start_time = time.time()
+            self._metadata.calls.append({
+                "started_at": self._start_time,
+                "ended_at": None,
+                "offset_ms": self._time_base_ms,
+                "provider": self.provider,
+                "model": self.model,
+                "voice": self.voice,
+            })
             self._started = True
             logger.info(
                 "audio_recorder started session_id=%s dir=%s",
@@ -209,9 +235,78 @@ class AudioRecorder:
             logger.exception("Failed to start audio recorder for %s", self.session_id)
             self._cleanup()
 
+    # Silence left between two calls on the shared timeline, so a call's
+    # first chunk never shares a timestamp with the previous call's last.
+    CALL_GAP_MS = 1000
+
+    def _continue_previous_recording(self) -> None:
+        """Pick up this conversation's existing recording, if any, so the
+        new call appends to it instead of overwriting it.
+
+        Keeps the earlier chunks, segments and durations, continues byte
+        offsets at the end of ``audio.pcm`` and the timeline just past the
+        last recorded moment. A recording that can't be continued (unreadable
+        index, different sample rate) is moved aside, never deleted.
+        """
+        audio = self._dir / "audio.pcm"
+        index = self._dir / "index.json"
+        if not index.exists():
+            if audio.exists() and audio.stat().st_size > 0:
+                self._move_aside("no index")  # bytes we can't place on a timeline
+            return
+        try:
+            with open(index) as f:
+                prev = RecordingMetadata.from_dict(json.load(f))
+        except Exception:
+            logger.exception("Unreadable recording index in %s", self._dir)
+            self._move_aside("unreadable index")
+            return
+        if prev.sample_rate != self.sample_rate:
+            self._move_aside(f"sample rate {prev.sample_rate} != {self.sample_rate}")
+            return
+        size = audio.stat().st_size if audio.exists() else 0
+        # Chunks past the end of the file (audio lost after the index was
+        # written) point at nothing — drop them; everything else is kept.
+        chunks = [c for c in prev.chunks if c["byte_offset"] + c["byte_length"] <= size]
+        last_ms = max(
+            [c["timestamp_ms"] for c in chunks]
+            + [s.get("end_ms", 0) for s in prev.segments]
+            + [0]
+        )
+        self._time_base_ms = last_ms + self.CALL_GAP_MS if (chunks or prev.segments) else 0
+        self._turn_index = max(
+            [s.get("turn_index", 0) + 1 for s in prev.segments] + [0]
+        )
+        self._metadata.started_at = prev.started_at
+        self._metadata.total_bytes = size
+        self._metadata.user_duration_ms = prev.user_duration_ms
+        self._metadata.assistant_duration_ms = prev.assistant_duration_ms
+        self._metadata.segments = list(prev.segments)
+        self._metadata.chunks = chunks
+        self._metadata.calls = list(prev.calls)
+        logger.info(
+            "audio_recorder continuing recording session_id=%s bytes=%d "
+            "timeline_ms=%d calls=%d",
+            self.session_id, size, self._time_base_ms, len(prev.calls),
+        )
+
+    def _move_aside(self, why: str) -> None:
+        """Rename the current audio.pcm / index.json to a timestamped name."""
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        for name in ("audio.pcm", "index.json"):
+            src = self._dir / name
+            if src.exists():
+                stem, ext = name.split(".")
+                src.rename(self._dir / f"{stem}.{stamp}.{ext}")
+        logger.warning(
+            "audio_recorder moved the previous recording aside session_id=%s (%s)",
+            self.session_id, why,
+        )
+
     def _elapsed_ms(self) -> int:
-        """Milliseconds since recording started."""
-        return int((time.time() - self._start_time) * 1000)
+        """Position on the recording's timeline (ms): the call's offset
+        plus the time since this call started."""
+        return self._time_base_ms + int((time.time() - self._start_time) * 1000)
 
     def write_user_audio(self, pcm_b64: str) -> None:
         """Write a base64-encoded PCM chunk from the user's microphone."""
@@ -319,6 +414,8 @@ class AudioRecorder:
             return
 
         self._metadata.ended_at = time.time()
+        if self._metadata.calls:
+            self._metadata.calls[-1]["ended_at"] = self._metadata.ended_at
         self._write_metadata()
         self._cleanup()
         self._started = False
@@ -332,10 +429,13 @@ class AudioRecorder:
         )
 
     def _write_metadata(self) -> None:
-        """Write the metadata/index JSON file."""
+        """Write the metadata/index JSON file (atomically: it indexes every
+        call of the conversation, so a torn write would orphan all of them)."""
         try:
-            with open(self._dir / "index.json", "w") as f:
+            tmp = self._dir / "index.json.tmp"
+            with open(tmp, "w") as f:
                 json.dump(self._metadata.to_dict(), f, indent=2)
+            os.replace(tmp, self._dir / "index.json")
         except Exception:
             logger.exception("Failed to write metadata for %s", self.session_id)
 
