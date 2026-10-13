@@ -7,6 +7,7 @@ import json
 import logging
 from typing import Any
 
+from orchestrator.providers.voice_base import VOICE_TOOL_OUTPUT_MAX_CHARS
 from orchestrator.tools import registry
 from utils.mcp_config import get_mcp_configs, load_available_mcps
 
@@ -361,21 +362,169 @@ async def close_agent_session(context: dict[str, Any], session_id: str) -> str:
     return json.dumps({"session_id": session_id, "status": "closed"})
 
 
+# How much one read_agent_session call returns, in chars of JSON.  Voice: the
+# realtime providers reject tool output above ~16 KB and
+# truncate_voice_tool_output() clips anything over VOICE_TOOL_OUTPUT_MAX_CHARS
+# by shortening every string and dropping the END of the biggest list — for a
+# transcript that is the newest message, i.e. the agent's final report.  So a
+# read sizes itself under that cap and hands back cursors instead.  Text: a
+# default the model can raise with max_chars; nothing is ever lost, the rest is
+# one cursor away.
+_READ_BUDGET_VOICE = VOICE_TOOL_OUTPUT_MAX_CHARS - 500
+_READ_BUDGET_TEXT = 40_000
+_READ_BUDGET_MIN = 2_000
+# Share of the budget the live block may use; the rest is for messages.
+_LIVE_SHARE = 0.4
+# Room kept free for the "earlier" / "continue" cursors and their hint.
+_CURSOR_RESERVE = 400
+
+
+def _dumps(obj: Any) -> str:
+    return json.dumps(obj, ensure_ascii=False)
+
+
+def _read_budget(context: dict[str, Any], max_chars: int | None) -> int:
+    session = context.get("session")
+    if bool(getattr(session, "is_voice", False)):
+        cap = _READ_BUDGET_VOICE
+        budget = min(max_chars, cap) if max_chars else cap
+    else:
+        budget = max_chars or _READ_BUDGET_TEXT
+    return max(budget, _READ_BUDGET_MIN)
+
+
+def _fit_text(text: str, room: int) -> int:
+    """Length of the longest prefix of ``text`` whose JSON string encoding
+    fits in ``room`` chars (escapes like ``\\n`` count double)."""
+    n = min(len(text), max(room - 2, 0))
+    while n > 0:
+        size = len(_dumps(text[:n]))
+        if size <= room:
+            return n
+        n -= size - room  # dropping k chars shrinks the encoding by >= k
+    return 0
+
+
+def _fit_live(live: dict[str, Any], room: int) -> dict[str, Any]:
+    """``live`` within ``room`` chars: drop the oldest events first, then
+    shorten the in-flight text from the front (its end is the newest)."""
+    if len(_dumps(live)) <= room:
+        return live
+    live = dict(live)
+    events = list(live.get("events") or [])
+    omitted = 0
+    while events and len(_dumps(live)) > room:
+        events.pop(0)
+        omitted += 1
+        live["events"] = events
+        live["events_omitted"] = omitted
+    text = live.get("last_assistant_text") or ""
+    over = len(_dumps(live)) - room
+    if text and over > 0:
+        live["last_assistant_text"] = "…" + text[min(len(text), over + 1):]
+    return live
+
+
+def _message_entry(index: int, p: Any) -> dict[str, Any]:
+    return {
+        "index": index,
+        "role": p.role,
+        "timestamp": p.timestamp.isoformat() if p.timestamp else None,
+        "text": p.text,
+    }
+
+
+def _read_page(
+    previews: list[Any],
+    body: dict[str, Any],
+    budget: int,
+    max_messages: int | None,
+    before_index: int | None,
+) -> None:
+    """Fill ``body["messages"]`` newest first with the text messages that fit.
+
+    Tool-only entries (no text) are skipped: they would otherwise eat the
+    "last N" window — in long sessions most entries are tool calls/results.
+    """
+    with_text = [
+        i for i, p in enumerate(previews)
+        if p.text.strip() and (before_index is None or i < before_index)
+    ]
+    candidates = with_text if max_messages is None else with_text[-max_messages:] if max_messages > 0 else []
+    room = budget - len(_dumps(body)) - _CURSOR_RESERVE
+    picked: list[dict[str, Any]] = []
+    for i in reversed(candidates):
+        entry = _message_entry(i, previews[i])
+        cost = len(_dumps(entry)) + 2
+        if cost <= room:
+            picked.insert(0, entry)
+            room -= cost
+            continue
+        if not picked:
+            # The newest message alone is too big: return its head and a
+            # cursor to the rest, never a lossy cut.
+            text = entry["text"]
+            entry.update(text="", truncated=True, chars_total=len(text))
+            n = _fit_text(text, room - len(_dumps(entry)))
+            entry["text"] = text[:n]
+            picked.append(entry)
+            body["continue"] = {"message_index": i, "char_offset": n}
+        break
+    body["messages"] = picked
+
+    earliest = picked[0]["index"] if picked else before_index
+    if earliest is not None:
+        earlier = sum(1 for i in with_text if i < earliest)
+        if earlier:
+            body["earlier"] = {"before_index": earliest, "text_messages": earlier}
+
+
+def _read_chunk(
+    previews: list[Any],
+    body: dict[str, Any],
+    budget: int,
+    message_index: int,
+    char_offset: int,
+) -> str | None:
+    """Fill ``body["messages"]`` with one slice of one message.  Returns an
+    error string when the index is out of range."""
+    if not 0 <= message_index < len(previews):
+        return f"message_index {message_index} is out of range (0..{len(previews) - 1})"
+    text = previews[message_index].text
+    offset = min(max(char_offset, 0), len(text))
+    entry = _message_entry(message_index, previews[message_index])
+    entry.update(text="", char_offset=offset, chars_total=len(text))
+    room = budget - len(_dumps(body)) - len(_dumps(entry)) - _CURSOR_RESERVE
+    n = _fit_text(text[offset:], room)
+    entry["text"] = text[offset:offset + n]
+    body["messages"] = [entry]
+    if offset + n < len(text):
+        body["continue"] = {"message_index": message_index, "char_offset": offset + n}
+    return None
+
+
 @registry.register(
     name="read_agent_session",
     description=(
-        "Read a Claude Code session's conversation, returning the last N messages "
-        "(default 5; pass max_messages=null for the full transcript). The response "
-        "also tells you whether a turn is actively running on this session: "
-        "'live.status' is 'running' (a turn is in flight — events shows the live "
-        "tail of text/tool_use/permission events) or 'idle' (no turn running — "
-        "messages is the canonical record). A delegated turn stays 'running' while "
-        "subagents it started are still working: 'live.phase' is then "
-        "'waiting_for_subagents' (with 'live.waiting_for_subagents' = how many) or "
-        "'notification_turn' (the agent is reporting on a finished subagent), and "
-        "'live.subagents' lists them with status and current activity. Use this "
-        "single tool whether you want the finished output of a past turn or a "
-        "progress check on an in-flight one."
+        "Read a Claude Code session's conversation. By default returns its last 5 "
+        "messages that contain text (tool-only steps are skipped), oldest first, "
+        "each with its 'index' in the transcript; 'total_messages' counts every "
+        "entry. Nothing is cut silently: when the output would be too large, the "
+        "newest messages come first and the response carries cursors — "
+        "'earlier': {before_index} to page back to older messages, and "
+        "'continue': {message_index, char_offset} to read the rest of a long "
+        "message (pass both back as arguments). Follow the cursors until you "
+        "have what you need; a long final report may take several calls. "
+        "The response also tells you whether a turn is actively running on this "
+        "session: 'live.status' is 'running' (a turn is in flight — events shows "
+        "the live tail of text/tool_use/permission events) or 'idle' (no turn "
+        "running — messages is the canonical record). A delegated turn stays "
+        "'running' while subagents it started are still working: 'live.phase' is "
+        "then 'waiting_for_subagents' (with 'live.waiting_for_subagents' = how "
+        "many) or 'notification_turn' (the agent is reporting on a finished "
+        "subagent), and 'live.subagents' lists them with status and current "
+        "activity. Use this single tool whether you want the finished output of a "
+        "past turn or a progress check on an in-flight one."
     ),
     input_schema={
         "type": "object",
@@ -387,8 +536,38 @@ async def close_agent_session(context: dict[str, Any], session_id: str) -> str:
             "max_messages": {
                 "type": ["integer", "null"],
                 "description": (
-                    "How many of the most recent persisted messages to return "
-                    "(default: 5). Use null to return the entire conversation."
+                    "How many of the most recent text messages to return "
+                    "(default: 5). Use null for as many as fit; the rest is "
+                    "reachable through the 'earlier' cursor."
+                ),
+            },
+            "before_index": {
+                "type": "integer",
+                "description": (
+                    "Page back: return only messages with an index below this "
+                    "(pass 'earlier.before_index' from a previous read)."
+                ),
+            },
+            "message_index": {
+                "type": "integer",
+                "description": (
+                    "Read one message by its index, in chunks (pass "
+                    "'continue.message_index' from a previous read)."
+                ),
+            },
+            "char_offset": {
+                "type": "integer",
+                "description": (
+                    "With message_index: where in that message's text to start "
+                    "(pass 'continue.char_offset'; default 0)."
+                ),
+            },
+            "max_chars": {
+                "type": "integer",
+                "description": (
+                    "Size of this response in characters (default 40000 in text "
+                    "mode; voice mode is always capped near 7500). Raise it to "
+                    "read a long report in fewer calls."
                 ),
             },
         },
@@ -399,6 +578,10 @@ async def read_agent_session(
     context: dict[str, Any],
     session_id: str,
     max_messages: int | None = 5,
+    before_index: int | None = None,
+    message_index: int | None = None,
+    char_offset: int = 0,
+    max_chars: int | None = None,
 ) -> str:
     pool = context["pool"]
     store = context["store"]
@@ -408,15 +591,8 @@ async def read_agent_session(
     sm = pool.get(session_id)
     sdk_id = sm.sdk_session_id if sm else (pool.restored_sdk_id(session_id) or session_id)
 
-    previews = store.get_preview(sdk_id, max_messages=max_messages)
-    messages = [
-        {
-            "role": p.role,
-            "text": p.text,
-            "timestamp": p.timestamp.isoformat() if p.timestamp else None,
-        }
-        for p in previews
-    ]
+    previews = store.get_preview(sdk_id, max_messages=None)
+    budget = _read_budget(context, max_chars)
 
     # Live status: is a background turn currently driving this session?
     # The runner's ring buffer is the single source of truth for in-flight
@@ -444,18 +620,43 @@ async def read_agent_session(
     ]
     if subagents:
         live["subagents"] = subagents
+    live = _fit_live(live, int(budget * _LIVE_SHARE))
 
-    if not messages and live["status"] == "idle":
-        return json.dumps({
+    if not previews and live["status"] == "idle":
+        return _dumps({
             "error": f"No messages found for session {session_id}",
             "live": live,
         })
 
-    return json.dumps({
+    body: dict[str, Any] = {
         "session_id": session_id,
-        "messages": messages,
+        "total_messages": len(previews),
+        "messages": [],
         "live": live,
-    })
+    }
+    if message_index is not None:
+        error = _read_chunk(previews, body, budget, message_index, char_offset)
+        if error:
+            return _dumps({"error": error, "session_id": session_id, "total_messages": len(previews)})
+    else:
+        _read_page(previews, body, budget, max_messages, before_index)
+
+    hints = []
+    if "continue" in body:
+        c = body["continue"]
+        hints.append(
+            f"message {c['message_index']} continues: call read_agent_session with "
+            f"message_index={c['message_index']}, char_offset={c['char_offset']}"
+        )
+    if "earlier" in body:
+        e = body["earlier"]
+        hints.append(
+            f"{e['text_messages']} earlier text messages: call read_agent_session "
+            f"with before_index={e['before_index']}"
+        )
+    if hints:
+        body["more"] = "; ".join(hints)
+    return _dumps(body)
 
 
 @registry.register(
