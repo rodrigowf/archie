@@ -5,7 +5,6 @@ import android.os.Build
 import android.speech.SpeechRecognizer
 import com.assistant.core.audio.platform.AndroidMicSourceFactory
 import com.assistant.core.audio.platform.ElapsedRealtimeClock
-import com.assistant.core.audio.ports.InputChoice
 import com.assistant.core.audio.ports.VoiceLog
 import com.assistant.core.network.VoiceApi
 import com.assistant.core.wakeword.ports.OpenAiKeyProvider
@@ -46,7 +45,6 @@ object AndroidWakeword {
         log: VoiceLog,
         whisper: WhisperTranscriber?,
         sdkInt: Int = Build.VERSION.SDK_INT,
-        micInput: () -> InputChoice = { InputChoice.AUTO },
     ): WakeEngineDeps = WakeEngineDeps(
         scope = thread.scope,
         clock = ElapsedRealtimeClock,
@@ -57,7 +55,6 @@ object AndroidWakeword {
         vosk = AndroidVoskModelSource.get(context, log, sdkInt),
         speechRecognizer = if (SpeechRecognizer.isRecognitionAvailable(context)) AndroidSpeechRecognizerRunner(context, log, sdkInt) else null,
         whisper = whisper,
-        micInput = micInput,
     )
 
     /** The Whisper key from `GET /api/config/openai-key`; null (→ fail-closed) on any error or blank key. */

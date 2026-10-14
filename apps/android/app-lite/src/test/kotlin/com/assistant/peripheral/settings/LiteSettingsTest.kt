@@ -1,7 +1,6 @@
 package com.assistant.peripheral.settings
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
-import com.assistant.core.model.AudioInput
 import com.assistant.core.model.AudioOutput
 import com.assistant.core.settings.SettingsStore
 import com.assistant.core.voicehost.VoiceHost
@@ -68,15 +67,6 @@ class LiteSettingsTest {
         assertEquals(0.015f, host.applied.last().echoDuckingGain, 1e-6f)
         // Explicit gains every time (RS-33): the duck change still carries the mic gain.
         assertEquals(1.3f, host.applied.last().micGain)
-
-        // The Bluetooth mic exists only on Bluetooth call audio: choosing it moves the output too.
-        s.setInput(AudioInput.BLUETOOTH)
-        assertEquals(AudioInput.BLUETOOTH, host.applied.last().audioInput)
-        assertEquals(AudioOutput.BLUETOOTH, host.applied.last().audioOutput)
-        s.setInput(AudioInput.WIRED)
-        assertEquals(AudioInput.WIRED, host.applied.last().audioInput)
-        assertEquals("other inputs leave the output alone", AudioOutput.BLUETOOTH, host.applied.last().audioOutput)
-        withTimeout(5_000) { store.settings.first { it?.audioInput == AudioInput.WIRED } }
 
         s.setEchoTailStep(4)
         assertEquals(1_000L, host.applied.last().echoDuckTailMs)

@@ -35,8 +35,6 @@ data class DeviceSettings(
      */
     val echoDuckTailMs: Long = 0L,
     val audioOutput: AudioOutput = AudioOutput.AUTO,
-    /** Which microphone voice and the wake word use (lite app). New key. */
-    val audioInput: AudioInput = AudioInput.AUTO,
     val enableButtonTrigger: Boolean = false,
     /** Expanded layout list pane (spec 14 §2.4). New key. */
     val listPaneCollapsed: Boolean = false,

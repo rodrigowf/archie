@@ -19,16 +19,8 @@ import java.util.concurrent.Executors
  *
  * PCM comes from the shipped WAV assets (`assets/voicehost/cues/`), cached after the first load;
  * a missing or malformed asset falls back to [ToneSynth].
- *
- * Exception (NEW, 2026-10-14): while [onBluetoothBesideHeadset] is true the cues play on
- * STREAM_VOICE_CALL, because the A300M's policy keeps STREAM_MUSIC on a plugged headset (a
- * headset-style mic has no speaker) and only the call stream reaches the Bluetooth speaker then.
  */
-class AndroidCuePlayer(
-    context: Context,
-    private val log: VoiceLog,
-    private val onBluetoothBesideHeadset: () -> Boolean = { false },
-) : CuePlayer {
+class AndroidCuePlayer(context: Context, private val log: VoiceLog) : CuePlayer {
     private val assets = context.applicationContext.assets
     private val cache = EnumMap<CueKind, ShortArray>(CueKind::class.java)
     private val executor: ExecutorService = Executors.newSingleThreadExecutor { r -> Thread(r, "voicehost-cues").apply { isDaemon = true } }
@@ -61,11 +53,8 @@ class AndroidCuePlayer(
         val bufSize = AudioTrack.getMinBufferSize(sr, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
             .coerceAtLeast(pcm.size * 2)
         @Suppress("DEPRECATION")
-        val besideHeadset = onBluetoothBesideHeadset()
-        val stream = if (besideHeadset) AudioManager.STREAM_VOICE_CALL else AudioManager.STREAM_MUSIC
-        log.d(TAG, "cue ${kind.name} stream=${if (besideHeadset) "VOICE_CALL (Bluetooth beside a headset)" else HostTuning.CUE_STREAM}")
         val track = AudioTrack(
-            stream, // HostTuning.CUE_STREAM (`b586e4b`), except beside a headset (see the class doc)
+            AudioManager.STREAM_MUSIC, // HostTuning.CUE_STREAM (`b586e4b`)
             sr,
             AudioFormat.CHANNEL_OUT_MONO,
             AudioFormat.ENCODING_PCM_16BIT,

@@ -1,9 +1,7 @@
 package com.assistant.core.voicehost
 
 import android.app.Activity
-import com.assistant.core.audio.ports.InputChoice
 import com.assistant.core.audio.ports.OutputChoice
-import com.assistant.core.model.AudioInput
 import com.assistant.core.model.AudioOutput
 import com.assistant.core.model.DeviceSettings
 import com.assistant.core.voice.ports.VoiceLevels
@@ -72,7 +70,6 @@ data class VoiceHostSettings(
     val echoDuckingGain: Float,
     val echoDuckTailMs: Long,
     val audioOutput: AudioOutput,
-    val audioInput: AudioInput,
     val buttonTriggerEnabled: Boolean,
     val stayConnectedInBackground: Boolean = false,
 ) {
@@ -92,7 +89,6 @@ data class VoiceHostSettings(
             echoDuckingGain = d.echoDuckingGain,
             echoDuckTailMs = d.echoDuckTailMs,
             audioOutput = d.audioOutput,
-            audioInput = d.audioInput,
             buttonTriggerEnabled = d.enableButtonTrigger,
             stayConnectedInBackground = d.stayConnectedInBackground,
         )
@@ -105,13 +101,6 @@ internal fun AudioOutput.toChoice(): OutputChoice = when (this) {
     AudioOutput.LOUDSPEAKER -> OutputChoice.LOUDSPEAKER
     AudioOutput.WIRED -> OutputChoice.WIRED
     AudioOutput.BLUETOOTH -> OutputChoice.BLUETOOTH
-}
-
-internal fun AudioInput.toChoice(): InputChoice = when (this) {
-    AudioInput.AUTO -> InputChoice.AUTO
-    AudioInput.PHONE -> InputChoice.PHONE
-    AudioInput.WIRED -> InputChoice.WIRED
-    AudioInput.BLUETOOTH -> InputChoice.BLUETOOTH
 }
 
 /** Wake-word health as the UI and the notification show it (spec 14 §2.6, §2.7, §5.2). */

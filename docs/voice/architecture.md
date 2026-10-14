@@ -436,42 +436,6 @@ change:
   restores the mic early (late echo is what triggers it there). Off = the
   frozen behaviour, unchanged. It only ever delays the restore.
 - Mic source: `VOICE_RECOGNITION` below API 24, `VOICE_COMMUNICATION` from 24.
-- **Microphone (Input) choice** (lite Settings → Audio → Microphone;
-  `DeviceSettings.audioInput`, key `audio_input`: Auto / Phone mic / Wired mic /
-  Bluetooth mic, default Auto = the old behaviour). Built for the A300M with a
-  Bluetooth speaker and a wired mic. Lollipop cannot pick an input device, so
-  each choice is a recording source plus a route (`InputChoice`,
-  `DefaultRouteDecider`, `MicSourcePolicy.sourceFor(sdk, input)`):
-  - *Wired mic*: the policy already prefers a plugged headset mic for
-    `VOICE_RECOGNITION` (nothing plugged → the built-in mic). Bluetooth output
-    then uses **A2DP**, never SCO, which would take the mic; Auto output with a
-    plug detected plays on A2DP (WS) or the loudspeaker, never into the jack (a
-    headset-style mic has no speaker).
-  - **A2DP beside a plugged headset** (measured on the A300M, 2026-10-14):
-    plugging a headset makes Android force media off A2DP
-    (`Force use for media 10` = `FORCE_NO_BT_A2DP`), and Samsung's Lollipop
-    policy keeps `STREAM_MUSIC` on the headset even once A2DP is allowed again.
-    `STREAM_VOICE_CALL` in `MODE_NORMAL` does reach A2DP. So that case is its own
-    route, `BluetoothMediaBesideHeadset` (call plane, NORMAL mode), and
-    `A2dpMediaKeeper` (`core/voice-host`, via `AndroidA2dpMediaRoute` →
-    `MediaRouter.selectRoute` of the system Bluetooth route) re-allows A2DP after
-    every plug / Bluetooth change while `DefaultRouteDecider.wantsA2dpMedia` is
-    true. The cues follow: `AndroidCuePlayer` plays them on `STREAM_VOICE_CALL`
-    while the keeper holds Bluetooth (they stay on `STREAM_MUSIC` otherwise,
-    `b586e4b`). Diagnose with `dumpsys media.audio_policy` (`Force use for
-    media`, the Inputs dump `Devices`) and the `[ROUTE] A2DP media` log lines.
-  - *Phone mic*: `CAMCORDER` source, the built-in mic even with a headset plugged
-    in; Bluetooth output uses A2DP as above.
-  - *Bluetooth mic*: exists only on call audio (SCO/HFP), so the route is
-    `BluetoothCallAudio` whatever the output (the lite UI moves Output to
-    Bluetooth and disables the others). Without HFP it behaves as Auto.
-  - A2DP output works only with the WS providers (Qwen, Gemini); OpenAI WebRTC
-    falls back to the loudspeaker as before (RS-29).
-  - The wake word and push-to-talk open their mic with the same choice; a
-    change restarts the wake engine so it reopens the mic. The voice session
-    re-routes at once; its recording source changes from the next connect.
-  - A 3-pole (TRS) plain mic plug is detected as headphones only (no mic): use a
-    4-pole headset-style plug or a TRRS adapter.
 - Route re-applied at +1 / +4 / +9 s after start. Cues on `STREAM_MUSIC`.
 
 **Link loss (P-2) covers two legs**: the orchestrator socket and the call's own

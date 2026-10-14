@@ -4,7 +4,6 @@ import com.assistant.core.audio.ports.AudioStream
 import com.assistant.core.audio.ports.FocusContentType
 import com.assistant.core.audio.ports.FocusGain
 import com.assistant.core.audio.ports.FocusUsage
-import com.assistant.core.audio.ports.InputChoice
 import com.assistant.core.audio.ports.MicSourceType
 import com.assistant.core.audio.ports.SpeakerMode
 import com.assistant.core.audio.ports.TrackConstructor
@@ -29,19 +28,6 @@ class PlatformPolicyParityTest {
         assertEquals(MicSourceType.VOICE_COMMUNICATION, p.sourceFor(24))
         assertEquals(6, MicSourceType.VOICE_RECOGNITION.androidValue)
         assertEquals(7, MicSourceType.VOICE_COMMUNICATION.androidValue)
-    }
-
-    /** NEW (2026-10-14): "Phone mic" records with CAMCORDER (the built-in mic even with a headset plugged in). */
-    @Test
-    fun inputChoiceOnlyPhoneChangesTheSource() {
-        val p = audioCore.micSourcePolicy
-        for (sdk in SDK_LEVELS) {
-            assertEquals(MicSourceType.CAMCORDER, p.sourceFor(sdk, InputChoice.PHONE))
-            for (input in listOf(InputChoice.AUTO, InputChoice.WIRED, InputChoice.BLUETOOTH)) {
-                assertEquals("API $sdk $input", p.sourceFor(sdk), p.sourceFor(sdk, input))
-            }
-        }
-        assertEquals(5, MicSourceType.CAMCORDER.androidValue)
     }
 
     /** RS-25 (`20217b1`): API 21/22 use the blocking 3-arg write and the legacy stream constructor. */

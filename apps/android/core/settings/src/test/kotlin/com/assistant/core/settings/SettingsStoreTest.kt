@@ -1,6 +1,5 @@
 package com.assistant.core.settings
 
-import com.assistant.core.model.AudioInput
 import com.assistant.core.model.ThemeMode
 import com.assistant.core.model.SavedServer
 import com.assistant.core.model.AudioOutput
@@ -26,7 +25,6 @@ class SettingsStoreTest {
         store.setEchoDuckingGain(3f)
         store.setEchoDuckTailMs(9_000L)
         store.setAudioOutput(AudioOutput.BLUETOOTH)
-        store.setAudioInput(AudioInput.WIRED)
         store.setThemeMode(ThemeMode.LIGHT)
         store.setServerUrl("  ws://10.0.0.2:80 ")
         runCurrent()
@@ -34,8 +32,6 @@ class SettingsStoreTest {
         assertEquals(1.5f, s.micGainLevel); assertEquals(0f, s.wakeWordMicGainLevel)
         assertEquals(1f, s.talkSilenceSensitivity); assertEquals(1f, s.echoDuckingGain)
         assertEquals(5_000L, s.echoDuckTailMs)
-        assertEquals(AudioInput.WIRED, s.audioInput)
-        assertEquals("WIRED", ds.current[SettingsKeys.AUDIO_INPUT])
         assertEquals(ThemeMode.LIGHT, s.themeMode)
         // Same wire values as the old app.
         assertEquals("BLUETOOTH", ds.current[SettingsKeys.AUDIO_OUTPUT]); assertEquals("LIGHT", ds.current[SettingsKeys.THEME_MODE])

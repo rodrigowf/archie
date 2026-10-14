@@ -1,7 +1,6 @@
 package com.assistant.core.voice.ports
 
 import com.assistant.core.audio.ports.AppliedRoute
-import com.assistant.core.audio.ports.InputChoice
 import com.assistant.core.audio.ports.MonotonicClock
 import com.assistant.core.audio.ports.OutputChoice
 import com.assistant.core.audio.ports.ProviderKind
@@ -119,7 +118,7 @@ interface VoiceCues {
  */
 interface AudioSessionPort {
     fun acquireFocus()
-    fun applyRoute(provider: ProviderKind, desired: OutputChoice, input: InputChoice = InputChoice.AUTO): AppliedRoute
+    fun applyRoute(provider: ProviderKind, desired: OutputChoice): AppliedRoute
     fun release()
 }
 
@@ -190,9 +189,6 @@ interface VoiceSessionController {
     fun setMicGain(level: Float)
     fun setEchoDuckingGain(gain: Float)
     fun setEchoDuckTailMs(ms: Long)
-
-    /** The microphone choice: re-routes now, and picks the recording source from the next connect. */
-    fun setAudioInput(input: InputChoice)
     fun setAudioOutput(output: OutputChoice)
     fun onInbound(frame: VoiceInbound)
     fun onConnection(signal: ConnectionSignal)

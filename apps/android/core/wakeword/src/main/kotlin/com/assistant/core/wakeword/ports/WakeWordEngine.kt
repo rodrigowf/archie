@@ -1,6 +1,5 @@
 package com.assistant.core.wakeword.ports
 
-import com.assistant.core.audio.ports.InputChoice
 import com.assistant.core.audio.ports.MicSourceFactory
 import com.assistant.core.audio.ports.MonotonicClock
 import com.assistant.core.audio.ports.VoiceLog
@@ -202,6 +201,4 @@ class WakeEngineDeps(
      * serverUrl, `WakeWordDetector.kt:523-534`). When non-null the gate is fail-closed.
      */
     val whisper: WhisperTranscriber?,
-    /** The user's Input choice, read each time the loop opens the mic (default: the old source). */
-    val micInput: () -> InputChoice = { InputChoice.AUTO },
 )

@@ -2,7 +2,6 @@ package com.assistant.core.testing
 
 import com.assistant.core.audio.ports.AppliedRoute
 import com.assistant.core.audio.ports.AudioDeviceRef
-import com.assistant.core.audio.ports.InputChoice
 import com.assistant.core.audio.ports.MonotonicClock
 import com.assistant.core.audio.ports.OutputChoice
 import com.assistant.core.audio.ports.ProviderKind
@@ -139,7 +138,7 @@ class RecordingCues(private val order: OrderLog? = null) : VoiceCues {
 }
 
 class FakeAudioSession(private val clock: MonotonicClock) : AudioSessionPort {
-    data class Apply(val provider: ProviderKind, val desired: OutputChoice, val atMs: Long, val input: InputChoice = InputChoice.AUTO)
+    data class Apply(val provider: ProviderKind, val desired: OutputChoice, val atMs: Long)
 
     var result: (ProviderKind, OutputChoice) -> AppliedRoute = { _, _ -> AppliedRoute(Route.SystemDefault, SpeakerMode.CALL, null) }
     var focusAcquired = 0
@@ -147,8 +146,8 @@ class FakeAudioSession(private val clock: MonotonicClock) : AudioSessionPort {
     val applies: MutableList<Apply> = Collections.synchronizedList(mutableListOf())
 
     override fun acquireFocus() { focusAcquired++ }
-    override fun applyRoute(provider: ProviderKind, desired: OutputChoice, input: InputChoice): AppliedRoute {
-        applies += Apply(provider, desired, clock.nowMs(), input)
+    override fun applyRoute(provider: ProviderKind, desired: OutputChoice): AppliedRoute {
+        applies += Apply(provider, desired, clock.nowMs())
         return result(provider, desired)
     }
     override fun release() { released++ }
@@ -175,7 +174,6 @@ class FakeVoiceTransport(
     var micGain: Float? = null
     var duckGain: Float? = null
     var duckTailMs: Long? = null
-    var inputChoice: InputChoice? = null
     var muted = false
     var fallback: (() -> JsonObject?)? = null
     var commandsBeforeConnect = 0
@@ -196,7 +194,6 @@ class FakeVoiceTransport(
     override fun setMicGain(level: Float) { micGain = level }
     override fun setEchoDuckingGain(gain: Float) { duckGain = gain }
     override fun setEchoDuckTailMs(ms: Long) { duckTailMs = ms }
-    override fun setAudioInput(input: InputChoice) { inputChoice = input }
     override fun toggleMute(): Boolean { muted = !muted; return muted }
     override fun setSpeakerMode(mode: SpeakerMode, preferredDevice: AudioDeviceRef?) { speakerModes += mode }
 
@@ -248,7 +245,6 @@ class FakeVoiceSessionController(private val order: OrderLog) : VoiceSessionCont
     override fun setMicGain(level: Float) { order.add("voice.setMicGain") }
     override fun setEchoDuckingGain(gain: Float) { order.add("voice.setEchoDuckingGain") }
     override fun setEchoDuckTailMs(ms: Long) { order.add("voice.setEchoDuckTailMs") }
-    override fun setAudioInput(input: InputChoice) { order.add("voice.setAudioInput") }
     override fun setAudioOutput(output: OutputChoice) { order.add("voice.setAudioOutput") }
     override fun onInbound(frame: VoiceInbound) { inbound += frame }
     override fun onConnection(signal: ConnectionSignal) { connection += signal }

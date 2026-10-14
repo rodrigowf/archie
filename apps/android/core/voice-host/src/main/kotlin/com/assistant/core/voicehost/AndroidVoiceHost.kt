@@ -10,7 +10,6 @@ import com.assistant.core.audio.platform.AndroidAudioTrackFactory
 import com.assistant.core.audio.platform.AndroidMicSourceFactory
 import com.assistant.core.audio.platform.ElapsedRealtimeClock
 import com.assistant.core.audio.platform.LogcatVoiceLog
-import com.assistant.core.audio.ports.InputChoice
 import com.assistant.core.audio.ports.VoiceLog
 import com.assistant.core.model.DeviceSettings
 import com.assistant.core.network.ArchieApi
@@ -31,7 +30,6 @@ import com.assistant.core.voice.ports.TranscriptSink
 import com.assistant.core.voice.ports.WebRtcDeps
 import com.assistant.core.voice.ports.WsPcmDeps
 import com.assistant.core.voicehost.cue.AndroidCuePlayer
-import com.assistant.core.voicehost.platform.A2dpMediaKeeper
 import com.assistant.core.voicehost.platform.AndroidAudioSession
 import com.assistant.core.voicehost.platform.AndroidForegroundBringer
 import com.assistant.core.voicehost.platform.AndroidSpeakerMuter
@@ -48,7 +46,6 @@ import com.assistant.core.wakeword.platform.AndroidWakeword
 import com.assistant.core.wakeword.platform.WakeLoopThread
 import com.assistant.core.wakeword.ports.WakeConfig
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -107,10 +104,6 @@ object AndroidVoiceHost {
         val wakewordCore = DefaultWakewordCore()
         val keys = AndroidWakeword.keyProvider(voiceApi)
         val servicePrefs = ServicePrefs.create(app)
-        // The Input choice for the mics the runtime does not open itself (wake word, push-to-talk).
-        val runtimeRef = AtomicReference<VoiceHostRuntime?>(null)
-        val micInput = { runtimeRef.get()?.lastSettings()?.audioInput?.toChoice() ?: InputChoice.AUTO }
-        val a2dpKeeper = A2dpMediaKeeper(app, sdkInt, log).also { it.start() }
         val pttScope = CoroutineScope(SupervisorJob() + Executors.newSingleThreadExecutor { r -> Thread(r, "voicehost-ptt").apply { isDaemon = true } }.asCoroutineDispatcher())
 
         val runtime = VoiceHostRuntime(
@@ -126,7 +119,7 @@ object AndroidVoiceHost {
                     // Errata #5: a blank server URL leaves Whisper unconfigured (matches fire unconfirmed, as the old code).
                     val whisper = if (cfg.serverUrl.isBlank()) null else wakewordCore.whisperClient(http.base, WakeTuning.WHISPER_TRANSCRIPTIONS_URL, keys, log)
                     wakewordCore.engine(
-                        AndroidWakeword.deps(app, wakeThread, log, whisper, sdkInt, micInput),
+                        AndroidWakeword.deps(app, wakeThread, log, whisper, sdkInt),
                         WakeConfig(cfg.talkWord, cfg.wakeWord, cfg.wakeGain, cfg.talkSilenceSensitivity),
                     )
                 },
@@ -134,7 +127,7 @@ object AndroidVoiceHost {
                 transports = transports,
                 audio = audio,
                 transcripts = transcripts,
-                cuePlayer = AndroidCuePlayer(app, log) { a2dpKeeper.holdingBluetooth },
+                cuePlayer = AndroidCuePlayer(app, log),
                 bringer = AndroidForegroundBringer(app, config.launchActivity, log),
                 pcm = audioCore.pcm,
                 service = object : ServiceControl {
@@ -142,16 +135,14 @@ object AndroidVoiceHost {
                     override fun stop() = VoiceHostService.stop(app)
                 },
                 buttonTriggerPref = ButtonTriggerPref { servicePrefs.buttonTriggerEnabled = it },
-                pushToTalk = MicPushToTalkRecorder(AndroidMicSourceFactory(), sdkInt, pttScope, log, micInput),
+                pushToTalk = MicPushToTalkRecorder(AndroidMicSourceFactory(), sdkInt, pttScope, log),
                 speakerMuter = AndroidSpeakerMuter(app, log),
                 manageConnection = channel == null,
                 dataChannelTap = dataChannelTap,
-                onSettingsApplied = a2dpKeeper::update,
             ),
         )
         // A device appearing / disappearing mid-call re-runs routing (old `registerDeviceCallback`).
         audio.onDevicesChanged = { runtime.lastSettings()?.audioOutput?.let { runtime.session.setAudioOutput(it.toChoice()) } }
-        runtimeRef.set(runtime)
         return runtime
     }
 }

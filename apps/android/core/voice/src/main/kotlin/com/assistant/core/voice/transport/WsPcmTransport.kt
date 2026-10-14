@@ -4,7 +4,6 @@ import com.assistant.core.audio.AudioTuning
 import com.assistant.core.audio.pcm.Pcm
 import com.assistant.core.audio.ports.AudioDeviceRef
 import com.assistant.core.audio.ports.EchoDucker
-import com.assistant.core.audio.ports.InputChoice
 import com.assistant.core.audio.ports.MicOpenResult
 import com.assistant.core.audio.ports.MicSource
 import com.assistant.core.audio.ports.MicSpec
@@ -90,13 +89,11 @@ class WsPcmTransport(
     private val playout = PlayoutLevels()
     private val meters = AtomicInteger(0)
     @Volatile private var outRateHz = 0
-    @Volatile private var audioInput = InputChoice.AUTO
 
     override fun setSessionUpdateFallback(fallback: () -> JsonObject?) = Unit // the backend relay applies session.update
     override fun setMicGain(level: Float) = ducker.setMicGain(level)
     override fun setEchoDuckingGain(gain: Float) = ducker.setEchoDuckingGain(gain)
     override fun setEchoDuckTailMs(ms: Long) = ducker.setEchoDuckTailMs(ms)
-    override fun setAudioInput(input: InputChoice) { audioInput = input }
 
     override fun toggleMute(): Boolean {
         muted = !muted
@@ -236,12 +233,11 @@ class WsPcmTransport(
     }
 
     private fun openMic(rate: Int): MicSource {
-        val source = deps.audio.micSourcePolicy.sourceFor(deps.sdkInt, audioInput)
+        val source = deps.audio.micSourcePolicy.sourceFor(deps.sdkInt)
         val bufSize = deps.audio.bufferSizing.micBufferBytes(deps.mics.minBufferBytes(rate), rate)
         return when (val r = deps.mics.open(MicSpec(rate, source, bufSize))) {
             is MicOpenResult.Opened -> r.mic.also {
                 log.d(tag, "Mic started: rate=${rate}Hz source=${source.androidValue} bufSize=$bufSize")
-                if (audioInput != InputChoice.AUTO) log.d(tag, "Mic input choice: $audioInput")
             }
             is MicOpenResult.Failed -> throw IllegalStateException("AudioRecord failed to initialize (${r.reason})")
         }

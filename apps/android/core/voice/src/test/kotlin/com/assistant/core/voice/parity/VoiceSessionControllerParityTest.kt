@@ -2,7 +2,6 @@ package com.assistant.core.voice.parity
 
 import com.assistant.core.audio.ports.AppliedRoute
 import com.assistant.core.audio.ports.FallbackReason
-import com.assistant.core.audio.ports.InputChoice
 import com.assistant.core.audio.ports.OutputChoice
 import com.assistant.core.audio.ports.ProviderKind
 import com.assistant.core.audio.ports.Route
@@ -584,19 +583,6 @@ class VoiceSessionControllerParityTest {
         r.inbound(VoiceInbound.Ended("x"))
         r.advance(100)
         assertEquals(1, r.audio.released)
-    }
-
-    /** NEW (2026-10-14): the Input choice reaches the transport before connect and every route apply. */
-    @Test
-    fun theInputChoiceReachesTheTransportAndTheRoute() = runTest {
-        val r = Rig(this)
-        r.controller.setAudioInput(InputChoice.WIRED)
-        r.startActive()
-        assertEquals(InputChoice.WIRED, r.transport.inputChoice)
-        assertTrue(r.audio.applies.isNotEmpty() && r.audio.applies.all { it.input == InputChoice.WIRED })
-        r.controller.setAudioInput(InputChoice.PHONE)
-        assertEquals(InputChoice.PHONE, r.transport.inputChoice)
-        assertEquals(InputChoice.PHONE, r.audio.applies.last().input)
     }
 
     /** RS-29 (`b974756`): a Bluetooth fallback is surfaced as a toast. */

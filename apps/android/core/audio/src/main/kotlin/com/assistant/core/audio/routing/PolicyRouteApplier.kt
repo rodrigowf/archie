@@ -97,7 +97,7 @@ class PolicyRouteApplier(
     override fun apply(route: Route): AppliedRoute {
         val device: AudioDeviceRef? = when (route) {
             Route.BluetoothCallAudio -> findBluetoothCallAudioDevice()
-            Route.BluetoothMedia, Route.BluetoothMediaBesideHeadset -> findBluetoothMediaDevice()
+            Route.BluetoothMedia -> findBluetoothMediaDevice()
             Route.WiredHeadphone -> findWiredHeadphoneDevice()
             else -> null
         }
@@ -119,7 +119,7 @@ class PolicyRouteApplier(
             Route.Earpiece -> pinned = applyCommunicationRoute(DeviceType.BUILTIN_EARPIECE, speakerphone = false)
             Route.Loudspeaker -> pinned = applyCommunicationRoute(DeviceType.BUILTIN_SPEAKER, speakerphone = true)
             Route.BluetoothCallAudio -> pinned = applyBluetoothCallAudio(device)
-            Route.BluetoothMedia, Route.BluetoothMediaBesideHeadset -> applyBluetoothMedia()
+            Route.BluetoothMedia -> applyBluetoothMedia()
             // Fallback: loudspeaker so SOMETHING plays; the caller toasts the reason.
             is Route.BluetoothUnsupported -> pinned = applyCommunicationRoute(DeviceType.BUILTIN_SPEAKER, speakerphone = true)
             Route.WiredHeadphone -> pinned = applyWiredHeadphone(device)
@@ -129,7 +129,7 @@ class PolicyRouteApplier(
         if (api.hasCommunicationDevice) log.d(TAG, "[ROUTE] communicationDevice type=${pinned?.type} name=${pinned?.name}")
 
         val preferred = when (route) {
-            Route.BluetoothMedia, Route.BluetoothMediaBesideHeadset, Route.BluetoothCallAudio, Route.WiredHeadphone -> device
+            Route.BluetoothMedia, Route.BluetoothCallAudio, Route.WiredHeadphone -> device
             else -> null
         }
         return AppliedRoute(route, decider.speakerModeFor(route), preferred)

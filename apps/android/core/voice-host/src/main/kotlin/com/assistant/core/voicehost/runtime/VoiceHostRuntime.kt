@@ -125,8 +125,6 @@ class RuntimeDeps(
      * echoes these back, so the app feeds them to its own timeline. Default: ignored (lite).
      */
     val dataChannelTap: (kotlinx.serialization.json.JsonObject) -> Unit = { },
-    /** Every applied settings change, after the session and wake service got it (the A2DP media keeper). */
-    val onSettingsApplied: (VoiceHostSettings) -> Unit = { },
 )
 
 /**
@@ -668,15 +666,11 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
         session.setEchoDuckingGain(s.echoDuckingGain)
         session.setEchoDuckTailMs(s.echoDuckTailMs)
         if (prev?.audioOutput != s.audioOutput) session.setAudioOutput(s.audioOutput.toChoice())
-        if (prev?.audioInput != s.audioInput) session.setAudioInput(s.audioInput.toChoice())
         if (prev?.buttonTriggerEnabled != s.buttonTriggerEnabled) deps.buttonTriggerPref.set(s.buttonTriggerEnabled)
         // The wake service gets ONE update per change of its six fields (single ingress, `9200d50`).
         val wake = s.wakeConfig()
         if (wake != lastWake) {
             lastWake = wake
-            wakeService.onConfigUpdate(wake)
-        } else if (prev != null && prev.audioInput != s.audioInput && wake.enabled && !wakePausedForVoice.value) {
-            // The wake loop reads the Input choice when it opens the mic: restart it to switch now.
             wakeService.onConfigUpdate(wake)
         }
         // Server: connect on first load (auto-connect / pending connect), switch on change (T-15).
@@ -687,7 +681,6 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
             }
         }
         if (prev != null && !serviceWanted()) deps.service.stop() else ensureServiceIfForeground()
-        deps.onSettingsApplied(s)
     }
 
     private suspend fun assembleState() {

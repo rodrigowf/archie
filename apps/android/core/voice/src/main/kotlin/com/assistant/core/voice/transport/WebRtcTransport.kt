@@ -2,7 +2,6 @@ package com.assistant.core.voice.transport
 
 import com.assistant.core.audio.policy.DefaultMicSourcePolicy
 import com.assistant.core.audio.ports.AudioDeviceRef
-import com.assistant.core.audio.ports.InputChoice
 import com.assistant.core.audio.ports.ProviderKind
 import com.assistant.core.audio.ports.SpeakerMode
 import com.assistant.core.voice.VoiceLogMarkers
@@ -103,7 +102,6 @@ class WebRtcTransport(private val deps: WebRtcDeps) : VoiceTransport {
     @Volatile private var mirror: ((JsonObject) -> Unit)? = null
     @Volatile private var muted = false
     private var duckTimer: Job? = null
-    @Volatile private var audioInput = InputChoice.AUTO
     @Volatile private var rmsCounter = 0
     private val micLevel = MicLevel()
     private val meters = AtomicInteger(0)
@@ -142,7 +140,6 @@ class WebRtcTransport(private val deps: WebRtcDeps) : VoiceTransport {
     override fun setMicGain(level: Float) = duck.setMicGain(level)
     override fun setEchoDuckingGain(gain: Float) = duck.setEchoDuckingGain(gain)
     override fun setEchoDuckTailMs(ms: Long) = duck.setEchoDuckTailMs(ms)
-    override fun setAudioInput(input: InputChoice) { audioInput = input }
 
     override fun toggleMute(): Boolean {
         val nowMuted = synchronized(lock) { muted = !muted; muted }
@@ -265,7 +262,7 @@ class WebRtcTransport(private val deps: WebRtcDeps) : VoiceTransport {
     /** Returns true once the data channel is open, false when the session failed or was torn down. */
     private suspend fun establish(session: Session, endpoint: String, token: String): Boolean {
         initializeGlobalsOnce(deps.platform)
-        val factory = deps.platform.createFactory(audioOptions(deps.sdkInt, audioInput), ::onRecordedAudio)
+        val factory = deps.platform.createFactory(audioOptions(deps.sdkInt), ::onRecordedAudio)
         if (!adopt(session) { session.factory = factory }) {
             factory.dispose()
             return false
@@ -498,13 +495,13 @@ class WebRtcTransport(private val deps: WebRtcDeps) : VoiceTransport {
         )
 
         /** Software-only AEC/NS/AGC (field choice, **LB**); mic source per API level (RS-24). */
-        internal fun audioOptions(sdkInt: Int, input: InputChoice = InputChoice.AUTO) = RtcAudioOptions(
+        internal fun audioOptions(sdkInt: Int) = RtcAudioOptions(
             useHardwareAec = false,
             useHardwareNs = false,
             webRtcBasedAec = true,
             webRtcBasedNs = true,
             webRtcBasedAgc = true,
-            micSource = DefaultMicSourcePolicy.sourceFor(sdkInt, input),
+            micSource = DefaultMicSourcePolicy.sourceFor(sdkInt),
             mandatoryConstraints = VoiceTuning.GOOG_CONSTRAINTS.associateWith { "true" },
         )
 

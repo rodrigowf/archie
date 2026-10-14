@@ -52,8 +52,6 @@ object SettingsKeys {
     /** Settings → Notifications → "Agent session finished" (spec 12 §8.2). */
     val NOTIFY_AGENT_TURNS = booleanPreferencesKey("notify_agent_turns")
     val VOICE_OVERLAY_ANCHOR = stringPreferencesKey("voice_overlay_anchor")
-    /** Settings → Audio → Microphone (`AudioInput` enum name). */
-    val AUDIO_INPUT = stringPreferencesKey("audio_input")
     /** Settings → Audio → "Echo ducking tail", in ms. */
     val ECHO_DUCK_TAIL_MS = longPreferencesKey("echo_duck_tail_ms")
 }
