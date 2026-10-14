@@ -49,9 +49,10 @@ def _load_speech_pcm() -> bytes:
 def test_default_constructor_args_match_head_constants():
     """The constructor defaults must equal today's hardcoded literals.
 
-    These three numbers (threshold=0.28, min_silence=2500,
-    min_speech=200) are the tuned far-field parameters documented in
-    ``voice_vad.py:107-112``. Increment B exposes them as user-settable
+    These three numbers (threshold=0.5, min_silence=2500,
+    min_speech=200) are the defaults documented in ``voice_vad.py``
+    (the threshold went 0.28 → 0.5 on 2026-10-14 with the Silero
+    context fix and the VAD gain stage). Increment B exposes them as user-settable
     config knobs but does NOT change their defaults — the source-
     fidelity rule (plan §0.1) demands the defaults equal HEAD constants
     exactly.
@@ -60,8 +61,8 @@ def test_default_constructor_args_match_head_constants():
     # _threshold_on and _threshold_off are the post-hysteresis numbers
     # the state machine actually uses. Pinning both makes the parity
     # contract robust to future internal renames.
-    assert vad._threshold_on == pytest.approx(0.28)
-    assert vad._threshold_off == pytest.approx(0.13)  # max(0, 0.28 - 0.15)
+    assert vad._threshold_on == pytest.approx(0.5)
+    assert vad._threshold_off == pytest.approx(0.35)  # max(0, 0.5 - 0.15)
     # min_speech_duration_ms=200 → 200 / 32 = 6 windows (int division).
     assert vad._min_speech_windows == 6
     # min_silence_duration_ms=2500 → 2500 / 32 = 78 windows.
@@ -85,7 +86,7 @@ def test_state_machine_output_unchanged_under_head_defaults():
 
     vad_explicit = VoiceVAD(
         input_sample_rate=24000,
-        threshold=0.28,
+        threshold=0.5,
         min_silence_duration_ms=2500,
         min_speech_duration_ms=200,
     )

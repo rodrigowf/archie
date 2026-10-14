@@ -1069,7 +1069,12 @@ class VoiceRelay:
         for event in self._manual_vad.feed_pcm16(pcm):
             if event.kind == "speech_started":
                 self._manual_vad_speech_started_at = time.monotonic()
-                self._slog(f"manual_vad: speech_started at t+{self._now_rel():.2f}s")
+                speech_lvl = self._manual_vad.agc_speech_dbfs
+                self._slog(
+                    f"manual_vad: speech_started at t+{self._now_rel():.2f}s"
+                    f" agc_gain={self._manual_vad.agc_gain_db:+.1f}dB"
+                    f" speech_level={'?' if speech_lvl is None else f'{speech_lvl:.1f}dBFS'}"
+                )
                 await self._on_event_for_frontend({
                     "type": "input_audio_buffer.speech_started",
                 })

@@ -25,16 +25,27 @@ internally resamples to 16 kHz, slices into the 512-sample (32 ms) windows
 Silero expects, runs each through the model, and yields state-transition
 events when the smoothed speech probability crosses the threshold.
 
+The model call mirrors Silero's official `OnnxWrapper`: every 512-sample
+window goes in with the last 64 samples of the previous one prepended
+(576 samples). Silero v5 is trained that way; without the context its
+probabilities on real speech stay low and react erratically to volume.
+Until 2026-10-14 this module fed bare 512-sample windows, which is what
+the 2026-06 threshold cuts (0.5 → 0.35 → 0.28) were compensating for.
+
+Before the model, each window passes through a small automatic gain stage
+(`_agc_*`, modelled on WebRTC's AGC2 adaptive digital controller). It only
+changes the VAD's own copy of the audio — what the relay sends upstream is
+untouched. It estimates the speech level (from windows Silero calls speech)
+and the noise floor (minimum tracking), and lifts quiet input towards
+`_AGC_TARGET_DBFS` without pushing the noise floor above
+`_AGC_NOISE_CAP_DBFS`. A far-away user on a quiet mic (the A300M at
+-54 dBFS on 2026-10-14) otherwise sits below what Silero expects.
+
 The detection logic mirrors Silero's official `VADIterator`:
-- `threshold` (default 0.28) — speech is "on" when prob crosses up; "off"
-  when prob falls below `threshold - 0.15` (= 0.13, hysteresis to avoid
-  chatter). Tuned down from Silero's vanilla 0.5 default after 2026-06-04
-  far-field tests: at arm's length the user's RMS dipped to ~600-1000
-  and Silero probability never sustained above 0.5, so speech_started
-  fired late or not at all. First lowered to 0.35 / 0.20, then to
-  0.28 / 0.13 on 2026-06-05 (91eb6dd) because speech from arm's length
-  still dipped under 0.35 and committed turns mid-sentence. Overridable
-  per install via `voice_vad_threshold` in `assistant_config.json`.
+- `threshold` (default 0.5, Silero's own default) — speech is "on" when
+  prob crosses up; "off" when prob falls below `threshold - 0.15`
+  (= 0.35, hysteresis to avoid chatter). Overridable per install via
+  `voice_vad_threshold` in `assistant_config.json`.
 - `min_silence_duration_ms` (default 2500) — once below the off-threshold,
   wait this long before emitting `speech_stopped`. Long enough to ride
   through breathing pauses and "uh"-style hesitations mid-sentence
@@ -62,17 +73,34 @@ logger = logging.getLogger(__name__)
 
 # Silero VAD ONNX — vendored from the official PyPI wheel (MIT license).
 # We use the `silero_vad_half.onnx` quantized variant: 1.3 MB, 16 kHz
-# only, no `sr` input parameter. The full `silero_vad.onnx` (2.3 MB,
-# multi-SR) returns probabilities that don't react to real speech in our
-# onnxruntime version — likely a graph/opset mismatch we couldn't isolate
-# in 30 minutes of bisection. The quantized variant works correctly and
-# accuracy is documented as "comparable" for VAD-grade thresholding.
+# only, no `sr` input parameter. (The full `silero_vad.onnx` once looked
+# "dead" here; that was the missing 64-sample context, not the model.)
 _MODEL_PATH = Path(__file__).resolve().parent.parent / "vendor" / "silero_vad_v5.onnx"
 
-# Silero wants 512-sample windows at 16 kHz (32 ms).
+# Silero wants 512-sample windows at 16 kHz (32 ms), each preceded by the
+# last 64 samples of the previous window.
 _SILERO_SAMPLE_RATE = 16000
 _SILERO_WINDOW_SAMPLES = 512  # 32 ms at 16 kHz
+_SILERO_CONTEXT_SAMPLES = 64
 _SILERO_WINDOW_MS = 32  # exact: 512 / 16000 * 1000
+
+# Gain stage for the VAD's copy of the audio (see module docstring).
+# Defaults follow WebRTC AGC2 (initial 15 dB, 6 dB/s), with a lower max
+# gain and a looser noise cap; replaying real sessions, any gain between
+# +6 and +32 dB detected the same turns, so the exact numbers are not
+# delicate.
+_AGC_TARGET_DBFS = -30.0  # where the speech level is lifted to
+_AGC_NOISE_CAP_DBFS = -45.0  # the noise floor is never lifted above this
+_AGC_MAX_GAIN_DB = 30.0
+_AGC_INITIAL_GAIN_DB = 15.0  # until a speech level is known
+_AGC_SLEW_DB_PER_S = 6.0
+_AGC_NOISE_RISE_DB_PER_S = 1.0  # noise floor falls at once, rises slowly
+_AGC_SPEECH_PROB = 0.7  # windows at/above this update the speech level
+_AGC_SPEECH_TAU_S = 1.0  # speech-level averaging time constant
+# Echo ducking on the phones scales the mic by 0.005 (about -46 dB) and
+# can send exact zeros; windows this quiet are not "the room" and must
+# not drag the noise floor (and with it the gain cap) down.
+_AGC_DIGITAL_SILENCE_DBFS = -90.0
 
 
 @dataclass(frozen=True)
@@ -104,14 +132,17 @@ class VoiceVAD:
         min_speech_duration_ms: how long the probability must stay above
             the on-threshold before we emit `speech_started`. Prevents
             single-cough false positives.
+        agc: run the gain stage on the VAD's copy of the audio (default
+            on). Off feeds Silero the input level as is.
     """
 
     def __init__(
         self,
         input_sample_rate: int = 24000,
-        threshold: float = 0.28,
+        threshold: float = 0.5,
         min_silence_duration_ms: int = 2500,
         min_speech_duration_ms: int = 200,
+        agc: bool = True,
     ) -> None:
         if not _MODEL_PATH.exists():
             raise FileNotFoundError(
@@ -136,6 +167,13 @@ class VoiceVAD:
         )
         # Silero hidden state — (2, batch=1, 128) float32, zeros at start.
         self._state = np.zeros((2, 1, 128), dtype=np.float32)
+        # Tail of the previous model input, prepended to the next window.
+        self._context = np.zeros(_SILERO_CONTEXT_SAMPLES, dtype=np.float32)
+        # Gain stage state (levels in dBFS of the input, before gain).
+        self._agc_enabled = agc
+        self._agc_gain_db = _AGC_INITIAL_GAIN_DB if agc else 0.0
+        self._agc_noise_dbfs: float | None = None
+        self._agc_speech_dbfs: float | None = None
         # The "half" Silero variant we vendor is fixed at 16 kHz and does
         # NOT accept an `sr` input. The full v5 model does. Inspect the
         # ONNX graph to decide which kwargs to pass per call.
@@ -176,9 +214,9 @@ class VoiceVAD:
         # Cheap log so we can confirm initialisation in the per-session
         # voice log.
         logger.info(
-            "VoiceVAD init: in_sr=%dHz threshold=%.2f (on)/%.2f (off) "
+            "VoiceVAD init: in_sr=%dHz threshold=%.2f (on)/%.2f (off) agc=%s "
             "min_silence_ms=%d min_speech_ms=%d",
-            input_sample_rate, self._threshold_on, self._threshold_off,
+            input_sample_rate, self._threshold_on, self._threshold_off, agc,
             min_silence_duration_ms, min_speech_duration_ms,
         )
 
@@ -276,17 +314,57 @@ class VoiceVAD:
                 yield event
 
     def _infer_window(self, window: np.ndarray) -> float:
-        """Run one 512-sample window through Silero; return P(speech)."""
-        x = window.reshape(1, _SILERO_WINDOW_SAMPLES)
-        feed: dict[str, np.ndarray] = {"input": x, "state": self._state}
+        """Run one 512-sample window through gain + Silero; return P(speech)."""
+        level = 10.0 * np.log10(float(np.mean(window * window)) + 1e-12)
+        if self._agc_enabled:
+            self._agc_update_gain(level)
+            if self._agc_gain_db != 0.0:
+                window = np.clip(window * (10.0 ** (self._agc_gain_db / 20.0)), -1.0, 1.0)
+        x = np.concatenate([self._context, window.astype(np.float32)])
+        self._context = x[-_SILERO_CONTEXT_SAMPLES:]
+        feed: dict[str, np.ndarray] = {"input": x.reshape(1, -1), "state": self._state}
         if self._needs_sr:
             feed["sr"] = self._sr_input
         out, self._state = self._sess.run(None, feed)
         prob = float(out[0, 0])
+        if self._agc_enabled:
+            self._agc_observe(level, prob)
         # Increment B observability: cache so the relay can include the
         # last inference in its ``voice_vad_state`` broadcast.
         self._last_silero_prob = prob
         return prob
+
+    def _agc_update_gain(self, level: float) -> None:
+        """Track the noise floor and move the gain one window towards its target."""
+        if level > _AGC_DIGITAL_SILENCE_DBFS:
+            rise = _AGC_NOISE_RISE_DB_PER_S * _SILERO_WINDOW_MS / 1000.0
+            if self._agc_noise_dbfs is None or level < self._agc_noise_dbfs:
+                self._agc_noise_dbfs = level
+            else:
+                self._agc_noise_dbfs += rise
+        if self._is_speech:
+            return  # frozen inside a turn: no level pumping mid-sentence
+        if self._agc_speech_dbfs is not None:
+            target = _AGC_TARGET_DBFS - self._agc_speech_dbfs
+        else:
+            target = _AGC_INITIAL_GAIN_DB
+        if self._agc_noise_dbfs is not None:
+            target = min(target, _AGC_NOISE_CAP_DBFS - self._agc_noise_dbfs)
+        target = max(0.0, min(target, _AGC_MAX_GAIN_DB))
+        step = _AGC_SLEW_DB_PER_S * _SILERO_WINDOW_MS / 1000.0
+        self._agc_gain_db += max(-step, min(step, target - self._agc_gain_db))
+
+    def _agc_observe(self, level: float, prob: float) -> None:
+        """Fold a confidently-speech window into the speech-level estimate."""
+        if prob < _AGC_SPEECH_PROB:
+            return
+        if self._agc_noise_dbfs is not None and level < self._agc_noise_dbfs + 6.0:
+            return  # within 6 dB of the floor: the noise, not the voice
+        if self._agc_speech_dbfs is None:
+            self._agc_speech_dbfs = level
+        else:
+            alpha = _SILERO_WINDOW_MS / 1000.0 / _AGC_SPEECH_TAU_S
+            self._agc_speech_dbfs += (level - self._agc_speech_dbfs) * alpha
 
     def _update_state(self, prob: float) -> VADEvent | None:
         """Update the speech/silence state machine; return an event or None."""
@@ -329,6 +407,16 @@ class VoiceVAD:
         """
         return self._last_silero_prob
 
+    @property
+    def agc_gain_db(self) -> float:
+        """Gain (dB) the gain stage currently applies to the VAD's copy."""
+        return self._agc_gain_db
+
+    @property
+    def agc_speech_dbfs(self) -> float | None:
+        """Estimated speech level of the input (dBFS), None until speech is seen."""
+        return self._agc_speech_dbfs
+
     def reset(self) -> None:
         """Re-zero all per-stream state — call after a long discontinuity.
 
@@ -341,6 +429,9 @@ class VoiceVAD:
         session (which costs ~50ms on a Jetson).
         """
         self._state = np.zeros((2, 1, 128), dtype=np.float32)
+        self._context = np.zeros(_SILERO_CONTEXT_SAMPLES, dtype=np.float32)
+        # The gain stage keeps its levels: the room and the mic are the
+        # same after a reconnect.
         self._is_speech = False
         self._consec_above = 0
         self._consec_below = 0

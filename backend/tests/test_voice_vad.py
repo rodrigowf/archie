@@ -155,3 +155,94 @@ def test_is_enabled_env_var(monkeypatch: pytest.MonkeyPatch):
     # Only explicit "0" opts back into server VAD.
     monkeypatch.setenv("QWEN_MANUAL_VAD", "0")
     assert is_enabled() is False
+
+
+# --- Silero context + gain stage (2026-10-14) -------------------------------
+#
+# A Qwen session on the A300M stopped hearing Rodrigo: his voice reached the
+# relay at about -54 dBFS over a -66 dBFS room, and the VAD (fed bare
+# 512-sample windows, no gain) never fired again. These pin the two fixes.
+
+
+def _quiet_speech_pcm(drop_db: float, noise_dbfs: float = -67.0, copies: int = 3) -> bytes:
+    """The speech fixture ``drop_db`` quieter over steady noise, repeated."""
+    audio = np.frombuffer(_load_speech_pcm(sample_rate=24000), dtype=np.int16).astype(np.float32)
+    rng = np.random.default_rng(0)
+    noise = rng.normal(0.0, 1.0, len(audio)) * 32768 * 10 ** (noise_dbfs / 20)
+    quiet = np.clip(audio * 10 ** (-drop_db / 20) + noise, -32768, 32767).astype(np.int16)
+    return quiet.tobytes() * copies
+
+
+def test_model_input_carries_64_sample_context():
+    """Silero v5 gets each window with the previous window's last 64 samples
+    prepended (576 samples), as the official OnnxWrapper does."""
+    vad = VoiceVAD(input_sample_rate=16000, agc=False)
+    seen: list[np.ndarray] = []
+    real_run = vad._sess.run
+
+    def spy(outputs, feed):
+        seen.append(feed["input"].copy())
+        return real_run(outputs, feed)
+
+    vad._sess.run = spy  # type: ignore[method-assign]
+    ramp = (np.arange(1024) % 1000).astype(np.int16)
+    list(vad.feed_pcm16(ramp.tobytes()))
+    assert [x.shape for x in seen] == [(1, 576), (1, 576)]
+    assert np.all(seen[0][0, :64] == 0.0)  # first window: zero context
+    np.testing.assert_array_equal(seen[1][0, :64], seen[0][0, -64:])
+
+
+def test_quiet_far_speech_is_detected_with_gain_stage():
+    """30 dB below the fixture over room noise: missed without the gain
+    stage, one start/stop per utterance with it."""
+    audio = _quiet_speech_pcm(drop_db=30)
+    plain = VoiceVAD(input_sample_rate=24000, min_silence_duration_ms=600, min_speech_duration_ms=100, agc=False)
+    assert list(plain.feed_pcm16(audio)) == []
+
+    vad = VoiceVAD(input_sample_rate=24000, min_silence_duration_ms=600, min_speech_duration_ms=100)
+    kinds = [e.kind for e in vad.feed_pcm16(audio)]
+    assert kinds == ["speech_started", "speech_stopped"] * 3, kinds
+    assert vad.agc_speech_dbfs is not None and vad.agc_speech_dbfs < -50
+    assert 15.0 < vad.agc_gain_db <= 30.0
+
+
+def test_gain_stage_leaves_normal_level_speech_nearly_alone():
+    vad = VoiceVAD(input_sample_rate=24000, min_silence_duration_ms=600, min_speech_duration_ms=100)
+    kinds = [e.kind for e in vad.feed_pcm16(_load_speech_pcm(sample_rate=24000) * 2)]
+    assert kinds == ["speech_started", "speech_stopped"] * 2, kinds
+    assert vad.agc_gain_db < 10.0
+
+
+def test_gain_never_lifts_noise_above_cap():
+    """Room noise alone (no speech yet): the gain stops where the noise floor
+    would cross -45 dBFS, so noise at -50 dBFS allows at most +5 dB."""
+    vad = VoiceVAD(input_sample_rate=16000)
+    noise = np.random.default_rng(1).normal(0.0, 32768 * 10 ** (-50 / 20), 16000 * 5)
+    events = list(vad.feed_pcm16(noise.astype(np.int16).tobytes()))
+    assert events == []
+    assert vad.agc_gain_db <= 5.5
+
+
+def test_digital_silence_does_not_open_the_gain():
+    """Ducked/zeroed mic audio is not the room's noise floor: after it the
+    gain is still bounded by the real noise heard before."""
+    vad = VoiceVAD(input_sample_rate=16000)
+    noise = np.random.default_rng(2).normal(0.0, 32768 * 10 ** (-55 / 20), 16000 * 3).astype(np.int16)
+    list(vad.feed_pcm16(noise.tobytes()))
+    list(vad.feed_pcm16(_pcm16_silence(10.0, sample_rate=16000)))
+    # cap: -45 - (-55) = 10 dB, plus the floor tracker's ~1-2 dB
+    # minimum-statistics bias below the noise's mean level. Letting the
+    # zeros into the floor would open the gain to the 30 dB maximum.
+    assert vad.agc_gain_db <= 12.5
+
+
+def test_gain_is_frozen_while_in_speech():
+    vad = VoiceVAD(input_sample_rate=24000, min_silence_duration_ms=600, min_speech_duration_ms=100)
+    audio = _quiet_speech_pcm(drop_db=20, copies=1)
+    gains_in_speech: list[float] = []
+    for i in range(0, len(audio), 960):
+        list(vad.feed_pcm16(audio[i:i + 960]))
+        if vad.is_speech:
+            gains_in_speech.append(vad.agc_gain_db)
+    assert gains_in_speech, "fixture never reached speech"
+    assert max(gains_in_speech) - min(gains_in_speech) < 0.25  # one window's slew at most
