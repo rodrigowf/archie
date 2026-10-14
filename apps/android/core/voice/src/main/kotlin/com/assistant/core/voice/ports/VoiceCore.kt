@@ -16,9 +16,11 @@ import kotlinx.serialization.json.JsonObject
 /**
  * OpenAI WebRTC ducking (inv04 §3.3 WebRTC table), tick-driven like `EchoDucker`:
  *  - `response.created` / `output_audio_buffer.started`: cancel restore, DUCK (`started` also sets agentPlaying);
- *  - `output_audio_buffer.stopped`: agentPlaying = false, restore after 2000 ms;
- *  - `output_audio_buffer.cleared`: agentPlaying = false, DUCK, restore after 2000 ms;
+ *  - `output_audio_buffer.stopped`: agentPlaying = false, restore after 2000 ms + the echo tail;
+ *  - `output_audio_buffer.cleared`: agentPlaying = false, DUCK, restore after 2000 ms + the echo tail;
  *  - `input_audio_buffer.speech_started`: restore now when !agentPlaying, else suppressed (echo);
+ *    with an echo tail set (> 0) it is also suppressed while that restore is pending — late
+ *    Bluetooth echo starts exactly there;
  *  - `response.done`: does NOT restore (`687442e`).
  */
 interface OpenAiDuckPolicy {
@@ -27,6 +29,9 @@ interface OpenAiDuckPolicy {
     val agentPlaying: Boolean
     fun setMicGain(level: Float)
     fun setEchoDuckingGain(gain: Float)
+
+    /** Extra wait before the restore, clamped to [0, 5000] ms (Bluetooth latency). Applies from the next restore. */
+    fun setEchoDuckTailMs(ms: Long)
 
     /** Feed every data-channel event type. Returns true when a `speech_started` was suppressed as echo. */
     fun onDcEvent(type: String): Boolean

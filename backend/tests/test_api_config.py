@@ -355,7 +355,7 @@ def test_get_config_returns_vad_defaults(client: TestClient) -> None:
     r = client.get("/api/config")
     assert r.status_code == 200
     body = r.json()
-    assert body["voice_vad_threshold"] == pytest.approx(0.28)
+    assert body["voice_vad_threshold"] == pytest.approx(0.5)
     assert body["voice_vad_min_silence_ms"] == 2500
     assert body["voice_mic_gain"] == pytest.approx(1.0)
 

@@ -81,6 +81,19 @@ object VoiceTuning {
 
     /** Cadence of the `Reconnecting(elapsedMs)` updates while the link is down. */
     const val LINK_TICK_MS = 1_000L
+
+    /**
+     * How long a live WebRTC call's ICE may stay DISCONNECTED before the session stops waiting for
+     * it to recover and replaces the call (libwebrtc only declares FAILED ~10 s later; the
+     * 2026-10-13 drop sat dead for those 10 s). Within the same [LINK_RETRY_BUDGET_MS].
+     */
+    const val MEDIA_DISCONNECT_GRACE_MS = 5_000L
+
+    /** Pause between attempts to replace a dropped call (no internet yet, SDP exchange failed). */
+    const val MEDIA_RETRY_DELAY_MS = 2_000L
+
+    /** Poll period while a call replacement waits for the orchestrator socket to come back. */
+    const val MEDIA_SOCKET_POLL_MS = 250L
 }
 
 /** Log markers field diagnosis greps for (inv04 §10.3); asserted through the recording logger. */

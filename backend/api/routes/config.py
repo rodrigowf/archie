@@ -162,10 +162,9 @@ def _default_config() -> dict[str, Any]:
         "default_voice_endpoint": _default_voice_endpoint(),
         "voice_recording_enabled": False,  # save raw audio from voice sessions
         # Increment B (voice subsystem refactor): user-tunable VAD +
-        # mic-gain knobs. Defaults equal the historical hardcoded
-        # literals exactly — see ``voice_vad.py:107-112`` — so changing
-        # the API surface doesn't change out-of-the-box behaviour.
-        "voice_vad_threshold": 0.28,        # Silero on-threshold; off = on - 0.15
+        # mic-gain knobs. Defaults equal the ``VoiceVAD`` constructor
+        # defaults (tests/parity/test_vad_defaults_parity.py pins both).
+        "voice_vad_threshold": 0.5,         # Silero on-threshold; off = on - 0.15
         "voice_vad_min_silence_ms": 2500,   # ms below off-threshold before speech_stopped
         "voice_mic_gain": 1.0,              # server-side mic-input gain (reserved)
     }

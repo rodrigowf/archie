@@ -64,3 +64,6 @@ include(":feature:settings")
 
 include(":app-main")
 include(":app-lite")
+
+// Standalone device tools (no project dependencies).
+include(":app-mictest")

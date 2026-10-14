@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlin.math.roundToLong
 
 /**
  * This device's settings (spec 12 §8.2: never sent to the backend). Every write goes through
@@ -46,6 +47,7 @@ class DeviceSettingsModel(
     // Audio
     fun setMicGain(v: Float) = write { store.setMicGainLevel(Ranges.LEVEL.snap(v)) }
     fun setEchoDucking(v: Float) = write { store.setEchoDuckingGain(Ranges.DUCK.snap(v)) }
+    fun setEchoDuckTail(v: Float) = write { store.setEchoDuckTailMs(Ranges.DUCK_TAIL.snap(v).roundToLong()) }
     fun setAudioOutput(v: AudioOutput) = write { store.setAudioOutput(v) }
     fun setSpeakerLevel(v: Float) = write {
         platform.setSpeakerLevel(v.coerceIn(0f, 1f))

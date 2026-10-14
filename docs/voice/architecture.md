@@ -3,7 +3,7 @@ name: architecture
 category: archie/voice
 tags: [voice, realtime, multi-provider, openai, qwen, gemini, webrtc, voice-relay, voice-provider, canonical-events, vad, silero, voice-error, reconnect, voice-persister, echo-ducking, web, android, run-script]
 created: 2026-04-17
-modified: 2026-10-13
+modified: 2026-10-14
 summary: How realtime voice works across OpenAI, Qwen and Gemini; provider contract, the two transports, backend modules, clients, invariants, file map.
 source: curated (consolidated from memory notes assistant/voice/voice-multimodel-plan.md, assistant/architecture/voice_subsystem.md, assistant/architecture/voice_command_device_control.md, assistant/voice/gemini_live_voice_adaptation.md, assistant/voice/qwen_omni_voice_adaptation.md, assistant/android/android_peripheral_project.md, assistant/providers/openai_audio_model_gpt_audio.md; verified against code 2026-10-06)
 references:
@@ -221,14 +221,37 @@ its close shapes to these. The per-provider mappings are in the provider docs.
 ### Voice activity detection
 
 `voice_vad.py` `VoiceVAD`: Silero v5 ONNX via onnxruntime. The file
-`backend/vendor/silero_vad_v5.onnx` is about 1.3 MB; it is the quantized
-"half" variant, because the full model gave flat probabilities on this
-onnxruntime. It runs on 512-sample (32 ms) windows at 16 kHz and resamples
-other input rates.
+`backend/vendor/silero_vad_v5.onnx` is about 1.3 MB, the quantized "half"
+variant. It runs on 512-sample (32 ms) windows at 16 kHz and resamples
+other input rates. **Each window goes to the model with the last 64 samples
+of the previous one prepended** (576 samples), as Silero's own `OnnxWrapper`
+does. Without that context Silero v5 under-scores real speech and reacts
+erratically to level; that was the cause of the June 2026 threshold cuts
+(0.5 → 0.35 → 0.28) and of the full model looking "dead".
+
+**Gain stage (VAD copy only).** Before the model each window passes through
+an automatic gain modelled on WebRTC AGC2's adaptive digital controller. It
+never touches the audio sent upstream. It tracks the noise floor (falls at
+once, rises 1 dB/s; windows under −90 dBFS — echo ducking's near-zeros —
+are ignored) and the speech level (average of windows Silero scores ≥ 0.7,
+at least 6 dB over the floor). The gain lifts the speech level towards
+−30 dBFS, never lifts the noise floor above −45 dBFS, stays within
+[0, 30] dB, starts at 15 dB, moves at most 6 dB/s and is frozen while the
+VAD is in speech. It amplifies voice and noise alike (it does not denoise):
+its job is to put a far, quiet voice where Silero expects it. The per-session
+log shows it on every `manual_vad: speech_started … agc_gain=… speech_level=…`
+line. Constants: `_AGC_*` in `voice_vad.py`.
+
+On 2026-10-14 the A300M delivered speech at about −54 dBFS over a −66 dBFS
+room and the old VAD caught 6 of 16 turns; replayed with the context and the
+gain stage it caught 16/16 with no false triggers in the following 9 silent
+minutes, and louder sessions (web, Gemini) came out unchanged (gain ≈ 0 dB).
+Any gain between +6 and +32 dB gave the same result, so the constants are
+not delicate.
 
 | Setting | Default | Range | Where |
 |---|---|---|---|
-| on-threshold (off = on − 0.15) | **0.28** | [0.15, 0.50] | `assistant_config.json` `voice_vad_threshold` |
+| on-threshold (off = on − 0.15) | **0.5** (0.28 until 2026-10-14) | [0.15, 0.50] | `assistant_config.json` `voice_vad_threshold` |
 | min silence before `speech_stopped` | 2500 ms | [800, 5000] | `voice_vad_min_silence_ms` |
 | min speech before `speech_started` | 200 ms | — | constructor |
 | server-side mic gain | 1.0 | [0.5, 2.0] | `voice_mic_gain` (reserved, not applied yet) |
@@ -427,8 +450,43 @@ change:
   after the speaker has drained + a 1000 ms tail, with no timeout**. Never
   shortcut this with raw-mic VAD (see [wake-word.md](wake-word.md#rules)).
 - OpenAI: software AEC/NS/AGC, restore 2 s after `output_audio_buffer.stopped`.
+- **Echo ducking tail** (Settings → This device → Audio, both Android apps;
+  `DeviceSettings.echoDuckTailMs`, key `echo_duck_tail_ms`, Off–5 s, default
+  Off): extra time added to both waits above (WS: after the drain; OpenAI:
+  after `stopped`/`cleared`). Bluetooth plays audio late, so its echo can
+  reach the mic after the built-in wait and the assistant answers itself.
+  While a lengthened OpenAI restore is pending, `speech_started` no longer
+  restores the mic early (late echo is what triggers it there). Off = the
+  frozen behaviour, unchanged. It only ever delays the restore.
+- **Keep audio output awake** (lite Settings → Audio; `DeviceSettings.keepOutputAwake`,
+  key `keep_output_awake`, default off): `OutputKeepAlive` (`:core:voice-host`) loops a
+  static buffer of digital silence on `USAGE_MEDIA` while a wired plug is in the jack, so
+  the output never goes to standby. Without it, ~3 s after the last sound the A300M HAL
+  disables the jack path (`out_standby` → `disable_snd_device(voip-headset-others)`) and
+  powered speakers on the jack hiss until the next sound. It sits outside the voice
+  runtime (it watches its own key, not `VoiceHostSettings`): zeros only, no audio focus,
+  no thread; Archie's voice and the cues mix on top. While it runs the volume keys change
+  media volume and audioserver keeps its wakelock.
 - Mic source: `VOICE_RECOGNITION` below API 24, `VOICE_COMMUNICATION` from 24.
 - Route re-applied at +1 / +4 / +9 s after start. Cues on `STREAM_MUSIC`.
+
+**Link loss (P-2) covers two legs**: the orchestrator socket and the call's own
+media path (WebRTC ICE to OpenAI), which can die alone while the socket stays
+up (2026-10-13: a Wi-Fi re-association killed the call and voice ended with
+only a toast). One outage spans both legs: the moment either drops, the
+"reconnecting" tone repeats and `reconnectBanner` = "Reconnecting…" drives the
+dock, the top bar and the lite face. The outage ends with the "reconnected" cue
+when both legs are back, or with the failure cue after the 30 s budget.
+`WebRtcTransport` reports `LinkDown` on ICE DISCONNECTED, `LinkUp` on recovery and
+`LinkFailed` on ICE FAILED. An ICE failure before the data channel opened is still
+an error. If ICE is still down after `MEDIA_DISCONNECT_GRACE_MS` (5 s), or failed,
+the controller replaces the call on the same voice session. The wake word stays
+paused and audio focus is kept. The replacement sends a `voice_start` with
+`reattach` (the backend answers with a fresh `session.update` built from the
+conversation so far), gets a new token and opens a new transport, retrying every
+2 s. The transport drops a tool result for a call id it never saw, together with
+its `response.create`: it belongs to the dead call, and OpenAI would answer it
+with an `error` that ends the new call.
 
 Every constant and every regression scenario is in
 [inventory 04](../projects/frontend-refactor/inventory/04-android-voice-and-device.md).
@@ -449,7 +507,9 @@ The `*Tuning` objects are pinned by parity tests against the old app's values.
 
 To place a "Silero heard nothing" fault, compare three points: Android
 `[MIC_PROBE]` high but the WAV silent → transport bug; the WAV has signal but
-`VAD_PROBE` shows low probabilities → threshold or resampling; Android RMS
+`VAD_PROBE` shows low probabilities → threshold, resampling or level (check
+`agc_gain` on the `speech_started` lines; a WAV can be replayed offline
+through `VoiceVAD` to test a change); Android RMS
 low too → mic hardware or routing. The debug switches are temporary. Turn
 them off on the Jetson when you are done. Workflow and commands:
 [debugging](../operations/debugging.md).
@@ -522,6 +582,8 @@ apps/android/core/{voice,audio,voice-host,wakeword}/
   `BaseVoiceProvider`, the relay hooks and the registry.
 - **2026-05-20 / 06-03**: client-side Silero VAD for Qwen, then generalised to
   Gemini.
+- **2026-10-14**: Silero's 64-sample context (missing since 05-20), a gain
+  stage on the VAD's copy of the audio, threshold back to 0.5.
 - **2026-06-04/06**: the lifecycle refactor (see [lifecycle.md](lifecycle.md)).
 - **2026-06-09, A→H refactor** (branch `voice-wakeword-refactor`; base `9c25e07`):
   A typed `VoiceError` (`5286baa`), B VAD observability + tunable settings

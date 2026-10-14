@@ -50,8 +50,30 @@ Measured on 2026-07-21 with tiktoken `o200k_base` on a live session of about
 | total | | ~15.3k (about 1k under the cap) |
 
 In the static bucket, memory is the largest section and guidelines come
-second. Each injected memory file is cut at `MAX_MEMORY_CHARS = 12000`
+second. Each injected memory file is cut at `MAX_MEMORY_CHARS = 24000`
 characters (`prompt.py`).
+
+**Raised from 12,000 on 2026-10-13.** The per-provider file
+(`ORCHESTRATOR_MEMORY_<provider>.md`) is injected on top of the main memory file, and the Qwen one
+carries Archie's diary — identity and alignment material. Adding the avatar expression vocabulary
+pushed it past the old cap, which silently truncated the tail (the cut is a hard slice plus
+`... (truncated)`, with no warning anywhere). Personality content should not be squeezed to fit an
+arbitrary constant, so the cap was raised rather than the file compressed.
+
+Measured after the change, with the real tokenizer on a 30-message session:
+
+| voice provider | memory section | full assembled prompt | headroom vs 16,384 |
+|---|---|---|---|
+| `openai` | 4,957 | 11,034 | 5,350 |
+| `google` (Gemini) | 6,245 | 12,322 | 4,062 |
+| `qwen` | 8,010 | **14,087** | **2,297** |
+
+Qwen is the one to watch: that margin shrinks further once a session accumulates a history summary,
+and the stale-reuse spike described below eats into it as well. Re-measure with
+`context/scripts/measure_voice_prompt.py` after changing any prompt or memory file.
+
+Note the filename must match the provider's `provider_name` exactly — Gemini's is **`google`**, not
+`gemini`, so `ORCHESTRATOR_MEMORY_google.md` is the file that loads.
 
 ## Constants (`token_budget.py`)
 

@@ -116,7 +116,8 @@ data class FaceModel(
                     shape = FaceShape.RECONNECT_ORB, tone = FaceTone.WARNING, glyph = FaceGlyph.NONE,
                     word = "Reconnecting", sub = "${clock(link.elapsedMs)} · a tone plays when it's back",
                     captions = liveCaptions, action = FaceAction.STOP, animate = true, level = 0.28f,
-                    showMute = false, keepScreenOn = true,
+                    // The face itself says "Reconnecting": no second banner with the same words.
+                    showMute = false, keepScreenOn = true, reconnectBanner = null,
                 )
                 is VoiceLinkState.Failed -> return base.copy(
                     shape = FaceShape.ERROR_RING, tone = FaceTone.ERROR, glyph = FaceGlyph.CLOUD_OFF,

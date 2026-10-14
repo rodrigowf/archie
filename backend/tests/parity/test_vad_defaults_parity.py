@@ -2,7 +2,7 @@
 
 Increment B exposes three voice-tuning knobs in ``assistant_config.json``:
 
-    voice_vad_threshold       (default 0.28)
+    voice_vad_threshold       (default 0.5; 0.28 until 2026-10-14)
     voice_vad_min_silence_ms  (default 2500)
     voice_mic_gain            (default 1.0)
 
@@ -51,9 +51,9 @@ def test_default_config_carries_vad_knobs(tmp_path, monkeypatch):
     cfg_mod = _isolate_config(tmp_path, monkeypatch)
     defaults = cfg_mod._default_config()
 
-    assert defaults["voice_vad_threshold"] == pytest.approx(0.28), (
+    assert defaults["voice_vad_threshold"] == pytest.approx(0.5), (
         "Default voice_vad_threshold must equal the documented Silero "
-        "constant (voice_vad.py:110). Changing it changes far-field "
+        "constant (voice_vad.py). Changing it changes far-field "
         "detection behaviour for every user."
     )
     assert defaults["voice_vad_min_silence_ms"] == 2500, (
@@ -100,14 +100,14 @@ def test_vad_consumes_config_when_loaded(tmp_path, monkeypatch):
     # Increment B's loader auto-fills missing knobs with HEAD defaults
     # via ``_default_config()`` so legacy config files don't change
     # behaviour.
-    assert loaded["voice_vad_threshold"] == pytest.approx(0.28)
+    assert loaded["voice_vad_threshold"] == pytest.approx(0.5)
     assert loaded["voice_vad_min_silence_ms"] == 2500
     assert loaded["voice_mic_gain"] == pytest.approx(1.0)
 
 
 def test_voicevad_constructed_with_defaults_matches_explicit():
     """Confirm that ``VoiceVAD()`` (no args) produces a state machine
-    identical to ``VoiceVAD(threshold=0.28, min_silence_duration_ms=2500,
+    identical to ``VoiceVAD(threshold=0.5, min_silence_duration_ms=2500,
     min_speech_duration_ms=200)`` at every internal observable. This is
     a belt-and-suspenders check on top of the speech-fixture parity
     test in ``test_voice_vad_parity.py``.
@@ -115,7 +115,7 @@ def test_voicevad_constructed_with_defaults_matches_explicit():
     a = VoiceVAD(input_sample_rate=24000)
     b = VoiceVAD(
         input_sample_rate=24000,
-        threshold=0.28,
+        threshold=0.5,
         min_silence_duration_ms=2500,
         min_speech_duration_ms=200,
     )

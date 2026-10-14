@@ -93,6 +93,7 @@ class WsPcmTransport(
     override fun setSessionUpdateFallback(fallback: () -> JsonObject?) = Unit // the backend relay applies session.update
     override fun setMicGain(level: Float) = ducker.setMicGain(level)
     override fun setEchoDuckingGain(gain: Float) = ducker.setEchoDuckingGain(gain)
+    override fun setEchoDuckTailMs(ms: Long) = ducker.setEchoDuckTailMs(ms)
 
     override fun toggleMute(): Boolean {
         muted = !muted

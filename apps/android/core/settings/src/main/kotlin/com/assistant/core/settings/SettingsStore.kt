@@ -73,7 +73,9 @@ class SettingsStore(
     suspend fun setWakeWordMicGainLevel(v: Float) = edit { it[SettingsKeys.WAKE_WORD_MIC_GAIN_LEVEL] = v.coerceIn(0f, 1.5f) }
     suspend fun setTalkSilenceSensitivity(v: Float) = edit { it[SettingsKeys.TALK_SILENCE_SENSITIVITY] = v.coerceIn(1f, 4f) }
     suspend fun setEchoDuckingGain(v: Float) = edit { it[SettingsKeys.ECHO_DUCKING_GAIN] = v.coerceIn(0f, 1f) }
+    suspend fun setEchoDuckTailMs(v: Long) = edit { it[SettingsKeys.ECHO_DUCK_TAIL_MS] = v.coerceIn(0L, 5_000L) }
     suspend fun setAudioOutput(v: AudioOutput) = edit { it[SettingsKeys.AUDIO_OUTPUT] = v.name }
+    suspend fun setKeepOutputAwake(v: Boolean) = edit { it[SettingsKeys.KEEP_OUTPUT_AWAKE] = v }
     /** The `assistant_service_prefs` mirror is [ServicePrefs]' job (the caller writes both). */
     suspend fun setEnableButtonTrigger(v: Boolean) = edit { it[SettingsKeys.ENABLE_BUTTON_TRIGGER] = v }
     suspend fun setListPaneCollapsed(v: Boolean) = edit { it[SettingsKeys.LIST_PANE_COLLAPSED] = v }
@@ -167,7 +169,9 @@ class SettingsStore(
                 wakeWordMicGainLevel = p[SettingsKeys.WAKE_WORD_MIC_GAIN_LEVEL] ?: d.wakeWordMicGainLevel,
                 talkSilenceSensitivity = p[SettingsKeys.TALK_SILENCE_SENSITIVITY] ?: d.talkSilenceSensitivity,
                 echoDuckingGain = p[SettingsKeys.ECHO_DUCKING_GAIN] ?: d.echoDuckingGain,
+                echoDuckTailMs = p[SettingsKeys.ECHO_DUCK_TAIL_MS] ?: d.echoDuckTailMs,
                 audioOutput = AudioOutput.entries.firstOrNull { it.name == p[SettingsKeys.AUDIO_OUTPUT] } ?: AudioOutput.AUTO,
+                keepOutputAwake = p[SettingsKeys.KEEP_OUTPUT_AWAKE] ?: d.keepOutputAwake,
                 enableButtonTrigger = p[SettingsKeys.ENABLE_BUTTON_TRIGGER] ?: d.enableButtonTrigger,
                 listPaneCollapsed = p[SettingsKeys.LIST_PANE_COLLAPSED] ?: d.listPaneCollapsed,
                 stayConnectedInBackground = p[SettingsKeys.STAY_CONNECTED] ?: d.stayConnectedInBackground,

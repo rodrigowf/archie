@@ -85,6 +85,13 @@ interface ReconnectableVoiceSession : VoiceSessionController {
  * Minor, also deliberate:
  *  - `session_started{voice:false}` does not clear CONNECTING while a start is in flight.
  *  - Routing is only applied while this session holds audio focus.
+ *
+ * A dropped call is replaced, not ended (2026-10-13: a Wi-Fi blip killed the OpenAI WebRTC call
+ * while the orchestrator socket stayed up, and voice ended with only a toast). The transport's
+ * [ProviderSignal.LinkDown] starts the P-2 outage at once (reconnecting tone + "Reconnecting…");
+ * ICE still down after [VoiceTuning.MEDIA_DISCONNECT_GRACE_MS], or [ProviderSignal.LinkFailed],
+ * starts [replaceCall]: same voice session, wake word still paused, audio focus kept, a new call
+ * primed with a fresh `session.update` (the backend builds it from the conversation so far).
  */
 class DefaultVoiceSessionController(
     private val deps: VoiceSessionDeps,
@@ -131,9 +138,15 @@ class DefaultVoiceSessionController(
     private var reapplyJob: Job? = null
     private var resumeJob: Job? = null
     private var linkJob: Job? = null
+    /** The ICE grace timer, then [replaceCall], while the call's media path is down. */
+    private var mediaJob: Job? = null
+    /** The two P-2 legs: the call's media path and the orchestrator socket. */
+    private var mediaDown = false
+    private var socketDown = false
     private var focusToken: Any? = null
     private var micGain = AudioTuning.DEFAULT_MIC_GAIN
     private var duckGain = AudioTuning.DEFAULT_ECHO_DUCKING_GAIN
+    private var duckTailMs = AudioTuning.DEFAULT_ECHO_DUCK_TAIL_MS
     private var audioOutput = OutputChoice.AUTO
     private val linkMachine = VoiceLinkMachine()
 
@@ -149,7 +162,7 @@ class DefaultVoiceSessionController(
             return
         }
         synchronized(lock) {
-            if (startJob?.isActive == true || transport != null) {
+            if (startJob?.isActive == true || transport != null || mediaJob?.isActive == true) {
                 log.w(TAG, "startVoice ignored — a voice session is already starting or live")
                 return
             }
@@ -224,6 +237,14 @@ class DefaultVoiceSessionController(
         t?.setEchoDuckingGain(g)
     }
 
+    override fun setEchoDuckTailMs(ms: Long) {
+        val (tail, t) = synchronized(lock) {
+            duckTailMs = ms.coerceIn(AudioTuning.ECHO_DUCK_TAIL_MIN_MS, AudioTuning.ECHO_DUCK_TAIL_MAX_MS)
+            duckTailMs to transport
+        }
+        t?.setEchoDuckTailMs(tail)
+    }
+
     /** Stored for the next session; applied now when a session holds audio focus. */
     override fun setAudioOutput(output: OutputChoice) {
         synchronized(lock) { audioOutput = output }
@@ -235,7 +256,7 @@ class DefaultVoiceSessionController(
         val (t, token) = synchronized(lock) {
             finalized = true
             owner = false
-            listOfNotNull(startJob, endingJob, reapplyJob, resumeJob, linkJob).forEach { it.cancel() }
+            listOfNotNull(startJob, endingJob, reapplyJob, resumeJob, linkJob, mediaJob).forEach { it.cancel() }
             collectors.forEach { it.cancel() }
             collectors = emptyList()
             (transport to focusToken).also { transport = null; levelSource.value = null }
@@ -262,6 +283,8 @@ class DefaultVoiceSessionController(
             is VoiceInbound.Ending -> {
                 // A non-owner flipping to "Ending…" was the multi-device wedge (RS-12).
                 if (!isOwner()) return log.d(TAG, "Ignoring voice_ending — not the voice owner")
+                // A stale owner (the server re-reported us after the local end) has nothing to end.
+                if (!holdsLocalCall()) return log.d(TAG, "Ignoring voice_ending — no local call")
                 if (_state.value.phase != SessionPhase.ENDING) {
                     _state.update { it.copy(phase = SessionPhase.ENDING) }
                     armEndingTimeout("voice_ended ack timeout after voice_ending")
@@ -307,7 +330,11 @@ class DefaultVoiceSessionController(
                     // We own voice iff the backend says we initiated it; otherwise we are a passive peer (RS-11).
                     owner = frame.voiceInitiator
                 }
-                if (frame.voiceInitiator && linkMachine.isReconnecting) restored = linkMachine.onVoiceConfirmed(deps.clock.nowMs())
+                if (frame.voiceInitiator && linkMachine.isReconnecting) {
+                    socketDown = false
+                    // A call being replaced is still down: the outage ends when it is up too.
+                    if (!mediaDown) restored = linkMachine.onVoiceConfirmed(deps.clock.nowMs())
+                }
             }
             (startJob?.isActive == true) to (transport != null)
         }
@@ -336,15 +363,27 @@ class DefaultVoiceSessionController(
 
     /** `voice_owner_active` (spec 12 §7.5 and V-13). */
     private fun onOwnerActive(active: Boolean) {
+        var stale = false
         val takenOver = synchronized(lock) {
             when {
                 !owner -> false
                 !active -> false // the end of voice: the owner's own voice_ended drives its state
                 ownerEchoesPending > 0 -> { ownerEchoesPending--; false } // the echo of our voice_start
-                else -> holdsLocalCallLocked()
+                holdsLocalCallLocked() -> true
+                else -> {
+                    // Ownership the server re-reported after our local end, and now another device's
+                    // voice: drop it, or that call's voice_ending wedged this one in "Ending" (2026-10-13).
+                    owner = false
+                    stale = true
+                    false
+                }
             }
         }
         if (takenOver) return ownershipLost("voice_owner_active from another device")
+        if (stale) {
+            log.i(TAG, "voice_owner_active from another device while holding no call — dropping stale ownership")
+            _state.update { it.copy(isOwner = false) }
+        }
         // Another device's voice: read-only "active elsewhere". The owner's own lifecycle drives its state.
         if (!isOwner()) _state.update { it.copy(remoteVoiceActive = active) }
     }
@@ -367,7 +406,8 @@ class DefaultVoiceSessionController(
 
     private fun holdsLocalCall() = synchronized(lock) { holdsLocalCallLocked() }
 
-    private fun holdsLocalCallLocked() = !finalized && (transport != null || startJob?.isActive == true)
+    private fun holdsLocalCallLocked() =
+        !finalized && (transport != null || startJob?.isActive == true || mediaJob?.isActive == true)
 
     private fun onProviderEvent(event: kotlinx.serialization.json.JsonObject) {
         val t = synchronized(lock) { transport }
@@ -377,6 +417,8 @@ class DefaultVoiceSessionController(
         }
         // Backend-synthesised statuses that land before the provider exists (the summary LLM runs first).
         if (typeOf(event) != "voice_status") return
+        // A call replacement's re-arm also produces them; the session stays "Reconnecting".
+        if (isMediaDown()) return
         when (event.string("status")) {
             "summarizing" -> _state.update { it.copy(phase = SessionPhase.SUMMARIZING, errorMessage = null) }
             "preparing" -> _state.update { it.copy(phase = SessionPhase.CONNECTING, errorMessage = null) }
@@ -410,6 +452,7 @@ class DefaultVoiceSessionController(
     private fun onLinkLost() {
         val event = synchronized(lock) {
             if (!owner || activeConfig == null) return
+            socketDown = true
             linkMachine.onLinkLost(deps.clock.nowMs())
         }
         if (event != null) log.w(TAG, "orchestrator link lost during live voice — reconnecting (budget ${VoiceTuning.LINK_RETRY_BUDGET_MS}ms)")
@@ -459,11 +502,167 @@ class DefaultVoiceSessionController(
         linkMachine.reset()
         linkJob?.cancel()
         linkJob = null
+        mediaJob?.cancel()
+        mediaJob = null
+        mediaDown = false
+        socketDown = false
     }
 
+    /**
+     * Publishes the link state, and mirrors an outage into [VoiceSessionState.reconnectBanner]:
+     * the apps' existing "Reconnecting…" indicators (dock, top bar, face banner) read that field.
+     */
     private fun publishLink(event: VoiceLinkEvent?) {
-        _link.value = synchronized(lock) { linkMachine.state }
+        val s = synchronized(lock) { linkMachine.state }
+        _link.value = s
+        _state.update { cur ->
+            when {
+                s is VoiceLinkState.Reconnecting && cur.reconnectBanner == null -> cur.copy(reconnectBanner = LINK_BANNER)
+                s !is VoiceLinkState.Reconnecting && cur.reconnectBanner == LINK_BANNER -> cur.copy(reconnectBanner = null)
+                else -> cur
+            }
+        }
         event?.let { _linkEvents.tryEmit(it) }
+    }
+
+    // ── the call's media link (WebRTC ICE) ─────────────────────────────────────────────────────
+
+    private fun isMediaDown() = synchronized(lock) { mediaDown }
+
+    /** ICE disconnected on the live call: tell the user now; replace the call if it is not back after the grace. */
+    private fun onMediaLinkDown(t: VoiceTransport) {
+        val event = synchronized(lock) {
+            if (!owner || activeConfig == null || transport !== t || mediaDown) return
+            mediaDown = true
+            mediaJob?.cancel()
+            mediaJob = scope.launch {
+                delay(VoiceTuning.MEDIA_DISCONNECT_GRACE_MS)
+                log.w(TAG, "call media still down after ${VoiceTuning.MEDIA_DISCONNECT_GRACE_MS}ms — replacing the call")
+                replaceCall(t)
+            }
+            linkMachine.onLinkLost(deps.clock.nowMs())
+        }
+        log.w(TAG, "call media link lost (ICE disconnected) during live voice — reconnecting (budget ${VoiceTuning.LINK_RETRY_BUDGET_MS}ms)")
+        publishLink(event)
+        scheduleLinkTicks()
+    }
+
+    /** ICE recovered on its own before the call was replaced. */
+    private fun onMediaLinkUp(t: VoiceTransport) {
+        val restored = synchronized(lock) {
+            if (transport !== t || !mediaDown) return
+            mediaDown = false
+            mediaJob?.cancel()
+            mediaJob = null
+            if (socketDown) null else linkMachine.onVoiceConfirmed(deps.clock.nowMs())
+        }
+        log.i(TAG, "call media link recovered on its own")
+        if (restored != null) {
+            cancelLinkTicks()
+            publishLink(restored)
+        }
+    }
+
+    /** ICE failed: the call is gone. Replace it now; without a live owned session it is the old terminal error. */
+    private fun onMediaLinkFailed(t: VoiceTransport, message: String) {
+        val replace = synchronized(lock) { owner && activeConfig != null && transport === t && !finalized }
+        if (!replace) return onVoiceError(message)
+        val event = synchronized(lock) {
+            mediaJob?.cancel()
+            mediaJob = scope.launch { replaceCall(t) }
+            if (mediaDown) null else linkMachine.onLinkLost(deps.clock.nowMs()).also { mediaDown = true }
+        }
+        log.w(TAG, "call media link failed ($message) — replacing the call")
+        publishLink(event)
+        scheduleLinkTicks()
+    }
+
+    /**
+     * Replaces the [dead] call on the same voice session: a re-arm `voice_start` (the backend
+     * answers with a fresh `session.update` built from the conversation so far), a new ephemeral
+     * token, a new transport. Retries until a call is up; the link budget ends the session
+     * ([scheduleLinkTicks] → [finalize], which cancels this job).
+     */
+    private suspend fun replaceCall(dead: VoiceTransport) {
+        val cfg = synchronized(lock) {
+            if (transport !== dead || finalized) return
+            dropTransportLocked()
+            activeConfig
+        } ?: return
+        // Commands queued for the dead call die with it; the relay keeps its session.update cache.
+        relay.detach()
+        safeDisconnect(dead)
+        _state.update { it.copy(phase = SessionPhase.CONNECTING, errorMessage = null) }
+        var attempt = 0
+        while (true) {
+            attempt++
+            // The re-arm and the token need the orchestrator socket; its own reconnect path brings it back.
+            while (synchronized(lock) { socketDown }) delay(VoiceTuning.MEDIA_SOCKET_POLL_MS)
+            log.i(TAG, "replacing the call — attempt $attempt (${cfg.provider} ${cfg.model})")
+            val ctx = deps.orchestrator
+            sendVoiceStart(request(ctx.localId, ctx.jsonlSessionId ?: ctx.currentSessionId, cfg).copy(reattach = true))
+            val info = deps.api.startVoiceSession(cfg)
+            if (info == null) {
+                log.w(TAG, "call replacement: no connection info — retrying")
+            } else if (tryCall(cfg, info)) {
+                return onCallReplaced(attempt)
+            }
+            delay(VoiceTuning.MEDIA_RETRY_DELAY_MS)
+        }
+    }
+
+    /** One replacement call; true once its data channel is open. A call that does not come up is dropped. */
+    private suspend fun tryCall(cfg: VoiceStartConfig, info: VoiceConnection): Boolean {
+        val t = deps.transports.create(cfg.provider, info.connectionType)
+        val (gain, duck, tail) = synchronized(lock) { Triple(micGain, duckGain, duckTailMs) }
+        t.setMicGain(gain)
+        t.setEchoDuckingGain(duck)
+        t.setEchoDuckTailMs(tail)
+        t.setSessionUpdateFallback { relay.cachedSessionUpdate }
+        val adopted = synchronized(lock) {
+            if (finalized) false else { transport = t; levelSource.value = t; true }
+        }
+        if (!adopted) return false
+        observe(t)
+        relay.attach(ProviderCommandSink { t.handleBackendCommand(it) })
+        applyRoute()
+        scheduleRouteReapply()
+        try {
+            connect(t, info)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(TAG, "call replacement: connect failed: ${e.message}")
+        }
+        val ps = t.phase.value
+        if (ps.phase.isLive()) return true
+        log.w(TAG, "call replacement: the new call did not come up (${ps.message ?: ps.phase})")
+        synchronized(lock) { if (transport === t) dropTransportLocked() }
+        relay.detach()
+        safeDisconnect(t)
+        return false
+    }
+
+    private fun onCallReplaced(attempt: Int) {
+        val (restored, t) = synchronized(lock) {
+            mediaDown = false
+            mediaJob = null
+            (if (socketDown) null else linkMachine.onVoiceConfirmed(deps.clock.nowMs())) to transport
+        }
+        log.i(TAG, "call replaced after $attempt attempt(s) — voice is back")
+        // A new call starts unmuted: keep the user's mute.
+        if (_state.value.isMuted) t?.toggleMute()
+        if (restored != null) {
+            cancelLinkTicks()
+            publishLink(restored)
+        }
+    }
+
+    private fun dropTransportLocked() {
+        collectors.forEach { it.cancel() }
+        collectors = emptyList()
+        transport = null
+        levelSource.value = null
     }
 
     // ── start ──────────────────────────────────────────────────────────────────────────────────
@@ -492,9 +691,10 @@ class DefaultVoiceSessionController(
         }
         val t = deps.transports.create(cfg.provider, info.connectionType)
         log.i(TAG, "start: using provider=${t.providerId} (${t.kind})")
-        val (gain, duck) = synchronized(lock) { micGain to duckGain }
+        val (gain, duck, tail) = synchronized(lock) { Triple(micGain, duckGain, duckTailMs) }
         t.setMicGain(gain)
         t.setEchoDuckingGain(duck)
+        t.setEchoDuckTailMs(tail)
         // The DC-open / echo self-heal re-asserts the cached session.update (RS-03).
         t.setSessionUpdateFallback { relay.cachedSessionUpdate }
         val adopted = synchronized(lock) {
@@ -549,6 +749,8 @@ class DefaultVoiceSessionController(
 
     private fun onProviderPhase(t: VoiceTransport, ps: ProviderPhaseState) {
         if (!isCurrent(t)) return
+        // While a dropped call is replaced, a failed attempt's ERROR / OFF is not the session's state.
+        if ((ps.phase == ProviderPhase.ERROR || ps.phase == ProviderPhase.OFF) && isMediaDown()) return
         _state.update { cur ->
             // The provider's initial OFF must not clobber a backend-pushed SUMMARIZING / CONNECTING.
             if (ps.phase == ProviderPhase.OFF && (cur.phase == SessionPhase.SUMMARIZING || cur.phase == SessionPhase.CONNECTING)) {
@@ -557,8 +759,9 @@ class DefaultVoiceSessionController(
                 cur.copy(
                     phase = ps.phase.toSessionPhase(),
                     errorMessage = if (ps.phase == ProviderPhase.ERROR) ps.message else null,
-                    // Back to ACTIVE (e.g. voice_status: ready after an upstream cycle) clears the banner.
-                    reconnectBanner = if (ps.phase == ProviderPhase.ACTIVE) null else cur.reconnectBanner,
+                    // Back to ACTIVE (e.g. voice_status: ready after an upstream cycle) clears the banner;
+                    // a link outage's banner follows the link state (publishLink).
+                    reconnectBanner = if (ps.phase == ProviderPhase.ACTIVE && cur.reconnectBanner != LINK_BANNER) null else cur.reconnectBanner,
                 )
             }
         }
@@ -573,8 +776,13 @@ class DefaultVoiceSessionController(
             ProviderSignal.TurnComplete -> deps.transcripts.turnComplete()
             is ProviderSignal.ToolUse -> log.d(TAG, "Voice tool use: ${signal.name}")
             // A voice error is terminal: the provider won't recover a rejected session, and a
-            // half-open session wedges the paused wake word (`c0cad2c`, RS-09).
-            is ProviderSignal.Error -> onVoiceError(signal.message)
+            // half-open session wedges the paused wake word (`c0cad2c`, RS-09). While a dropped call
+            // is replaced, a failed attempt is retried instead (replaceCall).
+            is ProviderSignal.Error ->
+                if (isMediaDown()) log.w(TAG, "call replacement attempt failed: ${signal.message}") else onVoiceError(signal.message)
+            ProviderSignal.LinkDown -> onMediaLinkDown(t)
+            ProviderSignal.LinkUp -> onMediaLinkUp(t)
+            is ProviderSignal.LinkFailed -> onMediaLinkFailed(t, signal.message)
             is ProviderSignal.RoutingFallback -> toast(signal.message)
             is ProviderSignal.ReconnectWarning -> {
                 val secs = signal.timeLeftSeconds
@@ -627,18 +835,26 @@ class DefaultVoiceSessionController(
     ) {
         val t: VoiceTransport?
         val token: Any?
+        val already = synchronized(lock) { finalized.also { if (it) owner = false } }
+        if (already) {
+            log.d(TAG, "finalizeVoiceStop ignored — already finalized for this session")
+            // Still leave ENDING and stale ownership: this call is the ENDING exit (OI-4), and a
+            // second one must not leave "Ending…" on screen forever (2026-10-13).
+            _state.update { it.copy(phase = if (it.phase == SessionPhase.ENDING) SessionPhase.OFF else it.phase, isOwner = false) }
+            return
+        }
         synchronized(lock) {
-            if (finalized) {
-                log.d(TAG, "finalizeVoiceStop ignored — already finalized for this session")
-                return
-            }
+            if (finalized) return // raced another finalize, which did the teardown
             finalized = true
             owner = false
             activeConfig = null
-            listOfNotNull(endingJob, reapplyJob, startJob).forEach { it.cancel() }
+            listOfNotNull(endingJob, reapplyJob, startJob, mediaJob).forEach { it.cancel() }
             endingJob = null
             reapplyJob = null
             startJob = null
+            mediaJob = null
+            mediaDown = false
+            socketDown = false
             collectors.forEach { it.cancel() }
             collectors = emptyList()
             t = transport
@@ -692,7 +908,11 @@ class DefaultVoiceSessionController(
         synchronized(lock) { focusToken = Any() }
         deps.audio.acquireFocus()
         applyRoute()
-        // The WebRTC ADM / Samsung HAL re-pin the earpiece after init: re-apply at +1/+4/+9 s (`d36d31b`, RS-27).
+        scheduleRouteReapply()
+    }
+
+    /** The WebRTC ADM / Samsung HAL re-pin the earpiece after init: re-apply at +1/+4/+9 s (`d36d31b`, RS-27). */
+    private fun scheduleRouteReapply() {
         val job = scope.launch {
             for (d in VoiceTuning.ROUTE_REAPPLY_DELAYS_MS) {
                 delay(d)
@@ -701,7 +921,12 @@ class DefaultVoiceSessionController(
             }
         }
         synchronized(lock) {
-            if (focusToken != null && !finalized) reapplyJob = job else job.cancel()
+            if (focusToken != null && !finalized) {
+                reapplyJob?.cancel()
+                reapplyJob = job
+            } else {
+                job.cancel()
+            }
         }
     }
 
@@ -734,6 +959,12 @@ class DefaultVoiceSessionController(
     private companion object {
         const val TAG = "VoiceController"
         const val LINK_FAILED_MESSAGE = "Voice connection lost"
+
+        /** [VoiceSessionState.reconnectBanner] while a link outage lasts (the P-2 indicators' text). */
+        const val LINK_BANNER = "Reconnecting…"
+
+        fun ProviderPhase.isLive(): Boolean =
+            this == ProviderPhase.ACTIVE || this == ProviderPhase.SPEAKING || this == ProviderPhase.THINKING || this == ProviderPhase.TOOL_USE
 
         /** `voice_ended.reason` of an agent-initiated conversation switch (spec 12 §6.11a, §7.6). */
         const val END_REASON_SWITCH = "switch"

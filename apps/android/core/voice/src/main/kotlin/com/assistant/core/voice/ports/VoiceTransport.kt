@@ -40,6 +40,15 @@ sealed interface ProviderSignal {
     data class ReconnectWarning(val timeLeftSeconds: Int?) : ProviderSignal
     data object Reconnecting : ProviderSignal
 
+    /** The live call's media path dropped (WebRTC ICE disconnected); it may still come back on its own. */
+    data object LinkDown : ProviderSignal
+
+    /** The media path came back on its own after [LinkDown]. */
+    data object LinkUp : ProviderSignal
+
+    /** The live call's media path is gone (ICE failed) and the transport is torn down; a new call can replace it. */
+    data class LinkFailed(val message: String) : ProviderSignal
+
     /** Barge-in: drop queued + in-flight speaker audio and restore the mic now. */
     data object FlushSpeaker : ProviderSignal
 
@@ -77,6 +86,9 @@ interface VoiceTransport {
     fun setSessionUpdateFallback(fallback: () -> JsonObject?)
     fun setMicGain(level: Float)
     fun setEchoDuckingGain(gain: Float)
+
+    /** Extra time the mic stays ducked after the agent's speech (the "Echo ducking tail" setting). */
+    fun setEchoDuckTailMs(ms: Long)
     fun toggleMute(): Boolean
     fun setSpeakerMode(mode: SpeakerMode, preferredDevice: AudioDeviceRef?)
 

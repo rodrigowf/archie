@@ -8,6 +8,8 @@ import com.assistant.core.voice.VoiceLogMarkers
 import com.assistant.core.voice.VoiceTuning
 import com.assistant.core.voice.delivery.LockedDataChannelGate
 import com.assistant.core.voice.duck.OpenAiDucker
+import com.assistant.core.voice.json.obj
+import com.assistant.core.voice.json.optString
 import com.assistant.core.voice.json.parseObjectOrNull
 import com.assistant.core.voice.json.typeOf
 import com.assistant.core.voice.parse.OpenAiEventParser
@@ -28,6 +30,7 @@ import com.assistant.core.voice.ports.VoiceTransport
 import com.assistant.core.voice.ports.WebRtcDeps
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.resume
@@ -63,8 +66,15 @@ import kotlinx.serialization.json.JsonObject
  *
  * Commands go through a [LockedDataChannelGate] (fixes B2; RS-02/RS-03): never cleared by
  * [connect], drained at DC open, `session.update` self-heal at open and at the `session.updated`
- * echo. ICE DISCONNECTED is transient (observe only); FAILED, an OpenAI `error`, a failed SDP
- * exchange and the 15 s open timeout end in ERROR + teardown (the controller then finalizes).
+ * echo. An OpenAI `error`, a failed SDP exchange, the 15 s open timeout and an ICE FAILED before
+ * the data channel opened end in ERROR + teardown (the controller then finalizes).
+ *
+ * A live call's network drop is not an error (2026-10-13: a Wi-Fi blip ended voice with only a
+ * toast): ICE DISCONNECTED emits [ProviderSignal.LinkDown], a recovery [ProviderSignal.LinkUp],
+ * and ICE FAILED tears down and emits [ProviderSignal.LinkFailed], so the controller can tell the
+ * user at once and replace the call. A tool result for a call id this OpenAI session never saw
+ * (the dead call's, delivered after the replacement) is dropped with its `response.create`:
+ * OpenAI answers it with an `error`, which would end the new call.
  */
 class WebRtcTransport(private val deps: WebRtcDeps) : VoiceTransport {
     override val providerId: String = "openai"
@@ -96,6 +106,10 @@ class WebRtcTransport(private val deps: WebRtcDeps) : VoiceTransport {
     private val micLevel = MicLevel()
     private val meters = AtomicInteger(0)
 
+    /** Function-call ids this OpenAI session announced; a tool result for any other id is stale. */
+    private val knownCallIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    @Volatile private var dropNextResponseCreate = false
+
     private sealed interface Input {
         data class Ice(val state: IceState) : Input
         data object DcOpen : Input
@@ -110,6 +124,8 @@ class WebRtcTransport(private val deps: WebRtcDeps) : VoiceTransport {
         @Volatile var peer: RtcPeer? = null
         @Volatile var tornDown = false
         @Volatile var consumer: Job? = null
+        /** ICE reported DISCONNECTED on the open call and has not recovered (consumer coroutine only). */
+        var linkDown = false
 
         val observer = object : RtcPeerObserver {
             override fun onIceConnectionState(state: IceState) { inbox.trySend(Input.Ice(state)) }
@@ -123,6 +139,7 @@ class WebRtcTransport(private val deps: WebRtcDeps) : VoiceTransport {
     override fun setSessionUpdateFallback(fallback: () -> JsonObject?) { this.fallback = fallback }
     override fun setMicGain(level: Float) = duck.setMicGain(level)
     override fun setEchoDuckingGain(gain: Float) = duck.setEchoDuckingGain(gain)
+    override fun setEchoDuckTailMs(ms: Long) = duck.setEchoDuckTailMs(ms)
 
     override fun toggleMute(): Boolean {
         val nowMuted = synchronized(lock) { muted = !muted; muted }
@@ -139,7 +156,29 @@ class WebRtcTransport(private val deps: WebRtcDeps) : VoiceTransport {
     /** The JavaAudioDeviceModule owns its AudioTrack; it cannot switch planes without a new peer. */
     override fun setSpeakerMode(mode: SpeakerMode, preferredDevice: AudioDeviceRef?) = Unit
 
-    override fun handleBackendCommand(command: JsonObject) = gate.send(command)
+    override fun handleBackendCommand(command: JsonObject) {
+        if (isStaleToolResult(command)) return
+        gate.send(command)
+    }
+
+    /** True for a tool result (and the `response.create` right behind it) of a call this session never saw. */
+    private fun isStaleToolResult(command: JsonObject): Boolean {
+        val type = typeOf(command)
+        if (type == "response.create" && dropNextResponseCreate) {
+            dropNextResponseCreate = false
+            log.w(TAG, "dropping the response.create of a stale tool result")
+            return true
+        }
+        dropNextResponseCreate = false
+        if (type != "conversation.item.create") return false
+        val item = command.obj("item") ?: return false
+        if (item.optString("type") != "function_call_output") return false
+        val callId = item.optString("call_id")
+        if (callId in knownCallIds) return false
+        log.w(TAG, "dropping a tool result for call_id=$callId — not a call of this OpenAI session (a replaced call's)")
+        dropNextResponseCreate = true
+        return true
+    }
 
     override fun handleProviderEvent(event: JsonObject) = Unit
 
@@ -266,17 +305,39 @@ class WebRtcTransport(private val deps: WebRtcDeps) : VoiceTransport {
 
     private fun onIce(session: Session, state: IceState) {
         when (state) {
-            IceState.CONNECTED -> log.d(TAG, "ICE connected")
-            IceState.DISCONNECTED -> log.w(TAG, "ICE disconnected (transient — waiting for FAILED before teardown)")
+            IceState.CONNECTED, IceState.COMPLETED -> {
+                log.d(TAG, "ICE $state")
+                if (session.linkDown) {
+                    session.linkDown = false
+                    log.i(TAG, "ICE recovered — the call's media path is back")
+                    _signals.tryEmit(ProviderSignal.LinkUp)
+                }
+            }
+            IceState.DISCONNECTED -> {
+                log.w(TAG, "ICE disconnected (transient — waiting for FAILED before teardown)")
+                if (isOpen(session) && !session.linkDown) {
+                    session.linkDown = true
+                    _signals.tryEmit(ProviderSignal.LinkDown)
+                }
+            }
             IceState.FAILED -> {
                 log.e(TAG, "ICE connection failed")
-                fail("Connection failed")
-                teardown(session)
+                if (isOpen(session)) {
+                    // A live call lost its network: not an error — the controller replaces the call.
+                    teardown(session)
+                    _signals.tryEmit(ProviderSignal.LinkFailed("Connection failed"))
+                } else {
+                    fail("Connection failed")
+                    teardown(session)
+                }
             }
             IceState.CLOSED -> log.d(TAG, "ICE closed")
             else -> log.d(TAG, "ICE connection state: $state")
         }
     }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private fun isOpen(session: Session) = session.dcOpen.isCompleted && session.dcOpen.getCompleted()
 
     private fun onDcOpen(session: Session) {
         _phase.value = ProviderPhaseState(ProviderPhase.ACTIVE)
@@ -293,6 +354,8 @@ class WebRtcTransport(private val deps: WebRtcDeps) : VoiceTransport {
         }
         val type = typeOf(event) ?: ""
         if (type !in NOISY) log.d(TAG, "[VOICE_EVENT] type=$type state=${_phase.value.phase} agentPlaying=${duck.agentPlaying}")
+        // Before the mirror: the backend answers a function call with its tool result.
+        rememberCallId(type, event)
         // Mirror EVERY event to the backend (persistence, tools).
         try {
             mirror?.invoke(event)
@@ -312,6 +375,14 @@ class WebRtcTransport(private val deps: WebRtcDeps) : VoiceTransport {
                 else -> _signals.tryEmit(signal)
             }
         }
+    }
+
+    private fun rememberCallId(type: String, event: JsonObject) {
+        val id = when {
+            type.startsWith("response.function_call_arguments") -> event.optString("call_id")
+            else -> event.obj("item")?.takeIf { it.optString("type") == "function_call" }?.optString("call_id").orEmpty()
+        }
+        if (id.isNotEmpty()) knownCallIds += id
     }
 
     private fun rescheduleDuckTimer() {

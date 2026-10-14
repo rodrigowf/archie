@@ -85,8 +85,11 @@ class SettingsScreen(context: Context, private val palette: LitePalette, private
     private val micGainValue = value()
     private val echoDuck = seek(Steps.DUCK_MAX)
     private val echoDuckValue = value()
+    private val echoTail = seek(Steps.TAIL_MAX)
+    private val echoTailValue = value()
     private val outputGroup = RadioGroup(context).apply { orientation = RadioGroup.VERTICAL }
     private val outputButtons = LinkedHashMap<AudioOutput, RadioButton>()
+    private val keepAwake = switch()
 
     // Wake word
     private val wakeEnabled = switch()
@@ -146,6 +149,7 @@ class SettingsScreen(context: Context, private val palette: LitePalette, private
         group("Audio") {
             sliderRow("Mic level", "Voice conversation microphone gain", micGain, micGainValue)
             sliderRow("Echo ducking", "Mic gain while Archie speaks — lower reduces echo", echoDuck, echoDuckValue)
+            sliderRow("Echo ducking tail", "Keeps the mic ducked after Archie stops — raise it for Bluetooth", echoTail, echoTailValue)
             add(LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(context.dpi(16f), context.dpi(12f), context.dpi(16f), context.dpi(12f))
@@ -153,6 +157,7 @@ class SettingsScreen(context: Context, private val palette: LitePalette, private
                 addView(helper("Where Archie's voice plays"))
                 addView(outputGroup)
             })
+            row(listOf(title("Keep audio output awake"), helper("Plays silence while something is plugged into the jack — stops speaker hiss between sounds")), keepAwake)
         }
         group("Wake word") {
             row(listOf(title("Wake word"), helper("Listen for the phrases below")), wakeEnabled)
@@ -203,11 +208,13 @@ class SettingsScreen(context: Context, private val palette: LitePalette, private
         autoConnect.setOnCheckedChangeListener { _, v -> if (!binding) actions.settings.setAutoConnect(v) }
         wakeEnabled.setOnCheckedChangeListener { _, v -> if (!binding) actions.settings.setWakeEnabled(v) }
         recents.setOnCheckedChangeListener { _, v -> if (!binding) actions.settings.setRecentsTrigger(v) }
+        keepAwake.setOnCheckedChangeListener { _, v -> if (!binding) actions.settings.setKeepOutputAwake(v) }
         outputGroup.setOnCheckedChangeListener { _, id ->
             if (!binding) outputButtons.entries.firstOrNull { it.value.id == id }?.let { actions.settings.setOutput(it.key) }
         }
         onCommit(micGain, micGainValue, Steps::gainLabel) { actions.settings.setMicGainStep(it) }
         onCommit(echoDuck, echoDuckValue, Steps::duckLabel) { actions.settings.setEchoDuckStep(it) }
+        onCommit(echoTail, echoTailValue, Steps::tailLabel) { actions.settings.setEchoTailStep(it) }
         onCommit(wakeSensitivity, wakeSensitivityValue, Steps::gainLabel) { actions.settings.setWakeSensitivityStep(it) }
         onCommit(talkStop, talkStopValue, Steps::talkStopLabel) { actions.settings.setTalkStopStep(it) }
         commitOnDone(wakePhrases) { actions.settings.setWakePhrases(it) }
@@ -235,11 +242,13 @@ class SettingsScreen(context: Context, private val palette: LitePalette, private
 
             setSeek(micGain, micGainValue, Steps.gainStep(d.micGainLevel), Steps::gainLabel)
             setSeek(echoDuck, echoDuckValue, Steps.duckStep(d.echoDuckingGain), Steps::duckLabel)
+            setSeek(echoTail, echoTailValue, Steps.tailStep(d.echoDuckTailMs), Steps::tailLabel)
             setSeek(wakeSensitivity, wakeSensitivityValue, Steps.gainStep(d.wakeWordMicGainLevel), Steps::gainLabel)
             setSeek(talkStop, talkStopValue, Steps.talkStopStep(d.talkSilenceSensitivity), Steps::talkStopLabel)
             outputButtons[d.audioOutput]?.let { if (!it.isChecked) outputGroup.check(it.id) }
             enable(outputButtons[AudioOutput.BLUETOOTH], s.outputs.bluetoothCallAudio || s.outputs.bluetoothMedia || d.audioOutput == AudioOutput.BLUETOOTH)
             enable(outputButtons[AudioOutput.WIRED], s.outputs.wired || d.audioOutput == AudioOutput.WIRED)
+            keepAwake.isChecked = d.keepOutputAwake
 
             wakeEnabled.isChecked = d.enableWakeWord
             if (!wakePhrases.hasFocus()) wakePhrases.setText(d.wakeWord)

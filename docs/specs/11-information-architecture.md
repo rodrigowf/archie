@@ -142,7 +142,8 @@ Settings home is a grouped list; each row opens a detail page. Expanded: two-pan
 Settings
 ├── THIS DEVICE
 │   ├── Connection        servers (saved + discovered), scan, add, auto-connect, status   [Android]
-│   ├── Audio             mic level, speaker level, echo ducking, output route (labeled)    [Android]
+│   ├── Audio             mic level, speaker level, echo ducking, echo ducking tail,
+│   │                     output route (labeled)                                            [Android]
 │   ├── Wake word & triggers  enable, talk phrases, wake phrases, sensitivity, auto-stop,
 │   │                         assist gesture / recents trigger, notification actions        [Android]
 │   └── Appearance        theme (System / Dark / Light), text size, reduce motion           [both]

@@ -81,6 +81,38 @@ class OpenAiDuckParityTest {
         assertTrue(duck.isDucked)
     }
 
+    /** NEW (2026-10-14): the "Echo ducking tail" adds to the 2000 ms restore delay (Bluetooth latency). */
+    @Test
+    fun echoDuckTailLengthensTheRestoreDelay() {
+        duck.setEchoDuckTailMs(1_000L)
+        duck.onDcEvent("output_audio_buffer.started")
+        duck.onDcEvent("output_audio_buffer.stopped")
+        assertEquals(3_000L, run(5_000))
+        assertEquals(0.8f, duck.currentMicGain, 0f)
+    }
+
+    /** Late Bluetooth echo trips the server VAD after `stopped`: with a tail it must not restore early. */
+    @Test
+    fun withATailSpeechStartedDuringThePendingRestoreIsSuppressed() {
+        duck.setEchoDuckTailMs(1_000L)
+        duck.onDcEvent("output_audio_buffer.started")
+        duck.onDcEvent("output_audio_buffer.stopped")
+        run(500)
+        assertTrue("suppressed", duck.onDcEvent("input_audio_buffer.speech_started"))
+        assertTrue(duck.isDucked)
+        assertEquals(2_500L, run(5_000))
+    }
+
+    /** Tail Off = the old behaviour: speech after `stopped` restores at once. */
+    @Test
+    fun withoutATailSpeechStartedDuringThePendingRestoreRestoresImmediately() {
+        duck.onDcEvent("output_audio_buffer.started")
+        duck.onDcEvent("output_audio_buffer.stopped")
+        run(500)
+        assertFalse("not suppressed", duck.onDcEvent("input_audio_buffer.speech_started"))
+        assertFalse(duck.isDucked)
+    }
+
     @Test
     fun cleanupRestoresTheSavedGain() {
         duck.onDcEvent("output_audio_buffer.started")

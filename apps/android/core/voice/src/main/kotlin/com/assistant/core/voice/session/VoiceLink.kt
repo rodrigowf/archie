@@ -3,18 +3,22 @@ package com.assistant.core.voice.session
 import com.assistant.core.voice.VoiceTuning
 
 /**
- * Orchestrator-link health of a LIVE voice session (decision P-2): "auto-restart, not quietly".
+ * Link health of a LIVE voice session (decision P-2): "auto-restart, not quietly". Two legs can
+ * drop: the orchestrator socket, and the call's own media path (WebRTC ICE to OpenAI, which
+ * dropped alone on 2026-10-13 while the socket stayed up). One outage covers both.
  *
  * ```
- * UP ──link lost (Disconnected willReconnect)──► RECONNECTING(elapsed) ──voice re-confirmed──► UP   (+ Restored)
+ * UP ──a leg lost (socket Disconnected willReconnect / ICE disconnected)──► RECONNECTING(elapsed) ──both legs back──► UP   (+ Restored)
  *                                                    │  socket back → voice_start re-arm (old path, unchanged)
+ *                                                    │  media still down after the grace / ICE failed → a new call
  *                                                    └── elapsed ≥ LINK_RETRY_BUDGET_MS ──► FAILED   (+ Failed)
  * FAILED ──manual Reconnect / new start──► UP
  * ```
  *
- * "Voice re-confirmed" = the backend answered the re-arm `voice_start` with
+ * The socket leg is back when the backend answers the re-arm `voice_start` with
  * `session_started{voice: true, voice_initiator: true}` (the server ends voice at once when the
- * owner's socket drops, spec 12 V-8 / G-31, so a bare socket reconnect is not enough).
+ * owner's socket drops, spec 12 V-8 / G-31, so a bare socket reconnect is not enough); the media
+ * leg when ICE recovers or the replacement call's data channel opens.
  *
  * The host (A-08) turns the events into the call-app cues: [VoiceLinkEvent.Lost] starts the
  * "reconnecting" tone + "Reconnecting…" visual, [VoiceLinkEvent.Restored] plays the distinct

@@ -13,7 +13,13 @@ from orchestrator.config import OrchestratorConfig
 from utils.mcp_config import load_available_mcps
 
 # Limits for content injection
-MAX_MEMORY_CHARS = 12000
+# Cap on each memory file read into the prompt (private memory, and the per-provider file).
+# Raised from 12000 on 2026-10-13: the Qwen provider file carries Archie's diary — identity
+# and alignment material — and adding the avatar expression vocabulary pushed it past the old
+# cap, silently truncating the tail. Personality content should not be squeezed to fit an
+# arbitrary limit. At ~24k chars (~6k tokens) each, the main + provider files together stay a
+# modest share of a realtime voice session's context.
+MAX_MEMORY_CHARS = 24000
 MAX_MEMORY_INDEX_CHARS = 40000
 
 # Shared memory index filename

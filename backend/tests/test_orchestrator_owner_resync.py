@@ -11,6 +11,9 @@ ignored ``voice_ended`` (the call outlived ``end_voice_session``).
 
 from __future__ import annotations
 
+import asyncio
+import threading
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import orjson
@@ -117,3 +120,75 @@ def test_other_device_plain_start_is_passive():
         assert started["voice"] is True
         assert started["voice_initiator"] is False
         assert session.voice_owner_ws is owner
+
+
+REATTACH_VOICE_START = orjson.dumps({"type": "voice_start", "local_id": "orch-1", "reattach": True}).decode()
+
+
+def _wait_until(cond, timeout=3.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if cond():
+            return True
+        time.sleep(0.01)
+    return False
+
+
+def test_reattach_voice_start_takes_ownership_before_the_slow_start():
+    """The old socket's close, noticed while the re-arm runs, must not end voice.
+
+    2026-10-13 (POCO X7 Pro, Wi-Fi off/on): the server noticed the dead
+    owner socket ~1 s after the phone's re-arm arrived on its new socket,
+    while ``session.update`` was still being built; the close still named the
+    old socket the owner and ended the voice the re-arm was resuming.
+    """
+    client, session = _client()
+    release = threading.Event()
+
+    async def slow_session_update():
+        while not release.is_set():
+            await asyncio.sleep(0.01)
+        return {"type": "session.update"}
+
+    old_cm = client.websocket_connect("/api/orchestrator/chat")
+    old_ws = old_cm.__enter__()
+    old_ws.send_text(VOICE_START)
+    assert _recv_type(old_ws, "session_started")["voice_initiator"] is True
+    old_owner = session.voice_owner_ws
+    session.get_session_update = AsyncMock(side_effect=slow_session_update)
+
+    with client.websocket_connect("/api/orchestrator/chat") as new_ws:
+        new_ws.send_text(REATTACH_VOICE_START)
+        assert _wait_until(lambda: session.voice_owner_ws is not old_owner), "ownership not claimed"
+        old_cm.__exit__(None, None, None)  # the dead socket's close lands mid-start
+        time.sleep(0.2)
+        session.end_voice.assert_not_awaited()
+
+        release.set()
+        started = _recv_type(new_ws, "session_started")
+        assert started["voice_initiator"] is True
+        assert session.voice_owner_ws is not None and session.voice_owner_ws is not old_owner
+    # The new owner's own close still ends voice (the normal rule).
+    assert _wait_until(lambda: session.end_voice.await_count == 1)
+
+
+def test_plain_voice_start_does_not_claim_before_it_completes():
+    client, session = _client()
+    release = threading.Event()
+
+    async def slow_session_update():
+        while not release.is_set():
+            await asyncio.sleep(0.01)
+        return {"type": "session.update"}
+
+    with client.websocket_connect("/api/orchestrator/chat") as old_ws:
+        old_ws.send_text(VOICE_START)
+        _recv_type(old_ws, "session_started")
+        old_owner = session.voice_owner_ws
+        session.get_session_update = AsyncMock(side_effect=slow_session_update)
+        with client.websocket_connect("/api/orchestrator/chat") as new_ws:
+            new_ws.send_text(VOICE_START)
+            time.sleep(0.2)
+            assert session.voice_owner_ws is old_owner
+            release.set()
+            _recv_type(new_ws, "session_started")
