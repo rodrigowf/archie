@@ -1017,7 +1017,7 @@ The groups mirror IA §7 "This device", which is the whole lite scope (inv04 §9
 | Group | Rows |
 |---|---|
 | Connection | current server + status + Connect/Disconnect; saved and discovered servers (≤ 10 rows, `LinearLayout`); Scan; Add (dialog: label + URL); Auto-connect |
-| Audio | Mic gain (`SeekBar` 0–150%, 10% steps), Echo ducking (0–10%, 0.5% steps), Echo ducking tail (Off–5 s, 0.25 s steps), Output (`RadioGroup` Auto/Speaker/Earpiece/BT/Wired, availability live from `DeviceWatcher`) |
+| Audio | Mic gain (`SeekBar` 0–150%, 10% steps), Echo ducking (0–10%, 0.5% steps), Echo ducking tail (Off–5 s, 0.25 s steps), Output (`RadioGroup` Auto/Speaker/Earpiece/BT/Wired, availability live from `DeviceWatcher`), Keep audio output awake (`Switch`, lite only — see [voice architecture](../voice/architecture.md)) |
 | Wake word | Enable; Talk phrases; Wake phrases (both `EditText`, **commit on IME Done or focus loss**, which removes the separate Save buttons, inv03 §8); Wake sensitivity; Talk auto-stop sensitivity |
 | Triggers | Recents long-press (+ "Open Accessibility settings" button) |
 | About | real versionName/versionCode (fixes inv03 §8 bug 9), server host, backend version if available |

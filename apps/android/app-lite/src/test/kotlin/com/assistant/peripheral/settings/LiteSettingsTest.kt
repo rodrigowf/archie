@@ -72,6 +72,10 @@ class LiteSettingsTest {
         assertEquals(1_000L, host.applied.last().echoDuckTailMs)
         withTimeout(5_000) { store.settings.first { it?.echoDuckTailMs == 1_000L } }
 
+        // Not a voice setting: the host gets the same slice, the store gets the key (OutputKeepAlive watches it).
+        s.setKeepOutputAwake(true)
+        withTimeout(5_000) { store.settings.first { it?.keepOutputAwake == true } }
+
         s.setOutput(AudioOutput.EARPIECE)
         s.setTalkStopStep(5)
         s.setWakeSensitivityStep(7)

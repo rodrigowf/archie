@@ -31,6 +31,7 @@ import com.assistant.core.voice.ports.WebRtcDeps
 import com.assistant.core.voice.ports.WsPcmDeps
 import com.assistant.core.voicehost.cue.AndroidCuePlayer
 import com.assistant.core.voicehost.platform.AndroidAudioSession
+import com.assistant.core.voicehost.platform.OutputKeepAlive
 import com.assistant.core.voicehost.platform.AndroidForegroundBringer
 import com.assistant.core.voicehost.platform.AndroidSpeakerMuter
 import com.assistant.core.voicehost.platform.MicPushToTalkRecorder
@@ -50,7 +51,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 /**
  * Production wiring of the [VoiceHostRuntime] (the app graphs call this once, lazily, spec 14 §2.2):
@@ -141,6 +144,9 @@ object AndroidVoiceHost {
                 dataChannelTap = dataChannelTap,
             ),
         )
+        // Lite "Keep audio output awake": watches its own key, outside the voice runtime (silence only).
+        val keepAlive = OutputKeepAlive(app, log)
+        scope.launch { settings.settings.map { it?.keepOutputAwake == true }.distinctUntilChanged().collect(keepAlive::setEnabled) }
         // A device appearing / disappearing mid-call re-runs routing (old `registerDeviceCallback`).
         audio.onDevicesChanged = { runtime.lastSettings()?.audioOutput?.let { runtime.session.setAudioOutput(it.toChoice()) } }
         return runtime

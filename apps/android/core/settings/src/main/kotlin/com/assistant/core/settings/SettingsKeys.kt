@@ -54,4 +54,6 @@ object SettingsKeys {
     val VOICE_OVERLAY_ANCHOR = stringPreferencesKey("voice_overlay_anchor")
     /** Settings → Audio → "Echo ducking tail", in ms. */
     val ECHO_DUCK_TAIL_MS = longPreferencesKey("echo_duck_tail_ms")
+    /** Lite Settings → Audio → "Keep audio output awake". */
+    val KEEP_OUTPUT_AWAKE = booleanPreferencesKey("keep_output_awake")
 }

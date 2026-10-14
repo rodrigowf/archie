@@ -43,6 +43,7 @@ class LiteSettings(
     fun setEchoTailStep(step: Int) = Steps.tailOf(step).let { v -> change({ it.copy(echoDuckTailMs = v) }) { setEchoDuckTailMs(v) } }
     fun setTalkStopStep(step: Int) = Steps.talkStopOf(step).let { v -> change({ it.copy(talkSilenceSensitivity = v) }) { setTalkSilenceSensitivity(v) } }
     fun setOutput(v: AudioOutput) = change({ it.copy(audioOutput = v) }) { setAudioOutput(v) }
+    fun setKeepOutputAwake(v: Boolean) = change({ it.copy(keepOutputAwake = v) }) { setKeepOutputAwake(v) }
     fun setRecentsTrigger(v: Boolean) = change({ it.copy(enableButtonTrigger = v) }) { setEnableButtonTrigger(v) }
 
     fun addServer(label: String, url: String) {

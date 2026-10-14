@@ -458,6 +458,15 @@ change:
   While a lengthened OpenAI restore is pending, `speech_started` no longer
   restores the mic early (late echo is what triggers it there). Off = the
   frozen behaviour, unchanged. It only ever delays the restore.
+- **Keep audio output awake** (lite Settings → Audio; `DeviceSettings.keepOutputAwake`,
+  key `keep_output_awake`, default off): `OutputKeepAlive` (`:core:voice-host`) loops a
+  static buffer of digital silence on `USAGE_MEDIA` while a wired plug is in the jack, so
+  the output never goes to standby. Without it, ~3 s after the last sound the A300M HAL
+  disables the jack path (`out_standby` → `disable_snd_device(voip-headset-others)`) and
+  powered speakers on the jack hiss until the next sound. It sits outside the voice
+  runtime (it watches its own key, not `VoiceHostSettings`): zeros only, no audio focus,
+  no thread; Archie's voice and the cues mix on top. While it runs the volume keys change
+  media volume and audioserver keeps its wakelock.
 - Mic source: `VOICE_RECOGNITION` below API 24, `VOICE_COMMUNICATION` from 24.
 - Route re-applied at +1 / +4 / +9 s after start. Cues on `STREAM_MUSIC`.
 

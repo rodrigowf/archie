@@ -89,6 +89,7 @@ class SettingsScreen(context: Context, private val palette: LitePalette, private
     private val echoTailValue = value()
     private val outputGroup = RadioGroup(context).apply { orientation = RadioGroup.VERTICAL }
     private val outputButtons = LinkedHashMap<AudioOutput, RadioButton>()
+    private val keepAwake = switch()
 
     // Wake word
     private val wakeEnabled = switch()
@@ -156,6 +157,7 @@ class SettingsScreen(context: Context, private val palette: LitePalette, private
                 addView(helper("Where Archie's voice plays"))
                 addView(outputGroup)
             })
+            row(listOf(title("Keep audio output awake"), helper("Plays silence while something is plugged into the jack — stops speaker hiss between sounds")), keepAwake)
         }
         group("Wake word") {
             row(listOf(title("Wake word"), helper("Listen for the phrases below")), wakeEnabled)
@@ -206,6 +208,7 @@ class SettingsScreen(context: Context, private val palette: LitePalette, private
         autoConnect.setOnCheckedChangeListener { _, v -> if (!binding) actions.settings.setAutoConnect(v) }
         wakeEnabled.setOnCheckedChangeListener { _, v -> if (!binding) actions.settings.setWakeEnabled(v) }
         recents.setOnCheckedChangeListener { _, v -> if (!binding) actions.settings.setRecentsTrigger(v) }
+        keepAwake.setOnCheckedChangeListener { _, v -> if (!binding) actions.settings.setKeepOutputAwake(v) }
         outputGroup.setOnCheckedChangeListener { _, id ->
             if (!binding) outputButtons.entries.firstOrNull { it.value.id == id }?.let { actions.settings.setOutput(it.key) }
         }
@@ -245,6 +248,7 @@ class SettingsScreen(context: Context, private val palette: LitePalette, private
             outputButtons[d.audioOutput]?.let { if (!it.isChecked) outputGroup.check(it.id) }
             enable(outputButtons[AudioOutput.BLUETOOTH], s.outputs.bluetoothCallAudio || s.outputs.bluetoothMedia || d.audioOutput == AudioOutput.BLUETOOTH)
             enable(outputButtons[AudioOutput.WIRED], s.outputs.wired || d.audioOutput == AudioOutput.WIRED)
+            keepAwake.isChecked = d.keepOutputAwake
 
             wakeEnabled.isChecked = d.enableWakeWord
             if (!wakePhrases.hasFocus()) wakePhrases.setText(d.wakeWord)

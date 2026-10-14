@@ -25,6 +25,7 @@ class SettingsStoreTest {
         store.setEchoDuckingGain(3f)
         store.setEchoDuckTailMs(9_000L)
         store.setAudioOutput(AudioOutput.BLUETOOTH)
+        store.setKeepOutputAwake(true)
         store.setThemeMode(ThemeMode.LIGHT)
         store.setServerUrl("  ws://10.0.0.2:80 ")
         runCurrent()
@@ -32,6 +33,7 @@ class SettingsStoreTest {
         assertEquals(1.5f, s.micGainLevel); assertEquals(0f, s.wakeWordMicGainLevel)
         assertEquals(1f, s.talkSilenceSensitivity); assertEquals(1f, s.echoDuckingGain)
         assertEquals(5_000L, s.echoDuckTailMs)
+        assertEquals(true, s.keepOutputAwake); assertEquals(true, ds.current[SettingsKeys.KEEP_OUTPUT_AWAKE])
         assertEquals(ThemeMode.LIGHT, s.themeMode)
         // Same wire values as the old app.
         assertEquals("BLUETOOTH", ds.current[SettingsKeys.AUDIO_OUTPUT]); assertEquals("LIGHT", ds.current[SettingsKeys.THEME_MODE])

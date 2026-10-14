@@ -35,6 +35,11 @@ data class DeviceSettings(
      */
     val echoDuckTailMs: Long = 0L,
     val audioOutput: AudioOutput = AudioOutput.AUTO,
+    /**
+     * Loop silence while a wired plug is in the jack so the output never goes to standby (powered
+     * speakers on the jack hiss while the codec stops driving it). Lite only; new key.
+     */
+    val keepOutputAwake: Boolean = false,
     val enableButtonTrigger: Boolean = false,
     /** Expanded layout list pane (spec 14 §2.4). New key. */
     val listPaneCollapsed: Boolean = false,
