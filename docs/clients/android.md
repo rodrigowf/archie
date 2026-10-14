@@ -72,6 +72,7 @@ are minSdk 26 and main-app only.
 | `core/markdown` | modern | Incremental streaming markdown on commonmark-java, code blocks, tables |
 | `feature/chat`, `feature/toolcards`, `feature/sessions`, `feature/memory`, `feature/visuals`, `feature/settings` | modern | Main-app screens |
 | `app-main`, `app-lite` | modern / legacy | The two applications |
+| `app-mictest` | legacy | Standalone mic test tool (`com.assistant.mictest`, convention `archie.android.app.tool`, no project deps): VU meter + ~10 s level history, mic source choice (VOICE_RECOGNITION = headset mic when plugged, CAMCORDER = phone mic), record/play with boost, headset plug log, dropout/click counters. Needs Archie lite's listening off (one recorder at a time on Android 5) |
 | `build-logic/` | — | Convention plugins: SDK levels (`ArchieBuild.kt`), signing, tiers, `LiteGuards`, `verifyNoCompose`, `verifyPatchedVosk` |
 | `tools/native/` | — | `patch_vosk_weaken.py`, `verify_vosk_patch.py`, `check_elf_alignment.sh` |
 | `tools/parity/` | — | `extract_old_constants.py` + `old_constants.json` (constants pinned from the old app) |

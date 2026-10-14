@@ -74,6 +74,21 @@ class AndroidAppLiteConventionPlugin : Plugin<Project> {
     }
 }
 
+/**
+ * `archie.android.app.tool`: small standalone device tools (e.g. :app-mictest), minSdk 21 so they
+ * run on the A300M. Signed with the SDK debug key unless keystore.properties has a `tool.*` entry.
+ */
+class AndroidAppToolConventionPlugin : Plugin<Project> {
+    override fun apply(target: Project) = with(target) {
+        configureArchieApp(
+            minSdk = ArchieSdk.MIN_SDK_LEGACY,
+            deviceAbis = listOf("armeabi-v7a", "arm64-v8a"),
+            emulatorAbis = listOf("x86", "x86_64"),
+            signingPrefix = "tool",
+        )
+    }
+}
+
 private fun Project.configureArchieApp(
     minSdk: Int,
     deviceAbis: List<String>,

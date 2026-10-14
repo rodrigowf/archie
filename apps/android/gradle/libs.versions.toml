@@ -147,3 +147,4 @@ archie-android-library = { id = "archie.android.library" }
 archie-android-compose = { id = "archie.android.compose" }
 archie-android-app-main = { id = "archie.android.app.main" }
 archie-android-app-lite = { id = "archie.android.app.lite" }
+archie-android-app-tool = { id = "archie.android.app.tool" }
