@@ -1,6 +1,7 @@
 package com.assistant.core.voicehost.runtime
 
 import android.app.Activity
+import com.assistant.core.model.AudioInput
 import com.assistant.core.protocol.ClientFrame
 import com.assistant.core.voice.ports.SessionPhase
 import com.assistant.core.voicehost.HostConfig
@@ -55,6 +56,18 @@ class RuntimeWakeTest {
         r.settle()
         assertEquals(2, r.engines.size)
         assertEquals("gain kept explicit", 1.3f, r.engines.last().config.wakeGain, 0f)
+    }
+
+    /** NEW (2026-10-14): the wake loop opens its mic with the Input choice, so a change restarts it. */
+    @Test
+    fun anInputChangeRestartsTheWakeEngine() = runTest {
+        val r = HostRig(this)
+        r.settings.value = HostRig.SETTINGS
+        r.settle()
+        r.advance(10_000)
+        r.settings.value = HostRig.SETTINGS.copy(audioInput = AudioInput.WIRED)
+        r.settle()
+        assertEquals("restarted so the mic reopens on the new source", 2, r.engines.size)
     }
 
     @Test

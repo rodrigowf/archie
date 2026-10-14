@@ -11,6 +11,7 @@ import com.assistant.core.audio.platform.AndroidAudioFocus
 import com.assistant.core.audio.platform.AndroidAudioManagerPort
 import com.assistant.core.audio.platform.AndroidDeviceWatcher
 import com.assistant.core.audio.ports.AppliedRoute
+import com.assistant.core.audio.ports.InputChoice
 import com.assistant.core.audio.ports.MicOpenResult
 import com.assistant.core.audio.ports.MicSource
 import com.assistant.core.audio.ports.MicSourceFactory
@@ -53,8 +54,8 @@ class AndroidAudioSession(context: Context, private val sdkInt: Int, private val
         watcher.start { onDevicesChanged() }
     }
 
-    override fun applyRoute(provider: ProviderKind, desired: OutputChoice): AppliedRoute {
-        val route = audioCore.routeDecider.pickRoute(desired, provider, applier.availableOutputs())
+    override fun applyRoute(provider: ProviderKind, desired: OutputChoice, input: InputChoice): AppliedRoute {
+        val route = audioCore.routeDecider.pickRoute(desired, provider, applier.availableOutputs(), input)
         return applier.apply(route)
     }
 
@@ -123,6 +124,7 @@ class MicPushToTalkRecorder(
     private val sdkInt: Int,
     private val scope: CoroutineScope,
     private val log: VoiceLog,
+    private val micInput: () -> InputChoice = { InputChoice.AUTO },
 ) : PushToTalkRecorder {
     private val audioCore = DefaultAudioCore()
     private val lock = Any()
@@ -133,7 +135,7 @@ class MicPushToTalkRecorder(
         val rate = HostTuning.PTT_SAMPLE_RATE_HZ
         val spec = MicSpec(
             sampleRateHz = rate,
-            source = audioCore.micSourcePolicy.sourceFor(sdkInt),
+            source = audioCore.micSourcePolicy.sourceFor(sdkInt, micInput()),
             bufferBytes = audioCore.bufferSizing.micBufferBytes(mics.minBufferBytes(rate), rate),
         )
         val mic = when (val r = mics.open(spec)) {

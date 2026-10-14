@@ -2,6 +2,7 @@ package com.assistant.core.voice.session
 
 import com.assistant.core.audio.AudioTuning
 import com.assistant.core.audio.ports.FallbackReason
+import com.assistant.core.audio.ports.InputChoice
 import com.assistant.core.audio.ports.OutputChoice
 import com.assistant.core.audio.ports.ProviderKind
 import com.assistant.core.audio.ports.Route
@@ -148,6 +149,7 @@ class DefaultVoiceSessionController(
     private var duckGain = AudioTuning.DEFAULT_ECHO_DUCKING_GAIN
     private var duckTailMs = AudioTuning.DEFAULT_ECHO_DUCK_TAIL_MS
     private var audioOutput = OutputChoice.AUTO
+    private var audioInput = InputChoice.AUTO
     private val linkMachine = VoiceLinkMachine()
 
     // ── commands ───────────────────────────────────────────────────────────────────────────────
@@ -243,6 +245,17 @@ class DefaultVoiceSessionController(
             duckTailMs to transport
         }
         t?.setEchoDuckTailMs(tail)
+    }
+
+    /** Route: applied now when a session holds audio focus. Mic source: from the next connect. */
+    override fun setAudioInput(input: InputChoice) {
+        val t = synchronized(lock) {
+            audioInput = input
+            transport
+        }
+        t?.setAudioInput(input)
+        log.d(TAG, "Audio input set to: $input")
+        applyRoute()
     }
 
     /** Stored for the next session; applied now when a session holds audio focus. */
@@ -618,6 +631,7 @@ class DefaultVoiceSessionController(
         t.setMicGain(gain)
         t.setEchoDuckingGain(duck)
         t.setEchoDuckTailMs(tail)
+        t.setAudioInput(synchronized(lock) { audioInput })
         t.setSessionUpdateFallback { relay.cachedSessionUpdate }
         val adopted = synchronized(lock) {
             if (finalized) false else { transport = t; levelSource.value = t; true }
@@ -695,6 +709,7 @@ class DefaultVoiceSessionController(
         t.setMicGain(gain)
         t.setEchoDuckingGain(duck)
         t.setEchoDuckTailMs(tail)
+        t.setAudioInput(synchronized(lock) { audioInput })
         // The DC-open / echo self-heal re-asserts the cached session.update (RS-03).
         t.setSessionUpdateFallback { relay.cachedSessionUpdate }
         val adopted = synchronized(lock) {
@@ -932,11 +947,11 @@ class DefaultVoiceSessionController(
 
     /** Picks + applies the route for the current output and provider; forwards the speaker plane. */
     private fun applyRoute() {
-        val (t, output) = synchronized(lock) {
+        val (t, output, input) = synchronized(lock) {
             if (focusToken == null) return
-            transport to audioOutput
+            Triple(transport, audioOutput, audioInput)
         }
-        val applied = deps.audio.applyRoute(t?.kind ?: ProviderKind.WEBRTC, output)
+        val applied = deps.audio.applyRoute(t?.kind ?: ProviderKind.WEBRTC, output, input)
         t?.setSpeakerMode(applied.speakerMode, applied.preferredDevice)
         val route = applied.route
         if (route is Route.BluetoothUnsupported) {

@@ -3,6 +3,7 @@ package com.assistant.core.voice.ports
 import com.assistant.core.audio.ports.AudioCore
 import com.assistant.core.audio.ports.AudioDeviceRef
 import com.assistant.core.audio.ports.AudioTrackFactory
+import com.assistant.core.audio.ports.InputChoice
 import com.assistant.core.audio.ports.MicSourceFactory
 import com.assistant.core.audio.ports.MonotonicClock
 import com.assistant.core.audio.ports.ProviderKind
@@ -89,6 +90,9 @@ interface VoiceTransport {
 
     /** Extra time the mic stays ducked after the agent's speech (the "Echo ducking tail" setting). */
     fun setEchoDuckTailMs(ms: Long)
+
+    /** The user's Input choice; picks the recording source when the mic opens (at connect). */
+    fun setAudioInput(input: InputChoice)
     fun toggleMute(): Boolean
     fun setSpeakerMode(mode: SpeakerMode, preferredDevice: AudioDeviceRef?)
 

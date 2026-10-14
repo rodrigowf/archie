@@ -2,6 +2,7 @@ package com.assistant.core.voicehost
 
 import android.app.Activity
 import com.assistant.core.audio.DefaultAudioCore
+import com.assistant.core.model.AudioInput
 import com.assistant.core.model.AudioOutput
 import com.assistant.core.model.PoolSession
 import com.assistant.core.network.FrameSocket
@@ -205,6 +206,7 @@ class HostRig(
             echoDuckingGain = 0.05f,
             echoDuckTailMs = 0L,
             audioOutput = AudioOutput.AUTO,
+            audioInput = AudioInput.AUTO,
             buttonTriggerEnabled = true,
         )
     }

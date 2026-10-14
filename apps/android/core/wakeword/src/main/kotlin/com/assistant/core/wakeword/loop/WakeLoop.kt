@@ -275,7 +275,7 @@ internal class WakeLoop(
         val mics = deps.mics
         val spec = MicSpec(
             sampleRateHz = WakeTuning.SAMPLE_RATE_HZ,
-            source = DefaultMicSourcePolicy.sourceFor(deps.sdkInt),
+            source = DefaultMicSourcePolicy.sourceFor(deps.sdkInt, deps.micInput()),
             bufferBytes = Clips.monitorBufferBytes(mics.minBufferBytes(WakeTuning.SAMPLE_RATE_HZ)),
         )
         var failures = 0

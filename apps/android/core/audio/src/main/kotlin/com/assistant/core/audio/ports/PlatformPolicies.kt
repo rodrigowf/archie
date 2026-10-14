@@ -6,7 +6,13 @@ package com.assistant.core.audio.ports
  */
 
 /** `MediaRecorder.AudioSource` values the voice stack uses. */
-enum class MicSourceType(val androidValue: Int) { VOICE_RECOGNITION(6), VOICE_COMMUNICATION(7) }
+enum class MicSourceType(val androidValue: Int) {
+    VOICE_RECOGNITION(6),
+    VOICE_COMMUNICATION(7),
+
+    /** Always the built-in (back) mic, even with a headset plugged in: the "Phone mic" input. */
+    CAMCORDER(5),
+}
 
 /**
  * VOICE_RECOGNITION below API 24 (N), VOICE_COMMUNICATION from 24 (inv04 §5.1, `55037c2`).
@@ -15,6 +21,14 @@ enum class MicSourceType(val androidValue: Int) { VOICE_RECOGNITION(6), VOICE_CO
  */
 interface MicSourcePolicy {
     fun sourceFor(sdkInt: Int): MicSourceType
+
+    /**
+     * The source for the user's Input choice. Only PHONE changes it (CAMCORDER); WIRED and
+     * BLUETOOTH come from the route (the policy prefers a plugged headset mic for VOICE_RECOGNITION,
+     * and SCO's forced record device for the Bluetooth mic). AUTO = [sourceFor].
+     */
+    fun sourceFor(sdkInt: Int, input: InputChoice): MicSourceType =
+        if (input == InputChoice.PHONE) MicSourceType.CAMCORDER else sourceFor(sdkInt)
 }
 
 enum class TrackWriteMode {

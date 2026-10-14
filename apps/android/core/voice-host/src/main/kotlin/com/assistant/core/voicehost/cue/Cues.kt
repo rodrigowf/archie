@@ -130,7 +130,7 @@ class HostCues(
     override fun reconnect() = play(CueKind.RECONNECT_WARNING)
 
     fun play(kind: CueKind) {
-        log.d(TAG, "cue ${kind.name} (stream=${HostTuning.CUE_STREAM})")
+        log.d(TAG, "cue ${kind.name}") // the player logs the stream it really used
         player.play(kind)
         onCue(kind)
     }

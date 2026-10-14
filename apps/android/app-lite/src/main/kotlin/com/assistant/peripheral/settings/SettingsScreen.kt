@@ -24,6 +24,7 @@ import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
 import com.assistant.core.audio.ports.AvailableOutputs
+import com.assistant.core.model.AudioInput
 import com.assistant.core.model.AudioOutput
 import com.assistant.core.model.DeviceSettings
 import com.assistant.core.network.DiscoveredServer
@@ -89,6 +90,9 @@ class SettingsScreen(context: Context, private val palette: LitePalette, private
     private val echoTailValue = value()
     private val outputGroup = RadioGroup(context).apply { orientation = RadioGroup.VERTICAL }
     private val outputButtons = LinkedHashMap<AudioOutput, RadioButton>()
+    private val inputGroup = RadioGroup(context).apply { orientation = RadioGroup.VERTICAL }
+    private val inputButtons = LinkedHashMap<AudioInput, RadioButton>()
+    private val inputHelper = helper(INPUT_HELP)
 
     // Wake word
     private val wakeEnabled = switch()
@@ -156,6 +160,13 @@ class SettingsScreen(context: Context, private val palette: LitePalette, private
                 addView(helper("Where Archie's voice plays"))
                 addView(outputGroup)
             })
+            add(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(context.dpi(16f), context.dpi(12f), context.dpi(16f), context.dpi(12f))
+                addView(title("Microphone"))
+                addView(inputHelper)
+                addView(inputGroup)
+            })
         }
         group("Wake word") {
             row(listOf(title("Wake word"), helper("Listen for the phrases below")), wakeEnabled)
@@ -187,16 +198,17 @@ class SettingsScreen(context: Context, private val palette: LitePalette, private
             AudioOutput.AUTO to "Auto", AudioOutput.LOUDSPEAKER to "Speaker", AudioOutput.EARPIECE to "Earpiece",
             AudioOutput.BLUETOOTH to "Bluetooth", AudioOutput.WIRED to "Wired headphones",
         )) {
-            val rb = RadioButton(context).apply {
-                text = label
-                id = View.generateViewId()
-                setTextColor(palette.onSurface)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-                buttonTintList = ColorStateList.valueOf(palette.primary)
-                minHeight = context.dpi(48f)
-            }
+            val rb = radio(label)
             outputButtons[out] = rb
             outputGroup.addView(rb)
+        }
+        for ((input, label) in listOf(
+            AudioInput.AUTO to "Auto", AudioInput.PHONE to "Phone mic", AudioInput.WIRED to "Wired mic",
+            AudioInput.BLUETOOTH to "Bluetooth mic",
+        )) {
+            val rb = radio(label)
+            inputButtons[input] = rb
+            inputGroup.addView(rb)
         }
 
         // Listeners (ignored while binding).
@@ -208,6 +220,9 @@ class SettingsScreen(context: Context, private val palette: LitePalette, private
         recents.setOnCheckedChangeListener { _, v -> if (!binding) actions.settings.setRecentsTrigger(v) }
         outputGroup.setOnCheckedChangeListener { _, id ->
             if (!binding) outputButtons.entries.firstOrNull { it.value.id == id }?.let { actions.settings.setOutput(it.key) }
+        }
+        inputGroup.setOnCheckedChangeListener { _, id ->
+            if (!binding) inputButtons.entries.firstOrNull { it.value.id == id }?.let { actions.settings.setInput(it.key) }
         }
         onCommit(micGain, micGainValue, Steps::gainLabel) { actions.settings.setMicGainStep(it) }
         onCommit(echoDuck, echoDuckValue, Steps::duckLabel) { actions.settings.setEchoDuckStep(it) }
@@ -243,8 +258,15 @@ class SettingsScreen(context: Context, private val palette: LitePalette, private
             setSeek(wakeSensitivity, wakeSensitivityValue, Steps.gainStep(d.wakeWordMicGainLevel), Steps::gainLabel)
             setSeek(talkStop, talkStopValue, Steps.talkStopStep(d.talkSilenceSensitivity), Steps::talkStopLabel)
             outputButtons[d.audioOutput]?.let { if (!it.isChecked) outputGroup.check(it.id) }
+            // The Bluetooth mic pins the output to Bluetooth call audio: the other outputs are off meanwhile.
+            val btMic = d.audioInput == AudioInput.BLUETOOTH
+            for (o in listOf(AudioOutput.AUTO, AudioOutput.LOUDSPEAKER, AudioOutput.EARPIECE)) enable(outputButtons[o], !btMic)
             enable(outputButtons[AudioOutput.BLUETOOTH], s.outputs.bluetoothCallAudio || s.outputs.bluetoothMedia || d.audioOutput == AudioOutput.BLUETOOTH)
-            enable(outputButtons[AudioOutput.WIRED], s.outputs.wired || d.audioOutput == AudioOutput.WIRED)
+            enable(outputButtons[AudioOutput.WIRED], !btMic && (s.outputs.wired || d.audioOutput == AudioOutput.WIRED))
+            inputButtons[d.audioInput]?.let { if (!it.isChecked) inputGroup.check(it.id) }
+            enable(inputButtons[AudioInput.WIRED], s.outputs.wired || d.audioInput == AudioInput.WIRED)
+            enable(inputButtons[AudioInput.BLUETOOTH], s.outputs.bluetoothCallAudio || btMic)
+            inputHelper.text = if (btMic) BT_MIC_HELP else INPUT_HELP
 
             wakeEnabled.isChecked = d.enableWakeWord
             if (!wakePhrases.hasFocus()) wakePhrases.setText(d.wakeWord)
@@ -261,6 +283,15 @@ class SettingsScreen(context: Context, private val palette: LitePalette, private
     }
 
     /** Unavailable outputs stay visible but disabled (live from [OutputAvailability]). */
+    private fun radio(label: String) = RadioButton(context).apply {
+        text = label
+        id = View.generateViewId()
+        setTextColor(palette.onSurface)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+        buttonTintList = ColorStateList.valueOf(palette.primary)
+        minHeight = context.dpi(48f)
+    }
+
     private fun enable(b: RadioButton?, on: Boolean) {
         b ?: return
         b.isEnabled = on
@@ -462,5 +493,7 @@ class SettingsScreen(context: Context, private val palette: LitePalette, private
     private companion object {
         const val MAX_ROWS = 10
         const val TRACKING = "tracking"
+        const val INPUT_HELP = "Which mic Archie listens with"
+        const val BT_MIC_HELP = "The Bluetooth mic also plays Archie on Bluetooth"
     }
 }

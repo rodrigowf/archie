@@ -1,11 +1,14 @@
 package com.assistant.peripheral.settings
 
+import com.assistant.core.model.AudioInput
 import com.assistant.core.model.AudioOutput
 import com.assistant.core.model.DeviceSettings
 import com.assistant.core.settings.SettingsStore
 import com.assistant.core.voicehost.VoiceHost
 import com.assistant.core.voicehost.VoiceHostSettings
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -43,6 +46,14 @@ class LiteSettings(
     fun setEchoTailStep(step: Int) = Steps.tailOf(step).let { v -> change({ it.copy(echoDuckTailMs = v) }) { setEchoDuckTailMs(v) } }
     fun setTalkStopStep(step: Int) = Steps.talkStopOf(step).let { v -> change({ it.copy(talkSilenceSensitivity = v) }) { setTalkSilenceSensitivity(v) } }
     fun setOutput(v: AudioOutput) = change({ it.copy(audioOutput = v) }) { setAudioOutput(v) }
+
+    /** The Bluetooth mic exists only on Bluetooth call audio, so choosing it also moves the output there. */
+    fun setInput(v: AudioInput) =
+        if (v == AudioInput.BLUETOOTH) {
+            change({ it.copy(audioInput = v, audioOutput = AudioOutput.BLUETOOTH) }) { setAudioInput(v); setAudioOutput(AudioOutput.BLUETOOTH) }
+        } else {
+            change({ it.copy(audioInput = v) }) { setAudioInput(v) }
+        }
     fun setRecentsTrigger(v: Boolean) = change({ it.copy(enableButtonTrigger = v) }) { setEnableButtonTrigger(v) }
 
     fun addServer(label: String, url: String) {
@@ -60,6 +71,28 @@ class LiteSettings(
     /** What the host was last given while writes are still in flight (the store lags behind them). */
     private var overlay: DeviceSettings? = null
 
+    /**
+     * Writes run one at a time, in the order of the changes: two quick changes of the same key
+     * (or a change that writes two keys) must not land out of order.
+     */
+    private val writes = Channel<suspend SettingsStore.() -> Unit>(Channel.UNLIMITED)
+
+    init {
+        scope.launch {
+            for (persist in writes) {
+                try {
+                    store.persist()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // A failed write leaves the store's value; the host already has the new one.
+                } finally {
+                    synchronized(lock) { if (--inFlight == 0) overlay = null }
+                }
+            }
+        }
+    }
+
     private fun change(transform: (DeviceSettings) -> DeviceSettings, persist: suspend SettingsStore.() -> Unit) {
         val next = synchronized(lock) {
             // Base on the newest values: a quick second change must not resurrect the first one's
@@ -69,16 +102,10 @@ class LiteSettings(
             if (n == cur) return
             overlay = n
             inFlight++
+            writes.trySend(persist)
             n
         }
         host.updateSettings(VoiceHostSettings.from(next))
-        scope.launch {
-            try {
-                store.persist() // each setter writes only its own key, so concurrent writes compose
-            } finally {
-                synchronized(lock) { if (--inFlight == 0) overlay = null }
-            }
-        }
     }
 
     companion object {

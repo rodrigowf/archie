@@ -51,3 +51,6 @@ data class ConnectionInfo(
 
 /** User-selected playback route (inv04 §3.4). */
 enum class AudioOutput { AUTO, EARPIECE, LOUDSPEAKER, WIRED, BLUETOOTH }
+
+/** Which microphone voice uses (device-local, lite Settings → Audio → Microphone). Stored by enum name. */
+enum class AudioInput { AUTO, PHONE, WIRED, BLUETOOTH }

@@ -1,5 +1,6 @@
 package com.assistant.core.settings
 
+import com.assistant.core.model.AudioInput
 import com.assistant.core.model.DeviceSettings
 import com.assistant.core.model.ThemeMode
 import com.assistant.core.model.SavedServer
@@ -75,6 +76,7 @@ class SettingsStore(
     suspend fun setEchoDuckingGain(v: Float) = edit { it[SettingsKeys.ECHO_DUCKING_GAIN] = v.coerceIn(0f, 1f) }
     suspend fun setEchoDuckTailMs(v: Long) = edit { it[SettingsKeys.ECHO_DUCK_TAIL_MS] = v.coerceIn(0L, 5_000L) }
     suspend fun setAudioOutput(v: AudioOutput) = edit { it[SettingsKeys.AUDIO_OUTPUT] = v.name }
+    suspend fun setAudioInput(v: AudioInput) = edit { it[SettingsKeys.AUDIO_INPUT] = v.name }
     /** The `assistant_service_prefs` mirror is [ServicePrefs]' job (the caller writes both). */
     suspend fun setEnableButtonTrigger(v: Boolean) = edit { it[SettingsKeys.ENABLE_BUTTON_TRIGGER] = v }
     suspend fun setListPaneCollapsed(v: Boolean) = edit { it[SettingsKeys.LIST_PANE_COLLAPSED] = v }
@@ -170,6 +172,7 @@ class SettingsStore(
                 echoDuckingGain = p[SettingsKeys.ECHO_DUCKING_GAIN] ?: d.echoDuckingGain,
                 echoDuckTailMs = p[SettingsKeys.ECHO_DUCK_TAIL_MS] ?: d.echoDuckTailMs,
                 audioOutput = AudioOutput.entries.firstOrNull { it.name == p[SettingsKeys.AUDIO_OUTPUT] } ?: AudioOutput.AUTO,
+                audioInput = AudioInput.entries.firstOrNull { it.name == p[SettingsKeys.AUDIO_INPUT] } ?: AudioInput.AUTO,
                 enableButtonTrigger = p[SettingsKeys.ENABLE_BUTTON_TRIGGER] ?: d.enableButtonTrigger,
                 listPaneCollapsed = p[SettingsKeys.LIST_PANE_COLLAPSED] ?: d.listPaneCollapsed,
                 stayConnectedInBackground = p[SettingsKeys.STAY_CONNECTED] ?: d.stayConnectedInBackground,
