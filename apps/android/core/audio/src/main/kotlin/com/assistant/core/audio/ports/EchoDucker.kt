@@ -31,8 +31,8 @@ interface PlaybackClock {
  *  - polls are due every `MIC_RESTORE_DRAIN_POLL_MS` (80) while draining;
  *  - "drained" = writes unchanged for ≥ `MIC_RESTORE_WRITES_QUIET_MS` (400) AND
  *    (head ≥ written OR head unchanged for ≥ 400 ms — the Lollipop post-underrun head freeze);
- *  - once drained, the next tick is due after `MIC_RESTORE_TAIL_MS` (1000) and restores with
- *    reason `drained:<reason>`;
+ *  - once drained, the next tick is due after `MIC_RESTORE_TAIL_MS` (1000) plus the user's
+ *    [setEchoDuckTailMs] extra (default 0) and restores with reason `drained:<reason>`;
  *  - head == null (track gone) restores on that tick;
  *  - there is NO overall drain timeout (`2ccee40`).
  *
@@ -57,6 +57,9 @@ interface EchoDucker {
 
     /** Clamped to [0, 1]. While ducked it applies immediately. */
     fun setEchoDuckingGain(gain: Float)
+
+    /** Extra tail after the drain, clamped to [0, 5000] ms (Bluetooth latency). Applies from the next tail. */
+    fun setEchoDuckTailMs(ms: Long)
 
     /** Idempotent rising edge: saves the gain, applies the duck gain, cancels a pending restore. */
     fun duck()

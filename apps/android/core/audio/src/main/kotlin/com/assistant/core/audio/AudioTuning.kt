@@ -69,6 +69,17 @@ object AudioTuning {
     /** A drain-loop debug line every this many polls (*plumb*). */
     const val MIC_RESTORE_DRAIN_LOG_EVERY_POLLS = 10
 
+    // ---- Echo ducking tail (NEW user setting, 2026-10-14; not from the old app) ----
+
+    /**
+     * Extra time the mic stays ducked on top of the built-in wait ([MIC_RESTORE_TAIL_MS] after the
+     * drain; `OPENAI_RESTORE_DELAY_MS` on WebRTC). Bluetooth plays audio late, so its echo can
+     * arrive after that wait. 0 = the frozen behaviour above, unchanged.
+     */
+    const val DEFAULT_ECHO_DUCK_TAIL_MS = 0L
+    const val ECHO_DUCK_TAIL_MIN_MS = 0L
+    const val ECHO_DUCK_TAIL_MAX_MS = 5_000L
+
     // ---- API levels (inv04 §5.1) ----
 
     /** `AudioTrack.Builder`, `WRITE_NON_BLOCKING`, `setPreferredDevice`, `getDevices`, device callback. */

@@ -86,6 +86,9 @@ interface VoiceTransport {
     fun setSessionUpdateFallback(fallback: () -> JsonObject?)
     fun setMicGain(level: Float)
     fun setEchoDuckingGain(gain: Float)
+
+    /** Extra time the mic stays ducked after the agent's speech (the "Echo ducking tail" setting). */
+    fun setEchoDuckTailMs(ms: Long)
     fun toggleMute(): Boolean
     fun setSpeakerMode(mode: SpeakerMode, preferredDevice: AudioDeviceRef?)
 

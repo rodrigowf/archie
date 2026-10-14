@@ -29,6 +29,11 @@ data class DeviceSettings(
     val talkSilenceSensitivity: Float = 2.0f,
     /** 0.0–1.0; mic gain while the assistant speaks (duck to 5 %, not mute). */
     val echoDuckingGain: Float = 0.05f,
+    /**
+     * 0–5000 ms; extra time the mic stays ducked after the assistant's speech is judged finished
+     * (Bluetooth plays audio late, so its echo can arrive after the built-in wait). New key.
+     */
+    val echoDuckTailMs: Long = 0L,
     val audioOutput: AudioOutput = AudioOutput.AUTO,
     val enableButtonTrigger: Boolean = false,
     /** Expanded layout list pane (spec 14 §2.4). New key. */

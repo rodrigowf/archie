@@ -147,6 +147,7 @@ class SettingsLogicTest {
         assertEquals("0.75×", Format.gain(0.75))
         assertEquals("5.0%", Format.duckPercent(0.05f))
         assertEquals("2.0×", Format.multiplier(2f))
+        assertEquals(listOf("Off", "+0.25 s", "+0.5 s", "+1 s", "+5 s"), listOf(0f, 250f, 500f, 1000f, 5000f).map(Format::duckTail))
     }
 
     // ───────── device ranges: the old app's tuned values, unchanged (inv04 §4) ─────────
@@ -161,6 +162,9 @@ class SettingsLogicTest {
         assertEquals(1f..4f, Ranges.TALK_SILENCE.range)
         assertEquals(0.05f, Ranges.DUCK.snap(0.051f), 1e-6f)
         assertEquals(1.5f, Ranges.LEVEL.snap(9f), 1e-6f)
+        // Echo ducking tail (new, 2026-10-14): Off–5 s in 0.25 s steps, same grid as the lite app.
+        assertEquals(21, Ranges.DUCK_TAIL.steps + 2)
+        assertEquals(1000f, Ranges.DUCK_TAIL.snap(1090f), 1e-3f)
         // server tuning (web TUNING)
         assertEquals(36, Ranges.VAD.steps + 2)
         assertEquals(43, Ranges.SILENCE.steps + 2)

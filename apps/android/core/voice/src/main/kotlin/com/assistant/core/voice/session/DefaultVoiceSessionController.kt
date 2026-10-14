@@ -146,6 +146,7 @@ class DefaultVoiceSessionController(
     private var focusToken: Any? = null
     private var micGain = AudioTuning.DEFAULT_MIC_GAIN
     private var duckGain = AudioTuning.DEFAULT_ECHO_DUCKING_GAIN
+    private var duckTailMs = AudioTuning.DEFAULT_ECHO_DUCK_TAIL_MS
     private var audioOutput = OutputChoice.AUTO
     private val linkMachine = VoiceLinkMachine()
 
@@ -234,6 +235,14 @@ class DefaultVoiceSessionController(
             duckGain to transport
         }
         t?.setEchoDuckingGain(g)
+    }
+
+    override fun setEchoDuckTailMs(ms: Long) {
+        val (tail, t) = synchronized(lock) {
+            duckTailMs = ms.coerceIn(AudioTuning.ECHO_DUCK_TAIL_MIN_MS, AudioTuning.ECHO_DUCK_TAIL_MAX_MS)
+            duckTailMs to transport
+        }
+        t?.setEchoDuckTailMs(tail)
     }
 
     /** Stored for the next session; applied now when a session holds audio focus. */
@@ -605,9 +614,10 @@ class DefaultVoiceSessionController(
     /** One replacement call; true once its data channel is open. A call that does not come up is dropped. */
     private suspend fun tryCall(cfg: VoiceStartConfig, info: VoiceConnection): Boolean {
         val t = deps.transports.create(cfg.provider, info.connectionType)
-        val (gain, duck) = synchronized(lock) { micGain to duckGain }
+        val (gain, duck, tail) = synchronized(lock) { Triple(micGain, duckGain, duckTailMs) }
         t.setMicGain(gain)
         t.setEchoDuckingGain(duck)
+        t.setEchoDuckTailMs(tail)
         t.setSessionUpdateFallback { relay.cachedSessionUpdate }
         val adopted = synchronized(lock) {
             if (finalized) false else { transport = t; levelSource.value = t; true }
@@ -681,9 +691,10 @@ class DefaultVoiceSessionController(
         }
         val t = deps.transports.create(cfg.provider, info.connectionType)
         log.i(TAG, "start: using provider=${t.providerId} (${t.kind})")
-        val (gain, duck) = synchronized(lock) { micGain to duckGain }
+        val (gain, duck, tail) = synchronized(lock) { Triple(micGain, duckGain, duckTailMs) }
         t.setMicGain(gain)
         t.setEchoDuckingGain(duck)
+        t.setEchoDuckTailMs(tail)
         // The DC-open / echo self-heal re-asserts the cached session.update (RS-03).
         t.setSessionUpdateFallback { relay.cachedSessionUpdate }
         val adopted = synchronized(lock) {

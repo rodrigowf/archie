@@ -68,6 +68,10 @@ class LiteSettingsTest {
         // Explicit gains every time (RS-33): the duck change still carries the mic gain.
         assertEquals(1.3f, host.applied.last().micGain)
 
+        s.setEchoTailStep(4)
+        assertEquals(1_000L, host.applied.last().echoDuckTailMs)
+        withTimeout(5_000) { store.settings.first { it?.echoDuckTailMs == 1_000L } }
+
         s.setOutput(AudioOutput.EARPIECE)
         s.setTalkStopStep(5)
         s.setWakeSensitivityStep(7)
@@ -108,5 +112,8 @@ class LiteSettingsTest {
         assertEquals("5.0%", Steps.duckLabel(10))
         assertEquals(listOf(1f, 1.5f, 2f, 2.5f, 3f, 3.5f, 4f), (0..Steps.TALK_STOP_MAX).map(Steps::talkStopOf))
         assertEquals(2, Steps.talkStopStep(2.0f))
+        assertEquals(5_000L, Steps.tailOf(Steps.TAIL_MAX))
+        assertEquals(0, Steps.tailStep(0L)) // default Off
+        assertEquals(listOf("Off", "+0.25 s", "+0.5 s", "+1 s", "+5 s"), listOf(0, 1, 2, 4, 20).map(Steps::tailLabel))
     }
 }

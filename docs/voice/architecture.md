@@ -427,6 +427,14 @@ change:
   after the speaker has drained + a 1000 ms tail, with no timeout**. Never
   shortcut this with raw-mic VAD (see [wake-word.md](wake-word.md#rules)).
 - OpenAI: software AEC/NS/AGC, restore 2 s after `output_audio_buffer.stopped`.
+- **Echo ducking tail** (Settings → This device → Audio, both Android apps;
+  `DeviceSettings.echoDuckTailMs`, key `echo_duck_tail_ms`, Off–5 s, default
+  Off): extra time added to both waits above (WS: after the drain; OpenAI:
+  after `stopped`/`cleared`). Bluetooth plays audio late, so its echo can
+  reach the mic after the built-in wait and the assistant answers itself.
+  While a lengthened OpenAI restore is pending, `speech_started` no longer
+  restores the mic early (late echo is what triggers it there). Off = the
+  frozen behaviour, unchanged. It only ever delays the restore.
 - Mic source: `VOICE_RECOGNITION` below API 24, `VOICE_COMMUNICATION` from 24.
 - Route re-applied at +1 / +4 / +9 s after start. Cues on `STREAM_MUSIC`.
 

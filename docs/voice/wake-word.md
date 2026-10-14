@@ -288,7 +288,8 @@ tests (`WakeTuningTest`, `VoskTuningTest`, `SrTuningTest`, `WhisperTuningTest`,
   assistant speaks, the mic gain is ducked to 5%. It is restored only after the
   speaker buffer has drained (written frames quiet for 400 ms, and the play head
   caught up or stuck for 400 ms), plus a 1000 ms tail (`DrainEchoDucker`,
-  `AudioTuning.MIC_RESTORE_*`). There is no drain timeout. Never propose
+  `AudioTuning.MIC_RESTORE_*`), plus the user's "Echo ducking tail" setting
+  (default Off; for Bluetooth latency). There is no drain timeout. Never propose
   restoring the gain early when raw-mic VAD hears the user; the assistant
   hearing itself was a recurring problem, and this is what solved it. A
   "user can't barge in quickly" freeze is the accepted cost; look for fixes

@@ -347,6 +347,12 @@ object Format {
     fun duckPercent(fraction: Float): String = String.format(Locale.US, "%.1f%%", fraction * 100)
     fun multiplier(v: Float): String = String.format(Locale.US, "%.1f×", v)
 
+    /** Echo ducking tail in ms: "Off", "+0.25 s", "+1 s". */
+    fun duckTail(ms: Float): String {
+        if (ms < 1f) return "Off"
+        return "+" + String.format(Locale.US, "%.2f", ms / 1000f).trimEnd('0').trimEnd('.') + " s"
+    }
+
     /** Same value within half a step: a slider release that did not move saves nothing. */
     fun same(a: Double, b: Double, step: Double): Boolean = abs(a - b) <= step / 1000
 }
@@ -366,6 +372,9 @@ object Ranges {
 
     /** Echo ducking: 0–10 % in 0.5 % steps (fraction 0–0.1). Stored as the fraction. */
     val DUCK = SliderSpec(0f, 0.1f, 0.005f)
+
+    /** Echo ducking tail: 0–5 s in 0.25 s steps, stored in ms. NEW (2026-10-14), not from the old app. */
+    val DUCK_TAIL = SliderSpec(0f, 5000f, 250f)
 
     /** Talk auto-stop: 1.0–4.0× in 0.5 steps. */
     val TALK_SILENCE = SliderSpec(1f, 4f, 0.5f)

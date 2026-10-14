@@ -7,6 +7,7 @@ import com.assistant.core.voicehost.VoiceHost
 import com.assistant.core.voicehost.VoiceHostSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
@@ -39,6 +40,7 @@ class LiteSettings(
     fun setMicGainStep(step: Int) = (Steps.gainOf(step)).let { v -> change({ it.copy(micGainLevel = v) }) { setMicGainLevel(v) } }
     fun setWakeSensitivityStep(step: Int) = Steps.gainOf(step).let { v -> change({ it.copy(wakeWordMicGainLevel = v) }) { setWakeWordMicGainLevel(v) } }
     fun setEchoDuckStep(step: Int) = Steps.duckOf(step).let { v -> change({ it.copy(echoDuckingGain = v) }) { setEchoDuckingGain(v) } }
+    fun setEchoTailStep(step: Int) = Steps.tailOf(step).let { v -> change({ it.copy(echoDuckTailMs = v) }) { setEchoDuckTailMs(v) } }
     fun setTalkStopStep(step: Int) = Steps.talkStopOf(step).let { v -> change({ it.copy(talkSilenceSensitivity = v) }) { setTalkSilenceSensitivity(v) } }
     fun setOutput(v: AudioOutput) = change({ it.copy(audioOutput = v) }) { setAudioOutput(v) }
     fun setRecentsTrigger(v: Boolean) = change({ it.copy(enableButtonTrigger = v) }) { setEnableButtonTrigger(v) }
@@ -95,6 +97,9 @@ object Steps {
     const val DUCK_MAX = 20
     /** Talk auto-stop: 1.0–4.0 × in 0.5 steps → 7 positions. */
     const val TALK_STOP_MAX = 6
+    /** Echo ducking tail (new, not from the old app): 0–5 s in 0.25 s steps → 21 positions. */
+    const val TAIL_MAX = 20
+    private const val TAIL_STEP_MS = 250L
 
     fun gainOf(step: Int) = step.coerceIn(0, GAIN_MAX) / 10f
     fun gainStep(v: Float) = (v * 10f).roundToInt().coerceIn(0, GAIN_MAX)
@@ -102,8 +107,15 @@ object Steps {
     fun duckStep(v: Float) = (v / 0.005f).roundToInt().coerceIn(0, DUCK_MAX)
     fun talkStopOf(step: Int) = 1f + step.coerceIn(0, TALK_STOP_MAX) * 0.5f
     fun talkStopStep(v: Float) = ((v - 1f) / 0.5f).roundToInt().coerceIn(0, TALK_STOP_MAX)
+    fun tailOf(step: Int) = step.coerceIn(0, TAIL_MAX) * TAIL_STEP_MS
+    fun tailStep(ms: Long) = (ms.toFloat() / TAIL_STEP_MS).roundToInt().coerceIn(0, TAIL_MAX)
 
     fun gainLabel(step: Int) = "${step.coerceIn(0, GAIN_MAX) * 10}%"
     fun duckLabel(step: Int) = "%.1f%%".format(step.coerceIn(0, DUCK_MAX) * 0.5f)
     fun talkStopLabel(step: Int) = "%.1f×".format(talkStopOf(step))
+    fun tailLabel(step: Int): String {
+        val ms = tailOf(step)
+        if (ms == 0L) return "Off"
+        return "+" + String.format(Locale.US, "%.2f", ms / 1000f).trimEnd('0').trimEnd('.') + " s"
+    }
 }

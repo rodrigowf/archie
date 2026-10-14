@@ -203,6 +203,7 @@ class HostRig(
             talkSilenceSensitivity = 2.5f,
             micGain = 1.0f,
             echoDuckingGain = 0.05f,
+            echoDuckTailMs = 0L,
             audioOutput = AudioOutput.AUTO,
             buttonTriggerEnabled = true,
         )

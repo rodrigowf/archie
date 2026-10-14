@@ -139,6 +139,7 @@ class WebRtcTransport(private val deps: WebRtcDeps) : VoiceTransport {
     override fun setSessionUpdateFallback(fallback: () -> JsonObject?) { this.fallback = fallback }
     override fun setMicGain(level: Float) = duck.setMicGain(level)
     override fun setEchoDuckingGain(gain: Float) = duck.setEchoDuckingGain(gain)
+    override fun setEchoDuckTailMs(ms: Long) = duck.setEchoDuckTailMs(ms)
 
     override fun toggleMute(): Boolean {
         val nowMuted = synchronized(lock) { muted = !muted; muted }

@@ -11,7 +11,7 @@ import com.assistant.core.audio.ports.VoiceLog
  * `EchoDuckController` as a pure, tick-driven FSM.
  *
  * ```
- * UNDUCKED ──duck()──► DUCKED ──scheduleRestore()──► DRAINING ──drained──► TAIL ──+1000 ms──► UNDUCKED
+ * UNDUCKED ──duck()──► DUCKED ──scheduleRestore()──► DRAINING ──drained──► TAIL ──+1000 ms (+extra)──► UNDUCKED
  *                        ▲                              │  (head null ─────────────────────► UNDUCKED)
  *                        └── cancelPendingRestore() / duck() ──┴── (from DRAINING or TAIL)
  * ```
@@ -19,7 +19,9 @@ import com.assistant.core.audio.ports.VoiceLog
  * The old controller ran the drain in a coroutine (`delay(80)` / `delay(1000)`); here the owner
  * waits [nextTickDelayMs] and calls [tick]. Every decision reads `clock.nowMs()` at tick time, so a
  * late tick never shortens the 400 ms quiet window or the 1000 ms tail, and an early tick in the
- * tail is a no-op. There is deliberately NO overall drain timeout (`2ccee40`), and never a restore
+ * tail is a no-op. The user's "Echo ducking tail" setting ([setEchoDuckTailMs], default 0) only
+ * lengthens the tail, for Bluetooth outputs whose audio plays after the track drained. There is
+ * deliberately NO overall drain timeout (`2ccee40`), and never a restore
  * on raw-mic VAD (memory `feedback_dont_shortcut_echo_ducking.md`).
  *
  * Log lines are the old ones verbatim (inv04 §10.3 markers). Thread-safe: every entry point is
@@ -46,13 +48,14 @@ class DrainEchoDucker(
             var writesQuietLogged: Boolean = false,
         ) : Restore
 
-        /** Drained at [drainedAtMs]; restore once the tail has elapsed. */
-        class Tail(val reason: String, val drainedAtMs: Long) : Restore
+        /** Drained at [drainedAtMs]; restore once [tailMs] has elapsed. */
+        class Tail(val reason: String, val drainedAtMs: Long, val tailMs: Long) : Restore
     }
 
     private val lock = Any()
     private var micGainLevel: Float = AudioTuning.DEFAULT_MIC_GAIN
     private var echoDuckingGain: Float = AudioTuning.DEFAULT_ECHO_DUCKING_GAIN
+    private var extraTailMs: Long = AudioTuning.DEFAULT_ECHO_DUCK_TAIL_MS
     private var gainBeforeSpeaking: Float? = null
     private var restore: Restore? = null
 
@@ -83,6 +86,11 @@ class DrainEchoDucker(
         } else {
             log.d(tag, "Echo ducking gain set to: $clamped")
         }
+    }
+
+    override fun setEchoDuckTailMs(ms: Long): Unit = synchronized(lock) {
+        extraTailMs = ms.coerceIn(AudioTuning.ECHO_DUCK_TAIL_MIN_MS, AudioTuning.ECHO_DUCK_TAIL_MAX_MS)
+        log.d(tag, "Echo ducking tail set to: +${extraTailMs}ms")
     }
 
     override fun duck(): Unit = synchronized(lock) {
@@ -125,7 +133,7 @@ class DrainEchoDucker(
             when (val r = restore) {
                 null -> null
                 is Restore.Draining -> r.lastPollMs?.let { (it + AudioTuning.MIC_RESTORE_DRAIN_POLL_MS - clock.nowMs()).coerceAtLeast(0L) } ?: 0L
-                is Restore.Tail -> (r.drainedAtMs + AudioTuning.MIC_RESTORE_TAIL_MS - clock.nowMs()).coerceAtLeast(0L)
+                is Restore.Tail -> (r.drainedAtMs + r.tailMs - clock.nowMs()).coerceAtLeast(0L)
             }
         }
 
@@ -134,7 +142,7 @@ class DrainEchoDucker(
             null -> Unit
             is Restore.Draining -> poll(r)
             is Restore.Tail ->
-                if (clock.nowMs() - r.drainedAtMs >= AudioTuning.MIC_RESTORE_TAIL_MS) restoreLocked("drained:${r.reason}")
+                if (clock.nowMs() - r.drainedAtMs >= r.tailMs) restoreLocked("drained:${r.reason}")
         }
     }
 
@@ -173,16 +181,19 @@ class DrainEchoDucker(
 
         // (a) writes quiet AND (b) primary: the DAC has played everything.
         if (writesAreQuiet && head >= written) {
-            log.i(tag, "[MIC_STATE] RESTORE_DRAIN(${d.reason}) AudioTrack drained at head=$head poll=${d.pollCount}; tail wait ${AudioTuning.MIC_RESTORE_TAIL_MS}ms")
-            restore = Restore.Tail(d.reason, nowMs)
+            log.i(tag, "[MIC_STATE] RESTORE_DRAIN(${d.reason}) AudioTrack drained at head=$head poll=${d.pollCount}; tail wait ${tailMs()}ms")
+            restore = Restore.Tail(d.reason, nowMs, tailMs())
             return
         }
         // (a) AND (b) fallback: Lollipop post-underrun head freeze.
         if (writesAreQuiet && nowMs - d.lastHeadAtMs >= AudioTuning.MIC_RESTORE_WRITES_QUIET_MS) {
-            log.i(tag, "[MIC_STATE] RESTORE_DRAIN(${d.reason}) head stuck at $head (written=$written) AND writes quiet; treating as drained; tail wait ${AudioTuning.MIC_RESTORE_TAIL_MS}ms")
-            restore = Restore.Tail(d.reason, nowMs)
+            log.i(tag, "[MIC_STATE] RESTORE_DRAIN(${d.reason}) head stuck at $head (written=$written) AND writes quiet; treating as drained; tail wait ${tailMs()}ms")
+            restore = Restore.Tail(d.reason, nowMs, tailMs())
         }
     }
+
+    /** The built-in tail plus the user's extra (held under [lock]). */
+    private fun tailMs(): Long = AudioTuning.MIC_RESTORE_TAIL_MS + extraTailMs
 
     override fun resetForNewSession(): Unit = synchronized(lock) {
         // Verbatim old behaviour: forgets the saved gain without touching the applied one.

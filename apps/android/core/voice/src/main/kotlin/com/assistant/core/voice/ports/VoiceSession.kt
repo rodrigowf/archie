@@ -188,6 +188,7 @@ interface VoiceSessionController {
     fun toggleMute()
     fun setMicGain(level: Float)
     fun setEchoDuckingGain(gain: Float)
+    fun setEchoDuckTailMs(ms: Long)
     fun setAudioOutput(output: OutputChoice)
     fun onInbound(frame: VoiceInbound)
     fun onConnection(signal: ConnectionSignal)

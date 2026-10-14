@@ -328,6 +328,12 @@ internal fun AudioPage(feature: SettingsFeature, onBack: (() -> Unit)?) {
                 info = "While Archie talks, the microphone drops to this level instead of muting, so you can still interrupt. 0 to 10%, default 5%.",
                 onCommit = feature.device::setEchoDucking, testTag = "echo-ducking",
             )
+            CommitSlider(
+                "Echo ducking tail", d.echoDuckTailMs.toFloat(), Ranges.DUCK_TAIL, Format::duckTail,
+                help = "Keeps the mic ducked after Archie stops. Raise it for Bluetooth.",
+                info = "Bluetooth speakers and headsets play Archie's voice a little late, so the end of it can reach the microphone after ducking stops and Archie answers itself. This adds extra time before the microphone comes back. 0 to 5 s, default Off.",
+                onCommit = feature.device::setEchoDuckTail, testTag = "echo-ducking-tail",
+            )
             OutputRouteField(d.audioOutput, outputs, perms.granted(AppPermission.NEARBY_DEVICES)) { o ->
                 if (o == AudioOutput.BLUETOOTH) ask.ask(AppPermission.NEARBY_DEVICES) { feature.device.setAudioOutput(o) }
                 else feature.device.setAudioOutput(o)

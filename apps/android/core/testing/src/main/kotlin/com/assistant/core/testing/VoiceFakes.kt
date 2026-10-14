@@ -173,6 +173,7 @@ class FakeVoiceTransport(
     var disconnects = 0
     var micGain: Float? = null
     var duckGain: Float? = null
+    var duckTailMs: Long? = null
     var muted = false
     var fallback: (() -> JsonObject?)? = null
     var commandsBeforeConnect = 0
@@ -192,6 +193,7 @@ class FakeVoiceTransport(
     override fun setSessionUpdateFallback(fallback: () -> JsonObject?) { this.fallback = fallback }
     override fun setMicGain(level: Float) { micGain = level }
     override fun setEchoDuckingGain(gain: Float) { duckGain = gain }
+    override fun setEchoDuckTailMs(ms: Long) { duckTailMs = ms }
     override fun toggleMute(): Boolean { muted = !muted; return muted }
     override fun setSpeakerMode(mode: SpeakerMode, preferredDevice: AudioDeviceRef?) { speakerModes += mode }
 
@@ -242,6 +244,7 @@ class FakeVoiceSessionController(private val order: OrderLog) : VoiceSessionCont
     override fun toggleMute() { order.add("voice.toggleMute") }
     override fun setMicGain(level: Float) { order.add("voice.setMicGain") }
     override fun setEchoDuckingGain(gain: Float) { order.add("voice.setEchoDuckingGain") }
+    override fun setEchoDuckTailMs(ms: Long) { order.add("voice.setEchoDuckTailMs") }
     override fun setAudioOutput(output: OutputChoice) { order.add("voice.setAudioOutput") }
     override fun onInbound(frame: VoiceInbound) { inbound += frame }
     override fun onConnection(signal: ConnectionSignal) { connection += signal }

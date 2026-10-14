@@ -1776,7 +1776,7 @@ When `session_started.voice_recording_enabled` and the transport is WebRTC, the 
 | Theme (system/light/dark) | localStorage | DataStore |
 | Open views, active view, sidebar section, drafts | sessionStorage (per browser tab) | saved state + DataStore |
 | Last orchestrator `localId` (hint only; validated by `syncPool`) | memory | DataStore |
-| Mic gain, speaker volume, echo ducking, audio output route | — | DataStore (chapter 04) |
+| Mic gain, speaker volume, echo ducking, echo ducking tail, audio output route | — | DataStore (chapter 04) |
 | Wake/talk words, sensitivities, button trigger | — | DataStore (chapter 04) |
 | Remote console logging (default on for compat and lite) | localStorage flag | n/a |
 | "Agent session finished" notifications (TURN-2; off by default; enabling asks the OS/browser permission from that tap) | localStorage `prefs:v1` `notifyAgentTurns` | DataStore `notify_agent_turns` |

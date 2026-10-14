@@ -664,6 +664,7 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
         // Voice gains / output: always explicit (RS-33).
         session.setMicGain(s.micGain)
         session.setEchoDuckingGain(s.echoDuckingGain)
+        session.setEchoDuckTailMs(s.echoDuckTailMs)
         if (prev?.audioOutput != s.audioOutput) session.setAudioOutput(s.audioOutput.toChoice())
         if (prev?.buttonTriggerEnabled != s.buttonTriggerEnabled) deps.buttonTriggerPref.set(s.buttonTriggerEnabled)
         // The wake service gets ONE update per change of its six fields (single ingress, `9200d50`).

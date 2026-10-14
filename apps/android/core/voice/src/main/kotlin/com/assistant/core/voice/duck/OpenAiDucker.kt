@@ -16,6 +16,11 @@ import com.assistant.core.voice.ports.OpenAiDuckPolicy
  * Kept verbatim from the old provider: [setMicGain] writes the live gain even while ducked (the
  * restore then returns to the gain saved at the duck), [setEchoDuckingGain] applies from the next
  * duck, and `response.done` never restores (audio plays 6 s+ after it, `687442e`).
+ *
+ * NEW (2026-10-14): the user's "Echo ducking tail" ([setEchoDuckTailMs], default 0) lengthens the
+ * restore delay for Bluetooth outputs, which play audio after `output_audio_buffer.stopped`. While
+ * that longer restore is pending, `speech_started` no longer restores early: late echo is exactly
+ * what triggers it there. With the tail at 0 the behaviour is the old one, unchanged.
  */
 class OpenAiDucker(
     private val clock: MonotonicClock,
@@ -25,6 +30,7 @@ class OpenAiDucker(
     private val lock = Any()
     private var micGainLevel = AudioTuning.DEFAULT_MIC_GAIN
     private var echoDuckingGain = AudioTuning.DEFAULT_ECHO_DUCKING_GAIN
+    private var extraTailMs = AudioTuning.DEFAULT_ECHO_DUCK_TAIL_MS
     private var gainBeforeSpeaking: Float? = null
     private var playing = false
     private var restoreAtMs: Long? = null
@@ -41,6 +47,11 @@ class OpenAiDucker(
     override fun setEchoDuckingGain(gain: Float): Unit = synchronized(lock) {
         echoDuckingGain = gain.coerceIn(AudioTuning.ECHO_DUCKING_GAIN_MIN, AudioTuning.ECHO_DUCKING_GAIN_MAX)
         log.d(tag, "Echo ducking gain set to: $echoDuckingGain")
+    }
+
+    override fun setEchoDuckTailMs(ms: Long): Unit = synchronized(lock) {
+        extraTailMs = ms.coerceIn(AudioTuning.ECHO_DUCK_TAIL_MIN_MS, AudioTuning.ECHO_DUCK_TAIL_MAX_MS)
+        log.d(tag, "Echo ducking tail set to: +${extraTailMs}ms")
     }
 
     override fun onDcEvent(type: String): Boolean = synchronized(lock) {
@@ -69,6 +80,10 @@ class OpenAiDucker(
                     log.w(tag, "$MIC_STATE SPEECH_STARTED suppressed (echo while agent playing) gain=$micGainLevel")
                     return true
                 }
+                if (extraTailMs > 0 && restoreAtMs != null) {
+                    log.w(tag, "$MIC_STATE SPEECH_STARTED suppressed (echo tail, restore pending) gain=$micGainLevel")
+                    return true
+                }
                 restoreImmediatelyLocked()
             }
         }
@@ -85,7 +100,7 @@ class OpenAiDucker(
         val saved = gainBeforeSpeaking ?: return
         micGainLevel = saved
         gainBeforeSpeaking = null
-        log.i(tag, "$MIC_STATE RESTORE_DONE → gain: $echoDuckingGain→$micGainLevel (after ${VoiceTuning.OPENAI_RESTORE_DELAY_MS}ms delay)")
+        log.i(tag, "$MIC_STATE RESTORE_DONE → gain: $echoDuckingGain→$micGainLevel (after ${restoreDelayMs()}ms delay)")
     }
 
     override fun cleanup(): Unit = synchronized(lock) {
@@ -111,9 +126,12 @@ class OpenAiDucker(
             log.d(tag, "$MIC_STATE RESTORE_DELAYED (no-op, not ducked)")
             return
         }
-        restoreAtMs = clock.nowMs() + VoiceTuning.OPENAI_RESTORE_DELAY_MS
-        log.i(tag, "$MIC_STATE RESTORE_DELAYED scheduled in ${VoiceTuning.OPENAI_RESTORE_DELAY_MS}ms | savedGain=$gainBeforeSpeaking")
+        restoreAtMs = clock.nowMs() + restoreDelayMs()
+        log.i(tag, "$MIC_STATE RESTORE_DELAYED scheduled in ${restoreDelayMs()}ms | savedGain=$gainBeforeSpeaking")
     }
+
+    /** The built-in delay plus the user's echo tail (held under [lock]). */
+    private fun restoreDelayMs(): Long = VoiceTuning.OPENAI_RESTORE_DELAY_MS + extraTailMs
 
     private fun restoreImmediatelyLocked() {
         restoreAtMs = null

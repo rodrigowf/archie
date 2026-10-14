@@ -133,6 +133,31 @@ class EchoDuckerParityTest {
         assertTrue(log.dump(), log.contains("head stuck at 90000 (written=100000)"))
     }
 
+    /** NEW (2026-10-14): the "Echo ducking tail" setting adds to the 1000 ms tail (Bluetooth latency). */
+    @Test
+    fun echoDuckTail_lengthensTheTailAfterTheDrain() {
+        ducker.setMicGain(1.0f)
+        ducker.setEchoDuckTailMs(1_500L)
+        ducker.duck()
+        val start = t0
+        playback.written = 100_000L
+        playback.head = 90_000L
+        ducker.scheduleRestore("stale")
+        val restoredAt = drive(start + 6_000)
+        assertNotNull(restoredAt)
+        assertTrue(restoredAt!! - start >= 400 + 1_000 + 1_500)
+        assertTrue(restoredAt - start <= 400 + 1_000 + 1_500 + 80)
+        assertTrue(log.dump(), log.contains("tail wait 2500ms"))
+    }
+
+    @Test
+    fun echoDuckTail_isClampedTo0To5s() {
+        ducker.setEchoDuckTailMs(-10L)
+        assertTrue(log.contains("Echo ducking tail set to: +0ms"))
+        ducker.setEchoDuckTailMs(60_000L)
+        assertTrue(log.contains("Echo ducking tail set to: +5000ms"))
+    }
+
     @Test
     fun drain_audioTrackGone_restoresOnThatTick() {
         ducker.setMicGain(1.0f)
