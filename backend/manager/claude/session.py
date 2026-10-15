@@ -151,6 +151,14 @@ _PERMISSION_GATING_PROMPT = (
 # 2.1.139, so older SSH-remote CLIs accept it too.)
 _THINKING_DISPLAY = "summarized"
 
+# Largest single stream-json line we accept from the CLI.  The SDK default is
+# 1 MiB, and one line over it kills the reader for good: the receive loop
+# crashes and the reaper closes the session mid-turn, taking its background
+# subagents with it.  A Read of an image carries its base64 twice (in the
+# tool_result and in ``tool_use_result``), so a ~450 KB JPEG was already a
+# 1.2 MB line (2026-10-15, "new Avatar search").
+_MAX_BUFFER_SIZE = 64 * 1024 * 1024
+
 # Switches Claude Code's auto-memory off (CLI env; wins over settings).
 _DISABLE_AUTO_MEMORY_ENV = "CLAUDE_CODE_DISABLE_AUTO_MEMORY"
 
@@ -1318,6 +1326,7 @@ class ClaudeSessionManager(BaseSessionManager):
             kwargs["resume"] = self._resume_id
         if self._fork:
             kwargs["fork_session"] = True
+        kwargs["max_buffer_size"] = _MAX_BUFFER_SIZE
         if self._config.mcp_servers is not None:
             # Pass MCP servers directly to the SDK
             # When mcp_servers is provided, it overrides settings from .claude.json

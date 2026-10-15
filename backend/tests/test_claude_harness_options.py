@@ -273,6 +273,11 @@ class TestOptionsMapping:
         assert "--permission-mode" in argv and argv[argv.index("--permission-mode") + 1] == "default"
         assert "--setting-sources=project,local" in argv
 
+    def test_buffer_fits_an_image_read(self, no_mcp_env):
+        # A Read of a ~450 KB JPEG streams as one ~1.2 MB line (base64 twice);
+        # the SDK's 1 MiB default crashed the reader and closed the session.
+        assert _sm()._build_options().max_buffer_size >= 16 * 1024 * 1024
+
     def test_chrome_flag_preserved_and_config_not_mutated(self, no_mcp_env):
         extra = {"chrome": None}
         sm = _sm(extra_args=extra)
