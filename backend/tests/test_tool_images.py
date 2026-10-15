@@ -85,5 +85,13 @@ def test_route_serves_cached_image_and_rejects_other_names(tmp_path, monkeypatch
     assert r.headers["content-type"] == "image/png"
     assert "immutable" in r.headers["cache-control"]
     assert client.get("/api/tool-images/" + "0" * 64 + ".png").status_code == 404
-    assert client.get("/api/tool-images/..%2F..%2Fetc%2Fpasswd").status_code == 404
+    # A traversal name never reaches the disk (an HTTP client would normalise it away first).
+    from fastapi import HTTPException
+
+    from api.routes.tool_images import get_tool_image
+
+    for bad in ("../../etc/passwd", "../" + NAME, NAME + "/x"):
+        with pytest.raises(HTTPException) as e:
+            get_tool_image(bad)
+        assert e.value.status_code == 404
     assert client.get("/api/tool-images/abc.png").status_code == 404
