@@ -898,6 +898,7 @@ must work with or without it:
 | Algorithmic darkening | `WebSettingsCompat.setAlgorithmicDarkeningAllowed(settings, false)` | Vizzes ship their own palettes. |
 | Console | `onConsoleMessage` → logcat tag `ArchieViz` in debug builds only | — |
 | TLS errors | `onReceivedSslError` → `TrustStore.isPinned(host, error.certificate)` ? `proceed()` : `cancel()` + error page | §4.3. **Never** a blanket `proceed()`. |
+| Touch ownership | `claimGestures`: `requestDisallowInterceptTouchEvent(true)` on every `ACTION_DOWN` | A gesture that starts on the page belongs to the page. Compose hands an interop view its touches after the ancestors' detectors, and Chromium claims a scroll asynchronously, so the compact drawer's full-screen swipe used to steal any scroll that drifted ~8 dp sideways early (scroll stopped, drawer slid out). The drawer opens from ☰ over a visual. |
 
 **State retention:** the web keeps the iframe mounted while its tab is hidden, which is **load-bearing** (inv02 F-36).
 `WebViewPool` (process-scoped, max 3 entries, LRU by path) keeps WebViews alive across tab switches and rotation. Each

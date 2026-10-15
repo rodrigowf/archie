@@ -8,6 +8,7 @@ import android.net.http.SslError
 import android.os.Build
 import android.os.Message
 import android.util.Log
+import android.view.MotionEvent
 import android.webkit.ConsoleMessage
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
@@ -119,11 +120,30 @@ object ArchieWebViewConfig {
         }
     }
 
-    /** Settings + clients. [debug] routes `console.*` to logcat tag `ArchieViz`. */
+    /** Settings + clients + touch ownership. [debug] routes `console.*` to logcat tag `ArchieViz`. */
     fun configure(webView: WebView, trust: WebTrust, listener: () -> PageListener?, debug: Boolean, onGone: () -> Unit = {}) {
         applySettings(webView)
         webView.webViewClient = ArchieWebViewClient(trust, listener, onGone)
         webView.webChromeClient = ArchieChromeClient(listener, debug)
+        claimGestures(webView)
+    }
+
+    /**
+     * Every gesture that starts on the page belongs to the page. Compose hands an interop view its
+     * touches only after the ancestors' gesture detectors saw them, and Chromium claims a scroll
+     * asynchronously (it waits for the renderer), so without this the compact shell's drawer swipe
+     * (a full-screen horizontal `anchoredDraggable`) won any gesture whose first ~8 dp drifted
+     * sideways: the scroll stopped dead (the WebView got ACTION_CANCEL) and the drawer slid out —
+     * worst while the renderer was busy after a fling. Disallowing intercept on DOWN makes the
+     * interop filter dispatch to the WebView first and consume, so the drawer never sees the drag
+     * (it stays on ☰). The flag resets on the next DOWN.
+     */
+    @SuppressLint("ClickableViewAccessibility") // observes only; the WebView still gets and handles the event
+    fun claimGestures(webView: WebView) {
+        webView.setOnTouchListener { v, event ->
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) v.parent?.requestDisallowInterceptTouchEvent(true)
+            false
+        }
     }
 }
 
