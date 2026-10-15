@@ -17,6 +17,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import okio.ByteString.Companion.encodeUtf8
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -181,7 +182,7 @@ class DataLayerTest {
         assertEquals(key, g.open.active.value)
 
         val notices = java.util.concurrent.CopyOnWriteArrayList<String>()
-        g.scope.launch { g.open.notices.collect { notices += it } }
+        g.scope.launch { g.open.notices.collect { notices += it.message } }
         Thread.sleep(100)
         b.closedElsewhere(localId)
         b.pushOrchestrator("""{"type":"agent_session_closed","session_id":"$localId","is_orchestrator":false}""")
@@ -215,13 +216,38 @@ class DataLayerTest {
         // Both closed on another device while this one was not listening (no watcher frame).
         b.closedElsewhere(firstId); b.closedElsewhere(secondId)               // then e.g. the foreground read:
         val notices = java.util.concurrent.CopyOnWriteArrayList<String>()
-        g.scope.launch { g.open.notices.collect { notices += it } }
+        g.scope.launch { g.open.notices.collect { notices += it.message } }
         Thread.sleep(100)
         runBlocking { g.history.syncPool() }
         eventually(message = { "items=${g.open.items.value}" }) { g.open.items.value.none { it.key == first || it.key == second } }
         assertEquals("only the active view gets a notice", 1, notices.size)
         assertTrue(b.closeRequests().isEmpty())
         assertEquals("no re-start: it would re-open them", 1, b.agentStarts(firstId).size)
+    }
+
+    @Test fun crashOfABackgroundView_alwaysNotices_withReopen() {
+        val b = backend()
+        b.poolJson = orchPool
+        val g = graph(b.url)
+        g.connection.start()
+        eventually { g.open.active.value == ItemKey.Archie }
+        g.open.newAgentSession(); val first = g.open.active.value as ItemKey.Agent
+        eventually { g.conversations.current(first.conversation)?.connection == com.assistant.core.model.ConnectionState.SUBSCRIBED }
+        val firstSocket = b.agentSockets.single()
+        g.open.newAgentSession(); val second = g.open.active.value as ItemKey.Agent
+        eventually { g.conversations.current(second.conversation)?.connection == com.assistant.core.model.ConnectionState.SUBSCRIBED }
+        val firstId = g.conversations.current(first.conversation)!!.ref.localId
+
+        val notices = java.util.concurrent.CopyOnWriteArrayList<SessionNotice>()
+        g.scope.launch { g.open.notices.collect { notices += it } }
+        Thread.sleep(100)
+        firstSocket.send("""{"type":"session_terminated","reason":"subprocess_crashed","detail":"JSON message exceeded maximum buffer size","sdk_session_id":"SDK-1"}""".encodeUtf8())
+        b.closedElsewhere(firstId)
+        b.pushOrchestrator("""{"type":"agent_session_closed","session_id":"$firstId","is_orchestrator":false}""")
+        eventually(message = { "items=${g.open.items.value}" }) { g.open.items.value.none { it.key == first } }
+        assertEquals("the view on screen stays", second, g.open.active.value)
+        eventually(message = { "notices=$notices" }) { notices.size == 1 }
+        assertEquals(SessionNotice("New agent session crashed. Its work so far is saved.", reopenSdkId = "SDK-1"), notices.single())
     }
 
     @Test fun open3_aReconnectFindingItClosed_sessionClosed_closesTheView() {

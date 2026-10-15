@@ -16,6 +16,7 @@ import {
   getArchieRuntime,
   getOrchestratorRef,
   getSessionRuntime,
+  listRuntimes,
   onAgentTurn,
   openArchie,
   openSession,
@@ -509,8 +510,37 @@ describe('explicit actions', () => {
     ws.emit({ type: 'session_stopped' });
     watcher.emit({ type: 'agent_session_closed', session_id: 'T1', is_orchestrator: false });
     expect(getSessionRuntime('T1')).toBeUndefined();
-    expect(snackbarStore.getState().queue.map((q) => q.message).pop()).toBe('New agent session crashed: exit code 1');
+    const notice = snackbarStore.getState().queue.at(-1);
+    expect(notice?.message).toBe('New agent session crashed. Its work so far is saved.');
+    expect(notice).toMatchObject({ tone: 'error', durationMs: 0 });
     expect(closeCalls()).toEqual([]);
+    notice?.action?.run(); // Reopen: a new view resuming the same conversation
+    const reopened = listRuntimes().find((r) => r.conv.ref.sdkId === 'sdk-t');
+    expect(reopened?.kind).toBe('agent');
+    expect(tabsStore.getState().activeId).toBe(reopened?.localId);
+  });
+
+  it('a crash in a background view still gets its notice; a close elsewhere there does not (§6.13)', () => {
+    startServices({ skipInitialSync: true });
+    const watcher = FakeWebSocket.last(ORCH);
+    watcher.open();
+    openSession({ kind: 'agent', localId: 'BG', focus: true });
+    const bg = FakeWebSocket.last(CHAT);
+    subscribe(bg, 'BG');
+    openSession({ kind: 'agent', localId: 'FG', focus: true });
+    subscribe(FakeWebSocket.last(CHAT), 'FG');
+    openSession({ kind: 'agent', localId: 'BG2', focus: false });
+    subscribe(FakeWebSocket.last(CHAT), 'BG2');
+    expect(tabsStore.getState().activeId).toBe('FG');
+    const before = snackbarStore.getState().queue.length;
+    watcher.emit({ type: 'agent_session_closed', session_id: 'BG2', is_orchestrator: false });
+    expect(snackbarStore.getState().queue.length).toBe(before);
+    bg.emit({ type: 'session_terminated', reason: 'subprocess_crashed', detail: 'JSON message exceeded maximum buffer size', sdk_session_id: 'sdk-bg' });
+    watcher.emit({ type: 'agent_session_closed', session_id: 'BG', is_orchestrator: false });
+    expect(tabsStore.getState().activeId).toBe('FG');
+    const notice = snackbarStore.getState().queue.at(-1);
+    expect(notice?.message).toMatch(/ crashed\. Its work so far is saved\.$/);
+    expect(notice?.action?.label).toBe('Reopen');
   });
 });
 

@@ -59,6 +59,7 @@ export {
   runtimeHooks,
   servicesStarted,
   SessionActionError,
+  setReopenSessionHandler,
   setSessionHidden,
   setSwitchVoiceHandler,
   startServices,
@@ -68,6 +69,7 @@ export {
   type AnyRuntime,
   type OpenArchieResult,
   type OpenSessionOptions,
+  type ReopenSessionHandler,
   type StartServicesOptions,
   type SwitchVoiceHandler,
 } from './sessions/manager';

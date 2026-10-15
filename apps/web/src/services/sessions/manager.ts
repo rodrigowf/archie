@@ -390,10 +390,35 @@ function closedByServer(rt: AnyRuntime): void {
   const active = tabsStore.getState().activeId === rt.localId;
   const title = titleOf(rt.localId);
   const term = rt.conv.termination;
+  const sdkId = term?.sdk_session_id ?? rt.conv.ref.sdkId ?? null;
   dropView(rt.localId);
   // Archie: no notice, a switch (§6.11a) announces itself right after
-  if (!active || rt.kind !== 'agent') return;
+  if (rt.kind !== 'agent') return;
+  if (term && CRASHED.has(term.reason)) {
+    // §6.13: a crash is never silent, whichever view is on screen: it stays until dismissed and
+    // offers the way back (the raw detail is in the server log, not for the user)
+    const reopen = sdkId ? { label: 'Reopen', run: () => (reopenHandler ? reopenHandler(sdkId) : openSession({ kind: 'agent', sdkId, focus: true })) } : undefined;
+    showSnackbar(`${title} ${ENDED[term.reason]}. Its work so far is saved.`, { tone: 'error', durationMs: 0, ...(reopen ? { action: reopen } : {}) });
+    return;
+  }
+  if (!active) return;
   showSnackbar(term ? `${title} ${ENDED[term.reason] ?? 'ended'}${term.detail ? `: ${term.detail}` : ''}` : `${title} was closed elsewhere`);
+}
+
+/** §6.13: the endings nobody chose (the others are a close on some device). */
+const CRASHED = new Set(['subprocess_crashed', 'subprocess_lost', 'unreachable']);
+
+/** Reopens a crashed agent session from its "Reopen" notice; the app registers one that also shows the workspace. */
+export type ReopenSessionHandler = (sdkId: string) => void;
+
+let reopenHandler: ReopenSessionHandler | null = null;
+
+/** Returns the unregister function. */
+export function setReopenSessionHandler(fn: ReopenSessionHandler | null): () => void {
+  reopenHandler = fn;
+  return () => {
+    if (reopenHandler === fn) reopenHandler = null;
+  };
 }
 
 /** §6.13: how a terminated session ended, by `session_terminated.reason`. */

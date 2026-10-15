@@ -289,7 +289,9 @@ The server's pool is the open set (spec 12 §3.7 OPEN-1..4), for Archie and agen
   sent) remove the view at once, active or not, with no `POST …/close`; focus moves as after an
   explicit close. An Archie view's runtime is disposed, which disposes its voice controller; the
   workspace shows its empty state. A closed active agent tab shows one snackbar ("… was closed
-  elsewhere", or the termination detail). A view whose `reattach` is false (its own start is still
+  elsewhere", or the termination detail); an agent tab that crashed, active or not, shows "… crashed.
+  Its work so far is saved." until dismissed, with Reopen (`setReopenSessionHandler`, registered by
+  `App.tsx` → `openFromHistory`; spec 12 §6.13). A view whose `reattach` is false (its own start is still
   creating it, or this client is closing / restarting / rewinding it) ignores these signals.
 
 Tests: `services/__tests__/manager.test.ts` ("OPEN-…"), `protocol/__tests__/connection.test.ts`,

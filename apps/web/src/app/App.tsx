@@ -6,10 +6,11 @@
  * the app does not stop the services; sessions keep running in the backend with zero frontends.
  */
 import { useEffect } from 'react';
-import { startServices } from '@/services';
+import { setReopenSessionHandler, startServices } from '@/services';
 import { usePrefs } from '@/stores';
 import { applyTheme } from '@/styles';
 import { AppShell } from './AppShell';
+import { openFromHistory } from './shell/actions';
 import { InternalLinksHost } from './internalLinks';
 import { installHashSync } from './navigation/route';
 import { startTurnNotifications } from './notifications/start';
@@ -29,6 +30,8 @@ export function App({ services = true }: AppProps) {
   useEffect(() => {
     if (services) startServices(); // also loads the session and visuals lists (titles)
   }, [services]);
+  // A crashed agent's "Reopen" notice (spec 12 §6.13) shows the workspace with it, like History
+  useEffect(() => setReopenSessionHandler((sdkId) => openFromHistory(sdkId, false)), []);
   // "Agent session finished" notices (Settings → Notifications) and their clicks (a lazy chunk
   // fetched now; frames that arrive before it loads are handed over once it is in)
   useEffect(() => (services ? startTurnNotifications() : undefined), [services]);

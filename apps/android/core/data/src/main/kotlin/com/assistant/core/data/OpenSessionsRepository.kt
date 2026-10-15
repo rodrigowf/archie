@@ -91,10 +91,10 @@ class OpenSessionsRepository(
     private val _items = MutableStateFlow<List<WorkspaceItem>>(emptyList())
     val items: StateFlow<List<WorkspaceItem>> = _items.asStateFlow()
 
-    private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    private val _notices = MutableSharedFlow<SessionNotice>(extraBufferCapacity = 8)
 
-    /** One-line notices for the snackbar: the active agent view closed on the server (OPEN-3). */
-    val notices: SharedFlow<String> = _notices.asSharedFlow()
+    /** One-line notices for the snackbar: the active agent view closed on the server, or any agent view crashed (OPEN-3, §6.13). */
+    val notices: SharedFlow<SessionNotice> = _notices.asSharedFlow()
 
     init {
         // The Archie item exists while an Archie conversation is open (adopted, armed or resumed).
@@ -258,13 +258,21 @@ class OpenSessionsRepository(
     // ───────────── internals ─────────────
 
     /**
-     * OPEN-3: the view leaves like an explicit close. Only the agent view the user is looking at
-     * gets a notice; Archie's close is followed by its own switch announcement (§6.11a).
+     * OPEN-3: the view leaves like an explicit close. An agent view that crashed always gets a
+     * notice with the way back (§6.13: never silent, whichever view is on screen); otherwise only
+     * the agent view the user is looking at does. Archie's close is followed by its own switch
+     * announcement (§6.11a).
      */
     private fun onClosedByServer(e: ConversationEvent.Closed) {
         val key = if (e.key == ConversationKey.ARCHIE) ItemKey.Archie else ItemKey.Agent(e.key)
-        if (key is ItemKey.Agent && _active.value == key) {
-            _notices.tryEmit(closedNotice(history.titleFor(e.ref.sdkId, e.ref.localId, AGENT_PLACEHOLDER), e.termination))
+        if (key is ItemKey.Agent) {
+            val title = history.titleFor(e.ref.sdkId, e.ref.localId, AGENT_PLACEHOLDER)
+            val term = e.termination
+            if (term != null && term.reason in CRASHED) {
+                _notices.tryEmit(crashNotice(title, term, term.sdkSessionId ?: e.ref.sdkId))
+            } else if (_active.value == key) {
+                _notices.tryEmit(SessionNotice(closedNotice(title, term)))
+            }
         }
         dropLocal(key)
     }
@@ -361,6 +369,13 @@ class OpenSessionsRepository(
             return if (termination.detail.isNullOrBlank()) "$title $how" else "$title $how: ${termination.detail}"
         }
 
+        /** §6.13: a crash, in plain words (the raw detail is in the server log), with Reopen when there is a conversation to resume. */
+        fun crashNotice(title: String, termination: Termination, sdkId: String?): SessionNotice =
+            SessionNotice("$title ${ENDED[termination.reason] ?: "ended"}. Its work so far is saved.", reopenSdkId = sdkId)
+
+        /** §6.13: the endings nobody chose (the others are a close on some device). */
+        private val CRASHED = setOf("subprocess_crashed", "subprocess_lost", "unreachable")
+
         /** How a terminated session ended, by `session_terminated.reason`. */
         private val ENDED = mapOf(
             "subprocess_crashed" to "crashed",
@@ -419,3 +434,6 @@ class OpenSessionsRepository(
         }
     }
 }
+
+/** A snackbar notice about a view the server closed; [reopenSdkId] (a crash) adds a sticky "Reopen". */
+data class SessionNotice(val message: String, val reopenSdkId: String? = null)
