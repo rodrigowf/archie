@@ -45,6 +45,7 @@ from manager.types import (
     SubagentFinished,
     SubagentProgress,
     SubagentStarted,
+    TerminationReason,
     TextComplete,
     ToolResult,
     ToolUse,
@@ -564,6 +565,57 @@ class TestPoolOutOfTurn:
             (row,) = pool.subagents_for(lid)
             assert row["status"] == "done" and row["background"] is True
             await pool.close(lid)
+
+    @pytest.mark.parametrize("reason, status", [
+        (TerminationReason.SUBPROCESS_CRASHED, "error"),
+        (TerminationReason.CLOSED_BY_USER, "interrupted"),
+    ])
+    async def test_close_during_a_report_turn_ends_it_for_watchers(self, reason, status):
+        """2026-10-15: a session died inside the turn a subagent's report
+        started; the pool dropped that turn on close, so watchers saw
+        agent_turn_started and never its finish (no device notification)."""
+        late = asyncio.Event()
+
+        async def response():
+            yield _init()
+            yield _spawn("t1", background=True, description="Make image")
+            yield _task_started("a1", "t1", run_id="r1")
+            yield _launch_result("t1", "a1")
+            yield _result()
+            await late.wait()
+            yield _task_updated("a1", "completed")
+            yield _task_notification("a1", "t1", summary="done", run_id="r1")
+            yield _init()
+            yield AssistantMessage(content=[TextBlock(text="Let me check the image.")], model="m")
+            await asyncio.Event().wait()  # the CLI dies here
+
+        client = _make_mock_client([], response)
+        with patch("manager.claude.session.ClaudeSDKClient", return_value=client), \
+                patch("api.pool._session_manager_for", side_effect=lambda cfg, **kw: SessionManager(**kw)):
+            pool = SessionPool()
+            from manager.config import ManagerConfig
+            lid = await pool.create(ManagerConfig(), local_id="L1")
+            watched: list[dict] = []
+            pool.watch(_capture_ws(watched))
+            async for _ in pool.send(lid, "go"):
+                pass
+            late.set()
+            for _ in range(200):
+                if lid in pool._oot_turns and pool._oot_turns[lid]["text"]:
+                    break
+                await asyncio.sleep(0.01)
+            assert pool._oot_turns[lid]["text"] == "Let me check the image."
+            await pool.close(lid, reason=reason, detail="JSON message exceeded maximum buffer size")
+            await asyncio.sleep(0.05)
+            started = [w for w in watched if w["type"] == "agent_turn_started"]
+            finished = [w for w in watched if w["type"] == "agent_turn_finished"]
+            assert len(started) == len(finished) == 2
+            last = finished[-1]
+            assert last["status"] == status and last["preview"] == "Let me check the image."
+            if status == "error":
+                assert last["error"].startswith("The session crashed. Reopen it")
+            else:
+                assert last["error"] is None
 
     async def test_send_waits_for_queued_out_of_turn_frames(self):
         pool = SessionPool()
