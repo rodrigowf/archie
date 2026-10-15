@@ -54,6 +54,7 @@ import com.assistant.core.design.components.Spinner
 import com.assistant.core.design.icons.ArchieIcons
 import com.assistant.core.design.theme.ArchieTheme
 import com.assistant.core.protocol.ToolImage
+import kotlin.math.roundToInt
 
 /** Test tags: `tool-image:<i>` (loaded), `tool-image-loading:<i>`, `tool-image-unavailable:<i>`, the viewer. */
 const val TOOL_IMAGE_TAG: String = "tool-image"
@@ -109,7 +110,10 @@ private fun ToolImageView(image: ToolImage, index: Int, count: Int, onOpen: () -
             ) { Spinner(size = 16.dp) }
             ImageLoad.Failed -> Unavailable(Modifier.testTag("tool-image-unavailable:$index"))
             is ImageLoad.Loaded -> {
-                val (w, h) = ToolImageSizing.fit(s.image.width, s.image.height, boxW, boxH)
+                // Image pixels count as dp (CSS px on the web card), so a 192 px icon is not a 64 dp speck.
+                val (w, h) = ToolImageSizing.fit(
+                    (s.image.width * density.density).roundToInt(), (s.image.height * density.density).roundToInt(), boxW, boxH,
+                )
                 val bitmap = remember(s.image) { s.image.bitmap.asImageBitmap() }
                 Image(
                     bitmap,

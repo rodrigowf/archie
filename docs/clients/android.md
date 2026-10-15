@@ -407,7 +407,7 @@ A tool result that carries pictures (a Claude `Read` of an image, spec 12 R-10 /
 on `ToolBlock.images` (`:core:conversation`, normalised from the frame's raw `images` or the REST
 block's `images`). The expanded card's output region (`:feature:toolcards` `ui/ToolImages.kt`)
 shows them above any text, fitted to the card width with their aspect ratio, at most 320 dp tall,
-never upscaled; nothing is fetched while the card is collapsed. `ToolImageLoader` (no image
+image pixels drawn as dp like CSS px on the web card (a 192 px icon is 192 dp wide), never larger; nothing is fetched while the card is collapsed. `ToolImageLoader` (no image
 library) fetches the server-relative url through `RestCaller.getBytes` (the REST client: TLS pins
 and the HTTP disk cache apply; the files are immutable), decodes with `BitmapFactory` in two passes
 (`inSampleSize` for the box) and keeps bitmaps in a byte-sized `LruCache`; `MainAppGraph.toolImages`
