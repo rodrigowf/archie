@@ -102,7 +102,9 @@ fun ToolResultWell(b: ToolBlock) {
     ToolOutput(Modifier.testTag("tool-output")) {
         if (b.inferred) Text("Matched by position", Modifier.alpha(0.7f))
         val out = b.output
+        if (b.images.isNotEmpty()) com.assistant.archie.feature.toolcards.ui.ToolImages(b.images)   // TC-5
         when {
+            out != null && out.isEmpty() && b.images.isNotEmpty() -> Unit
             out != null && out.isEmpty() -> Text("No output", Modifier.alpha(0.7f))
             out != null -> {
                 val shown = remember(out) { capOutput(out) }

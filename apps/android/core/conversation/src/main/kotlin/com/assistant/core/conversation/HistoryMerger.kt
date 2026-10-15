@@ -124,7 +124,7 @@ object HistoryMerger {
     }
 
     private fun deliver(d: Draft, b: ContentBlockDto) {
-        d.deliverResult(b.toolUseId ?: "", PendingResult(normalizeOutput(b.output), b.isError, ResultOrigin.HISTORY))
+        d.deliverResult(b.toolUseId ?: "", PendingResult(normalizeOutput(b.output), b.isError, ResultOrigin.HISTORY, b.toolImages()))
     }
 
     private fun pushHistory(d: Draft, thinking: Boolean, text: String) {
@@ -155,7 +155,7 @@ object HistoryMerger {
             if (b.type != "tool_result" || b.toolUseId.isNullOrEmpty()) continue
             val id = b.toolUseId!!
             if (d.tool(id) == null) continue
-            val r = PendingResult(normalizeOutput(b.output), b.isError, ResultOrigin.RECONCILE)
+            val r = PendingResult(normalizeOutput(b.output), b.isError, ResultOrigin.RECONCILE, b.toolImages())
             d.updateTool(id) { d.applyResult(it, r, inferred = false) }
         }
         d.unattributed.clear()                                                         // superseded by REST

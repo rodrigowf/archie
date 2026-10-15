@@ -76,6 +76,10 @@ class ProtocolCodecTest {
         ServerFrame.ToolUse("t1", "Bash", obj("""{"command":"ls","nested":{"a":[1,2]}}"""), 5, "L1:1"),
         ServerFrame.ToolResult("t1", JsonPrimitive("a.txt"), false, 6, "L1:1"),
         ServerFrame.ToolResult("fc_1", obj("""{"provider":"claude","voice":"Puck"}"""), true),
+        ServerFrame.ToolResult(
+            "t2", JsonPrimitive(""), false, 7, "L1:1",
+            images = json.parseToJsonElement("""[{"url":"/api/tool-images/ab.png","media_type":"image/png"}]"""),
+        ),
         ServerFrame.ToolExecuting("c1", "list_agent_sessions"),
         ServerFrame.ToolProgress("c1", "list_agent_sessions", 5.0, "Still executing list_agent_sessions..."),
         ServerFrame.TurnComplete(0.0123, obj("""{"input_tokens":10,"output_tokens":50}"""), 1010, 50, 1, "sdk-1", false, "ok", 7, "L1:1"),
@@ -151,6 +155,24 @@ class ProtocolCodecTest {
     }
 
     // ───────────────────────── T-3: malformed frames never reach the reducer ─────────────────────────
+
+    /** R-10: `tool_result.images` decodes raw (lossless); [normalizeImages] keeps only well-formed entries. */
+    @Test
+    fun toolResultImages() {
+        val f = ProtocolCodec.decodeServer(
+            """{"type":"tool_result","tool_use_id":"t1","output":"","is_error":false,"images":[{"url":"/api/tool-images/a.jpg","media_type":"image/jpeg"},{"media_type":"image/png"},{"url":""},{"url":"/b.png"},"x",{"url":7}]}""",
+        ) as ServerFrame.ToolResult
+        assertEquals(
+            listOf(ToolImage("/api/tool-images/a.jpg", "image/jpeg"), ToolImage("/b.png", "")),
+            normalizeImages(f.images),
+        )
+        val none = ProtocolCodec.decodeServer("""{"type":"tool_result","tool_use_id":"t1","output":"x"}""") as ServerFrame.ToolResult
+        assertNull(none.images)
+        assertEquals(emptyList<ToolImage>(), normalizeImages(none.images))
+        assertEquals(emptyList<ToolImage>(), normalizeImages(JsonNull))
+        assertEquals(emptyList<ToolImage>(), normalizeImages(JsonPrimitive("nope")))
+        assertFalse("absent images stay absent on encode", "images" in ProtocolCodec.encodeServer(none))
+    }
 
     @Test
     fun malformedFramesDecodeToNull() {

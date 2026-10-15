@@ -324,3 +324,52 @@ describe('ToolCard expansion, keyboard and timing', () => {
     }
   });
 });
+
+describe('ToolCard: images a tool returned (spec 12 R-10 / TC-5)', () => {
+  const IMG = { url: '/api/tool-images/' + 'a'.repeat(64) + '.png', media_type: 'image/png' };
+
+  it('a Read of a picture shows it when expanded, linked to the full-size image', async () => {
+    const block = tool('Read', { file_path: '/tmp/shots/cat.png' }, { output: '', images: [IMG] });
+    const view = renderUi(<ToolCard block={block} autoOpen={false} />);
+    expect(body(view.container).querySelector('img')).toBeNull(); // nothing loads while folded
+    await view.user.click(header(view.container));
+    const img = body(view.container).querySelector('img') as HTMLImageElement;
+    expect(img.getAttribute('src')).toMatch(new RegExp(`${IMG.url}$`));
+    expect(img.getAttribute('alt')).toBe('cat.png');
+    const link = img.closest('a') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe(img.getAttribute('src'));
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(body(view.container).textContent).not.toMatch(/No output/);
+    await expectNoAxeViolations(view.container);
+  });
+
+  it('keeps the text output next to the images, and numbers several images', async () => {
+    const block = tool('mcp__chrome-devtools__take_screenshot', {}, { output: 'Took a screenshot', images: [IMG, IMG] });
+    const view = renderUi(<ToolCard block={block} autoOpen={false} />);
+    await view.user.click(header(view.container));
+    const imgs = body(view.container).querySelectorAll('img');
+    expect(imgs).toHaveLength(2);
+    expect(imgs[1]?.getAttribute('alt')).toBe('Tool image (2 of 2)');
+    expect(within(body(view.container)).getByText('Took a screenshot')).toBeTruthy();
+  });
+
+  it('an image that fails to load becomes "Image unavailable"', async () => {
+    const block = tool('Read', { file_path: '/tmp/gone.png' }, { output: '', images: [IMG] });
+    const view = renderUi(<ToolCard block={block} autoOpen={false} />);
+    await view.user.click(header(view.container));
+    const img = body(view.container).querySelector('img') as HTMLImageElement;
+    act(() => {
+      img.dispatchEvent(new Event('error'));
+    });
+    expect(body(view.container).querySelector('img')).toBeNull();
+    expect(within(body(view.container)).getByText('Image unavailable')).toBeTruthy();
+  });
+
+  it('a Read of a text file shows the file text', async () => {
+    const block = tool('Read', { file_path: '/tmp/notes.md' }, { output: '     1\t# Notes\n     2\thello' });
+    const view = renderUi(<ToolCard block={block} autoOpen={false} />);
+    await view.user.click(header(view.container));
+    expect(output(view.container)?.getAttribute('data-kind')).toBe('output');
+    expect(body(view.container).querySelector('pre')?.textContent).toContain('hello');
+  });
+});

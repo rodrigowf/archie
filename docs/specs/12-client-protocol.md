@@ -183,8 +183,9 @@ TextBlock     = { type: "text",     text, streaming: boolean, scope: "turn"|"voi
 ThinkingBlock = { type: "thinking", text, streaming: boolean, scope, origin, implicitlyClosed?, continuationOf? }
 ToolBlock     = { type: "tool", tool_use_id: string, tool_name: string, tool_input: object,
                   status: "running" | "done" | "error" | "no_result",
-                  output: string | null, inferred?: boolean, executing?: boolean,
+                  output: string | null, images?: ToolImage[], inferred?: boolean, executing?: boolean,
                   progress?: { elapsed_seconds, message }, scope: "turn"|"voice", origin }
+ToolImage     = { url: string, media_type: string }   // R-10: a picture the tool returned (a Read of an image)
 PermissionBlock = { type: "permission", request_id, tool_name, tool_input,
                   state: "pending" | "allowed" | "denied",
                   responder: "user"|"orchestrator"|"system"|null, message: string|null }
@@ -430,7 +431,7 @@ These invariants are normative. Each one is checkable on the reducer's output, s
 | **I-3 Arrival order** | Within a run, blocks are in arrival order. Text before a tool call is above it; text after a tool result is below it. Blocks are never grouped by type. |
 | **I-4 Delta extension** | A `*_delta` extends the last block of the last entry iff that block has the same type, the same scope and `streaming == true`. Otherwise it opens a new block. Any other block appended in between closes the open block. |
 | **I-5 Complete replaces** | `*_complete(t)` replaces the open block's text with `t` and closes it; it never appends to the deltas. If the open block is the continuation of a block split by an interleaved entry, the already-shown prefix is removed (`continuationOf`). |
-| **I-6 RESULT-DELIVERY** | A tool result is never lost and always shown. See §4.5 (R-1…R-9). |
+| **I-6 RESULT-DELIVERY** | A tool result is never lost and always shown. See §4.5 (R-1…R-10). |
 | **I-7 No stuck running** | After `endTurn` no block with `scope == "turn"` is `streaming`, no such tool is `running`, and no permission is `pending`. After `endVoice` the same holds for `scope == "voice"`. After `session_stopped`/`session_terminated` it holds for both. |
 | **I-8 Seq idempotence** | Applying a seq-stamped frame twice (same `stream_id`, same `seq`) is the same as applying it once (SEQ-1). `session_stalled` is exempt. |
 | **I-9 Voice anchor** | A completed voice user transcript is inserted at the position recorded at the matching `speech_started` (if any) rather than at the end. This is the only positional insertion. It never splits a run. |
@@ -604,17 +605,22 @@ function onToolUse(id, name, input) {
   }
 }
 
-function onToolResult(id, output, isError, origin = "live") {
+function onToolResult(id, output, isError, images, origin = "live") {
   clearStall()
-  deliverResult(id ?? "", { output: normalizeOutput(output), is_error: isError === true, origin })
+  deliverResult(id ?? "", { output: normalizeOutput(output), is_error: isError === true, images: normalizeImages(images), origin })
 }
+
+const normalizeImages = imgs =>                               // R-10: well-formed entries only
+  (Array.isArray(imgs) ? imgs : []).filter(i => typeof i?.url == "string" && i.url != "")
+    .map(i => ({ url: i.url, media_type: typeof i.media_type == "string" ? i.media_type : "" }))
+const hasContent = r => r.output != "" || r.images.length > 0   // an image Read has output "" but is not empty
 
 function deliverResult(id, r) {                                // R-1 … R-4
   if (id) {
     const tb = tools.get(id)
     if (tb) { applyResult(tb, r); return }
     const prev = orphanResults.get(id)
-    if (!prev || r.output != "" || prev.output == "") orphanResults.set(id, r)
+    if (!prev || hasContent(r) || !hasContent(prev)) orphanResults.set(id, r)
     return
   }
   if (r.origin == "live") {
@@ -626,11 +632,11 @@ function deliverResult(id, r) {                                // R-1 … R-4
 
 function applyResult(tb, r) {                                  // R-5
   const authoritative = r.origin == "reconcile"
-  if (!authoritative && (tb.status == "done" || tb.status == "error")
-      && tb.output && r.output == "") return                   // never replace output with nothing
-  if (authoritative && (tb.status == "done" || tb.status == "error")
-      && tb.output && !tb.inferred) return                     // live non-empty result already there
+  const had = (tb.status == "done" || tb.status == "error") && hasContent({ output: tb.output ?? "", images: tb.images ?? [] })
+  if (!authoritative && had && !hasContent(r)) return          // never replace output with nothing
+  if (authoritative && had && !tb.inferred) return             // live non-empty result already there
   tb.output = r.output
+  tb.images = r.images                                         // images travel with the output they came with
   tb.status = r.is_error ? "error" : "done"
   tb.inferred = r.inferred === true
   tb.executing = false
@@ -699,7 +705,7 @@ function reduce(f) {
   case "thinking_delta":    return onDelta("thinking", f.text)
   case "thinking_complete": return onComplete("thinking", f.text)
   case "tool_use":          return onToolUse(f.tool_use_id, f.tool_name, f.tool_input)
-  case "tool_result":       return onToolResult(f.tool_use_id, f.output, f.is_error)
+  case "tool_result":       return onToolResult(f.tool_use_id, f.output, f.is_error, f.images)
   case "tool_executing":    return onToolExecuting(f.tool_use_id)
   case "tool_progress":     return onToolProgress(f.tool_use_id, f.elapsed_seconds, f.message)
   case "permission_request":  return onPermissionRequest(f.request_id, f.tool_name, f.tool_input)
@@ -986,6 +992,7 @@ Rules:
 - **R-6 No stuck "running".** At `endTurn` every `running` card of scope `turn` becomes `no_result`; at `endVoice` every `running` card of scope `voice` does; at `session_stopped`/`session_terminated` all of them do. `no_result` is not final: a later result upgrades it.
 - **R-7 Reconcile after the turn.** For agent sessions with an `sdkId`, after `endTurn` the client MUST run `reconcile` (§5.5) if any card of that turn ended `no_result` or `inferred`, or `unattributed` is non-empty, or `orphanResults` has live entries. It SHOULD debounce (500 ms after `turn_complete`) and run at most one reconcile at a time.
 - **R-8 Results never create entries or blocks.** Orphans and unattributed results are side collections, not timeline content.
+- **R-10 Images.** A result whose tool returned pictures (a Claude `Read` of an image file, an MCP screenshot) carries `images: [{url, media_type}]` on the `tool_result` frame (omitted when there are none) and on the REST `tool_result` block (`null` when there are none); its `output` is the text items only, often `""`. The backend writes each image once to its machine-local cache and the `url` is server-relative (`/api/tool-images/<sha256>.<ext>`, immutable, `backend/utils/tool_images.py`); the base64 never reaches a client. Clients resolve the `url` against the server they talk to. For R-5 a result with images is not empty: `hasContent(r) = output != "" || images.length > 0`. The images replace the card's images together with its output.
 - **R-9 Unmatched results are reachable.** The UI MUST make live orphans and all unattributed results reachable (for example a footer chip "2 tool results could not be matched" that opens a list). History orphans stay hidden while `history.hasMore` (their `tool_use` is on a page not loaded yet) and become reachable when `hasMore == false`.
 
 **UI rules for tool cards** (both platforms):
@@ -993,6 +1000,7 @@ Rules:
 - **TC-1.** The card's status icon and output region are bound to the `ToolBlock` by identity and update reactively when the result arrives, including when the card is already expanded (W-6.2 "expanded Bash shows nothing", A-4.3 (c)).
 - **TC-2.** Status display: `running` → spinner; `done` → done; `error` → error styling with the output; `no_result` → neutral "No output received" (live) or "No output recorded" (history). A history tool without a result MUST NOT show "done" (W-17, A-4.2).
 - **TC-3.** `inferred` results show a subtle "matched by position" hint. `executing`/`progress` show "running · 12 s".
+- **TC-5.** A card with `images` shows them in its expanded output region (any tool, not only `Read`): scaled to the card's width, original aspect ratio, a bounded height, loaded only once the card is expanded; tapping one opens it full size. Its text output, if any, still shows. A Read of a text file keeps showing the file text it returned. An image that fails to load shows a small "Image unavailable" placeholder, never a broken-image glyph.
 - **TC-4.** Orchestrator tool names MUST be resolved before the Qwen snake_case mapping when the conversation is an orchestrator (W-15): the orchestrator's `read_file` keeps its own renderer.
 
 ### 4.6 Permissions
@@ -1230,7 +1238,8 @@ function convertPreview(p) {
   const blocks = p.blocks ?? []
   if (p.role == "user") {
     for (const b of blocks) if (b.type == "tool_result")
-      deliverResult(b.tool_use_id ?? "", { output: normalizeOutput(b.output), is_error: b.is_error === true, origin: "history" })
+      deliverResult(b.tool_use_id ?? "", { output: normalizeOutput(b.output), is_error: b.is_error === true,
+                                           images: normalizeImages(b.images), origin: "history" })
     if (blocks.length && blocks.every(b => b.type == "tool_result")) return     // protocol wrapper, not a turn
     const text = p.text ?? ""
     if (text == "") return                                                       // e.g. image-only line
@@ -1243,7 +1252,8 @@ function convertPreview(p) {
     else if (b.type == "thinking" && b.text) pushHistory("thinking", b.text)    // only after backend fix (App. A)
     else if (b.type == "tool_use")           historyToolUse(b.tool_use_id, b.tool_name, b.tool_input)
     else if (b.type == "tool_result")
-      deliverResult(b.tool_use_id ?? "", { output: normalizeOutput(b.output), is_error: b.is_error === true, origin: "history" })
+      deliverResult(b.tool_use_id ?? "", { output: normalizeOutput(b.output), is_error: b.is_error === true,
+                                           images: normalizeImages(b.images), origin: "history" })
   }
 }
 
@@ -1346,7 +1356,8 @@ function reconcile(resp) {                            // history_page{reconcile}
   for (const p of resp.messages) for (const b of p.blocks ?? []) {
     if (b.type != "tool_result" || !b.tool_use_id) continue
     const tb = tools.get(b.tool_use_id)
-    if (tb) applyResult(tb, { output: normalizeOutput(b.output), is_error: b.is_error === true, origin: "reconcile" })
+    if (tb) applyResult(tb, { output: normalizeOutput(b.output), is_error: b.is_error === true,
+                              images: normalizeImages(b.images), origin: "reconcile" })
   }
   unattributed = []                                   // superseded by the authoritative REST results
 }
@@ -2021,6 +2032,7 @@ IDs: **W-n** = item n of 02 §6.3; **W-6.1 / W-6.2** = the lists in 02 §6.1 / �
 | `tool_result_before_tool_use` | R-2 |
 | `tool_result_on_next_history_page` | H-5, W-17 |
 | `tool_result_string_shape_empty_id` | R-3, R-4 (inferred) |
+| `tool_result_images` | R-10, R-5 (an image result is not empty), history + live |
 | `tool_result_empty_id_parallel_reconcile` | R-4, R-7, §5.5, BF-1 workaround |
 | `voice_mode_tool_result_gemini` | R-3 (object output), VT-3 |
 | `voice_passive_viewer_no_wedge` | W-1, V-12, VT-3 |

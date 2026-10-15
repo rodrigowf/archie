@@ -144,6 +144,7 @@ export function normaliseEntry(e: Entry): Record<string, unknown> {
           status: b.status,
           output: b.output,
         };
+        if (b.images?.length) t.images = b.images.map((i) => ({ url: i.url, media_type: i.media_type }));
         if (b.inferred === true) t.inferred = true;
         return t;
       }

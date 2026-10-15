@@ -26,6 +26,7 @@ import com.assistant.archie.feature.chat.ui.ComposerBounds
 import com.assistant.archie.feature.chat.ui.LocalComposerBounds
 import com.assistant.archie.feature.chat.ui.OverlayAnchor
 import com.assistant.archie.feature.chat.ui.VoiceOverlayActivity
+import com.assistant.archie.feature.toolcards.LocalToolImageLoader
 import com.assistant.archie.graph.GraphOwner
 import com.assistant.archie.graph.MainAppGraph
 import com.assistant.archie.system.ShellCommand
@@ -153,7 +154,7 @@ fun ArchieApp(graph: MainAppGraph) {
     )
     ArchieTheme(mode = state.themeMode.toDesign(), reduceMotion = appearance.reduceMotion) {
         ProvideTextSize(appearance.textSize) {
-            CompositionLocalProvider(LocalComposerBounds provides composerBounds) {
+            CompositionLocalProvider(LocalComposerBounds provides composerBounds, LocalToolImageLoader provides graph.toolImages) {
                 AuthGate(settings) { ArchieShell(state, vm::onAction, backStack, destinations, voiceOverlay = voiceOverlay) }
             }
         }

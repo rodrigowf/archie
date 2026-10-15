@@ -2,7 +2,7 @@
  * REST history helpers shared by the reducer (§5.1) and rewind/fork (§6.5).
  * Regexes avoid lookbehind and named groups (Safari 12, spec 13 §2.3).
  */
-import type { NoticeKind, UserOrigin } from '../types';
+import type { NoticeKind, ToolImage, UserOrigin } from '../types';
 
 export type ClassifiedLine =
   | { readonly kind: 'user'; readonly text: string; readonly origin: UserOrigin }
@@ -49,6 +49,18 @@ export function classifyUserLine(text: string): ClassifiedLine {
 }
 
 /** R-3: strings unchanged, `null`/`undefined` → `""`, anything else → `JSON.stringify`. */
+/** R-10: the well-formed `{url, media_type}` entries of a result's `images` (anything else → `[]`). */
+export function normalizeImages(x: unknown): ToolImage[] {
+  if (!Array.isArray(x)) return [];
+  const out: ToolImage[] = [];
+  for (const i of x) {
+    if (typeof i !== 'object' || i === null) continue;
+    const { url, media_type } = i as Record<string, unknown>;
+    if (typeof url === 'string' && url !== '') out.push({ url, media_type: typeof media_type === 'string' ? media_type : '' });
+  }
+  return out;
+}
+
 export function normalizeOutput(x: unknown): string {
   if (typeof x === 'string') return x;
   if (x === null || x === undefined) return '';

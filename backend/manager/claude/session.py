@@ -96,6 +96,7 @@ from ..base_session import (
 from ..config import ManagerConfig
 from ..memory_context import is_archie_project, memory_instructions
 from ..protocol import tool_result_text
+from utils.tool_images import tool_result_images
 from ..subagents import SubagentRegistry, is_spawn_tool, spawn_fields, usage_dict, wire_status
 from ..types import (
     CompactComplete,
@@ -1708,7 +1709,10 @@ class ClaudeSessionManager(BaseSessionManager):
 
                 elif isinstance(block, ToolResultBlock):
                     content = block.content
-                    if isinstance(content, list):
+                    images = tool_result_images(content)
+                    if images:
+                        content = tool_result_text(content)
+                    elif isinstance(content, list):
                         content = json.dumps(content)
                     # Some claude-cli versions emit placeholder ToolResultBlocks
                     # *inside* the assistant message — empty tool_use_id +
@@ -1727,6 +1731,7 @@ class ClaudeSessionManager(BaseSessionManager):
                         tool_use_id=block.tool_use_id,
                         output=content or "",
                         is_error=block.is_error or False,
+                        images=tuple(images),
                     )
 
                 if out is not None:
@@ -1751,6 +1756,7 @@ class ClaudeSessionManager(BaseSessionManager):
                         tool_use_id=block.tool_use_id or "",
                         output=tool_result_text(block.content),
                         is_error=bool(block.is_error),
+                        images=tuple(tool_result_images(block.content)),
                     )
                     yield SubagentEvent(tool_use_id=parent, event=result) if parent else result
                     if result.tool_use_id in self._subagents:
@@ -1791,6 +1797,7 @@ class ClaudeSessionManager(BaseSessionManager):
                         tool_use_id=fallback_id,
                         output=tool_result_text(result),
                         is_error=False,
+                        images=tuple(tool_result_images(result)),
                     )
                 else:
                     logger.warning(

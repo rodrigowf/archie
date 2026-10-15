@@ -78,7 +78,9 @@ object ProtocolCodec {
             "thinking_delta" -> ServerFrame.ThinkingDelta(o.str("text") ?: "", seq, sid)
             "thinking_complete" -> ServerFrame.ThinkingComplete(o.str("text") ?: "", seq, sid)
             "tool_use" -> ServerFrame.ToolUse(o.str("tool_use_id"), o.str("tool_name"), o.obj("tool_input"), seq, sid)
-            "tool_result" -> ServerFrame.ToolResult(o.str("tool_use_id"), o.present("output"), o.bool("is_error"), seq, sid)
+            "tool_result" -> ServerFrame.ToolResult(
+                o.str("tool_use_id"), o.present("output"), o.bool("is_error"), seq, sid, images = o.present("images"),
+            )
             "tool_executing" -> ServerFrame.ToolExecuting(o.str("tool_use_id"), o.str("tool_name"), seq, sid)
             "tool_progress" -> ServerFrame.ToolProgress(
                 o.str("tool_use_id"), o.str("tool_name"), o.double("elapsed_seconds"), o.str("message"), seq, sid,
@@ -219,6 +221,7 @@ object ProtocolCodec {
                 }
                 is ServerFrame.ToolResult -> {
                     put("tool_use_id", frame.toolUseId); put("output", frame.output); put("is_error", frame.isError)
+                    put("images", frame.images)
                 }
                 is ServerFrame.ToolExecuting -> { put("tool_use_id", frame.toolUseId); put("tool_name", frame.toolName) }
                 is ServerFrame.ToolProgress -> {

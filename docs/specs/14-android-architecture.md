@@ -757,6 +757,8 @@ SYSTEM with a raw name (inv03 §1.2).
 | `ScriptCard` | chrome-devtools evaluate_script, run_script | function/script name | highlighted JS (200 dp cap), args |
 | `GenericCard` | everything else (incl. `mcp__*`) | summary from catalog | input as key: value (values over 400 chars collapse) or pretty JSON; output |
 
+Any card whose result carries `images` (spec 12 R-10) shows them in its output region above the text (TC-5: card width, ≤ 320 dp, loaded on expand, tap for a full-screen view; `ui/ToolImages.kt`).
+
 Common `ToolCardShell` (`:core:design`): a leading category icon on a category-tinted container (tokens' extended
 `tool*` colors), a one-line summary (bodyMedium), and a status. The status is a 16 dp spinner while executing, a check
 when done, and an error icon on error, using labelSmall text at ≥ 11 sp (today's pill uses 9 sp, inv03 §8). Tap toggles

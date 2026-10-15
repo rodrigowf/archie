@@ -2,6 +2,7 @@ package com.assistant.core.conversation
 
 import com.assistant.core.model.SessionKind
 import com.assistant.core.model.SessionStatus
+import com.assistant.core.protocol.normalizeImages
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentList
@@ -424,9 +425,9 @@ internal class Draft(s: ConversationState) {
         }
     }
 
-    fun onToolResult(id: String?, output: JsonElement?, isError: Boolean?) {
+    fun onToolResult(id: String?, output: JsonElement?, isError: Boolean?, images: JsonElement? = null) {
         clearStall()
-        deliverResult(id ?: "", PendingResult(normalizeOutput(output), isError == true, ResultOrigin.LIVE))
+        deliverResult(id ?: "", PendingResult(normalizeOutput(output), isError == true, ResultOrigin.LIVE, normalizeImages(images)))
     }
 
     /** R-1 … R-4. */
@@ -434,7 +435,7 @@ internal class Draft(s: ConversationState) {
         if (id.isNotEmpty()) {
             if (tool(id) != null) { updateTool(id) { applyResult(it, r, inferred = false) }; return }
             val prev = orphans[id]
-            if (prev == null || r.output != "" || prev.output == "") orphans[id] = r
+            if (prev == null || r.hasContent || !prev.hasContent) orphans[id] = r
             if (r.origin == ResultOrigin.LIVE) turnNeedsReconcile = true
             return
         }
@@ -454,10 +455,12 @@ internal class Draft(s: ConversationState) {
     fun applyResult(tb: ToolBlock, r: PendingResult, inferred: Boolean): ToolBlock {
         val authoritative = r.origin == ResultOrigin.RECONCILE
         val final = tb.status == ToolStatus.DONE || tb.status == ToolStatus.ERROR
-        if (!authoritative && final && !tb.output.isNullOrEmpty() && r.output == "") return tb
-        if (authoritative && final && !tb.output.isNullOrEmpty() && !tb.inferred) return tb
+        val had = final && (!tb.output.isNullOrEmpty() || tb.images.isNotEmpty())   // hasContent (R-10)
+        if (!authoritative && had && !r.hasContent) return tb
+        if (authoritative && had && !tb.inferred) return tb
         return tb.copy(
             output = r.output,
+            images = r.images,                                                    // images travel with their output
             status = if (r.isError) ToolStatus.ERROR else ToolStatus.DONE,
             inferred = inferred,
             executing = false,

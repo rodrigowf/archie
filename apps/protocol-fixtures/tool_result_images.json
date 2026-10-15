@@ -1,0 +1,269 @@
+{
+  "name": "tool_result_images",
+  "description": "Read of an image file: the result's output is empty and its picture comes as images[{url, media_type}] (spec R-10), from history and live. A text Read keeps its text output. A later empty result for the image card (no text, no images) does not wipe it (R-5 with hasContent). Malformed image entries are dropped (normalizeImages).",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1"
+  },
+  "initial_history": {
+    "messages": [
+      {
+        "role": "user",
+        "text": "What is in a.png?",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "What is in a.png?",
+            "tool_use_id": null,
+            "tool_name": null,
+            "tool_input": null,
+            "output": null,
+            "is_error": false,
+            "images": null
+          }
+        ],
+        "timestamp": "2026-10-15T12:00:00+00:00"
+      },
+      {
+        "role": "assistant",
+        "text": "",
+        "blocks": [
+          {
+            "type": "tool_use",
+            "text": null,
+            "tool_use_id": "h1",
+            "tool_name": "Read",
+            "tool_input": {
+              "file_path": "/tmp/a.png"
+            },
+            "output": null,
+            "is_error": false,
+            "images": null
+          }
+        ],
+        "timestamp": "2026-10-15T12:00:00+00:00"
+      },
+      {
+        "role": "user",
+        "text": "",
+        "blocks": [
+          {
+            "type": "tool_result",
+            "text": null,
+            "tool_use_id": "h1",
+            "tool_name": null,
+            "tool_input": null,
+            "output": "",
+            "is_error": false,
+            "images": [
+              {
+                "url": "/api/tool-images/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+                "media_type": "image/png"
+              }
+            ]
+          }
+        ],
+        "timestamp": "2026-10-15T12:00:00+00:00"
+      },
+      {
+        "role": "assistant",
+        "text": "A cat.",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "A cat.",
+            "tool_use_id": null,
+            "tool_name": null,
+            "tool_input": null,
+            "output": null,
+            "is_error": false,
+            "images": null
+          }
+        ],
+        "timestamp": "2026-10-15T12:00:00+00:00"
+      }
+    ],
+    "total_count": 4,
+    "has_more": false,
+    "start_index": 0
+  },
+  "events": [
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "t2",
+      "tool_name": "Read",
+      "tool_input": {
+        "file_path": "/tmp/b.jpg"
+      },
+      "seq": 1,
+      "stream_id": "L1:1760529600000"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "t3",
+      "tool_name": "Read",
+      "tool_input": {
+        "file_path": "/tmp/notes.md"
+      },
+      "seq": 2,
+      "stream_id": "L1:1760529600000"
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "t2",
+      "output": "",
+      "is_error": false,
+      "images": [
+        {
+          "url": "/api/tool-images/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.jpg",
+          "media_type": "image/jpeg"
+        },
+        {
+          "media_type": "image/png"
+        },
+        {
+          "url": ""
+        }
+      ],
+      "seq": 3,
+      "stream_id": "L1:1760529600000"
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "t3",
+      "output": "     1\thello",
+      "is_error": false,
+      "seq": 4,
+      "stream_id": "L1:1760529600000"
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "t2",
+      "output": "",
+      "is_error": false,
+      "seq": 5,
+      "stream_id": "L1:1760529600000"
+    },
+    {
+      "type": "text_complete",
+      "text": "A dog, and the notes say hello.",
+      "seq": 6,
+      "stream_id": "L1:1760529600000"
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "usage": {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 990,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 50
+      },
+      "input_tokens": 1000,
+      "output_tokens": 50,
+      "num_turns": 1,
+      "session_id": "sdk-1",
+      "is_error": false,
+      "result": "",
+      "seq": 7,
+      "stream_id": "L1:1760529600000"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "send",
+      "text": "And b.jpg and notes.md?"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "What is in a.png?",
+        "origin": "history",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "h1",
+            "tool_name": "Read",
+            "tool_input": {
+              "file_path": "/tmp/a.png"
+            },
+            "status": "done",
+            "output": "",
+            "images": [
+              {
+                "url": "/api/tool-images/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+                "media_type": "image/png"
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": "A cat.",
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "kind": "user",
+        "text": "And b.jpg and notes.md?",
+        "origin": "local",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "t2",
+            "tool_name": "Read",
+            "tool_input": {
+              "file_path": "/tmp/b.jpg"
+            },
+            "status": "done",
+            "output": "",
+            "images": [
+              {
+                "url": "/api/tool-images/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.jpg",
+                "media_type": "image/jpeg"
+              }
+            ]
+          },
+          {
+            "type": "tool",
+            "tool_use_id": "t3",
+            "tool_name": "Read",
+            "tool_input": {
+              "file_path": "/tmp/notes.md"
+            },
+            "status": "done",
+            "output": "     1\thello"
+          },
+          {
+            "type": "text",
+            "text": "A dog, and the notes say hello.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "orphan_results": [],
+    "unattributed_results": [],
+    "state": {
+      "status": "idle"
+    }
+  }
+}

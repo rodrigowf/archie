@@ -1,5 +1,7 @@
 package com.assistant.core.network
 
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+
 /** The two WebSocket endpoints (inv03 §3.1). */
 enum class WsEndpoint(val path: String) {
     ORCHESTRATOR("/api/orchestrator/chat"),
@@ -35,6 +37,17 @@ object UrlScheme {
             else -> "http"
         }
         return "$http://${stripPath(rest)}"
+    }
+
+    /**
+     * [ref] resolved against the REST base of [serverUrl]: a server-relative path
+     * (`/api/tool-images/<sha>.png`, spec 12 R-10) gets the server's scheme, host and port; an absolute
+     * `http(s)` URL stays as it is. `null` when [ref] is empty or cannot form a URL.
+     */
+    fun resolve(serverUrl: String, ref: String): String? {
+        if (ref.isBlank()) return null
+        val base = httpBase(serverUrl).toHttpUrlOrNull() ?: return null
+        return base.resolve(ref.trim())?.toString()
     }
 
     /** True for `https`/`wss` URLs (TLS: [TrustStore] applies). */

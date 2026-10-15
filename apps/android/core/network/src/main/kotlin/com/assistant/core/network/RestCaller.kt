@@ -55,6 +55,17 @@ class RestCaller(
             if (T::class == Unit::class) Unit as T else RestJson.decodeFromString<T>(text)
         }
 
+    /**
+     * The body of `GET` [ref] (a server-relative path such as a tool image's url, or an absolute URL)
+     * on the current server's REST client (its TLS pins and HTTP cache apply). `null` on any failure:
+     * callers show a placeholder, never an error dialog.
+     */
+    suspend fun getBytes(ref: String): ByteArray? {
+        val url = UrlScheme.resolve(serverUrl(), ref) ?: return null
+        val r = call(Request.Builder().url(url).get().build()) { it.body!!.bytes() }
+        return (r as? ApiResult.Ok)?.value
+    }
+
     fun jsonBody(body: JsonElement?): RequestBody =
         (body?.toString() ?: "").toRequestBody(JSON)
 

@@ -677,6 +677,28 @@ class TestSessionManagerSend:
         assert tool_results[0].output == "line one\nline two"
 
     @pytest.mark.asyncio
+    async def test_tool_result_image_read_carries_image_urls(self, tmp_path, monkeypatch):
+        """A Read of a picture: the base64 goes to the image cache and the
+        result carries its URL, never the data (spec 12 tool_result images)."""
+        from claude_agent_sdk import ToolResultBlock, UserMessage
+
+        monkeypatch.setenv("ARCHIE_STATE_DIR", str(tmp_path))
+        data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        image = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}}
+        user_msg = UserMessage(
+            content=[ToolResultBlock(tool_use_id="toolu_img", content=[image])],
+            parent_tool_use_id=None,
+            tool_use_result={"type": "image", "file": {"base64": data, "type": "image/png"}},
+        )
+        [result] = await self._collect_tool_results(user_msg)
+        assert result.tool_use_id == "toolu_img"
+        assert result.output == ""
+        [img] = result.images
+        assert img["media_type"] == "image/png"
+        assert img["url"].startswith("/api/tool-images/") and img["url"].endswith(".png")
+        assert (tmp_path / "tool-images" / img["url"].rsplit("/", 1)[1]).is_file()
+
+    @pytest.mark.asyncio
     async def test_tool_result_block_none_content(self):
         """A tool_result block with no content yields an empty output."""
         from claude_agent_sdk import ToolResultBlock, UserMessage

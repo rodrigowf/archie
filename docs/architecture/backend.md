@@ -100,6 +100,7 @@ browser-origin guard and a CORS policy that echoes only trusted origins (no cred
 | `memory.py` | `/api/memory/tree` | Markdown tree of `context/memory/` for the memory browser (file content comes from `/memory/<path>`) |
 | `visualizations.py` | `/api/visualizations` | List HTML files under `context/public/` with titles, `PATCH /rename`, `GET/POST /cast` (show on the Fire TV) ([visualizations](../integrations/visualizations-and-sharing.md)) |
 | `uploads.py` | `/api/uploads` | `POST` a file (≤ 200 MB) into `context/uploads/`, returns its `/uploads/...` link |
+| `tool_images.py` | `GET /api/tool-images/<sha256>.<ext>` | Pictures from tool results (a `Read` of an image, an MCP screenshot). `backend/utils/tool_images.py` writes each base64 image once to `state/tool-images/` (machine-local, content-addressed, rebuilt from the JSONL by any history read) and the `tool_result` frame / REST block carries `images: [{url, media_type}]` instead of the data (spec 12 R-10). Immutable, cache-forever responses; the cache is never pruned (images are small; delete the folder to reclaim space) |
 | `debug.py` | `/api/debug/log` | Remote console: clients POST log lines, appended to `logs/remote_console.log` ([debugging](../operations/debugging.md)) |
 | `browser.py` | `/api/browser/status`, `POST /api/browser/command`, `WS /api/browser/ws` | Hub for the Chrome extension ([browser-extension](../clients/browser-extension.md)); the WS needs the `BROWSER_CONTROL_TOKEN`, `command` is loopback-only |
 
@@ -213,7 +214,7 @@ paths from it — never from `__file__` or the cwd.
 | `get_uploads_dir()` | `context/uploads/` |
 | `get_trash_dir()` | `context/trash/` (soft-deleted sessions) |
 | `get_index_dir()` | `index/` (search indexes) |
-| `get_state_dir()` | `state/` (machine-local backend state: the open set; `ARCHIE_STATE_DIR` overrides) |
+| `get_state_dir()` | `state/` (machine-local backend state: the open set, the `tool-images/` cache; `ARCHIE_STATE_DIR` overrides) |
 | `get_titles_path()` | `context/.titles.json` |
 | `get_session_path(id)` | `context/<id>.jsonl` |
 

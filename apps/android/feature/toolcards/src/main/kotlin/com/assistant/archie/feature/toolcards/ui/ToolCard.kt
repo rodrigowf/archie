@@ -229,7 +229,7 @@ internal fun ToolBodyView(
     feedTitle: String?,
     onLink: (String) -> Unit,
 ) {
-    val parts = remember(tool, block.status, block.output) { ToolBodies.parts(tool, block) }
+    val parts = remember(tool, block.status, block.output, block.images) { ToolBodies.parts(tool, block) }
     val title = feedTitle ?: if (tool.name == "send_to_agent_session") tool.input.str("session_id")?.let { "Live · session ${it.take(8)}" } else null
     Column(Modifier.fillMaxWidth().testTag("tool-body"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         parts.forEach { p ->

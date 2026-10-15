@@ -45,7 +45,7 @@ const SCHEMAS: Readonly<Record<ServerFrameType, Schema>> = {
   thinking_delta: { text: STR },
   thinking_complete: { text: STR },
   tool_use: { tool_use_id: STR, tool_name: STR, tool_input: OBJ },
-  tool_result: { tool_use_id: STR, output: 'any', is_error: OPT_BOOL },
+  tool_result: { tool_use_id: STR, output: 'any', is_error: OPT_BOOL, images: 'arr?' },
   tool_executing: { tool_use_id: STR, tool_name: OPT_STR },
   tool_progress: { tool_use_id: STR, tool_name: OPT_STR, elapsed_seconds: 'num', message: STR },
   turn_complete: {

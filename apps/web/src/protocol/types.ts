@@ -94,12 +94,20 @@ export interface ToolBlock {
   readonly status: ToolStatus;
   /** `null` until a result arrives (normalised to a string, R-3). */
   readonly output: string | null;
+  /** Pictures the tool returned (R-10, e.g. a Read of an image); absent when none. */
+  readonly images?: readonly ToolImage[];
   /** Attached by position to the single running card (R-4). */
   readonly inferred?: boolean;
   readonly executing?: boolean;
   readonly progress?: ToolProgress;
   readonly scope: BlockScope;
   readonly origin: BlockOrigin;
+}
+
+/** A picture in a tool result (R-10): `url` is server-relative (`/api/tool-images/<sha256>.<ext>`). */
+export interface ToolImage {
+  readonly url: string;
+  readonly media_type: string;
 }
 
 export type PermissionState = 'pending' | 'allowed' | 'denied';
@@ -156,6 +164,8 @@ export type Entry = UserEntry | AssistantEntry | NoticeEntry;
 export interface ToolResultData {
   readonly output: string;
   readonly is_error: boolean;
+  /** R-10; missing = none. */
+  readonly images?: readonly ToolImage[];
   readonly origin: 'live' | 'history' | 'reconcile';
   readonly inferred?: boolean;
 }

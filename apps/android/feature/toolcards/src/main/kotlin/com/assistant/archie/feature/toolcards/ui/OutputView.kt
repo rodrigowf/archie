@@ -68,7 +68,8 @@ const val OUTPUT_TAG: String = "tool-output"
  * result arrives, also while the card is already expanded:
  *
  *   running    spinner + "Running…" (or the tool's waiting text) + elapsed  — never empty
- *   done       the output (ANSI stripped, first 200 lines / 20 KB, then "Show all")
+ *   done       the output (ANSI stripped, first 200 lines / 20 KB, then "Show all"); pictures the
+ *              result carried (R-10) above the text (TC-5, [ToolImages])
  *   error      the output in the error colour
  *   no_result  "No output received" (live) or "No output recorded" (history)
  *
@@ -148,7 +149,9 @@ private fun TextOutput(block: ToolBlock, modifier: Modifier, label: String, rend
                 if (meta != null) Text(meta)
             }
         }
-        when (render) {
+        // TC-5: the result's pictures, then its text (if any).
+        if (block.images.isNotEmpty()) ToolImages(block.images, Modifier.padding(bottom = if (text.isEmpty()) 0.dp else 8.dp))
+        if (text.isNotEmpty()) when (render) {
             OutputRender.Plain -> Text(
                 shown,
                 Modifier.fillMaxWidth().semantics { contentDescription = "Tool output" },

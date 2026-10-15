@@ -29,6 +29,7 @@ def _convert_blocks(blocks) -> list[ContentBlockResponse]:
             tool_input=b.tool_input,
             output=b.output,
             is_error=b.is_error,
+            images=b.images,
         )
         for b in blocks
     ]

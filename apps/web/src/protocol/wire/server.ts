@@ -106,6 +106,8 @@ export interface ToolResultFrame extends Sequenced {
   /** A string from every agent path; may be any JSON value from Gemini voice (R-3). */
   output: unknown;
   is_error?: boolean;
+  /** R-10: pictures the tool returned, server-relative URLs; omitted when none. */
+  images?: unknown;
 }
 
 export interface ToolExecutingFrame extends Sequenced {
@@ -447,6 +449,8 @@ export interface ContentBlockPreview {
   tool_input?: Record<string, unknown> | null;
   output?: unknown;
   is_error?: boolean | null;
+  /** R-10: `[{url, media_type}]` on a `tool_result` block, `null` when none. */
+  images?: unknown;
 }
 
 /** REST `MessagePreviewResponse` (`api/models.py:62-66`). */

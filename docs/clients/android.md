@@ -401,6 +401,19 @@ Test, and the Environment keys list with reveal-on-demand / edit / delete / add)
   and memory files open as workspace items; memory documents open visuals in the app too (a
   `VisualDoc` screen on Compact).
 
+## Tool-result images (main app)
+
+A tool result that carries pictures (a Claude `Read` of an image, spec 12 R-10 / TC-5) keeps them
+on `ToolBlock.images` (`:core:conversation`, normalised from the frame's raw `images` or the REST
+block's `images`). The expanded card's output region (`:feature:toolcards` `ui/ToolImages.kt`)
+shows them above any text, fitted to the card width with their aspect ratio, at most 320 dp tall,
+never upscaled; nothing is fetched while the card is collapsed. `ToolImageLoader` (no image
+library) fetches the server-relative url through `RestCaller.getBytes` (the REST client: TLS pins
+and the HTTP disk cache apply; the files are immutable), decodes with `BitmapFactory` in two passes
+(`inSampleSize` for the box) and keeps bitmaps in a byte-sized `LruCache`; `MainAppGraph.toolImages`
+is provided as `LocalToolImageLoader`. A failed load shows "Image unavailable"; tapping a picture
+opens a full-screen dialog (fit to screen, pinch to zoom, double-tap to reset, tap or Back to close).
+
 ## Subagents (agent tabs, main app)
 
 Spec 12 §4.8 (SA-1..SA-9), plan [subagent-view](../projects/subagent-view/PLAN.md) §4.4. Same IA as

@@ -13,6 +13,8 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
 
+from utils.tool_images import tool_result_images
+
 from .types import ContentBlock, MessagePreview, SessionInfo
 
 
@@ -247,11 +249,13 @@ def extract_blocks(message: dict) -> list[ContentBlock]:
             ))
 
         elif btype == "tool_result":
+            content = block.get("content", "")
             blocks.append(ContentBlock(
                 type="tool_result",
                 tool_use_id=block.get("tool_use_id"),
-                output=tool_result_text(block.get("content", "")),
+                output=tool_result_text(content),
                 is_error=block.get("is_error", False),
+                images=tool_result_images(content) or None,
             ))
 
     return blocks

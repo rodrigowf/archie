@@ -9,11 +9,16 @@
  *   no_result  "No output received" (live) or "No output recorded" (history)
  *
  * An `inferred` result shows a subtle "matched by position" hint (R-4).
+ *
+ * Pictures the tool returned (R-10 / TC-5: a Read of an image, a screenshot) show above the text
+ * output, fitted to the card; a click opens the full-size image in a new tab. The body mounts only
+ * once the card is first expanded, so nothing loads for a folded card.
  */
 import { memo, useMemo, useState, type ReactNode } from 'react';
-import type { ToolBlock } from '@/protocol';
+import type { ToolBlock, ToolImage } from '@/protocol';
+import { httpUrl } from '@/services';
 import { Spinner, cx } from '@/ui/primitives';
-import { countLines, formatClock, plural, stripAnsi, truncateOutput } from './format';
+import { baseName, countLines, formatClock, plural, str, stripAnsi, truncateOutput } from './format';
 import styles from './ToolCard.module.css';
 
 export interface OutputViewProps {
@@ -38,6 +43,18 @@ function OutputViewImpl({ block, runningText = 'Running…', runningSeconds, fee
   const { status, output } = block;
   const isError = status === 'error';
   const hasOutput = output !== null && output !== '';
+
+  if (block.images?.length) {
+    const file = str(block.tool_input, 'file_path') ?? str(block.tool_input, 'path');
+    return (
+      <>
+        <ToolImages images={block.images} name={file ? baseName(file) : null} />
+        {hasOutput ? (
+          <TextOutput text={output} isError={isError} inferred={block.inferred === true} label={label} footer={footer} renderOutput={renderOutput} />
+        ) : null}
+      </>
+    );
+  }
 
   if (!hasOutput) {
     if (status === 'running') {
@@ -94,6 +111,37 @@ function OutputViewImpl({ block, runningText = 'Running…', runningSeconds, fee
 }
 
 export const OutputView = memo(OutputViewImpl);
+
+function ToolImages({ images, name }: { readonly images: readonly ToolImage[]; readonly name: string | null }) {
+  return (
+    <div className={styles.images} data-kind="images">
+      {images.map((image, i) => (
+        <ToolImageView
+          key={`${i}:${image.url}`}
+          image={image}
+          alt={(name ?? 'Tool image') + (images.length > 1 ? ` (${i + 1} of ${images.length})` : '')}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ToolImageView({ image, alt }: { readonly image: ToolImage; readonly alt: string }) {
+  const [failed, setFailed] = useState(false);
+  const src = httpUrl(image.url);
+  if (failed) {
+    return (
+      <div className={cx(styles.output, styles.waiting)} data-kind="image-error">
+        Image unavailable
+      </div>
+    );
+  }
+  return (
+    <a className={styles.imageLink} href={src} target="_blank" rel="noopener noreferrer" title="Open full size">
+      <img className={styles.image} src={src} alt={alt} decoding="async" onError={() => setFailed(true)} />
+    </a>
+  );
+}
 
 interface TextOutputProps {
   readonly text: string;

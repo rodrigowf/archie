@@ -19,6 +19,7 @@ export function tool(
     output: over.output === undefined ? (over.status === 'running' || over.status === 'no_result' ? null : 'ok') : over.output,
     scope: over.scope ?? 'turn',
     origin: over.origin ?? 'live',
+    ...(over.images !== undefined ? { images: over.images } : {}),
     ...(over.inferred !== undefined ? { inferred: over.inferred } : {}),
     ...(over.executing !== undefined ? { executing: over.executing } : {}),
     ...(over.progress !== undefined ? { progress: over.progress } : {}),

@@ -23,7 +23,7 @@
  *   re-fetches every open transcript; SA-7 sets `promptSinceTurnEnd` so the notification's own
  *   `status{processing}` never dispatches a queued prompt from the tray.
  */
-import { classifyUserLine, normalizeOutput } from '../history/classify';
+import { classifyUserLine, normalizeImages, normalizeOutput } from '../history/classify';
 import { canResume, checkpointFromResumeState, isDuplicateSeq, mergeResumeState } from '../resume/checkpoint';
 import {
   busy,
@@ -45,6 +45,7 @@ import {
   type Subagent,
   type SubagentUsage,
   type ToolBlock,
+  type ToolImage,
   type ToolResultData,
   type UserEntry,
 } from '../types';
@@ -130,6 +131,22 @@ function inputObject(x: unknown): Record<string, unknown> {
 
 function sameJson(a: unknown, b: unknown): boolean {
   return a === b || JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** R-10 / R-5: a result with images is not empty even when its text output is. */
+function hasContent(r: { readonly output: string; readonly images?: readonly ToolImage[] }): boolean {
+  return r.output !== '' || (r.images?.length ?? 0) > 0;
+}
+
+/** `{images}` only when the result carried some, so image-less results keep their old shape. */
+function imagesOf(x: unknown): { images?: readonly ToolImage[] } {
+  const images = normalizeImages(x);
+  return images.length ? { images } : {};
+}
+
+function sameImages(a: readonly ToolImage[] | undefined, b: readonly ToolImage[] | undefined): boolean {
+  if ((a?.length ?? 0) !== (b?.length ?? 0)) return false;
+  return (a ?? []).every((x, i) => x.url === b?.[i]?.url && x.media_type === b?.[i]?.media_type);
 }
 
 function isStream(b: Block): b is StreamBlock {
@@ -725,12 +742,12 @@ class Machine extends Draft {
     if (k < 0) return;
     const o = this.s.orphanResults[k] as ToolResultData;
     this.s.orphanResults = this.s.orphanResults.filter((_, n) => n !== k);
-    this.applyResult(loc, { output: o.output, is_error: o.is_error, origin: o.origin });
+    this.applyResult(loc, { output: o.output, is_error: o.is_error, ...(o.images ? { images: o.images } : {}), origin: o.origin });
   }
 
-  private onToolResult(id: string, output: unknown, isError: unknown): void {
+  private onToolResult(id: string, output: unknown, isError: unknown, images: unknown): void {
     this.clearStall();
-    this.deliverResult(id, { output: normalizeOutput(output), is_error: isError === true, origin: 'live' });
+    this.deliverResult(id, { output: normalizeOutput(output), is_error: isError === true, ...imagesOf(images), origin: 'live' });
   }
 
   /** R-1 … R-4 */
@@ -741,7 +758,7 @@ class Machine extends Draft {
       const k = this.s.orphanResults.findIndex((o) => o.tool_use_id === id);
       const prev = k >= 0 ? this.s.orphanResults[k] : undefined;
       if (!prev) this.s.orphanResults = this.s.orphanResults.concat([{ tool_use_id: id, ...r }]);
-      else if (r.output !== '' || prev.output === '')
+      else if (hasContent(r) || !hasContent(prev))
         this.s.orphanResults = this.s.orphanResults.map((o, n) => (n === k ? { tool_use_id: id, ...r } : o));
       return;
     }
@@ -765,14 +782,25 @@ class Machine extends Draft {
     const tb = this.blockAt(loc) as ToolBlock;
     const authoritative = r.origin === 'reconcile';
     const final = tb.status === 'done' || tb.status === 'error';
-    if (!authoritative && final && tb.output && r.output === '') return; // never replace output with nothing
-    if (authoritative && final && tb.output && !tb.inferred) return; // live non-empty result already there
+    const had = final && hasContent({ output: tb.output ?? '', images: tb.images });
+    if (!authoritative && had && !hasContent(r)) return; // never replace output with nothing
+    if (authoritative && had && !tb.inferred) return; // live non-empty result already there
     const status = r.is_error ? 'error' : 'done';
     const inferred = r.inferred === true;
     if (inferred) this.s.turnInferred = true;
-    if (tb.output === r.output && tb.status === status && (tb.inferred === true) === inferred && !tb.executing) return;
+    const images = r.images?.length ? r.images : undefined;
+    if (
+      tb.output === r.output &&
+      sameImages(tb.images, images) &&
+      tb.status === status &&
+      (tb.inferred === true) === inferred &&
+      !tb.executing
+    )
+      return;
     const m = this.blockMut(loc) as Mutable<ToolBlock>;
     m.output = r.output;
+    if (images) m.images = images; // images travel with the output they came with (R-10)
+    else delete m.images;
     m.status = status;
     m.inferred = inferred;
     m.executing = false;
@@ -922,7 +950,7 @@ class Machine extends Draft {
       case 'tool_use':
         return this.onToolUse(f.tool_use_id, f.tool_name, f.tool_input);
       case 'tool_result':
-        return this.onToolResult(f.tool_use_id, f.output, f.is_error);
+        return this.onToolResult(f.tool_use_id, f.output, f.is_error, f.images);
       case 'tool_executing':
         return this.onToolExecuting(f.tool_use_id);
       case 'tool_progress':
@@ -1634,6 +1662,7 @@ class Machine extends Draft {
     this.deliverResult(str(b.tool_use_id), {
       output: normalizeOutput(b.output),
       is_error: b.is_error === true,
+      ...imagesOf(b.images),
       origin: 'history',
     });
   }
@@ -1668,7 +1697,12 @@ class Machine extends Draft {
         if (b.type !== 'tool_result' || !id) continue;
         const loc = this.findTool(id);
         if (loc)
-          this.applyResult(loc, { output: normalizeOutput(b.output), is_error: b.is_error === true, origin: 'reconcile' });
+          this.applyResult(loc, {
+            output: normalizeOutput(b.output),
+            is_error: b.is_error === true,
+            ...imagesOf(b.images),
+            origin: 'reconcile',
+          });
       }
     }
     if (this.s.unattributed.length) this.s.unattributed = []; // superseded by the authoritative REST results

@@ -198,7 +198,7 @@ async def test_subagent_messages_page(ctx):
     assert first["role"] == "user" and first["text"] == "Search."
     assert second["blocks"][0]["type"] == "tool_use" and second["blocks"][0]["tool_name"] == "Grep"
     assert third["blocks"][0] == {"type": "tool_result", "text": None, "tool_use_id": "g1", "tool_name": None,
-                                  "tool_input": None, "output": "a.ts:1", "is_error": False}
+                                  "tool_input": None, "output": "a.ts:1", "is_error": False, "images": None}
     assert last["text"] == "Old report"
 
     r = await _get(_app(ctx), f"/api/sessions/{SID}/subagents/t_bg/messages?limit=2")
