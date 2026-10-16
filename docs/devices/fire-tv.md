@@ -30,7 +30,7 @@ the fallback and the route for everything else (other apps, key events, screensh
 |---|---|
 | ADB address | DHCP — `192.168.0.15:5555` as of 2026-10-16 (it was `.16` until 2026-10-14 and another device has `.16` now); always rediscover it by MAC address |
 | Archie TV app | `com.assistant.archie.tv`, module `apps/android/app-tv`, control socket `/api/tv/ws` ([below](#archie-tv-control-channel)) |
-| Launcher package | `com.example.tvserverhub` (`.MainActivity`, `.WebPageViewActivity`, `.ScreensaverMonitorService`, `.BootReceiver`) |
+| Launcher package | `com.example.tvserverhub` v2.0 (`.MainActivity`, `.SettingsActivity`, `.BlankActivity`, `.ScreensaverMonitorService`, `.KeyWatchService` (accessibility), `.KeepAwakeReceiver`, `.BootReceiver`, `.WebPageViewActivity` (adb fallback)) |
 | Launcher source | A separate Android Studio project outside this repo (`~/AndroidStudioProjects/TvServerHub` on the laptop, with its own `CLAUDE.md` and `DEBUGGING.md`) |
 | Discovery script | `~/AndroidStudioProjects/TvServerHub/scripts/discover-firetv.sh` |
 
