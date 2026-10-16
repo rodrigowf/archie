@@ -28,10 +28,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
  */
 
 /** What a key-hint shows as its key cap. */
-enum class HintGlyph { MIC, PLAY_PAUSE, MENU, BACK, OK, REWIND_FF }
+enum class HintGlyph { MIC, PLAY_PAUSE, MENU, BACK, OK, REWIND_FF, DOWN }
 
+/** [emphasis]: a call to action ("▼ Approval needed"), drawn last, right-aligned, in the warning colors. */
 @Immutable
-data class KeyHint(val glyph: HintGlyph, val label: String)
+data class KeyHint(val glyph: HintGlyph, val label: String, val emphasis: Boolean = false)
 
 /** Ready-made hints; [Default] is what a screen gets when it says nothing (spec 15 §3.4). */
 object KeyHints {
@@ -41,6 +42,9 @@ object KeyHints {
     val Back = KeyHint(HintGlyph.BACK, "Back")
     fun Ok(label: String) = KeyHint(HintGlyph.OK, label)
     fun Page(label: String = "Page") = KeyHint(HintGlyph.REWIND_FF, label)
+
+    /** An inline card waits below (spec 15 §3.5: arrival never moves focus, FOCUS-1). */
+    val ApprovalNeeded = KeyHint(HintGlyph.DOWN, "Approval needed", emphasis = true)
 
     val Default: List<KeyHint> = listOf(Mic, LiveVoice, Menu, Back)
 }
@@ -135,6 +139,22 @@ class ScreenChromeRegistry {
         if (views[key] != view) views[key] = view
     }
 
+    private val restorers = HashMap<Any, () -> Boolean>()
+
+    /**
+     * Focus returns to the content (Back or Right from the drawer): the screen's own restore
+     * ([FocusRestoreEffect]) puts it back on the element it left; false = the shell's fallback.
+     */
+    fun restoreFocus(key: Any?): Boolean = key?.let { restorers[it] }?.invoke() == true
+
+    internal fun attachRestorer(key: Any, restore: () -> Boolean) {
+        restorers[key] = restore
+    }
+
+    internal fun detachRestorer(key: Any, restore: () -> Boolean) {
+        if (restorers[key] === restore) restorers.remove(key)
+    }
+
     internal fun detach(key: Any, latest: () -> TvScreenContract) {
         if (contracts[key] === latest) {
             contracts.remove(key)
@@ -161,6 +181,23 @@ fun ScreenChromeEffect(contract: TvScreenContract) {
     }
     val view = ChromeView.of(contract)
     SideEffect { registry.publish(key, view) }
+}
+
+/**
+ * Registers how this screen puts focus back on the element the user left (e.g. `FocusMemory.restore`)
+ * when focus comes back from the drawer (spec 15 §3.1 principle 3). Return false to let the shell
+ * pick (its focus restorer, then the first element).
+ */
+@Composable
+fun FocusRestoreEffect(restore: () -> Boolean) {
+    val registry = LocalScreenChromeRegistry.current ?: return
+    val key = LocalTvEntryKey.current ?: return
+    val latest by rememberUpdatedState(restore)
+    DisposableEffect(registry, key) {
+        val r: () -> Boolean = { latest() }
+        registry.attachRestorer(key, r)
+        onDispose { registry.detachRestorer(key, r) }
+    }
 }
 
 /** Shell actions reachable from components (tv-material surfaces route long-press OK through here). */
