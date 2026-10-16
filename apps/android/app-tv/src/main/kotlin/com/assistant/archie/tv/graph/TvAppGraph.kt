@@ -137,6 +137,9 @@ class TvAppGraph(
         ConnectionModel(RepositoryConnectionControl(connection, orchestrator, http, settings), settings, settingsMessages, scope)
     }
 
+    /** KEEP_AWAKE pings to the TvServerHub launcher (spec 15 §7.3): pushed content (T3), live voice (T4). */
+    val launcherPing = com.assistant.archie.tv.control.LauncherPing(app)
+
     /** The live navigator + current screen for control commands (T3) and the voice router (T4). */
     val navHolder = com.assistant.archie.tv.shell.TvNavHolder()
 
