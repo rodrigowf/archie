@@ -108,9 +108,45 @@ class AgentsUiTest : ScreenTestBase() {
         compose.onNodeWithTag("agents-close-finished").performClick()
         compose.waitForIdle()
         compose.onNodeWithTag("agent-tab:t1").assertDoesNotExist()
+        compose.onNodeWithTag("agent-tabs").assertDoesNotExist() // only Main left: no row
         compose.onNodeWithTag("agent-row:t1").performClick()
         compose.waitForIdle()
+        compose.onNodeWithTag("agent-tabs").assertExists()
         compose.onNodeWithTag("agent-tab:t1").assertIsSelected()
+    }
+
+    @Test
+    fun closeFinishedFromTheRowMenu_hidesTheRowWithOnlyMainLeft_andTheSheetReopensATab() {
+        runningAgent()
+        backend.frames("""{"type":"subagent_finished","tool_use_id":"t1","status":"done","summary":"Found it.","usage":null,"ended_at":"2026-10-12T12:00:09Z"}""")
+        compose.waitForIdle()
+        compose.onNodeWithTag("agent-tabs-menu").performClick()
+        compose.onNodeWithText("Close finished").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("agent-tabs").assertDoesNotExist()
+        compose.onNodeWithTag("agent-tabs-closed").assertExists()
+        compose.onNodeWithTag("composer").assertExists()
+        compose.onNodeWithTag("agents-button").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("agent-row:t1").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("agent-tabs").assertExists()
+        compose.onNodeWithTag("agent-tab:t1").assertIsSelected()
+        compose.onNodeWithTag("agent-tabs-closed").assertDoesNotExist()
+    }
+
+    @Test
+    fun closeFinishedKeepsTheRowWhileAnAgentStillRuns() {
+        runningAgent()
+        backend.frames("""{"type":"subagent_started","tool_use_id":"t2","parent_tool_use_id":null,"agent_type":"Explore","description":"Review tests","background":false}""", """{"type":"subagent_finished","tool_use_id":"t1","status":"done","summary":"Found it.","usage":null,"ended_at":"2026-10-12T12:00:09Z"}""")
+        compose.waitForIdle()
+        compose.onNodeWithTag("agent-tabs-menu").performClick()
+        compose.onNodeWithText("Close finished").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("agent-tabs").assertExists()
+        compose.onNodeWithTag("agent-tab:t1").assertDoesNotExist()
+        compose.onNodeWithTag("agent-tab:t2").assertExists()
+        compose.onNodeWithTag("agent-tabs-closed").assertDoesNotExist()
     }
 
     @Test
@@ -127,6 +163,11 @@ class AgentsUiTest : ScreenTestBase() {
         assertEquals(listOf("Main", "Explore", "worker"), AgentUiMapper.path(s.subagents["n1"]!!, s.subagents))
         assertEquals(2, ui.running)
         assertEquals(SubagentStatus.RUNNING, ui.all[1].status)
+        assertTrue(ui.showsTabs)
+        val closed = AgentUiMapper.agents(s, selected = null, hidden = setOf("t1", "n1"))
+        assertTrue("agents stay listed", closed.any)
+        assertTrue("only Main left: no row", !closed.showsTabs)
+        assertTrue("the selected tab keeps the row", AgentUiMapper.agents(s, selected = "t1", hidden = setOf("t1", "n1")).showsTabs)
     }
 
     @Test

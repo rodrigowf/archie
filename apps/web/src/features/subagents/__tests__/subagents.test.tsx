@@ -159,16 +159,33 @@ describe('the agent card, tab row and agent tab', () => {
     expect(screen.getByTestId('composer').parentElement?.hasAttribute('hidden')).toBe(false);
   });
 
-  it('Close finished hides finished tabs; opening one from the card brings it back', async () => {
+  it('Close finished with every agent finished hides the row (focus → Agents button); the card brings a tab back', async () => {
     seeded('subagent_nested_failed_stopped_history');
-    const { container } = render(<ConversationPanel localId="L1" hidden={false} />);
+    const { container } = render(<ConversationPanel localId="L1" hidden={false} composer={<AgentsButton localId="L1" />} />);
     await settle();
-    fireEvent.click(screen.getByRole('button', { name: 'Close finished agent tabs' }));
+    const closeButton = screen.getByRole('button', { name: 'Close finished agent tabs' });
+    closeButton.focus();
+    fireEvent.click(closeButton);
+    expect(screen.queryByRole('tablist', { name: 'Agents' })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /^Agents:/ }));
+    // Main is no longer a tab panel of a missing tab
+    expect(container.querySelector('[role="tabpanel"]')).toBeNull();
+    await expectNoAxeViolations(container);
     const tabs = () => within(screen.getByRole('tablist', { name: 'Agents' })).getAllByRole('tab').map((t) => t.textContent);
-    expect(tabs()).toEqual(['Main']);
     const card = container.querySelector('[data-tool="Task"]') as HTMLElement;
     fireEvent.click(within(card).getByRole('button', { name: /^Open/ }));
     expect(tabs()).toEqual(['Main', 'Earlier search']);
+    expect(container.querySelector('[role="tabpanel"]')).not.toBeNull();
+  });
+
+  it('Close finished keeps the row while an agent still runs', async () => {
+    const fx = fixtureRun('subagent_background_after_turn');
+    seedSession(fx.trace[6]?.next as Conversation); // the background agent is still running
+    render(<ConversationPanel localId="L1" hidden={false} />);
+    await settle();
+    expect(screen.queryByRole('button', { name: 'Close finished agent tabs' })).toBeNull(); // nothing finished
+    const tabs = within(screen.getByRole('tablist', { name: 'Agents' })).getAllByRole('tab');
+    expect(tabs.map((t) => t.textContent)).toEqual(['Main', 'Digest logs']);
   });
 });
 
@@ -195,6 +212,21 @@ describe('Agents button and sheet', () => {
     expect(within(dialog).getByRole('heading', { name: /Failed or stopped/ })).toBeTruthy();
     fireEvent.click(within(dialog).getByText('Plan migration'));
     expect(getSessionEntry('L1')?.handle.store.getState().subagentTab).toBe('t1');
+  });
+
+  it('with every tab closed, a row in the list reopens that agent\'s tab and the row comes back', async () => {
+    seeded('subagent_nested_failed_stopped_history');
+    render(<ConversationPanel localId="L1" hidden={false} composer={<AgentsButton localId="L1" />} />);
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: 'Close finished agent tabs' }));
+    expect(screen.queryByRole('tablist', { name: 'Agents' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^Agents:/ }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByText('Plan migration'));
+    await settle();
+    const tabs = within(screen.getByRole('tablist', { name: 'Agents' })).getAllByRole('tab');
+    expect(tabs.map((t) => t.textContent)).toEqual(['Main', 'Plan migration']);
+    expect(tabs[1]?.getAttribute('aria-selected')).toBe('true');
   });
 });
 

@@ -447,7 +447,9 @@ the web.
   the Agents sheet (side sheet ≥ 600 dp, modal bottom sheet below): Running · Done (more than 3 fold
   into "N more") · Failed or stopped, nested rows indented, Stop on running ones, "Close finished".
   Above the list, `core/design` `SecondaryScrollableTabRow` shows Main plus one tab per subagent in
-  spawn order (status glyph, `↳` for nested, "N ⌄" menu with every agent and "Close finished"). A
+  spawn order (status glyph, `↳` for nested, "N ⌄" menu with every agent and "Close finished"). With
+  only Main left (every finished tab closed) the row hides (`AgentsUi.showsTabs`, TalkBack hears
+  "Agent tabs closed…"); a row in the Agents sheet or a Task card's Open brings it back. A
   new tab never takes focus (FOCUS-1); entering one materialises it. An agent tab renders its
   transcript with the normal `ChatList` (its own `MarkdownStore`; latest page only), a breadcrumb for
   nested agents (`Main › Explore › worker`), the history error when the first page failed, and a

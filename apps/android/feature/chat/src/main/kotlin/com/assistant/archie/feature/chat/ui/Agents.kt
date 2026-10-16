@@ -29,6 +29,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -99,7 +100,7 @@ fun AgentStatusGlyph(status: SubagentStatus, size: androidx.compose.ui.unit.Dp =
 /**
  * The nested agent tabs (M3 secondary, scrollable): "Main" then one tab per subagent in spawn order,
  * `↳` for nested ones. The trailing "N ⌄" menu lists every agent (closed ones included) and offers
- * "Close finished".
+ * "Close finished". The screen composes it only while some agent has a tab (`AgentsUi.showsTabs`).
  */
 @Composable
 fun AgentTabRow(
@@ -171,6 +172,25 @@ fun AgentTabRow(
             }
         }
     }
+}
+
+/** Said when the tab row hides because its last agent tab was closed (the web says the same). */
+const val AgentTabsClosedText = "Agent tabs closed. The Agents button reopens them."
+
+/**
+ * A polite announcement when the tab row goes away ("Close finished" with every agent done): the
+ * row's menu that held the action is gone, so tell where the agents are. Only on that transition,
+ * never when a session opens with every tab already closed.
+ */
+@Composable
+fun AgentTabsClosedAnnouncement(any: Boolean, showsTabs: Boolean) {
+    var shownBefore by remember { mutableStateOf(showsTabs) }
+    var closed by remember { mutableStateOf(false) }
+    LaunchedEffect(showsTabs) {
+        closed = shownBefore && !showsTabs && any
+        shownBefore = showsTabs
+    }
+    if (closed && !showsTabs) LiveAnnouncement(AgentTabsClosedText, Modifier.testTag("agent-tabs-closed"))
 }
 
 /**

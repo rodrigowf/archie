@@ -33,6 +33,7 @@ function AgentsButtonImpl({ localId }: { localId: string }) {
           ref={ref}
           type="button"
           className={cx(styles.agentsButton, 'has-state-layer')}
+          data-agents-button=""
           data-running={running > 0 ? '' : undefined}
           aria-label={label}
           aria-haspopup="dialog"

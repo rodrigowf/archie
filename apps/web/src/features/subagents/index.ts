@@ -15,7 +15,7 @@
  */
 export { AgentsButton, preloadAgentsSheet } from './AgentsButton';
 export { preloadSubagentViews, SubagentBar, SubagentBody, SubagentTabs } from './lazy';
-export { MAIN_TAB, subagentPanelId } from './panelId';
+export { MAIN_TAB, showsAgentTabs, subagentPanelId } from './panelId';
 export { SubagentHostContext, useSubagentHost, useSubagentInfo, type SubagentCardInfo } from './host';
 // Labels, view actions and the clock are used only by lazy code: the agent card imports them from
 // `@/features/subagents/card`, the views relatively (keeps them out of the initial chunks).
