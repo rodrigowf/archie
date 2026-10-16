@@ -35,5 +35,8 @@ open class TvApplication : Application(), TvGraphOwner, VoiceHostOwner {
             )
         }
         ProcessLifecycleOwner.get().lifecycle.addObserver(graph.processLifecycle)
+        // ── T3: the TV control socket (/api/tv/ws), spec 15 §5 ──
+        graph.tvControl.start()
+        // ── end T3 ──
     }
 }

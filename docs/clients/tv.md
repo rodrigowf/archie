@@ -85,7 +85,16 @@ app-tv/src/main/kotlin/com/assistant/archie/tv/
            TvIcons, TvFormat
   home/ conversations/ conversation/ visuals/ viewer/ memory/ settings/ firstrun/   one route each
   voice/   TvVoiceSeams       LiveVoiceToggle, VoiceChip (T4 adds RemoteMicSource, router, overlay)
-  control/                    (T3: TvControlClient, CommandHandler, StateReporter, LauncherPing)
+  control/ TvControl          T3's part of the graph (`graph.tvControl`): control socket, command handler,
+                              remote screens, the Viewer's WebView pool (size 1) + WebTrust, Visuals dots
+           TvControlClient    /api/tv/ws: hello, ping, commands → results, state frames, backoff, 4409/4401
+           CommandHandler     the spec 15 §5.2 commands (TvCommandEnv seam, JVM-tested)
+           TvLinks            open_url resolution on top of :core:markdown InternalLinks
+           TvRemoteScreens    RemoteScreen registry (back / reload / scroll / media) + state info
+           StateReporter      `state` frames; TvScreens names; LauncherPing (KEEP_AWAKE)
+  viewer/  ViewerScreen, TvWebView (ViewerController, KeyFrame, TvWebViewClient), PointerModel, PageScripts
+  visuals/ VisualsScreen, VisualKind, VisualsSeen, VisualDialogs (Rename, Copy link + QrCode), T3Components
+  memory/  MemoryScreen (tree + preview), MemoryDocScreen (reading model), TvMarkdown (blocks with links)
 ```
 
 `app-tv/build.gradle.kts` already depends on everything spec 15 §6.1 lists (`:core:*`,
@@ -159,10 +168,68 @@ What a screen gets and gives:
   `XRoute`, so Roborazzi goldens (`src/test/.../TvShellGoldens.kt`, 960×540 dp television
   qualifier) render it without a graph.
 
+## TV control channel, Viewer, Visuals, Memory (T3)
+
+**Control socket** (`control/`, spec 15 §5, spec 12 §9.5). `TvControl.start()` (from the
+Application) connects `ws(s)://<server>/api/tv/ws` once the app has connected to its server, then
+keeps it up for the life of the process — also while another app is in front and the orchestrator
+socket is parked, because that is when agents push pages. Backoff 1 s × 2ⁿ capped at 15 s (reset on
+`ready`); the orchestrator reconnecting or the network coming back retries at once; a new server URL
+moves it. Close **4409** (replaced) never reconnects from that socket; **4401** stops and logs
+`TV control rejected: <reason>` (`TvControlClient.state` = `Rejected`). It uses the app's
+`HttpStack` (same OkHttp client, TOFU pins, ping interval). Logcat tag: `ArchieTv/control`.
+
+- Hello: `device_id` = a random UUID kept in `TvPrefs.controlDeviceId`; `device_name` =
+  `TvPrefs.controlDeviceName`, else `Settings.Global.DEVICE_NAME`, else "Fire TV" / the model;
+  `token` = `TvPrefs.controlToken` when set; capabilities = every command below.
+- `TvPrefs` (Settings → TV control UI comes with T5): `allowAgentsToOpen` (default on; off refuses
+  every screen-changing command, `get_state` / `notify` still work), `showOpenedToasts` (default on).
+- Commands (`CommandHandler`): parameters are checked before anything moves; then the app comes to
+  the front (`navHolder.bringToFront`, waits ≤ 6 s for the shell), navigates, answers once the screen
+  is on top (not when the page has loaded) and pings the launcher (KEEP_AWAKE). A Viewer replaces a
+  Viewer on top, a note replaces a note. `open_url` resolves with `TvLinks` (the shared
+  `InternalLinks` resolver + the web app's `/#/memory/…`, `/#/visuals/…` routes; other `http(s)` URLs
+  and server paths open in the Viewer; other schemes are refused). `open_visualization` /
+  `open_memory` answer `ok:false` for a page / note the server does not have. `back` uses the
+  screen's own history first and never leaves the app. `notify` and `get_state` never bring the app
+  forward (`notify` is a system toast while another app is in front).
+- `state` frames: `screen` ∈ `home conversations conversation visuals viewer memory memory_doc
+  settings connect none`, plus `url`, `title`, `path`, `conversation`, `voice` (chip label, lower
+  case), `foreground`.
+- **Remote screens.** A screen that can do more than navigation registers a `RemoteScreen` with
+  `RemoteScreenEffect(graph.tvControl.remote, key, RemoteInfo(...), screen)`: `back()`, `reload()`,
+  `scroll(direction)`, `media(action)`. The Viewer and MemoryDoc do; T2's conversation screen can
+  (then `scroll` works there too).
+
+**Viewer** (`viewer/`, mockups 11/11b/12). One WebView (`WebViewPool` size 1, destroyed when the
+Viewer leaves), `:feature:visuals`' ArchieWebView config (no JS bridge, server-pinned TLS) wrapped by
+`TvWebViewClient`: a D-pad key the page did not use stays in the Viewer and Up/Down scroll the page.
+Links to other sites load in place (no browser on a TV). Pointer mode: a `KeyFrame` parent takes the
+D-pad before Chromium (`WebView.dispatchKeyEvent` bypasses `OnKeyListener`); `PointerModel` moves
+the cursor with acceleration, pushing an edge sends mouse-wheel events at the cursor, OK sends a
+touch tap, every move a hover. It switches on by itself when the page has nothing focusable. Menu:
+pointer mode on → turns it off; else the Viewer's own options sheet (Reload, Pointer mode, Zoom ±
+with Left/Right as CSS zoom, Find in Visuals, Hard reset = origin storage + cookies + HTTP cache,
+Close). Play/Pause → page media (`PageScripts.media`, autoplay allowed: the remote is the gesture);
+Rewind/FF scroll 0.8 of the page; Back = page history, then close. Pushed pages show "Opened by
+Archie · title" and ping KEEP_AWAKE every 60 s. Live reload (VZ-6) keeps the scroll position.
+
+**Visuals** (`visuals/`, mockup 10): own header (count, search, status), 4-column cards with a kind
+band (`VisualKind`, read from path/title: the backend has no kind), a dot when the page changed since
+it was last opened (`VisualsSeen`, per process), Menu → Open / Rename (IME) / Copy link (address +
+QR code from the dependency-free `QrCode` encoder, also on the clipboard) / Refresh.
+
+**Memory** (`memory/`, mockups 13/13b): tree (MEMORY.md first, folder counts, OK expands; folders
+start collapsed on the TV, a search opens every match) + preview (a folder previews its INDEX.md),
+"Updated" chip on `memory_changed`. MemoryDoc: every top-level block is a focus stop (3 dp border,
+no scale); a block taller than the screen scrolls inside by 0.8 viewport first; Rewind/FF page; the
+focused block's links are picked with Left/Right and opened with OK (`MemoryLinkResolver` → MemoryDoc
+/ Viewer); refetches in place on `memory_changed` / resync.
+
 ## Status (T0, 2026-10-16)
 
 Shell, theme, graph, first run and placeholders are in. The placeholder screens already show real
 data: Home rows (Archie, open agents, visuals, memory, recent conversations), the Conversations list
 grouped by day, the Visuals grid, the Memory tree with a text preview, memory notes as focusable
-paragraphs, Settings → Connection / Display / About. Conversation and Viewer are stubs (T2, T3).
+paragraphs, Settings → Connection / Display / About. Conversation is a stub (T2). T3 (Viewer, Visuals, Memory, control channel) is described above.
 Opening a conversation never starts or resumes a session yet (spec 12 OPEN-*; T1/T2 decide).

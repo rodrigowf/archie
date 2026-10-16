@@ -143,6 +143,10 @@ class TvAppGraph(
     /** The live navigator + current screen for control commands (T3) and the voice router (T4). */
     val navHolder = com.assistant.archie.tv.shell.TvNavHolder()
 
+    // ── T3: TV control channel, Viewer WebView, Visuals dots (control/TvControl.kt); started by the Application ──
+    val tvControl: com.assistant.archie.tv.control.TvControl by lazy { com.assistant.archie.tv.control.TvControl(this) }
+    // ── end T3 ──
+
     // ── Voice seams (T4) ────────────────────────────────────────────────────────────────────────
 
     /** The process-scoped voice host, built on first access (T4 passes [voiceHostFactory]). */
