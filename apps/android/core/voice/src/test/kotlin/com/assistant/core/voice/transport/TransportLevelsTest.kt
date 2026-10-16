@@ -86,7 +86,7 @@ class TransportLevelsTest {
         val levels = Collector(ts, clock)
 
         fun connect() {
-            ts.backgroundScope.launch { transport.connect(FakeVoiceApi.WS_CONNECTION, {}) {} }
+            ts.backgroundScope.launch { transport.connect(FakeVoiceApi.WS_CONNECTION, {}) { _, _ -> } }
             advance(300) // 200 ms HAL settle, then mic + speaker
         }
 
@@ -197,7 +197,7 @@ class TransportLevelsTest {
         val levels = Collector(ts, clock)
 
         fun connect() {
-            ts.backgroundScope.launch { transport.connect(FakeVoiceApi.WEBRTC_CONNECTION, {}, {}) }
+            ts.backgroundScope.launch { transport.connect(FakeVoiceApi.WEBRTC_CONNECTION, {}, { _, _ -> }) }
             ts.runCurrent()
         }
 

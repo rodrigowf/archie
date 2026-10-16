@@ -51,7 +51,7 @@ class WebRtcTransportParityTest {
         }
 
         fun connect() {
-            ts.backgroundScope.launch { transport.connect(FakeVoiceApi.WEBRTC_CONNECTION, { mirrored += it }, {}) }
+            ts.backgroundScope.launch { transport.connect(FakeVoiceApi.WEBRTC_CONNECTION, { mirrored += it }, { _, _ -> }) }
             ts.runCurrent()
         }
 

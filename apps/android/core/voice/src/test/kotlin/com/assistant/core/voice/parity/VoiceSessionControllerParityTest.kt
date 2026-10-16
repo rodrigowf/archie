@@ -287,7 +287,7 @@ class VoiceSessionControllerParityTest {
         assertEquals(listOf("AAAA"), r.transport.speakerChunks)
         assertEquals(listOf(ev), r.transport.providerEvents)
         r.transport.mirror!!.invoke(obj("""{"type":"response.done"}"""))
-        r.transport.micSink!!.invoke("QUJD")
+        r.transport.micSink!!.invoke("QUJD", false)
         assertEquals(1, r.wire.events.size)
         assertEquals(listOf("QUJD"), r.wire.audioIn.map { it.audioB64 })
     }

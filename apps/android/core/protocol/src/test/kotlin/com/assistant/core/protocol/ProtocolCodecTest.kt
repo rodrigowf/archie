@@ -311,6 +311,7 @@ class ProtocolCodecTest {
         ClientFrame.GetModels,
         ClientFrame.VoiceEvent(obj("""{"type":"response.cancel"}""")),
         ClientFrame.VoiceAudioIn("AAEC"),
+        ClientFrame.VoiceAudioIn("AAEC", ducked = true),
         ClientFrame.VoiceRecordingChunk("assistant", "AAEC"),
         ClientFrame.VoiceRecordingEnd,
     )

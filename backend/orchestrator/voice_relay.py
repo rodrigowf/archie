@@ -280,6 +280,8 @@ class VoiceRelay:
         # Timestamp of the most recent speech_started event (monotonic).
         # Used by the safety-commit watchdog.
         self._manual_vad_speech_started_at: float | None = None
+        # Last ``ducked`` flag seen on a mic chunk (session log on change).
+        self._mic_ducked = False
         # Increment B observability: timestamp of the last
         # ``voice_vad_state`` heartbeat broadcast. While ``is_speech``
         # is True the relay emits a fresh ``state=listening`` frame
@@ -822,8 +824,14 @@ class VoiceRelay:
                 self._slog(f"WARN shutdown frame send failed: {e}")
                 return  # upstream is gone; the close will catch up
 
-    async def send_audio(self, pcm_b64: str) -> None:
+    async def send_audio(self, pcm_b64: str, ducked: bool = False) -> None:
         """Forward a frontend mic chunk upstream as a provider-specific append.
+
+        ``ducked``: the client captured this chunk while echo-ducking (the
+        agent's voice is playing and the mic is scaled down). The local VAD
+        then skips its gain stage: lifting the ducked echo by up to +30 dB
+        undid the duck, and the agent interrupted itself on its own voice
+        (A300M, 2026-10-16).
 
         The provider's :meth:`BaseVoiceProvider.format_audio_in` decides
         the on-the-wire shape (Qwen: ``input_audio_buffer.append``;
@@ -860,7 +868,7 @@ class VoiceRelay:
             and getattr(self._provider, "gate_silence_upstream", False) is True
             and not self._manual_vad.is_speech
         ):
-            await self._hold_silent_chunk(pcm_b64)
+            await self._hold_silent_chunk(pcm_b64, ducked)
             return
 
         if not await self._forward_audio(pcm_b64):
@@ -872,7 +880,7 @@ class VoiceRelay:
         # frames reaching DashScope.
         if self._manual_vad is not None:
             try:
-                await self._run_manual_vad(pcm_b64)
+                await self._run_manual_vad(pcm_b64, ducked)
             except Exception:  # noqa: BLE001
                 logger.exception("manual_vad processing failed; disabling for this session")
                 self._manual_vad = None
@@ -909,7 +917,7 @@ class VoiceRelay:
             )
         return True
 
-    async def _hold_silent_chunk(self, pcm_b64: str) -> None:
+    async def _hold_silent_chunk(self, pcm_b64: str, ducked: bool = False) -> None:
         """Keep a silent chunk in the pre-roll; release it if speech starts.
 
         DashScope counts every committed second against a per-conversation
@@ -930,7 +938,7 @@ class VoiceRelay:
             self._preroll_bytes -= dropped
             self._audio_held_bytes += dropped
         try:
-            await self._run_manual_vad(pcm_b64)
+            await self._run_manual_vad(pcm_b64, ducked)
         except Exception:  # noqa: BLE001
             logger.exception("manual_vad processing failed; disabling for this session")
             self._manual_vad = None
@@ -1049,7 +1057,7 @@ class VoiceRelay:
             )
             await self.send_event(frame)
 
-    async def _run_manual_vad(self, pcm_b64: str) -> None:
+    async def _run_manual_vad(self, pcm_b64: str, ducked: bool = False) -> None:
         """Feed a mic chunk through the local VAD; emit events on transitions.
 
         Called for every ``send_audio`` chunk when manual VAD is active
@@ -1065,14 +1073,18 @@ class VoiceRelay:
         doesn't affect any existing event.
         """
         assert self._manual_vad is not None
+        if ducked != self._mic_ducked:
+            self._mic_ducked = ducked
+            self._slog(f"mic {'ducked' if ducked else 'unducked'} (client echo duck); VAD gain {'off' if ducked else 'on'}")
         pcm = base64.b64decode(pcm_b64)
-        for event in self._manual_vad.feed_pcm16(pcm):
+        for event in self._manual_vad.feed_pcm16(pcm, boost=not ducked):
             if event.kind == "speech_started":
                 self._manual_vad_speech_started_at = time.monotonic()
                 speech_lvl = self._manual_vad.agc_speech_dbfs
                 self._slog(
                     f"manual_vad: speech_started at t+{self._now_rel():.2f}s"
                     f" agc_gain={self._manual_vad.agc_gain_db:+.1f}dB"
+                    f"{' (ducked, not applied)' if ducked else ''}"
                     f" speech_level={'?' if speech_lvl is None else f'{speech_lvl:.1f}dBFS'}"
                 )
                 await self._on_event_for_frontend({

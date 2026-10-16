@@ -50,6 +50,7 @@ class WsPcmTransportParityTest {
             kind, if (kind == ParserKind.GEMINI) "google" else "qwen",
         )
         val chunks: MutableList<Pair<Long, ByteArray>> = Collections.synchronizedList(mutableListOf())
+        val duckedFlags: MutableList<Pair<Long, Boolean>> = Collections.synchronizedList(mutableListOf())
         val signals: MutableList<ProviderSignal> = Collections.synchronizedList(mutableListOf())
 
         init {
@@ -58,7 +59,10 @@ class WsPcmTransportParityTest {
 
         fun connect() {
             ts.backgroundScope.launch {
-                transport.connect(FakeVoiceApi.WS_CONNECTION, {}) { b64 -> chunks += (clock.nowMs() - t0) to Base64.getDecoder().decode(b64) }
+                transport.connect(FakeVoiceApi.WS_CONNECTION, {}) { b64, ducked ->
+                    chunks += (clock.nowMs() - t0) to Base64.getDecoder().decode(b64)
+                    duckedFlags += (clock.nowMs() - t0) to ducked
+                }
             }
             ts.runCurrent()
         }
@@ -131,6 +135,9 @@ class WsPcmTransportParityTest {
         r.advanceTo(560)
         assertEquals(50, r.chunkPeakAt(530))
         assertTrue(r.log.contains("[MIC_STATE] DUCK"))
+        // Ducked chunks carry `ducked` so the server VAD skips its AGC on them (2026-10-16).
+        assertEquals(false, r.duckedFlags.first { it.first >= 300 }.second)
+        assertEquals(true, r.duckedFlags.first { it.first >= 530 }.second)
         r.transport.setEchoDuckingGain(0f)
         r.advanceTo(600)
         // Chunks are stamped at send time, after FakeMic's 30 ms read (480 frames @ 16 kHz): advance past the queried chunk.

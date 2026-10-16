@@ -246,3 +246,34 @@ def test_gain_is_frozen_while_in_speech():
             gains_in_speech.append(vad.agc_gain_db)
     assert gains_in_speech, "fixture never reached speech"
     assert max(gains_in_speech) - min(gains_in_speech) < 0.25  # one window's slew at most
+
+
+# --- Echo-ducked mic (2026-10-16) -------------------------------------------
+#
+# While the agent speaks, the phones scale the mic down (echo ducking) and
+# mark the chunks ``ducked``. The A300M's ducked echo reached the relay at
+# about -80 dBFS; the gain stage, primed at ~+28 dB by Rodrigo's far voice,
+# lifted it back to speech level and the VAD barged in on the agent's own
+# voice. Ducked chunks are therefore fed with ``boost=False``.
+
+
+def _primed_vad() -> VoiceVAD:
+    vad = VoiceVAD(input_sample_rate=24000, min_silence_duration_ms=600, min_speech_duration_ms=100)
+    list(vad.feed_pcm16(_quiet_speech_pcm(drop_db=30, copies=2)))
+    assert vad.agc_gain_db > 20.0
+    return vad
+
+
+def test_ducked_echo_is_heard_only_when_boosted():
+    echo = _quiet_speech_pcm(drop_db=30, noise_dbfs=-95.0, copies=1)
+    boosted = _primed_vad()
+    assert "speech_started" in [e.kind for e in boosted.feed_pcm16(echo)]
+    ducked = _primed_vad()
+    assert list(ducked.feed_pcm16(echo, boost=False)) == []
+
+
+def test_ducked_windows_leave_the_gain_stage_alone():
+    vad = _primed_vad()
+    gain, speech, noise = vad.agc_gain_db, vad.agc_speech_dbfs, vad._agc_noise_dbfs
+    list(vad.feed_pcm16(_quiet_speech_pcm(drop_db=0, noise_dbfs=-95.0, copies=1), boost=False))
+    assert (vad.agc_gain_db, vad.agc_speech_dbfs, vad._agc_noise_dbfs) == (gain, speech, noise)

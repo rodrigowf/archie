@@ -31,9 +31,15 @@ import kotlinx.coroutines.launch
  * counter the duck drain reads. Here:
  *  - one writer coroutine per player, launched by [start] only when none is running, and it
  *    survives CALL↔MEDIA rebuilds;
- *  - every track operation (write, rebuild, flush, release) and the frame counter sit behind one
- *    lock, so a rebuild never releases a track mid-write, and a writer only ever writes to the
- *    current track;
+ *  - every track operation (write, rebuild, flush, release) holds [writeLock], so a rebuild never
+ *    releases a track mid-write, and a writer only ever writes to the current track;
+ *  - the track reference and the frame counter sit behind a second, short-held [lock], so
+ *    [headPositionFrames] / [totalFramesWritten] never wait for a write. On API < 23 the write
+ *    BLOCKS until the buffer has room; when the counters waited behind it, the echo duck's drain
+ *    polls stalled, read stale timestamps and restored the mic mid-speech (2026-10-16);
+ *  - a blocking write goes in slices of at most [BLOCKING_SLICE_MS], so the counter advances
+ *    steadily instead of once per (≈300 ms) Qwen chunk, which is close to the drain's 400 ms
+ *    "writes quiet" window;
  *  - a generation number retires a cancelled writer, so it can never write to a track built
  *    after [cleanup].
  *
@@ -58,7 +64,14 @@ class PcmSink(
     /** Decouples the WS receive thread from AudioTrack.write (old 4,500-frame UI freezes). Never closed. */
     private val queue = Channel<ByteArray>(capacity = Channel.UNLIMITED)
 
+    /** Held for every track operation, including the (possibly blocking) write. Taken before [lock]. */
+    private val writeLock = Any()
+
+    /** Short-held: track reference, counters, writer bookkeeping. Never held across a write. */
     private val lock = Any()
+
+    /** Largest blocking write, in bytes (PCM16 mono). */
+    private val blockingSliceBytes = (sampleRateHz * BLOCKING_SLICE_MS / 1000 * 2).toInt().coerceAtLeast(2)
 
     // Guarded by [lock].
     private var track: AudioTrackPort? = null
@@ -88,7 +101,7 @@ class PcmSink(
     override fun flush(): Int {
         var dropped = 0
         while (queue.tryReceive().isSuccess) dropped++
-        synchronized(lock) {
+        synchronized(writeLock) { synchronized(lock) {
             try {
                 val t = track
                 if (t != null && t.isInitialized) {
@@ -101,13 +114,13 @@ class PcmSink(
             } catch (e: Exception) {
                 log.w(tag, "AudioTrack flush failed: ${e.message}")
             }
-        }
+        } }
         return dropped
     }
 
     /** Builds the track for [mode] and starts the writer if none is running. Throws if the track fails to initialise. */
     override fun start(mode: SpeakerMode, preferredDevice: AudioDeviceRef?) {
-        synchronized(lock) {
+        synchronized(writeLock) { synchronized(lock) {
             // A second start() without cleanup() used to leak the previous track; release it.
             track?.let { stopAndRelease(it, "stopSpeakerOnly failed") }
             track = null
@@ -117,12 +130,12 @@ class PcmSink(
                 val gen = ++writerGeneration
                 writerJob = scope.launch { writerLoop(gen) }
             }
-        }
+        } }
     }
 
     /** Rebuilds the track for a CALL↔MEDIA change; no-op before [start] / after [cleanup]. Keeps the writer. */
     override fun setSpeakerMode(mode: SpeakerMode, preferredDevice: AudioDeviceRef?) {
-        synchronized(lock) {
+        synchronized(writeLock) { synchronized(lock) {
             val old = track ?: return
             log.i(tag, "setSpeakerMode → $mode (rebuilding AudioTrack)")
             track = null
@@ -132,12 +145,12 @@ class PcmSink(
             } catch (e: Exception) {
                 log.e(tag, "AudioTrack rebuild failed: ${e.message}", e)
             }
-        }
+        } }
     }
 
     override fun cleanup() {
         val job: Job?
-        synchronized(lock) {
+        synchronized(writeLock) { synchronized(lock) {
             writerGeneration++ // retires the running writer, even mid-chunk
             writerRunning = false
             job = writerJob
@@ -147,11 +160,11 @@ class PcmSink(
             while (queue.tryReceive().isSuccess) Unit
             track?.let { stopAndRelease(it, "Error stopping AudioTrack") }
             track = null
-        }
+        } }
         job?.cancel()
     }
 
-    // Must hold [lock].
+    // Must hold [writeLock] and [lock].
     private fun buildStartedTrack(mode: SpeakerMode, preferredDevice: AudioDeviceRef?): AudioTrackPort {
         val bufSize = bufferSizing.speakerBufferBytes(tracks.minBufferBytes(sampleRateHz), sampleRateHz)
         val spec = TrackSpec(
@@ -235,21 +248,25 @@ class PcmSink(
         }
     }
 
-    private fun writeOnce(gen: Int, data: ByteArray, offset: Int): Step = synchronized(lock) {
-        if (gen != writerGeneration) return Step.Retired
-        val t = track
-        if (t == null || !t.isInitialized) {
-            // Old behaviour: the writer ends when the track is gone; the next start() relaunches one.
-            writerRunning = false
-            writerGeneration++
-            return Step.Retired
+    private fun writeOnce(gen: Int, data: ByteArray, offset: Int): Step = synchronized(writeLock) {
+        // [writeLock] keeps the track alive and current for the whole write; [lock] is held only to
+        // read it and to bump the counter, so the drain's readers never wait on the write.
+        val t = synchronized(lock) {
+            if (gen != writerGeneration) return Step.Retired
+            val current = track
+            if (current == null || !current.isInitialized) {
+                // Old behaviour: the writer ends when the track is gone; the next start() relaunches one.
+                writerRunning = false
+                writerGeneration++
+                return Step.Retired
+            }
+            current
         }
-        val size = data.size - offset
         // NoSuchMethodError on Lollipop is a Throwable, not an Exception (`20217b1`).
         val written = try {
             when (api.writeMode) {
-                TrackWriteMode.NON_BLOCKING_4ARG -> t.writeNonBlocking(data, offset, size)
-                TrackWriteMode.BLOCKING_3ARG -> t.writeBlocking(data, offset, size)
+                TrackWriteMode.NON_BLOCKING_4ARG -> t.writeNonBlocking(data, offset, data.size - offset)
+                TrackWriteMode.BLOCKING_3ARG -> t.writeBlocking(data, offset, minOf(data.size - offset, blockingSliceBytes))
             }
         } catch (e: Throwable) {
             log.w(tag, "AudioTrack.write failed: ${e.message}")
@@ -259,7 +276,7 @@ class PcmSink(
             written < 0 -> Step.Failed
             written == 0 -> Step.Full
             else -> {
-                totalFramesWritten += (written / 2).toLong() // PCM16 mono: 2 bytes per frame
+                synchronized(lock) { totalFramesWritten += (written / 2).toLong() } // PCM16 mono: 2 bytes per frame
                 Step.Wrote(written)
             }
         }
@@ -267,5 +284,8 @@ class PcmSink(
 
     private companion object {
         const val TAG = "PcmSink"
+
+        /** Longest single blocking write (API < 23), in ms of audio. */
+        const val BLOCKING_SLICE_MS = 100L
     }
 }

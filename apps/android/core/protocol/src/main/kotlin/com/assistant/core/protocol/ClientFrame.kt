@@ -78,7 +78,8 @@ sealed interface ClientFrame {
     data class VoiceEvent(val event: JsonObject) : ClientFrame { override val type get() = "voice_event" }
 
     /** Base64 PCM16 LE mono at `audio_in_format.sample_rate`. */
-    data class VoiceAudioIn(val audio: String) : ClientFrame { override val type get() = "voice_audio_in" }
+    /** [ducked]: the mic is echo-ducked (the agent is audible); the server VAD must not boost it. */
+    data class VoiceAudioIn(val audio: String, val ducked: Boolean = false) : ClientFrame { override val type get() = "voice_audio_in" }
 
     data class VoiceRecordingChunk(val channel: String, val audio: String) : ClientFrame {
         override val type get() = "voice_recording_chunk"

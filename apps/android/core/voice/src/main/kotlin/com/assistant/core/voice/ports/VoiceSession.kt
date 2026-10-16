@@ -64,8 +64,8 @@ interface VoiceWire {
     /** `voice_event{event}` — the WebRTC mirror of every data-channel event. */
     fun sendVoiceEvent(event: JsonObject)
 
-    /** `voice_audio_in{audio}` — WS-provider mic chunk. */
-    fun sendVoiceAudioIn(audioB64: String)
+    /** `voice_audio_in{audio, ducked?}` — WS-provider mic chunk; [ducked] while the echo duck is applied. */
+    fun sendVoiceAudioIn(audioB64: String, ducked: Boolean = false)
 
     /** Plain `start` with the resume checkpoint (reconnect without a live voice config). */
     fun sendResumeStart(localId: String, sdkSessionId: String?)

@@ -194,7 +194,7 @@ async def test_send_voice_audio_in_skips_recorder_during_injection(tmp_path):
     session.extend_injection_window(2.0)
     await session.send_voice_audio_in("AAAA")
 
-    fake_relay.send_audio.assert_awaited_once_with("AAAA")
+    fake_relay.send_audio.assert_awaited_once_with("AAAA", ducked=False)
     fake_recorder.write_user_audio.assert_not_called()
 
 
@@ -231,5 +231,5 @@ async def test_send_voice_audio_in_uses_recorder_outside_injection(tmp_path):
 
     await session.send_voice_audio_in("AAAA")
 
-    fake_relay.send_audio.assert_awaited_once_with("AAAA")
+    fake_relay.send_audio.assert_awaited_once_with("AAAA", ducked=False)
     fake_recorder.write_user_audio.assert_called_once_with("AAAA")

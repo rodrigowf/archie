@@ -150,3 +150,29 @@ async def test_relay_skips_manual_vad_when_opt_out(monkeypatch):
     if voice_vad.is_enabled() and in_sr is not None:
         relay._manual_vad = voice_vad.VoiceVAD(input_sample_rate=in_sr)
     assert relay._manual_vad is None
+
+
+async def test_relay_feeds_ducked_chunks_to_the_vad_without_boost(monkeypatch):
+    """``voice_audio_in{ducked:true}`` (the client mic is echo-ducked) reaches
+    the VAD as ``boost=False``, and the session log notes the change."""
+    monkeypatch.delenv("QWEN_MANUAL_VAD", raising=False)
+    from orchestrator.voice_relay import VoiceRelay
+
+    relay = VoiceRelay(
+        QwenVoiceProvider(model="qwen3.5-omni-plus-realtime"),
+        on_audio_out=AsyncMock(),
+        on_event_for_frontend=AsyncMock(),
+        session_id="t-ducked",
+    )
+    vad = MagicMock()
+    vad.feed_pcm16.return_value = iter(())
+    vad.is_speech = False
+    relay._manual_vad = vad
+    lines: list[str] = []
+    relay._slog = lines.append  # type: ignore[method-assign]
+    chunk = base64.b64encode(b"\x00\x01" * 480).decode()
+
+    await relay._run_manual_vad(chunk, ducked=True)
+    await relay._run_manual_vad(chunk)
+    assert [c.kwargs["boost"] for c in vad.feed_pcm16.call_args_list] == [False, True]
+    assert any("mic ducked" in l for l in lines) and any("mic unducked" in l for l in lines)

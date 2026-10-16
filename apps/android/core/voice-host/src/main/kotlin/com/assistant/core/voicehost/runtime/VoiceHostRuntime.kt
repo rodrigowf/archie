@@ -223,7 +223,7 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
                 log.w(TAG, "data-channel tap failed: ${e.message}")
             }
         }
-        override fun sendVoiceAudioIn(audioB64: String) { channel.send(ClientFrame.VoiceAudioIn(audioB64)) }
+        override fun sendVoiceAudioIn(audioB64: String, ducked: Boolean) { channel.send(ClientFrame.VoiceAudioIn(audioB64, ducked)) }
 
         /**
          * The plain `start` after a reconnect is owned by the channel (`autoStart`, lite) or by the

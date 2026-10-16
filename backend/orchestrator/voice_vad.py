@@ -171,6 +171,7 @@ class VoiceVAD:
         self._context = np.zeros(_SILERO_CONTEXT_SAMPLES, dtype=np.float32)
         # Gain stage state (levels in dBFS of the input, before gain).
         self._agc_enabled = agc
+        self._boost = True  # per feed: False while the client mic is echo-ducked
         self._agc_gain_db = _AGC_INITIAL_GAIN_DB if agc else 0.0
         self._agc_noise_dbfs: float | None = None
         self._agc_speech_dbfs: float | None = None
@@ -220,15 +221,21 @@ class VoiceVAD:
             min_silence_duration_ms, min_speech_duration_ms,
         )
 
-    def feed_pcm16(self, pcm_bytes: bytes) -> Iterator[VADEvent]:
+    def feed_pcm16(self, pcm_bytes: bytes, boost: bool = True) -> Iterator[VADEvent]:
         """Feed PCM16 little-endian audio; yield VAD events at transitions.
 
         The caller is expected to pass chunks at the input sample rate (no
         per-chunk size constraint — any byte count works). Returns a
         generator of zero or more `VADEvent`s.
+
+        ``boost=False`` runs these windows at 0 dB and keeps them out of the
+        gain stage's level estimates: the client has echo-ducked its mic,
+        and boosting the ducked echo of the agent's own voice back up to
+        speech level made the VAD hear it as the user (2026-10-16).
         """
         if not pcm_bytes:
             return
+        self._boost = boost
 
         # Prepend any carry-over from the previous call.
         pcm = self._carry_input_pcm + pcm_bytes
@@ -316,7 +323,8 @@ class VoiceVAD:
     def _infer_window(self, window: np.ndarray) -> float:
         """Run one 512-sample window through gain + Silero; return P(speech)."""
         level = 10.0 * np.log10(float(np.mean(window * window)) + 1e-12)
-        if self._agc_enabled:
+        boost = self._agc_enabled and self._boost
+        if boost:
             self._agc_update_gain(level)
             if self._agc_gain_db != 0.0:
                 window = np.clip(window * (10.0 ** (self._agc_gain_db / 20.0)), -1.0, 1.0)
@@ -327,7 +335,7 @@ class VoiceVAD:
             feed["sr"] = self._sr_input
         out, self._state = self._sess.run(None, feed)
         prob = float(out[0, 0])
-        if self._agc_enabled:
+        if boost:
             self._agc_observe(level, prob)
         # Increment B observability: cache so the relay can include the
         # last inference in its ``voice_vad_state`` broadcast.

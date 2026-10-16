@@ -242,6 +242,16 @@ its job is to put a far, quiet voice where Silero expects it. The per-session
 log shows it on every `manual_vad: speech_started … agc_gain=… speech_level=…`
 line. Constants: `_AGC_*` in `voice_vad.py`.
 
+**No gain on echo-ducked audio.** While the agent speaks, the Android apps
+duck their mic and mark each chunk `voice_audio_in{ducked:true}`. The relay
+feeds those chunks to the VAD with `boost=False`: 0 dB, and they do not move
+the noise or speech estimates. On 2026-10-16 the A300M's ducked echo reached
+the relay at about −80 dBFS. A gain of +28 dB, set earlier by Rodrigo's far
+voice, lifted it to speech level, and Archie interrupted himself in the middle
+of a long answer. The session log says `mic ducked (client echo duck); VAD
+gain off` / `mic unducked …` when the flag changes. Clients that never send
+the flag (the web app) are unchanged.
+
 On 2026-10-14 the A300M delivered speech at about −54 dBFS over a −66 dBFS
 room and the old VAD caught 6 of 16 turns; replayed with the context and the
 gain stage it caught 16/16 with no false triggers in the following 9 silent
@@ -449,6 +459,19 @@ change:
 - Echo ducking: **duck to 5% (not mute) while the agent speaks; restore only
   after the speaker has drained + a 1000 ms tail, with no timeout**. Never
   shortcut this with raw-mic VAD (see [wake-word.md](wake-word.md#rules)).
+  Each chunk sent while ducked carries `ducked: true`, so the backend VAD
+  does not boost it (see the gain stage above).
+- The drain must read the speaker without waiting. On API < 23, `AudioTrack.write`
+  blocks until the buffer has room. `PcmSink` therefore holds its write lock
+  only for the write and keeps the head and frame counter behind a separate,
+  short lock. It also splits blocking writes into slices of at most 100 ms, so
+  the counter keeps moving (a Qwen chunk is about 312 ms, close to the drain's
+  400 ms "writes quiet" window). `DrainEchoDucker` reads the speaker outside
+  its own lock and stamps each poll after the reads. Before 2026-10-16 the
+  reads waited behind the write under the ducker lock. That stalled the
+  capture loop (`[MIC_PROBE]` gaps of up to 18 s) and the stale timestamps
+  triggered the "head stuck" fallback while Archie was still talking (with
+  68 chunks still queued), so the mic came back on in the middle of his speech.
 - OpenAI: software AEC/NS/AGC, restore 2 s after `output_audio_buffer.stopped`.
 - **Echo ducking tail** (Settings → This device → Audio, both Android apps;
   `DeviceSettings.echoDuckTailMs`, key `echo_duck_tail_ms`, Off–5 s, default

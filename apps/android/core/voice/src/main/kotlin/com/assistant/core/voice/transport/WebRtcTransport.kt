@@ -203,7 +203,7 @@ class WebRtcTransport(private val deps: WebRtcDeps) : VoiceTransport {
         }
     }
 
-    override suspend fun connect(info: VoiceConnection, mirrorEvent: (JsonObject) -> Unit, sendMicChunk: (String) -> Unit) {
+    override suspend fun connect(info: VoiceConnection, mirrorEvent: (JsonObject) -> Unit, sendMicChunk: (String, Boolean) -> Unit) {
         val now = _phase.value.phase
         if (now != ProviderPhase.OFF && now != ProviderPhase.ERROR) {
             log.w(TAG, "[VM] Voice session already active, state=$now")
