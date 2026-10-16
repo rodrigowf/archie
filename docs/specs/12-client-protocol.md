@@ -400,7 +400,7 @@ onWatcherEvent(e):               // only arrives on the orchestrator WS, even un
        onContentFrame(e)
 ```
 
-- **FOCUS-1.** No server-originated event (pool sync, `agent_session_opened`, `user_message`, a background turn, a voice transcript) may change which view is active or navigate the UI. Only a direct user action may change focus. Clients MAY open a **background** view for a session started elsewhere (web parity), shown with an unread/live badge, but it MUST NOT become active (fixes W-6.1 focus stealing, A-1.1 auto-navigation).
+- **FOCUS-1.** No server-originated event (pool sync, `agent_session_opened`, `user_message`, a background turn, a voice transcript) may change which view is active or navigate the UI. Only a direct user action may change focus. Clients MAY open a **background** view for a session started elsewhere (web parity), shown with an unread/live badge, but it MUST NOT become active (fixes W-6.1 focus stealing, A-1.1 auto-navigation). **Exemption:** a remote display command addressed to this device on the TV control channel (`/api/tv/ws`, §9.5) counts as a user action and MAY navigate; only that channel has the exemption.
 - **FOCUS-2.** `agent_session_closed` MUST check `is_orchestrator` before acting on a view (G-39).
 - **OPEN-1. The server owns the open set.** A conversation (Archie or agent) is open exactly when `GET /api/sessions/pool/live` has its row. "Open now" on every device **is** that list — the same conversations on every device, each with its live status, whether or not this device has a view of it (the order may be the user's, e.g. dragged tabs; membership is the pool's). A client MUST NOT list, keep or re-create a conversation that is not in the pool. The pool survives backend restarts: the server persists it and restores it at startup, a restored conversation listed as `idle` until something uses it (`backend/api/open_sessions.py`). So there is no "backend restarted" case for clients to guess at (it replaced RT-4 and the 2026-10-10 server-id heuristic).
 - **OPEN-2. Reattach, never re-create.** Every automatic `start` (socket open, reconnect, visible/foreground resync, `not_started` recovery; Android's voice-owner `voice_start` on reconnect) carries `reattach: true`. The server then subscribes the socket if the conversation is in its pool (spawning a restored one) and otherwise answers `error{session_closed}` without creating anything. Only a direct user action that **creates** or resumes a conversation sends `start` without `reattach`: a new conversation, opening one from History, fork / duplicate / continue / rewind, Save and Restart, the §6.11 take-over. (A voice start pressed on a view that is already subscribed may keep `reattach`: while the conversation is open the result is the same.) The server is the one place that decides, so a device that missed a close cannot revive the conversation, whatever its timing.
@@ -1909,6 +1909,63 @@ server, in any browser: `[Avatar pipeline](/avatar-pipeline/index.html)`, `[Ener
 `[Voice notes](/memory/projects/voice.md)`, `[Client protocol](/memory/archie/specs/12-client-protocol.md)`.
 A full URL on the server (`https://<server>/avatar-pipeline/`) also opens in the app, for a link meant to be
 pasted elsewhere.
+
+### 9.5 Remote display commands (TV control channel)
+
+The Archie TV app (spec 15) holds a second socket next to its orchestrator WS: **`/api/tv/ws`**,
+a command channel through which agents and the orchestrator put content on that screen
+(`backend/api/routes/tv.py`, modelled on the browser-extension hub). It is **TV-only**: no other
+client opens it, and no other channel carries these commands.
+
+```
+tv → {"type":"hello","device_id":"<uuid>","device_name":"Living room TV","client":"archie-tv",
+      "version":"1.0.0","capabilities":["open_url",...],"token":"…"?}     // within 10 s
+be → {"type":"ready"}  |  {"type":"error","error":"<reason>"} + close 4401
+       reasons: hello_timeout, invalid_json, expected_hello, unauthorized, missing_device_id
+be → {"id":"<12 hex>","type":"command","command":"<name>","params":{...}}
+tv → {"id":"<same>","type":"result","ok":true,"result":{...}}  |  {"id":"…","type":"result","ok":false,"error":"…"}
+tv → {"type":"state","screen":"viewer","url":"…","title":"…","conversation":"<local_id>"?,"voice":"idle"}
+tv ↔ {"type":"ping"} / {"type":"pong"}
+```
+
+- **RD-1. Identity.** One connection per `device_id` (stable per install). The same `device_id`
+  connecting again replaces the old socket, which is closed with **4409**; its pending commands
+  fail. `device_name` (Settings → TV control) is what agents target (`device`, case-insensitive)
+  and defaults to the id. When `TV_CONTROL_TOKEN` is configured on the server the hello MUST carry
+  it; otherwise any LAN client may register.
+- **RD-2. One result per command.** Every `command` gets exactly one `result` with its `id`;
+  results for unknown or expired ids are ignored. The server waits 15 s by default (callers may
+  pass up to 120 s); the TV SHOULD answer once the target view is shown, not when the page has
+  finished loading.
+- **RD-3. Commands (v1).**
+
+| Command | Params | TV behaviour | Result |
+|---|---|---|---|
+| `open_url` | `url` | Internal links resolve as in §9.4 (LNK-1..7) and open their in-app view; anything else opens in the Viewer | `{screen, url}` |
+| `open_visualization` | `path` — a `GET /api/visualizations` `path`, root-relative, **not** percent-encoded | Viewer on `<server>/<encodePath(path)>` (VZ-1) | `{screen, url, title}` |
+| `open_memory` | `path` — as in `GET /api/memory/tree` (`archie/…` for docs) | memory view | `{screen, path}` |
+| `open_conversation` | `local_id` \| `sdk_session_id` | conversation view, opened/resumed like History (OPEN-2 rules apply: a closed one is resumed by this user action) | `{screen, local_id}` |
+| `home`, `back`, `reload` | — | as named | `{screen}` |
+| `scroll` | `direction`: `up` \| `down` \| `top` \| `bottom` | Viewer / conversation / memory view | `{screen}` |
+| `media` | `action`: `play` \| `pause` \| `toggle` | page media in the Viewer | `{playing}` |
+| `notify` | `title`, `text`, `seconds?` | toast | `{}` |
+| `get_state` | — | — | the current `state` frame |
+
+  An unknown command, or one the current screen cannot honour, answers `ok:false` with an error
+  string; it never closes the socket.
+- **RD-4. Focus.** A command is a user action (FOCUS-1 exemption): it brings the app to the front,
+  navigates, and wakes the launcher's blank screen. Live voice overlays stay up.
+- **RD-5. State.** The TV sends `state` whenever its screen, URL, title, conversation or voice
+  state changes (and after `ready`); the server caches the last one per device for
+  `GET /api/tv/status`.
+- **RD-6. Server endpoints.** `GET /api/tv/status` → `{devices:[{device_id, device_name, client,
+  version, capabilities, connected_at, state}], token_configured}`. `POST /api/tv/command
+  {command, params?, device?, timeout?}` is **loopback-only** (403 through the reverse proxy):
+  `200 {ok, device:{device_id, device_name}, command, result}`; no TV / no such TV → 503; several
+  TVs and no `device` → 409; timeout → 504; `ok:false` → 422. Scripts use
+  `shared/scripts/tv_cmd.py`. "Show on TV" (`POST /api/visualizations/cast`) sends
+  `open_visualization` to the TV app when one is connected and falls back to adb when none is, or
+  it times out or fails; its response carries `via: "app" | "adb"`.
 
 ---
 
