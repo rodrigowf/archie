@@ -37,6 +37,13 @@
     <!-- Hold-to-talk and live voice through the remote's microphone (spec 15 §4, T4). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!--
+      TV control (spec 15 §5.2, T5): a pushed command brings the app to the front while another app
+      (YouTube) is in front. Android 10+ blocks background activity starts unless the app holds the
+      SYSTEM_ALERT_WINDOW app-op, which tv_setup.sh grants (`appops set … SYSTEM_ALERT_WINDOW allow`);
+      the grant only takes when the permission is declared. The app never draws an overlay window.
+    -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <!-- Android 11 package visibility: KEEP_AWAKE pings to the TvServerHub launcher (TV-10). -->
     <queries>

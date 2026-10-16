@@ -37,6 +37,8 @@ import kotlinx.serialization.Serializable
 /** Settings → detail pages (spec 15 §3.5). */
 @Serializable
 enum class TvSettingsPageId(val title: String) {
+    /** T5: the Connection pane (status, server, certificate); changing the server pushes [Connect]. */
+    CONNECTION("Connection"),
     REMOTE_MIC("Remote microphone"),
     VOICE("Voice"),
     DISPLAY("Display"),

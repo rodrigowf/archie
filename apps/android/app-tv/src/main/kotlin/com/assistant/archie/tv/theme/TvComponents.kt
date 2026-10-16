@@ -225,6 +225,14 @@ fun KeyCap(
     }
 }
 
+/**
+ * Fire OS draws its microphone-in-use indicator (a ≈ 32 dp grey disc with a mic, at x ≈ 878–910 dp,
+ * y ≈ 37–70 dp on the 960×540 dp screen; seen on the AFTKM 2026-10-16) whenever an app records,
+ * and Archie TV keeps the remote's mic armed while it is open (T4). The status cluster ends this far
+ * left of the content box's right edge so the indicator never covers the voice chip.
+ */
+val SystemMicIndicatorClearance: Dp = 64.dp
+
 /** Connection dot + label and the voice chip (spec 15 §3.4), top-right; not focusable. */
 @Composable
 fun StatusCluster(
@@ -242,7 +250,10 @@ fun StatusCluster(
         ConnectionStatus.Phase.OFFLINE -> c.error to "Offline"
     }
     Row(
-        modifier.semantics { contentDescription = "$label, voice $voiceLabel" }.testTag("status-cluster"),
+        modifier
+            .padding(end = SystemMicIndicatorClearance)
+            .semantics { contentDescription = "$label, voice $voiceLabel" }
+            .testTag("status-cluster"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {

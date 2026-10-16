@@ -385,11 +385,11 @@ private fun VisualCard(c: VisualCardUi, memory: FocusMemory, onOpen: () -> Unit,
         modifier = Modifier.width(220.dp).height(CardHeight).focusMemory(memory, c.key).onFocusChanged { if (it.isFocused) onFocus() }.testTag("card-${c.key}"),
         contentPadding = PaddingValues(0.dp),
     ) {
-        Box(Modifier.fillMaxWidth().height(7.dp).background(t.primary))
+        val kindColor = c.kind.color
+        Box(Modifier.fillMaxWidth().height(7.dp).background(kindColor))
         Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("VISUALIZATION", style = TvTheme.type.labelMedium, color = t.primary, maxLines = 1)
-                Spacer(Modifier.weight(1f))
+                Text(c.kind.label.uppercase(), style = TvTheme.type.labelMedium, color = kindColor, maxLines = 1, modifier = Modifier.weight(1f))
                 if (c.changed) Box(Modifier.size(10.dp).background(t.primary, CircleShape).testTag("changed-dot"))
             }
             Text(c.title, style = TvTheme.type.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
