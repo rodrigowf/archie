@@ -466,7 +466,7 @@ Medium 600–839 dp, Expanded ≥840 dp):
 
 | Size | Shell | Notes |
 |---|---|---|
-| Compact (POCO portrait, 443 dp wide) | `ModalNavigationDrawer` + `Scaffold` with `ArchieTopAppBar`. `NavigationSuiteScaffold(layoutType = NavigationSuiteType.None)`. **No bottom bar** (IA §5). | ☰ opens the drawer (header with mark + connection, search, *Open now*, history by date, footer Memory/Visuals/Settings). The top-bar title (session name + ⌄) opens `SessionSwitcherSheet` (`ModalBottomSheet`). A horizontal drag on the title (`Modifier.draggable`, threshold 56 dp) switches to the next or previous open session. Memory, Visuals and Settings are full screens with a back arrow. |
+| Compact (POCO portrait, 443 dp wide) | `ModalNavigationDrawer` + `Scaffold` with `ArchieTopAppBar`. `NavigationSuiteScaffold(layoutType = NavigationSuiteType.None)`. **No bottom bar** (IA §5). | ☰ opens the drawer (header with mark + connection and, at its end, a 40 dp tonal New icon button opening the rail FAB's menu — New Archie conversation / New agent session; search, *Open now*, history by date, footer Memory/Visuals/Settings). The top-bar title (session name + ⌄) opens `SessionSwitcherSheet` (`ModalBottomSheet`). A horizontal drag on the title (`Modifier.draggable`, threshold 56 dp) switches to the next or previous open session. Memory, Visuals and Settings are full screens with a back arrow. |
 | Medium | `NavigationSuiteScaffold(layoutType = NavigationRail)` | The rail's destination opens its list pane as a modal overlay (IA §4). The tab strip appears in the top bar. |
 | Expanded | `NavigationSuiteScaffold(layoutType = NavigationRail)` + `NavDisplay(sceneStrategy = ListDetailSceneStrategy())` | The list pane is 320 dp and collapsible (state in `DeviceSettings.listPaneCollapsed`). The tab strip (`SecondaryScrollableTabRow`, 40 dp tabs, 48 dp touch targets) sits in the top app bar, with an overflow "All tabs" menu and keyboard shortcuts (Ctrl+Tab, Ctrl+W, Ctrl+1…9) handled with `onPreviewKeyEvent`. |
 
@@ -757,6 +757,8 @@ SYSTEM with a raw name (inv03 §1.2).
 | `ScriptCard` | chrome-devtools evaluate_script, run_script | function/script name | highlighted JS (200 dp cap), args |
 | `GenericCard` | everything else (incl. `mcp__*`) | summary from catalog | input as key: value (values over 400 chars collapse) or pretty JSON; output |
 
+Any card whose result carries `images` (spec 12 R-10) shows them in its output region above the text (TC-5: card width, ≤ 320 dp, loaded on expand, tap for a full-screen view; `ui/ToolImages.kt`).
+
 Common `ToolCardShell` (`:core:design`): a leading category icon on a category-tinted container (tokens' extended
 `tool*` colors), a one-line summary (bodyMedium), and a status. The status is a 16 dp spinner while executing, a check
 when done, and an error icon on error, using labelSmall text at ≥ 11 sp (today's pill uses 9 sp, inv03 §8). Tap toggles
@@ -898,6 +900,7 @@ must work with or without it:
 | Algorithmic darkening | `WebSettingsCompat.setAlgorithmicDarkeningAllowed(settings, false)` | Vizzes ship their own palettes. |
 | Console | `onConsoleMessage` → logcat tag `ArchieViz` in debug builds only | — |
 | TLS errors | `onReceivedSslError` → `TrustStore.isPinned(host, error.certificate)` ? `proceed()` : `cancel()` + error page | §4.3. **Never** a blanket `proceed()`. |
+| Touch ownership | `claimGestures`: `requestDisallowInterceptTouchEvent(true)` on every `ACTION_DOWN` | A gesture that starts on the page belongs to the page. Compose hands an interop view its touches after the ancestors' detectors, and Chromium claims a scroll asynchronously, so the compact drawer's full-screen swipe used to steal any scroll that drifted ~8 dp sideways early (scroll stopped, drawer slid out). The drawer opens from ☰ over a visual. |
 
 **State retention:** the web keeps the iframe mounted while its tab is hidden, which is **load-bearing** (inv02 F-36).
 `WebViewPool` (process-scoped, max 3 entries, LRU by path) keeps WebViews alive across tab switches and rotation. Each
@@ -1032,8 +1035,11 @@ inv04 RS-33).
 `LastExchangeSink`. That is all. The lite app does **not** use `:core:conversation`, `:core:data` or any Compose
 module.
 - Orchestrator adoption is automatic (`OrchestratorChannel`). There is no conflict dialog (inv04 §9.2 item 6).
-- `NoOrchestrator` → the face shows "No conversation open on the server", and the Start button sends `start` without
-  a local id. The backend creates one (same as the old History FAB path, without the UI).
+- `NoOrchestrator` → the face's ring around the mark turns amber (warning token) with "No conversation open · say
+  "wake up" or tap to start one". A tap on the centre button or the wake word starts a **new** orchestrator
+  conversation at once: `VoiceHostRuntime.armNewIfNoConversation()` arms a client-minted id (`armNewSession`), the
+  channel sends its `start` (no `reattach`) and the voice start carries the same id. The wake word does the same in
+  the main app (2026-10-15).
 
 ### 5.5 What runs where
 

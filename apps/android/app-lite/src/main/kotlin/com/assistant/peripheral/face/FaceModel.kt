@@ -203,23 +203,32 @@ data class FaceModel(
                 return base.copy(word = "Connecting", sub = "Reaching $serverName…", action = FaceAction.NONE)
             }
 
-            // 6. Idle: wake-word health.
+            // 6. Idle: wake-word health. No conversation open on the server: the ring turns warning
+            //    (amber) and a tap or the wake word starts a new one (the runtime arms it).
+            val none = s.noOrchestrator
+            val idle = if (none) base.copy(tone = FaceTone.WARNING) else base
             return when (s.wake) {
                 WakeHealth.MIC_STALLED -> base.copy(
                     shape = FaceShape.ERROR_RING, tone = FaceTone.ERROR, glyph = FaceGlyph.MIC_OFF,
                     word = "Mic busy", sub = "Another app is using the microphone",
                 )
-                WakeHealth.PAUSED_BY_USER, WakeHealth.PAUSED_NEEDS_FOREGROUND, WakeHealth.BACKGROUND_RESTRICTED -> base.copy(
-                    glyph = FaceGlyph.PAUSE, word = "Paused", sub = "Listening paused · tap to talk",
+                WakeHealth.PAUSED_BY_USER, WakeHealth.PAUSED_NEEDS_FOREGROUND, WakeHealth.BACKGROUND_RESTRICTED -> idle.copy(
+                    glyph = FaceGlyph.PAUSE, word = "Paused", sub = if (none) "$NO_ORCHESTRATOR · tap to start one" else "Listening paused · tap to talk",
                 )
-                WakeHealth.DISABLED -> base.copy(sub = if (s.noOrchestrator) NO_ORCHESTRATOR else "Wake word off · tap to talk")
-                WakeHealth.ARMED, WakeHealth.PAUSED_FOR_VOICE -> base.copy(
-                    sub = if (s.noOrchestrator) NO_ORCHESTRATOR else hint(wakePhrase, talkPhrase),
+                WakeHealth.DISABLED -> idle.copy(sub = if (none) "$NO_ORCHESTRATOR · tap to start one" else "Wake word off · tap to talk")
+                WakeHealth.ARMED, WakeHealth.PAUSED_FOR_VOICE -> idle.copy(
+                    sub = if (none) noOrchestratorHint(wakePhrase) else hint(wakePhrase, talkPhrase),
                 )
             }
         }
 
-        const val NO_ORCHESTRATOR = "No conversation open on the server"
+        const val NO_ORCHESTRATOR = "No conversation open"
+
+        /** `No conversation open · say "wake up" or tap to start one`. */
+        fun noOrchestratorHint(wakePhrase: String): String {
+            val w = wakePhrase.split(',').map { it.trim() }.firstOrNull { it.isNotEmpty() }
+            return if (w != null) "$NO_ORCHESTRATOR · say \"$w\" or tap to start one" else "$NO_ORCHESTRATOR · tap to start one"
+        }
 
         /** `Say "wake up" or "my friend"` from the first phrase of each comma list. */
         fun hint(wakePhrase: String, talkPhrase: String): String {

@@ -677,6 +677,33 @@ class TestSessionManagerSend:
         assert tool_results[0].output == "line one\nline two"
 
     @pytest.mark.asyncio
+    async def test_tool_result_image_read_carries_image_urls(self, tmp_path, monkeypatch):
+        """A Read of a picture: the result carries the image's url in the
+        session JSONL, never the data (spec 12 R-10)."""
+        from claude_agent_sdk import ToolResultBlock, UserMessage
+
+        monkeypatch.setenv("ARCHIE_STATE_DIR", str(tmp_path))
+        data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        image = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}}
+        user_msg = UserMessage(
+            content=[ToolResultBlock(tool_use_id="toolu_img", content=[image])],
+            parent_tool_use_id=None,
+            tool_use_result={"type": "image", "file": {"base64": data, "type": "image/png"}},
+        )
+        [result] = await self._collect_tool_results(user_msg)
+        assert result.tool_use_id == "toolu_img"
+        assert result.output == ""
+        [img] = result.images
+        assert img["media_type"] == "image/png"
+        sid = img["url"].split("/")[3]
+        assert sid and img["url"] == f"/api/sessions/{sid}/tool-images/toolu_img/0"
+        # Kept in memory until the JSONL has the line; nothing is written to disk.
+        from utils.tool_images import find_image
+
+        assert find_image(sid, "toolu_img", 0, []) is not None
+        assert not (tmp_path / "tool-images").exists()
+
+    @pytest.mark.asyncio
     async def test_tool_result_block_none_content(self):
         """A tool_result block with no content yields an empty output."""
         from claude_agent_sdk import ToolResultBlock, UserMessage

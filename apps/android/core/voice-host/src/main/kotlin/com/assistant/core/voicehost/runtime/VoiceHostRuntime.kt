@@ -360,14 +360,25 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
     }
 
     override fun startVoice(trigger: Trigger) {
-        if (channel.state.value.orchestrator == null && channel.state.value.noOrchestrator) {
-            // No conversation on the server: arm a new orchestrator with a client-minted id (spec 14 §5.4).
-            val id = UUID.randomUUID().toString()
-            pendingNewLocalId = id
-            channel.armNewSession(id)
-        }
+        armNewIfNoConversation()
         ingress.trigger(trigger)
         ensureServiceIfForeground()
+    }
+
+    /**
+     * No conversation on the server and voice idle: arm a new orchestrator with a client-minted id
+     * (spec 14 §5.4), so the voice start that follows creates it. Every voice start (wake word,
+     * centre button, assist, tile, notification) goes through here.
+     */
+    private fun armNewIfNoConversation() {
+        val ch = channel.state.value
+        if (ch.orchestrator != null || !ch.noOrchestrator) return
+        val phase = session.state.value.phase
+        if (phase != SessionPhase.OFF && phase != SessionPhase.ERROR) return
+        val id = UUID.randomUUID().toString()
+        log.i(TAG, "no conversation open — starting a new one ($id)")
+        pendingNewLocalId = id
+        channel.armNewSession(id)
     }
 
     /**
@@ -567,6 +578,10 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
             WakeLoopEvent.MicUnavailable -> wakeService.onMicUnavailable()
             WakeLoopEvent.MicAvailable -> wakeService.onMicAvailable()
             WakeLoopEvent.RecognizerUnhealthy -> wakeService.onRecognizerUnhealthy()
+            WakeLoopEvent.WakeDetected -> {
+                armNewIfNoConversation()
+                ingress.onWakeEvent(event)
+            }
             else -> ingress.onWakeEvent(event)
         }
     }

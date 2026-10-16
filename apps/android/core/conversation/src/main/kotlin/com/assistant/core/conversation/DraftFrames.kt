@@ -15,7 +15,7 @@ internal fun Draft.reduceFrame(f: ServerFrame) {
         is ServerFrame.ThinkingDelta -> onDelta(thinking = true, text = f.text)
         is ServerFrame.ThinkingComplete -> onComplete(thinking = true, text = f.text)
         is ServerFrame.ToolUse -> onToolUse(f.toolUseId, f.toolName, f.toolInput)
-        is ServerFrame.ToolResult -> onToolResult(f.toolUseId, f.output, f.isError)
+        is ServerFrame.ToolResult -> onToolResult(f.toolUseId, f.output, f.isError, f.images)
         is ServerFrame.ToolExecuting -> onToolExecuting(f.toolUseId)
         is ServerFrame.ToolProgress -> onToolProgress(f.toolUseId, f.elapsedSeconds, f.message)
         is ServerFrame.PermissionRequest -> onPermissionRequest(f.requestId, f.toolName, f.toolInput)

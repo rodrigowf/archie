@@ -490,8 +490,7 @@ private fun ShellRail(
                         contentAlignment = Alignment.Center,
                     ) { ArchieIcon(ArchieIcons.Add, null, tint = c.onPrimaryContainer) }
                     ArchieDropdownMenu(newMenu, onDismissRequest = { newMenu = false }) {
-                        ArchieMenuItem("New Archie conversation", { newMenu = false; onNewArchie() }, icon = ArchieIcons.AddComment)
-                        ArchieMenuItem("New agent session", { newMenu = false; onNewAgent() }, icon = ArchieIcons.Terminal)
+                        NewMenuItems({ newMenu = false; onNewArchie() }, { newMenu = false; onNewAgent() })
                     }
                 }
             }

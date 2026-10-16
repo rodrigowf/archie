@@ -122,7 +122,8 @@ Tabs as in Expanded, with the overflow menu kicking in earlier.
 - **Inline cards above the composer** (not banners stuck to edges): permission request
   (Approve / Reject / type to give feedback), stall ("Bash silent for 2 min" · Interrupt),
   error with dismiss + detail. A session closed or terminated on the server closes its view on
-  every device (spec 12 OPEN-3); the active one shows a one-line notice with the reason.
+  every device (spec 12 OPEN-3); the active one shows a one-line notice with the reason, and an
+  agent session that crashed always shows one, until dismissed, with Reopen (spec 12 §6.13).
 - **Voice mode** (Archie): the composer morphs into a **voice dock**: animated level orb, state
   label (Listening · Speaking · Thinking · Using tools), mic mute, speaker mute, end. Transcripts
   stream into the conversation. On another device's voice session: dock shows "Voice active on

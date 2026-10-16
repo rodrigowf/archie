@@ -96,6 +96,7 @@ from ..base_session import (
 from ..config import ManagerConfig
 from ..memory_context import is_archie_project, memory_instructions
 from ..protocol import tool_result_text
+from utils.tool_images import live_tool_result_images
 from ..subagents import SubagentRegistry, is_spawn_tool, spawn_fields, usage_dict, wire_status
 from ..types import (
     CompactComplete,
@@ -150,6 +151,14 @@ _PERMISSION_GATING_PROMPT = (
 # thinking *mode* is untouched.  (SDK PR #1367; the flag exists back to CLI
 # 2.1.139, so older SSH-remote CLIs accept it too.)
 _THINKING_DISPLAY = "summarized"
+
+# Largest single stream-json line we accept from the CLI.  The SDK default is
+# 1 MiB, and one line over it kills the reader for good: the receive loop
+# crashes and the reaper closes the session mid-turn, taking its background
+# subagents with it.  A Read of an image carries its base64 twice (in the
+# tool_result and in ``tool_use_result``), so a ~450 KB JPEG was already a
+# 1.2 MB line (2026-10-15, "new Avatar search").
+_MAX_BUFFER_SIZE = 64 * 1024 * 1024
 
 # Switches Claude Code's auto-memory off (CLI env; wins over settings).
 _DISABLE_AUTO_MEMORY_ENV = "CLAUDE_CODE_DISABLE_AUTO_MEMORY"
@@ -1318,6 +1327,7 @@ class ClaudeSessionManager(BaseSessionManager):
             kwargs["resume"] = self._resume_id
         if self._fork:
             kwargs["fork_session"] = True
+        kwargs["max_buffer_size"] = _MAX_BUFFER_SIZE
         if self._config.mcp_servers is not None:
             # Pass MCP servers directly to the SDK
             # When mcp_servers is provided, it overrides settings from .claude.json
@@ -1699,7 +1709,10 @@ class ClaudeSessionManager(BaseSessionManager):
 
                 elif isinstance(block, ToolResultBlock):
                     content = block.content
-                    if isinstance(content, list):
+                    images = live_tool_result_images(content, self.sdk_session_id, block.tool_use_id)
+                    if images:
+                        content = tool_result_text(content)
+                    elif isinstance(content, list):
                         content = json.dumps(content)
                     # Some claude-cli versions emit placeholder ToolResultBlocks
                     # *inside* the assistant message — empty tool_use_id +
@@ -1718,6 +1731,7 @@ class ClaudeSessionManager(BaseSessionManager):
                         tool_use_id=block.tool_use_id,
                         output=content or "",
                         is_error=block.is_error or False,
+                        images=tuple(images),
                     )
 
                 if out is not None:
@@ -1742,6 +1756,7 @@ class ClaudeSessionManager(BaseSessionManager):
                         tool_use_id=block.tool_use_id or "",
                         output=tool_result_text(block.content),
                         is_error=bool(block.is_error),
+                        images=tuple(live_tool_result_images(block.content, self.sdk_session_id, block.tool_use_id)),
                     )
                     yield SubagentEvent(tool_use_id=parent, event=result) if parent else result
                     if result.tool_use_id in self._subagents:
@@ -1782,6 +1797,7 @@ class ClaudeSessionManager(BaseSessionManager):
                         tool_use_id=fallback_id,
                         output=tool_result_text(result),
                         is_error=False,
+                        images=tuple(live_tool_result_images(result, self.sdk_session_id, fallback_id)),
                     )
                 else:
                     logger.warning(

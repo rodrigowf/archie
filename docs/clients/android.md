@@ -213,8 +213,11 @@ same set and never revives a closed conversation.
   or `error{session_closed}` make the reducer emit `ConversationEffect.Closed`; the repository
   removes the view (no close request) and emits `ConversationEvent.Closed`, and
   `OpenSessionsRepository` moves focus to the neighbour as after an explicit close. If it was the
-  active agent view, the snackbar says "<title> was closed elsewhere" or "<title> crashed: <detail>" (how it ended, by reason; spec 12 §6.13)
-  for a terminated session (the web's wording; none for Archie). A terminated session is reopened
+  active agent view, the snackbar says "<title> was closed elsewhere" or "<title> was replaced: <detail>" (how it ended, by reason; spec 12 §6.13)
+  for a terminated session (the web's wording; none for Archie). An agent view that crashed
+  (`subprocess_crashed` / `subprocess_lost` / `unreachable`) gets "<title> crashed. Its work so far
+  is saved." whichever view is active: a sticky error snackbar whose Reopen resumes it
+  (`SessionNotice.reopenSdkId` → `openAgent`). A terminated session is reopened
   from History; there is no "Continue in new session" card any more. Agent views
   also close on the watcher frame (`ConversationRepository`), and the row leaves `history.pool` at
   once (`dropFromPool`).
@@ -397,6 +400,19 @@ Test, and the Environment keys list with reveal-on-demand / edit / delete / add)
   documents). Chat links go through `rememberChatLinkHandler` (`shell/ContentWiring.kt`): visuals
   and memory files open as workspace items; memory documents open visuals in the app too (a
   `VisualDoc` screen on Compact).
+
+## Tool-result images (main app)
+
+A tool result that carries pictures (a Claude `Read` of an image, spec 12 R-10 / TC-5) keeps them
+on `ToolBlock.images` (`:core:conversation`, normalised from the frame's raw `images` or the REST
+block's `images`). The expanded card's output region (`:feature:toolcards` `ui/ToolImages.kt`)
+shows them above any text, fitted to the card width with their aspect ratio, at most 320 dp tall,
+image pixels drawn as dp like CSS px on the web card (a 192 px icon is 192 dp wide), never larger; nothing is fetched while the card is collapsed. `ToolImageLoader` (no image
+library) fetches the server-relative url through `RestCaller.getBytes` (the REST client: TLS pins
+and the HTTP disk cache apply; the files are immutable), decodes with `BitmapFactory` in two passes
+(`inSampleSize` for the box) and keeps bitmaps in a byte-sized `LruCache`; `MainAppGraph.toolImages`
+is provided as `LocalToolImageLoader`. A failed load shows "Image unavailable"; tapping a picture
+opens a full-screen dialog (fit to screen, pinch to zoom, double-tap to reset, tap or Back to close).
 
 ## Subagents (agent tabs, main app)
 

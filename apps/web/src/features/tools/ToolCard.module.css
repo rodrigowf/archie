@@ -314,6 +314,37 @@
   -webkit-overflow-scrolling: touch;
 }
 
+/* R-10 / TC-5: pictures a tool returned, wrapping like a gallery. Inline-block + margins rather
+   than flex gap / fit-content (Safari 12 compat build). */
+.images {
+  margin-bottom: -8px;
+  line-height: 0;
+}
+
+.imageLink {
+  display: inline-block;
+  max-width: 100%;
+  margin: 0 8px 8px 0;
+  overflow: hidden;
+  vertical-align: top;
+  border-radius: 10px;
+  background: var(--md-sys-color-surface-container-lowest);
+}
+
+.image {
+  display: block;
+  max-width: 100%;
+  max-height: 360px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+.images > .output {
+  margin: 0 0 8px;
+  line-height: 19px;
+}
+
 .output.isError {
   box-shadow: inset 3px 0 0 var(--md-sys-color-error);
 }

@@ -3,6 +3,7 @@ package com.assistant.archie.graph
 import android.app.Application
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
+import com.assistant.archie.feature.toolcards.ToolImageLoader
 import com.assistant.core.data.AgentSocketPool
 import com.assistant.core.data.ConversationKey
 import com.assistant.core.data.ConnectionRepository
@@ -157,6 +158,9 @@ class MainAppGraph(
     )
     val serverConfig = ServerConfigRepository(api, scope)
     val uploads = UploadRepository(UploadClient(rest))
+
+    /** Tool-result pictures (spec 12 R-10 / TC-5): fetched over the REST client, decoded bitmaps kept in memory. */
+    val toolImages = ToolImageLoader(fetch = { url -> rest.getBytes(url) })
     val share = ShareRepository()
 
     // ── B-09: system integration (spec 14 §2.5-§2.9) ──────────────────────────────────────────

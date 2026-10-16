@@ -44,7 +44,7 @@ All current fixtures are `"source": "synthetic"`: hand-written from the backend 
 Server frames use the exact field names of the backend (`backend/api/serializers.py`, `backend/api/pool.py`,
 `backend/api/routes/chat.py`, `backend/api/routes/orchestrator.py`), including `seq`/`stream_id` where Claude agent
 sessions stamp them. History messages use the REST `MessagePreviewResponse` shape
-(`{role, text, blocks: [{type, text, tool_use_id, tool_name, tool_input, output, is_error}], timestamp}`).
+(`{role, text, blocks: [{type, text, tool_use_id, tool_name, tool_input, output, is_error, images}], timestamp}`).
 
 ## Runner algorithm
 
@@ -103,6 +103,7 @@ So `events` that follow `initial_history` may legitimately overlap it (see `hist
     { "type": "tool", "tool_use_id": "t1", "tool_name": "Bash", "tool_input": {...},
       "status": "running|done|error|no_result", "output": "..." | null },
       // + "inferred": true only when attached by position (spec R-4)
+      // + "images": [{ "url": "...", "media_type": "..." }] only when the result carried images (spec R-10)
     { "type": "permission", "request_id": "r1", "tool_name": "ExitPlanMode",
       "state": "pending|allowed|denied", "responder": "user|orchestrator|system" | null, "message": "..." | null }
 ] }

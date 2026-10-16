@@ -6,6 +6,7 @@ import com.assistant.core.data.ConversationRepository
 import com.assistant.core.data.HistoryRepository
 import com.assistant.core.data.ItemKey
 import com.assistant.core.data.OpenSessionsRepository
+import com.assistant.core.data.SessionNotice
 import com.assistant.core.data.WorkspaceItem
 import com.assistant.core.model.ConnectionState
 import com.assistant.core.model.HarnessProvider
@@ -39,8 +40,8 @@ interface SessionsBackend {
     /** `error{orchestrator_active}` after a start/attach the user asked for (§6.11). */
     val conflicts: Flow<Unit>
 
-    /** "<title> was closed elsewhere" / "<title> ended: <why>" for the active agent view (OPEN-3). */
-    val notices: Flow<String>
+    /** "<title> was closed elsewhere" / "<title> ended: <why>" for the active agent view, crashes for any (OPEN-3, §6.13). */
+    val notices: Flow<SessionNotice>
 
     /** The Archie view of this device while it is a live conversation (not ended, not failed). */
     fun liveArchieHere(): RunningArchie?
@@ -98,7 +99,7 @@ class RepositorySessionsBackend(
     override val items: StateFlow<List<WorkspaceItem>> get() = open.items
     override val sessions get() = history.sessions
     override val pool: StateFlow<List<PoolSession>> get() = history.pool
-    override val notices: Flow<String> get() = open.notices
+    override val notices: Flow<SessionNotice> get() = open.notices
     override val conflicts: Flow<Unit> =
         conversations.events.filterIsInstance<ConversationEvent.OrchestratorConflict>().map { }
 

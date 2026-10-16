@@ -76,6 +76,9 @@ class ToolResult(Event):
     tool_use_id: str
     output: str
     is_error: bool = False
+    #: Images in the result (a Read of a picture, a screenshot) as ``{url, media_type}``
+    #: addressing them in the session JSONL (``utils/tool_images.py``); the base64 never travels.
+    images: tuple[dict[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -313,6 +316,7 @@ class ContentBlock:
     tool_input: dict[str, Any] | None = None  # for tool_use
     output: str | None = None  # for tool_result
     is_error: bool = False  # for tool_result
+    images: list[dict[str, str]] | None = None  # for tool_result: [{url, media_type}]
 
 
 @dataclass(slots=True)

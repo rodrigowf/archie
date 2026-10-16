@@ -100,7 +100,9 @@ class StateFaceView(context: Context, private val palette: LitePalette) : View(c
         val t = (fixedPhaseMs ?: SystemClock.uptimeMillis()).toDouble()
         when (m.shape) {
             FaceShape.MARK_RING -> {
-                ring(canvas, cx, cy, 42.3f * u, 2f * u, palette.outlineVariant, 1f, dashed = false)
+                // WARNING: no conversation open (a tap starts one) — the amber ring, as subdued as the error ring.
+                if (m.tone == FaceTone.WARNING) ring(canvas, cx, cy, 42.3f * u, 2f * u, palette.warning, 0.6f, dashed = false)
+                else ring(canvas, cx, cy, 42.3f * u, 2f * u, palette.outlineVariant, 1f, dashed = false)
                 val half = 23.3f * u
                 rect.set(cx - half, cy - half, cx + half, cy + half)
                 glyphOrMark(canvas, m, rect)

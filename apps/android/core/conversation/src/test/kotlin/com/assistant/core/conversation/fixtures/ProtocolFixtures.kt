@@ -20,6 +20,7 @@ import com.assistant.core.model.SessionStatus
 import com.assistant.core.protocol.PaginatedMessagesDto
 import com.assistant.core.protocol.ProtocolCodec
 import com.assistant.core.protocol.RestJson
+import com.assistant.core.protocol.toWireJson
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -167,6 +168,7 @@ object ProtocolFixtures {
                                     put("tool_input", b.toolInput); put("status", b.status.wire)
                                     put("output", b.output?.let { JsonPrimitive(it) } ?: JsonNull)
                                     if (b.inferred) put("inferred", true)
+                                    if (b.images.isNotEmpty()) put("images", b.images.toWireJson())
                                 }
                                 is PermissionBlock -> buildJsonObject {
                                     put("type", "permission"); put("request_id", b.requestId); put("tool_name", b.toolName)

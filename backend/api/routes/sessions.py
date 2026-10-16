@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from api.deps import get_pool, get_store
 from api.models import (
@@ -29,6 +29,7 @@ def _convert_blocks(blocks) -> list[ContentBlockResponse]:
             tool_input=b.tool_input,
             output=b.output,
             is_error=b.is_error,
+            images=b.images,
         )
         for b in blocks
     ]
@@ -210,6 +211,22 @@ def get_session(session_id: str, store: SessionStore = Depends(get_store)):
             for m in detail.messages
         ],
     )
+
+
+@router.get("/{session_id}/tool-images/{tool_use_id}/{n}")
+def get_tool_image(
+    session_id: str,
+    tool_use_id: str,
+    n: int,
+    store: SessionStore = Depends(get_store),
+) -> Response:
+    """A picture a tool returned (spec 12 R-10), decoded from the session JSONL — the only copy
+    (``utils/tool_images.py``). An image never changes at its address: cache it forever."""
+    found = store.find_tool_image(session_id, tool_use_id, n)
+    if found is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    data, media_type = found
+    return Response(content=data, media_type=media_type, headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 @router.get("/{session_id}/messages", response_model=PaginatedMessagesResponse)

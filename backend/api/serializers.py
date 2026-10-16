@@ -49,6 +49,7 @@ def serialize_event(event: Event) -> dict[str, Any]:
             "tool_use_id": event.tool_use_id,
             "output": event.output,
             "is_error": event.is_error,
+            **({"images": list(event.images)} if event.images else {}),
         }
     if isinstance(event, TurnComplete):
         usage = event.usage or {}

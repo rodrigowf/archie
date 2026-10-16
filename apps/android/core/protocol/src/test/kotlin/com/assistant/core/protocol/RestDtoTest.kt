@@ -71,6 +71,22 @@ class RestDtoTest {
         assertEquals("thinking", page.messages[3].blocks.single().type)
     }
 
+    /** R-10: REST `tool_result.images` is `[{url, media_type}]` or `null`. */
+    @Test
+    fun toolResultBlockImages() {
+        val page = decode<PaginatedMessagesDto>(
+            """{"messages":[{"role":"user","text":"","blocks":[
+                {"type":"tool_result","tool_use_id":"h1","output":"","is_error":false,"images":[{"url":"/api/tool-images/a.png","media_type":"image/png"},{"url":null}]},
+                {"type":"tool_result","tool_use_id":"h2","output":"text","is_error":false,"images":null},
+                {"type":"tool_result","tool_use_id":"h3","output":"old backend"}
+               ]}],"total_count":1,"has_more":false,"start_index":0}""",
+        )
+        val (a, b, c) = page.messages.single().blocks
+        assertEquals(listOf(ToolImage("/api/tool-images/a.png", "image/png")), a.toolImages())
+        assertEquals(emptyList<ToolImage>(), b.toolImages())
+        assertEquals(emptyList<ToolImage>(), c.toolImages())
+    }
+
     @Test
     fun configAndPartialUpdate() {
         val cfg = decode<ConfigDto>(

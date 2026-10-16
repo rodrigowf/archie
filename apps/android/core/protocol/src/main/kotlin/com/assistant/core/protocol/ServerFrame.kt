@@ -133,7 +133,9 @@ sealed interface ServerFrame {
 
     /**
      * `output` is kept as raw JSON: a string on every path except Gemini voice, where it may be an
-     * object (spec 12 §4.5). The reducer normalises it (R-3).
+     * object (spec 12 §4.5). The reducer normalises it (R-3). [images] is the raw `[{url, media_type}]`
+     * (R-10), `null` when the frame has none (the backend omits the key); the reducer reads it with
+     * [normalizeImages], so the codec stays lossless.
      */
     data class ToolResult(
         val toolUseId: String?,
@@ -141,6 +143,7 @@ sealed interface ServerFrame {
         val isError: Boolean?,
         override val seq: Long? = null,
         override val streamId: String? = null,
+        val images: JsonElement? = null,
     ) : ServerFrame { override val type get() = "tool_result" }
 
     data class ToolExecuting(

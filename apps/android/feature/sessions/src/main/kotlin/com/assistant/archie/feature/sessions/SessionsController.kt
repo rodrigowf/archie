@@ -49,7 +49,13 @@ class SessionsController(
 
     init {
         scope.launch { backend.conflicts.collect { onConflict() } }
-        scope.launch { backend.notices.collect { snack(it) } }
+        scope.launch {
+            backend.notices.collect { n ->
+                val sdkId = n.reopenSdkId
+                if (sdkId == null) snack(n.message)
+                else snack(n.message, "Reopen", error = true, sticky = true) { backend.openAgent(sdkId, null) }
+            }
+        }
     }
 
     fun onIntent(i: SessionsIntent) {
@@ -292,11 +298,13 @@ class SessionsController(
 
     private fun setDialog(d: SessionDialog?) = _state.update { it.copy(dialog = d) }
 
-    private fun snack(message: String, actionLabel: String? = null, error: Boolean = false, action: (() -> Unit)? = null) {
+    /** [sticky]: stays until dismissed or replaced (a crash notice, §6.13). */
+    private fun snack(message: String, actionLabel: String? = null, error: Boolean = false, sticky: Boolean = false, action: (() -> Unit)? = null) {
         val id = ++snackSeq
         _state.value.snack?.let { snackActions.remove(it.id) }
         if (action != null) snackActions[id] = action
         _state.update { it.copy(snack = Snack(id, message, actionLabel.takeIf { action != null }, error)) }
+        if (sticky) return
         scope.launch {
             delay(if (action != null || error) snackLongMs else snackShortMs)
             snackActions.remove(id)

@@ -31,7 +31,7 @@ class SessionsControllerTest {
         override val sessions = MutableStateFlow(LoadState<List<SessionSummary>>(emptyList()))
         override val pool = MutableStateFlow<List<PoolSession>>(emptyList())
         override val conflicts = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
-        override val notices = MutableSharedFlow<String>(extraBufferCapacity = 4)
+        override val notices = MutableSharedFlow<com.assistant.core.data.SessionNotice>(extraBufferCapacity = 4)
         var here: RunningArchie? = null
         var view: Pair<String, String?>? = null
         var poolRows: List<PoolSession>? = emptyList()
@@ -69,14 +69,35 @@ class SessionsControllerTest {
     @Test fun aServerCloseOfTheActiveViewIsTheSnackbar_OPEN3() = runTest(UnconfinedTestDispatcher()) {
         val f = Fake()
         val c = controller(f)
-        f.notices.emit(com.assistant.core.data.OpenSessionsRepository.closedNotice("Energy dashboard", null))
+        f.notices.emit(com.assistant.core.data.SessionNotice(com.assistant.core.data.OpenSessionsRepository.closedNotice("Energy dashboard", null)))
         assertEquals("Energy dashboard was closed elsewhere", c.state.value.snack?.message)
         f.notices.emit(
-            com.assistant.core.data.OpenSessionsRepository.closedNotice(
-                "Energy dashboard", com.assistant.core.conversation.Termination("subprocess_crashed", "claude exited with code 1", null),
+            com.assistant.core.data.SessionNotice(
+                com.assistant.core.data.OpenSessionsRepository.closedNotice(
+                    "Energy dashboard", com.assistant.core.conversation.Termination("replaced", "a newer session", null),
+                ),
             ),
         )
-        assertEquals("Energy dashboard crashed: claude exited with code 1", c.state.value.snack?.message)
+        assertEquals("Energy dashboard was replaced: a newer session", c.state.value.snack?.message)
+    }
+
+    @Test fun aCrashNoticeStaysUntilDismissed_andReopens_6_13() = runTest(UnconfinedTestDispatcher()) {
+        val f = Fake()
+        val c = controller(f)
+        f.notices.emit(
+            com.assistant.core.data.OpenSessionsRepository.crashNotice(
+                "Energy dashboard", com.assistant.core.conversation.Termination("subprocess_crashed", "raw sdk text", "S9"), "S9",
+            ),
+        )
+        val snack = c.state.value.snack!!
+        assertEquals("Energy dashboard crashed. Its work so far is saved.", snack.message)
+        assertEquals("Reopen", snack.actionLabel)
+        assertTrue(snack.error)
+        advanceTimeBy(SessionsController.SNACK_LONG_MS * 3)
+        assertEquals("still there", snack, c.state.value.snack)
+        c.onIntent(SessionsIntent.SnackAction(snack.id))
+        assertEquals(listOf("openAgent:S9"), f.calls)
+        assertNull(c.state.value.snack)
     }
 
     @Test fun beforeTheFirstReply_actionsSayWhy_insteadOfDoingNothing() = runTest(UnconfinedTestDispatcher()) {

@@ -1,6 +1,7 @@
 package com.assistant.archie.shell
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,6 +13,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -22,9 +27,12 @@ import com.assistant.archie.feature.sessions.ui.ListDensity
 import com.assistant.archie.feature.sessions.ui.historySection
 import com.assistant.archie.feature.sessions.ui.historyStatus
 import com.assistant.archie.feature.sessions.ui.openNowSection
+import com.assistant.core.design.components.ArchieDropdownMenu
 import com.assistant.core.design.components.ArchieIconButton
 import com.assistant.core.design.components.ArchieListItem
 import com.assistant.core.design.components.ArchieMark
+import com.assistant.core.design.components.ArchieMenuItem
+import com.assistant.core.design.components.IconButtonStyle
 import com.assistant.core.design.components.ListLeadingIcon
 import com.assistant.core.design.icons.ArchieIcons
 import com.assistant.core.design.theme.ArchieTheme
@@ -61,8 +69,9 @@ private fun LazyListScope.sessionLists(
 }
 
 /**
- * The navigation drawer body (IA §5, mockup (b)): mark + connection, search, Open now, history by
- * date, footer Memory / Visuals / Settings.
+ * The navigation drawer body (IA §5, mockup (b)): mark + connection with the New action at the
+ * end of the header (the rail FAB's menu), search, Open now, history by date, footer Memory /
+ * Visuals / Settings.
  */
 @Composable
 fun DrawerContent(
@@ -84,6 +93,10 @@ fun DrawerContent(
                 Text("Archie", style = ArchieTheme.typography.titleLarge.copy(fontSize = 22.sp, lineHeight = 28.sp), color = c.onSurface)
                 ConnectionLine(state.connection)
             }
+            DrawerNewButton(
+                onNewArchie = { onAction(ShellAction.NewArchie); onClose() },
+                onNewAgent = { onAction(ShellAction.NewAgent); onClose() },
+            )
         }
         SearchField(state.search, { onAction(ShellAction.Search(it)) }, "Search conversations")
         LazyColumn(Modifier.weight(1f).padding(top = 2.dp), contentPadding = PaddingValues(bottom = 8.dp)) {
@@ -91,6 +104,31 @@ fun DrawerContent(
         }
         DrawerFooter(onNavigate, onClose)
     }
+}
+
+/**
+ * The drawer header's New action (mockup `.ib.sm.tonal`, design options A, 2026-10-15): a 40 dp
+ * tonal icon button opening the same menu as the rail's FAB, end-aligned under it.
+ */
+@Composable
+private fun DrawerNewButton(onNewArchie: () -> Unit, onNewAgent: () -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    Box {
+        ArchieIconButton(
+            ArchieIcons.AddComment, "New: Archie conversation or agent session", { menu = true },
+            Modifier.testTag("drawer-new"), style = IconButtonStyle.Tonal, size = 40.dp,
+        )
+        ArchieDropdownMenu(menu, onDismissRequest = { menu = false }) {
+            NewMenuItems({ menu = false; onNewArchie() }, { menu = false; onNewAgent() })
+        }
+    }
+}
+
+/** The items of every "＋ New" menu (rail FAB, drawer). */
+@Composable
+internal fun NewMenuItems(onNewArchie: () -> Unit, onNewAgent: () -> Unit) {
+    ArchieMenuItem("New Archie conversation", onNewArchie, icon = ArchieIcons.AddComment)
+    ArchieMenuItem("New agent session", onNewAgent, icon = ArchieIcons.Terminal)
 }
 
 @Composable

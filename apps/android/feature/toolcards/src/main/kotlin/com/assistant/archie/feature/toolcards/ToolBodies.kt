@@ -156,7 +156,7 @@ enum class OutputKind { Running, Feed, NoResult, Empty, Output }
 
 object ToolOutputRules {
     fun kind(block: ToolBlock, hasFeed: Boolean = false): OutputKind {
-        val has = !block.output.isNullOrEmpty()
+        val has = !block.output.isNullOrEmpty() || block.images.isNotEmpty()      // TC-5: pictures are output
         return when {
             has -> OutputKind.Output
             block.status == ToolStatus.RUNNING -> if (hasFeed) OutputKind.Feed else OutputKind.Running

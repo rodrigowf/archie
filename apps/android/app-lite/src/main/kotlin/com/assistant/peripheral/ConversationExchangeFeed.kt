@@ -28,7 +28,7 @@ import kotlinx.coroutines.launch
  *   so history is reloaded when the other device's voice ends.
  * - **Conversation change:** `session_started` for another conversation, or ours closed
  *   (`agent_session_closed`, or the channel's ref going null on a close / server change, [onDetached]):
- *   the exchange is cleared, matching "No conversation open on the server".
+ *   the exchange is cleared, matching the face's "No conversation open".
  *
  * The lite channel always sends `start` after adopting a conversation (autoStart), so
  * `session_started` is the one attach signal; the channel state is only watched for "none" (a new

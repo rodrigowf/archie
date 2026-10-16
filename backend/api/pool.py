@@ -134,6 +134,22 @@ def turn_preview(text: str | None, limit: int = TURN_PREVIEW_MAX) -> str | None:
     return flat if len(flat) <= limit else flat[: limit - 1].rstrip() + "…"
 
 
+# ``agent_turn_finished.error`` for a turn whose session died under it: plain
+# words for the notification body (the raw SDK detail is in the log).
+_TERMINATION_ERROR = {
+    TerminationReason.SUBPROCESS_CRASHED: "The session crashed",
+    TerminationReason.SUBPROCESS_LOST: "The session ended unexpectedly",
+    TerminationReason.UNREACHABLE: "The session can't reach its host",
+}
+# Closes someone chose: a turn they cut short ends "interrupted" (no notification).
+_DELIBERATE_CLOSE = {TerminationReason.CLOSED_BY_USER, TerminationReason.REPLACED}
+
+
+def termination_error(reason: "TerminationReason") -> str:
+    how = _TERMINATION_ERROR.get(reason, "The session ended")
+    return f"{how}. Reopen it to continue — its work so far is saved."
+
+
 def _str_or_none(v: object) -> str | None:
     """Session-manager attributes as wire strings (test doubles carry mocks)."""
     return v if isinstance(v, str) and v else None
@@ -448,6 +464,19 @@ class SessionPool:
         for explicit close from a UI button where no typed broadcast is
         warranted.  In practice every internal caller now passes one.
         """
+        # A harness-started turn (a subagent's report) still open would never
+        # announce its end: send() isn't driving it.  Balance its
+        # agent_turn_started now, while the session is still in the pool, so
+        # devices notify a crash in it like one in a prompted turn.
+        harness_turn = self._oot_turns.pop(session_id, None)
+        if harness_turn is not None:
+            if reason is None or reason in _DELIBERATE_CLOSE:
+                self.announce_turn_finished(session_id, status="interrupted", text=harness_turn.get("text"))
+            else:
+                self.announce_turn_finished(
+                    session_id, status="error", text=harness_turn.get("text"),
+                    error=termination_error(reason),
+                )
         sm = self._sessions.pop(session_id, None)
         was_open = session_id in self._open_agents
         self._open_agents.pop(session_id, None)
@@ -1242,7 +1271,8 @@ class SessionPool:
                 if not finished:
                     self.announce_turn_finished(
                         session_id, status=ended("error"), text=final_text,
-                        error=str(exc) or type(exc).__name__,
+                        error=termination_error(exc.reason) if isinstance(exc, SessionDeadError)
+                        else str(exc) or type(exc).__name__,
                     )
                 raise
             else:

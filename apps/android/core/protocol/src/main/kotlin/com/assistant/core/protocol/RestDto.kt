@@ -55,7 +55,12 @@ data class ContentBlockDto(
     /** Always a string from the backend; kept as JSON so a non-string never fails the page. */
     val output: JsonElement? = null,
     @SerialName("is_error") val isError: Boolean = false,
-)
+    /** `tool_result` only: `[{url, media_type}]` or `null` (R-10). Raw JSON; read it with [toolImages]. */
+    val images: JsonElement? = null,
+) {
+    /** The block's images, normalised (R-10): malformed entries dropped, `null` → empty. */
+    fun toolImages(): List<ToolImage> = normalizeImages(images)
+}
 
 /** `MessagePreviewResponse`. No ids: the only identity is the absolute index (inv01 §6.2). */
 @Serializable

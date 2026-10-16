@@ -21,4 +21,12 @@ class UrlSchemeTest {
         assertEquals("h:8443", UrlScheme.hostPort("https://h:8443"))
         assertTrue(UrlScheme.isSecure("wss://x")); assertFalse(UrlScheme.isSecure("ws://x"))
     }
+
+    @Test fun resolvesServerRelativeImageUrls() {
+        val img = "/api/tool-images/${"a".repeat(64)}.png"
+        assertEquals("http://192.168.0.200:8765$img", UrlScheme.resolve("ws://192.168.0.200:8765/api/sessions/chat", img))
+        assertEquals("https://h:8443$img", UrlScheme.resolve("wss://h:8443", img))
+        assertEquals("https://cdn.example/x.png", UrlScheme.resolve("ws://h", "https://cdn.example/x.png"))
+        assertEquals(null, UrlScheme.resolve("ws://h", ""))
+    }
 }

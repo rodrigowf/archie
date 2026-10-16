@@ -1,5 +1,6 @@
 package com.assistant.core.conversation
 
+import com.assistant.core.protocol.ToolImage
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.serialization.json.JsonObject
@@ -133,6 +134,8 @@ data class ToolBlock(
     val status: ToolStatus = ToolStatus.RUNNING,
     /** `null` until a result arrives. */
     val output: String? = null,
+    /** Pictures the result carried (R-10); replaced together with [output]. Shown by TC-5. */
+    val images: List<ToolImage> = emptyList(),
     /** Attached by position (R-4); shows a "matched by position" hint (TC-3). */
     val inferred: Boolean = false,
     val executing: Boolean = false,
@@ -161,7 +164,12 @@ data class PendingResult(
     val output: String,
     val isError: Boolean,
     val origin: ResultOrigin,
-)
+    /** Normalised images (R-10); empty when the result had none. */
+    val images: List<ToolImage> = emptyList(),
+) {
+    /** `hasContent` (R-10): an image result has output `""` but is not empty for R-5. */
+    val hasContent: Boolean get() = output != "" || images.isNotEmpty()
+}
 
 enum class QueueOwner(val wire: String) { LOCAL("local"), REMOTE("remote") }
 

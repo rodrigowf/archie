@@ -231,7 +231,7 @@ class SessionStore:
             return None
 
         provider_name = self._effective_provider(session_id, adapter.provider_name)
-        previews = adapter.to_previews(messages_raw)
+        previews = adapter.to_previews(messages_raw, session_id)
         # Attach provider name to previews
         previews = [
             dataclasses.replace(p, provider=provider_name)
@@ -286,7 +286,7 @@ class SessionStore:
             return [], 0, False
 
         provider_name = self._effective_provider(session_id, adapter.provider_name)
-        previews = adapter.to_previews(messages_raw)
+        previews = adapter.to_previews(messages_raw, session_id)
         previews = [
             dataclasses.replace(p, provider=provider_name)
             for p in previews
@@ -303,6 +303,17 @@ class SessionStore:
 
         has_more = start_idx > 0
         return previews[start_idx:end_idx], total_count, has_more
+
+    def find_tool_image(self, session_id: str, tool_use_id: str, n: int) -> tuple[bytes, str] | None:
+        """Image *n* of tool result *tool_use_id* in the session (its JSONL or a subagent
+        transcript) as ``(bytes, media_type)``; ``None`` when it is not there (spec 12 R-10)."""
+        from utils.tool_images import ID_RE, find_image, session_files
+
+        if not ID_RE.match(session_id) or not ID_RE.match(tool_use_id) or n < 0:
+            return None
+        jsonl_path = self._locate_jsonl(session_id)
+        files = session_files(jsonl_path) if jsonl_path is not None else []
+        return find_image(session_id, tool_use_id, n, files)   # memory first: a live card may beat the JSONL
 
     # ------------------------------------------------------------------
     # Subagents (spec 12 SA-8) — read through the session's provider adapter
@@ -347,7 +358,7 @@ class SessionStore:
         provider_name = self._effective_provider(session_id, adapter.provider_name)
         previews = [
             dataclasses.replace(p, provider=provider_name)
-            for p in adapter.to_previews(messages_raw)
+            for p in adapter.to_previews(messages_raw, session_id)
         ]
         total_count = len(previews)
         if before_index is None:

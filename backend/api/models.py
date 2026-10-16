@@ -57,6 +57,7 @@ class ContentBlockResponse(BaseModel):
     tool_input: dict | None = None
     output: str | None = None
     is_error: bool = False
+    images: list[dict[str, str]] | None = None  # tool_result: [{url, media_type}]
 
 
 class MessagePreviewResponse(BaseModel):
