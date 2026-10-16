@@ -88,7 +88,7 @@ browser-origin guard and a CORS policy that echoes only trusted origins (no cred
 
 | Module (`backend/api/routes/`) | Prefix / paths | Purpose |
 |---|---|---|
-| `sessions.py` | `/api/sessions` | History list (`GET ""`), the open set (`GET /pool/live`: live and restored sessions, spec 12 OPEN-1), detail, paginated `/messages`, `/preview`, `PATCH /rename`, `DELETE` (soft delete to `context/trash/`), `/duplicate`, `/truncate`, `/fork`, `POST /inject` (push a user message into a live session), `POST /{local_id}/close`, `POST /{local_id}/permission` (REST twin of `permission_response`), `GET/PUT /{session_id}/config`, `GET /{sdk_id}/subagents` and `GET /{sdk_id}/subagents/{tool_use_id}/messages` (spec 12 SA-8) |
+| `sessions.py` | `/api/sessions` | History list (`GET ""`), the open set (`GET /pool/live`: live and restored sessions, spec 12 OPEN-1), detail, paginated `/messages`, `/preview`, `PATCH /rename`, `DELETE` (soft delete to `context/trash/`), `/duplicate`, `/truncate`, `/fork`, `POST /inject` (push a user message into a live session), `POST /{local_id}/close`, `POST /{local_id}/permission` (REST twin of `permission_response`), `GET/PUT /{session_id}/config`, `GET /{sdk_id}/subagents` and `GET /{sdk_id}/subagents/{tool_use_id}/messages` (spec 12 SA-8), `GET /{sdk_id}/tool-images/{tool_use_id}/{n}` (a picture a tool returned — a `Read` of an image, an MCP screenshot — decoded from the session JSONL or a subagent transcript, the only copy; `backend/utils/tool_images.py` keeps a per-file `tool_use_id → offset` index grown as the file grows and a 32 MB in-memory LRU that live results also fill; spec 12 R-10) |
 | `chat.py` | `WS /api/sessions/chat` | Agent-session socket: `start`, `send`, `command`, `interrupt`, `compact`, `permission_response`, `stop_subagent`, `stop` |
 | `orchestrator.py` | `WS /api/orchestrator/chat` | Orchestrator socket: text turns, voice signaling/relay, wake callback ([orchestrator.md](orchestrator.md)) |
 | `voice.py` | `/api/orchestrator/voice/session`, `/voice/models`, `/audio`, `/models`, `/models/audio` | Ephemeral voice credentials / connection info, voice model list, audio upload for voice messages, orchestrator model lists ([voice architecture](../voice/architecture.md)) |
@@ -100,7 +100,6 @@ browser-origin guard and a CORS policy that echoes only trusted origins (no cred
 | `memory.py` | `/api/memory/tree` | Markdown tree of `context/memory/` for the memory browser (file content comes from `/memory/<path>`) |
 | `visualizations.py` | `/api/visualizations` | List HTML files under `context/public/` with titles, `PATCH /rename`, `GET/POST /cast` (show on the Fire TV) ([visualizations](../integrations/visualizations-and-sharing.md)) |
 | `uploads.py` | `/api/uploads` | `POST` a file (≤ 200 MB) into `context/uploads/`, returns its `/uploads/...` link |
-| `tool_images.py` | `GET /api/tool-images/<sha256>.<ext>` | Pictures from tool results (a `Read` of an image, an MCP screenshot). `backend/utils/tool_images.py` writes each base64 image once to `state/tool-images/` (machine-local, content-addressed, rebuilt from the JSONL by any history read) and the `tool_result` frame / REST block carries `images: [{url, media_type}]` instead of the data (spec 12 R-10). Immutable, cache-forever responses; the cache is never pruned (images are small; delete the folder to reclaim space) |
 | `debug.py` | `/api/debug/log` | Remote console: clients POST log lines, appended to `logs/remote_console.log` ([debugging](../operations/debugging.md)) |
 | `browser.py` | `/api/browser/status`, `POST /api/browser/command`, `WS /api/browser/ws` | Hub for the Chrome extension ([browser-extension](../clients/browser-extension.md)); the WS needs the `BROWSER_CONTROL_TOKEN`, `command` is loopback-only |
 
@@ -214,7 +213,7 @@ paths from it — never from `__file__` or the cwd.
 | `get_uploads_dir()` | `context/uploads/` |
 | `get_trash_dir()` | `context/trash/` (soft-deleted sessions) |
 | `get_index_dir()` | `index/` (search indexes) |
-| `get_state_dir()` | `state/` (machine-local backend state: the open set, the `tool-images/` cache; `ARCHIE_STATE_DIR` overrides) |
+| `get_state_dir()` | `state/` (machine-local backend state: the open set; `ARCHIE_STATE_DIR` overrides) |
 | `get_titles_path()` | `context/.titles.json` |
 | `get_session_path(id)` | `context/<id>.jsonl` |
 

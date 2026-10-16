@@ -678,8 +678,8 @@ class TestSessionManagerSend:
 
     @pytest.mark.asyncio
     async def test_tool_result_image_read_carries_image_urls(self, tmp_path, monkeypatch):
-        """A Read of a picture: the base64 goes to the image cache and the
-        result carries its URL, never the data (spec 12 tool_result images)."""
+        """A Read of a picture: the result carries the image's url in the
+        session JSONL, never the data (spec 12 R-10)."""
         from claude_agent_sdk import ToolResultBlock, UserMessage
 
         monkeypatch.setenv("ARCHIE_STATE_DIR", str(tmp_path))
@@ -695,8 +695,13 @@ class TestSessionManagerSend:
         assert result.output == ""
         [img] = result.images
         assert img["media_type"] == "image/png"
-        assert img["url"].startswith("/api/tool-images/") and img["url"].endswith(".png")
-        assert (tmp_path / "tool-images" / img["url"].rsplit("/", 1)[1]).is_file()
+        sid = img["url"].split("/")[3]
+        assert sid and img["url"] == f"/api/sessions/{sid}/tool-images/toolu_img/0"
+        # Kept in memory until the JSONL has the line; nothing is written to disk.
+        from utils.tool_images import find_image
+
+        assert find_image(sid, "toolu_img", 0, []) is not None
+        assert not (tmp_path / "tool-images").exists()
 
     @pytest.mark.asyncio
     async def test_tool_result_block_none_content(self):

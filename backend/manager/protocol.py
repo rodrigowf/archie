@@ -79,11 +79,13 @@ class ProviderAdapter(ABC):
 
     # -- Default implementations that operate on the normalized shape --
 
-    def to_previews(self, messages: list[dict]) -> list[MessagePreview]:
+    def to_previews(self, messages: list[dict], session_id: str | None = None) -> list[MessagePreview]:
         """Convert normalized messages to MessagePreview objects.
 
         Operates on the normalized shape produced by ``read_messages``,
         so the default implementation suffices for both providers.
+        *session_id* (the file's session id; a subagent's parent) addresses
+        the images of tool results (``utils/tool_images.py``).
         """
         previews: list[MessagePreview] = []
         for msg in messages:
@@ -93,7 +95,7 @@ class ProviderAdapter(ABC):
             previews.append(MessagePreview(
                 role=role,
                 text=extract_text(msg),
-                blocks=extract_blocks(msg),
+                blocks=extract_blocks(msg, session_id),
                 timestamp=_parse_timestamp(msg.get("timestamp")),
             ))
         return previews
@@ -211,8 +213,11 @@ def tool_result_text(content) -> str:
     return str(content) if content else ""
 
 
-def extract_blocks(message: dict) -> list[ContentBlock]:
-    """Extract content blocks from a normalized message dict."""
+def extract_blocks(message: dict, session_id: str | None = None) -> list[ContentBlock]:
+    """Extract content blocks from a normalized message dict.
+
+    *session_id* lets a ``tool_result`` with images carry their urls (spec 12 R-10).
+    """
     msg = message.get("message", {})
     content = msg.get("content", "")
     blocks: list[ContentBlock] = []
@@ -255,7 +260,7 @@ def extract_blocks(message: dict) -> list[ContentBlock]:
                 tool_use_id=block.get("tool_use_id"),
                 output=tool_result_text(content),
                 is_error=block.get("is_error", False),
-                images=tool_result_images(content) or None,
+                images=tool_result_images(content, session_id, block.get("tool_use_id")) or None,
             ))
 
     return blocks

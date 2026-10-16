@@ -77,7 +77,7 @@ class ToolResult(Event):
     output: str
     is_error: bool = False
     #: Images in the result (a Read of a picture, a screenshot) as ``{url, media_type}``
-    #: pointing at the backend's cache (``utils/tool_images.py``); the base64 never travels.
+    #: addressing them in the session JSONL (``utils/tool_images.py``); the base64 never travels.
     images: tuple[dict[str, str], ...] = ()
 
 

@@ -27,7 +27,7 @@ from .content_watcher import ContentWatcher
 from .indexer import HistoryIndexer, MemoryWatcher
 from .open_sessions import OpenSessionsStore
 from .pool import SessionPool
-from .routes import accounts, agents, auth, browser, chat, config, debug, mcp, memory, orchestrator, sessions, skills, tool_images, uploads, visualizations, voice
+from .routes import accounts, agents, auth, browser, chat, config, debug, mcp, memory, orchestrator, sessions, skills, uploads, visualizations, voice
 
 logger = logging.getLogger(__name__)
 
@@ -316,7 +316,6 @@ def create_app() -> FastAPI:
     app.include_router(skills.router)
     app.include_router(agents.router)
     app.include_router(uploads.router)
-    app.include_router(tool_images.router)
     app.include_router(debug.router)
     app.include_router(browser.router)
     app.include_router(visualizations.router)
