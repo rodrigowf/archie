@@ -108,6 +108,18 @@ class VisualsUiTest {
         compose.onNodeWithText("All visuals").assertDoesNotExist()
     }
 
+    @Test fun `starring while the list is at the top keeps the new Starred section in view`() {
+        val deps = FakeVisualsDeps(app)
+        compose.setContent { ArchieTheme { VisualsScreen(deps, onBack = {}, onOpen = {}) } }
+        compose.onNodeWithTag("visual-star:tarot-canvas/index.html").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Starred").assertDoesNotExist()
+        // The new section lands above the old first row; key anchoring alone would scroll it out of view.
+        compose.onNodeWithTag("visual-star:dashboard.html").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Starred").assertIsDisplayed()
+    }
+
     @Test fun `a failed star is reverted with a message`() {
         val deps = FakeVisualsDeps(app).apply { starResult = ApiResult.HttpError(404, "Visualization not found") }
         compose.setContent { ArchieTheme { VisualsScreen(deps, onBack = {}, onOpen = {}) } }
