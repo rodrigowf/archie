@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="512" height="512">
+  <!-- The Archie mark: arch + dot on a rounded tile (dark-scheme primaryContainer / onPrimaryContainer). -->
+  <rect width="48" height="48" rx="15" fill="#31476E"/>
+  <path d="M14.5 35.5V23.5a9.5 9.5 0 0 1 19 0v12" fill="none" stroke="#D7E3FF" stroke-width="4.6" stroke-linecap="round"/>
+  <circle cx="24" cy="27" r="3.4" fill="#D7E3FF"/>
+</svg>

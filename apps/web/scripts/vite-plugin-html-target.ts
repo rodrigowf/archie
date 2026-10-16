@@ -51,11 +51,11 @@ export function headHtml(opts: HtmlTargetOptions): string {
   const { target, base } = opts;
   const lines: string[] = [];
   lines.push(`<script>${remoteConsoleScript(target)}</script>`);
-  lines.push(`<link rel="icon" type="image/svg+xml" href="${withBase(base, 'icon.svg')}" />`);
+  lines.push(`<link rel="icon" type="image/svg+xml" href="${withBase(base, 'archie-mark.svg')}" />`);
   if (target === 'main') {
     lines.push(`<link rel="manifest" href="${withBase(base, 'manifest.json')}" />`);
     lines.push(`<meta name="apple-mobile-web-app-title" content="Archie" />`);
-    lines.push(`<link rel="apple-touch-icon" href="${withBase(base, 'icon-192.png')}" />`);
+    lines.push(`<link rel="apple-touch-icon" href="${withBase(base, 'archie-mark-square-192.png')}" />`);
   }
   const font = (opts.bundleFiles ?? []).find((f) => PRELOAD_FONT_PATTERN.test(f));
   if (font) {

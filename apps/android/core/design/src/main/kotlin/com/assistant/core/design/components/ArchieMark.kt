@@ -19,8 +19,8 @@ import androidx.compose.ui.unit.dp
 import com.assistant.core.design.theme.ArchieTheme
 
 /**
- * The Archie mark (mockup `#mark`, 48-unit viewBox): an arch on a rounded tile with a tertiary
- * dot. [bare] drops the tile and draws the arch in primary.
+ * The Archie mark (mockup `#mark`, 48-unit viewBox): an arch on a rounded tile with a dot in the
+ * arch's colour. [bare] drops the tile and draws arch and dot in primary.
  */
 @Composable
 fun ArchieMark(
@@ -31,7 +31,6 @@ fun ArchieMark(
 ) {
     val tile = ArchieTheme.colors.primaryContainer
     val arch = if (bare) ArchieTheme.colors.primary else ArchieTheme.colors.onPrimaryContainer
-    val dot = ArchieTheme.colors.tertiary
     val semantics = if (contentDescription != null) Modifier.semantics { this.contentDescription = contentDescription } else Modifier
     Canvas(modifier.size(size).then(semantics)) {
         val k = this.size.minDimension / 48f
@@ -44,7 +43,7 @@ fun ArchieMark(
                 lineTo(33.5f, 35.5f)
             }
             drawPath(path, arch, style = Stroke(width = 4.6f, cap = StrokeCap.Round))
-            drawCircle(dot, radius = 3.4f, center = Offset(24f, 27f))
+            drawCircle(arch, radius = 3.4f, center = Offset(24f, 27f))
         }
     }
 }

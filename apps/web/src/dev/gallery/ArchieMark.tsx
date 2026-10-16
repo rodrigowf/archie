@@ -7,7 +7,7 @@ export function ArchieMark({ size = 40, className }: { size?: number; className?
         d="M14.5 35.5V23.5a9.5 9.5 0 0 1 19 0v12"
         style={{ fill: 'none', stroke: 'var(--md-sys-color-on-primary-container)', strokeWidth: 4.6, strokeLinecap: 'round' }}
       />
-      <circle cx="24" cy="27" r="3.4" style={{ fill: 'var(--md-sys-color-tertiary)' }} />
+      <circle cx="24" cy="27" r="3.4" style={{ fill: 'var(--md-sys-color-on-primary-container)' }} />
     </svg>
   );
 }

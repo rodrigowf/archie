@@ -5,7 +5,7 @@ describe('html target plugin', () => {
   it('main: manifest, apple-touch-icon, remote console (off by default)', () => {
     const head = headHtml({ target: 'main', base: '/', isBuild: true });
     expect(head).toContain('<link rel="manifest" href="/manifest.json" />');
-    expect(head).toContain('<link rel="apple-touch-icon" href="/icon-192.png" />');
+    expect(head).toContain('<link rel="apple-touch-icon" href="/archie-mark-square-192.png" />');
     expect(head).toContain('"defaultOn":false');
     expect(head).toContain('"prefix":""');
   });
@@ -13,7 +13,7 @@ describe('html target plugin', () => {
   it('compat: no manifest; remote console on with the [compat] prefix; base-relative icon', () => {
     const head = headHtml({ target: 'compat', base: '/compat/', isBuild: true });
     expect(head).not.toContain('manifest');
-    expect(head).toContain('href="/compat/icon.svg"');
+    expect(head).toContain('href="/compat/archie-mark.svg"');
     expect(head).toContain('"defaultOn":true');
     expect(head).toContain('"prefix":"[compat] "');
   });
