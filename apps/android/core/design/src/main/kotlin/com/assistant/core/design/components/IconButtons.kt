@@ -132,17 +132,13 @@ fun ArchieFab(
     }
 }
 
-/**
- * Extended FAB ("＋ New"): 56 dp, r16, 16 dp start / 20 dp end, 16 sp label. [flat] drops the
- * level-3 shadow for a FAB sitting on a sheet (the drawer), like the rail's.
- */
+/** Extended FAB ("＋ New"): 56 dp, r16, 16 dp start / 20 dp end, 16 sp label. */
 @Composable
 fun ArchieExtendedFab(
     text: String,
     icon: ImageVector,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    flat: Boolean = false,
 ) {
     val c = ArchieTheme.colors
     ExtendedFloatingActionButton(
@@ -151,7 +147,7 @@ fun ArchieExtendedFab(
         shape = RoundedCornerShape(Corner.Large),
         containerColor = c.primaryContainer,
         contentColor = c.onPrimaryContainer,
-        elevation = if (flat) FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp) else FloatingActionButtonDefaults.elevation(),
+        elevation = FloatingActionButtonDefaults.elevation(),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             ArchieIcon(icon, null)

@@ -28,11 +28,11 @@ import com.assistant.archie.feature.sessions.ui.historySection
 import com.assistant.archie.feature.sessions.ui.historyStatus
 import com.assistant.archie.feature.sessions.ui.openNowSection
 import com.assistant.core.design.components.ArchieDropdownMenu
-import com.assistant.core.design.components.ArchieExtendedFab
 import com.assistant.core.design.components.ArchieIconButton
 import com.assistant.core.design.components.ArchieListItem
 import com.assistant.core.design.components.ArchieMark
 import com.assistant.core.design.components.ArchieMenuItem
+import com.assistant.core.design.components.IconButtonStyle
 import com.assistant.core.design.components.ListLeadingIcon
 import com.assistant.core.design.icons.ArchieIcons
 import com.assistant.core.design.theme.ArchieTheme
@@ -69,8 +69,9 @@ private fun LazyListScope.sessionLists(
 }
 
 /**
- * The navigation drawer body (IA §5, mockup (b)): mark + connection, "＋ New" (the rail FAB's
- * menu), search, Open now, history by date, footer Memory / Visuals / Settings.
+ * The navigation drawer body (IA §5, mockup (b)): mark + connection with the New action at the
+ * end of the header (the rail FAB's menu), search, Open now, history by date, footer Memory /
+ * Visuals / Settings.
  */
 @Composable
 fun DrawerContent(
@@ -92,11 +93,11 @@ fun DrawerContent(
                 Text("Archie", style = ArchieTheme.typography.titleLarge.copy(fontSize = 22.sp, lineHeight = 28.sp), color = c.onSurface)
                 ConnectionLine(state.connection)
             }
+            DrawerNewButton(
+                onNewArchie = { onAction(ShellAction.NewArchie); onClose() },
+                onNewAgent = { onAction(ShellAction.NewAgent); onClose() },
+            )
         }
-        DrawerNewButton(
-            onNewArchie = { onAction(ShellAction.NewArchie); onClose() },
-            onNewAgent = { onAction(ShellAction.NewAgent); onClose() },
-        )
         SearchField(state.search, { onAction(ShellAction.Search(it)) }, "Search conversations")
         LazyColumn(Modifier.weight(1f).padding(top = 2.dp), contentPadding = PaddingValues(bottom = 8.dp)) {
             sessionLists(state, onAction, ListDensity.OneLine, after = onClose)
@@ -105,12 +106,18 @@ fun DrawerContent(
     }
 }
 
-/** The drawer's "＋ New": a flat extended FAB opening the same menu as the rail's FAB. */
+/**
+ * The drawer header's New action (mockup `.ib.sm.tonal`, design options A, 2026-10-15): a 40 dp
+ * tonal icon button opening the same menu as the rail's FAB, end-aligned under it.
+ */
 @Composable
 private fun DrawerNewButton(onNewArchie: () -> Unit, onNewAgent: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
-    Box(Modifier.padding(bottom = 12.dp)) {
-        ArchieExtendedFab("New", ArchieIcons.Add, { menu = true }, Modifier.testTag("drawer-new"), flat = true)
+    Box {
+        ArchieIconButton(
+            ArchieIcons.AddComment, "New: Archie conversation or agent session", { menu = true },
+            Modifier.testTag("drawer-new"), style = IconButtonStyle.Tonal, size = 40.dp,
+        )
         ArchieDropdownMenu(menu, onDismissRequest = { menu = false }) {
             NewMenuItems({ menu = false; onNewArchie() }, { menu = false; onNewAgent() })
         }
