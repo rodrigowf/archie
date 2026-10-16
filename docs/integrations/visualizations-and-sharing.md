@@ -3,7 +3,7 @@ name: visualizations-and-sharing
 category: archie/integrations
 tags: [visualizations, create-viz, context-public, markdown-reader, memory-urls, uploads, sharing, ipad, fire-tv, hardlink, review-artifacts, media-generation, remotion]
 created: 2026-04-15
-modified: 2026-10-09
+modified: 2026-10-16
 summary: Making things viewable on any device — /create-viz (interactive canvases, live reload, in-app links), what each URL prefix serves, the markdown reader, review-artifact placement, media generation skills.
 source: curated (consolidated from memory notes assistant/infrastructure/features_and_integrations_summary.md §8, §10, §14, assistant/utilities/markdown_workflow.md, assistant/utilities/memory_url_and_hardlink_edit_gotcha.md, assistant/utilities/review_artifacts_location.md, assistant/utilities/experiments_dont_touch_app.md, projects/content-creation/content_creation_project.md (tooling parts); verified against code 2026-10-06)
 references:
@@ -98,15 +98,23 @@ for the Visuals screens of the web and Android apps:
   Title: `.titles.json` key `viz:<path>` (manual rename), else the `<title>` tag, else the
   prettified file name. Symlinks escaping `context/public/` are skipped.
 - `PATCH /api/visualizations/rename {path, title}` stores a manual title.
-- `GET /api/visualizations/cast` → `{available, reason}`; `POST /api/visualizations/cast {path}`
-  opens the file's URL in the Fire TV's TvServerHub WebView over adb. Details (device selection,
-  `FIRE_TV_ADB_SERIAL`, `VIZ_CAST_BASE_URL`) in [fire-tv](../devices/fire-tv.md).
+- `GET /api/visualizations/cast` → `{available, via, reason}`; `POST /api/visualizations/cast {path}`
+  → `{ok, via, message}` shows the file on the TV. It prefers the **Archie TV app**: when a TV is
+  attached to the TV control channel (`/api/tv/ws`, spec 12 §9.5) it sends `open_visualization
+  {path}` and the app opens its Viewer (`via: "app"`). With no TV app connected, or when it times
+  out (8 s) or fails, it falls back to adb and opens the URL in TvServerHub's WebView
+  (`via: "adb"`). Details (device selection, `FIRE_TV_ADB_SERIAL`, `VIZ_CAST_BASE_URL`) in
+  [fire-tv](../devices/fire-tv.md).
+- From a session or the orchestrator: `context/scripts/tv_cmd.py viz <path>` (the app only;
+  exit 2 when no TV app is connected) and `tv_cmd.py state` to check what the TV shows.
 
-`create_visualization.py --display-tv` uses the same mechanism as "Show on TV" (fixed
-2026-10-07; it used to send a generic `VIEW` intent to the default adb device): it picks the device
-pinned by `FIRE_TV_ADB_SERIAL`, else the first connected device whose manufacturer is Amazon, and
-runs `adb -s <serial> shell am start -n com.example.tvserverhub/.WebPageViewActivity -e url <url>`
-with the URL it printed. Run `/connect-tv` first if the TV is not on adb.
+`create_visualization.py --display-tv` calls the same "Show on TV" endpoint on the local backend
+(app first, then adb on the server). Only when the backend is unreachable does it run the adb intent
+itself: the device pinned by `FIRE_TV_ADB_SERIAL`, else the first connected device whose
+manufacturer is Amazon, gets
+`adb -s <serial> shell am start -n com.example.tvserverhub/.WebPageViewActivity -e url <url>` with
+the URL it printed (2026-10-07 fix: it used to send a generic `VIEW` intent to the default adb
+device). Run `/connect-tv` first if the adb route is needed.
 
 ## The markdown reader
 
@@ -213,3 +221,5 @@ Rules baked into `/music-video-editor` (learned on its reference project):
 - 2026-06 — markdown reader created for the first demo recording; the clickable-link convention
   followed. 2026-06-14/17 — review-artifact placement rule and the hardlink/URL gotchas, from a video
   editing project. 2026-08-28 — the `/uploads/` URL vs path surprise.
+- 2026-10-16 — "Show on TV" prefers the Archie TV app's control channel; adb became the fallback
+  (spec 15 §5).

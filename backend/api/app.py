@@ -27,7 +27,7 @@ from .content_watcher import ContentWatcher
 from .indexer import HistoryIndexer, MemoryWatcher
 from .open_sessions import OpenSessionsStore
 from .pool import SessionPool
-from .routes import accounts, agents, auth, browser, chat, config, debug, mcp, memory, orchestrator, sessions, skills, uploads, visualizations, voice
+from .routes import accounts, agents, auth, browser, chat, config, debug, mcp, memory, orchestrator, sessions, skills, transcribe, tv, uploads, visualizations, voice
 
 logger = logging.getLogger(__name__)
 
@@ -296,6 +296,8 @@ def create_app() -> FastAPI:
     # it's built here rather than in lifespan — that also keeps it available
     # to tests that mount the router without running the full lifespan.
     app.state.browser_hub = browser.BrowserHub()
+    # Archie TV control channel (spec 15 §5): same shape, one entry per TV.
+    app.state.tv_hub = tv.TvHub()
 
     # Other web sites must not drive or read the API (api/guard.py): the guard refuses
     # cross-site writes to /api/*, cross-site WebSocket handshakes and untrusted Hosts (DNS
@@ -318,6 +320,8 @@ def create_app() -> FastAPI:
     app.include_router(uploads.router)
     app.include_router(debug.router)
     app.include_router(browser.router)
+    app.include_router(tv.router)
+    app.include_router(transcribe.router)
     app.include_router(visualizations.router)
     app.include_router(memory.router)
 
