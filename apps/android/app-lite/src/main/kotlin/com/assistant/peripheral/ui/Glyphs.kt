@@ -40,8 +40,8 @@ object Glyphs {
         canvas.drawPath(p, paint)
     }
 
-    /** Draws the Archie mark into a square [bounds]. */
-    fun drawMark(canvas: Canvas, bounds: RectF, bg: Int, fg: Int, dot: Int) {
+    /** Draws the Archie mark into a square [bounds]; the dot takes the arch colour [fg]. */
+    fun drawMark(canvas: Canvas, bounds: RectF, bg: Int, fg: Int) {
         val s = bounds.width() / 48f
         val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = bg }
         canvas.drawRoundRect(bounds, 15f * s, 15f * s, fill)
@@ -51,7 +51,7 @@ object Glyphs {
             style = Paint.Style.STROKE; color = fg; strokeWidth = 4.6f * s; strokeCap = Paint.Cap.ROUND
         }
         canvas.drawPath(arch, stroke)
-        fill.color = dot
+        fill.color = fg
         canvas.drawCircle(bounds.left + 24f * s, bounds.top + 27f * s, 3.4f * s, fill)
     }
 }

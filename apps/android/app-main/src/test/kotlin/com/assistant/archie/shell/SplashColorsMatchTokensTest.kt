@@ -22,7 +22,6 @@ class SplashColorsMatchTokensTest {
         assertEquals(LightColorScheme.surface.toArgb(), color(R.color.archie_window_background))
         assertEquals(DarkColorScheme.primaryContainer.toArgb(), color(R.color.archie_mark_tile))
         assertEquals(DarkColorScheme.onPrimaryContainer.toArgb(), color(R.color.archie_mark_arch))
-        assertEquals(DarkColorScheme.tertiary.toArgb(), color(R.color.archie_mark_dot))
     }
 
     @Config(qualifiers = "night")

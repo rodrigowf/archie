@@ -127,7 +127,7 @@ class StateFaceView(context: Context, private val palette: LitePalette) : View(c
     private fun glyphOrMark(canvas: Canvas, m: FaceModel, r: RectF) {
         when (m.glyph) {
             FaceGlyph.NONE -> Unit
-            FaceGlyph.MARK -> Glyphs.drawMark(canvas, r, palette.primaryContainer, palette.onPrimaryContainer, palette.tertiary)
+            FaceGlyph.MARK -> Glyphs.drawMark(canvas, r, palette.primaryContainer, palette.onPrimaryContainer)
             else -> {
                 fill.color = palette.onSurfaceVariant
                 val data = when (m.glyph) {
