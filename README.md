@@ -8,6 +8,29 @@
 
 Whether on your phone or in the browser, collaborate naturally with integrated history, memory, and multi-agent workflows—accessible through standard text chat or real-time voice conversations.
 
+<p align="center">
+  <img src="docs/assets/screenshots/web-workspace.png" alt="Archie in the browser: open conversations as tabs, an agent session with its tool calls, and the chat history" width="900" />
+</p>
+
+---
+
+## See It in Action
+
+**On your phone.** Archie hands work to agents and asks before acting, talks with you by voice while tools run, and keeps every conversation and memory note one tap away.
+
+<p align="center">
+  <img src="docs/assets/screenshots/android-main.png" alt="The Android app: a plan waiting for approval, a voice conversation, the conversation history, and a memory note" width="900" />
+</p>
+
+<table>
+  <tr>
+    <td width="220"><img src="docs/assets/screenshots/android-lite.png" alt="Archie lite listening to a spoken question" width="200" /></td>
+    <td><b>Archie lite.</b> A voice-first face for an old phone left in the living room: say the wake word and talk, no screen needed. It runs on Android 5.</td>
+  </tr>
+</table>
+
+*Screenshots use demo data.*
+
 ---
 
 ## What Makes This Special
@@ -37,7 +60,7 @@ Everything the agent knows and makes lives on your own machine, in plain files y
 
 ### 🔍 **Radically Transparent & Hackable**
 The codebase is small, readable, and explicitly designed to evolve with you:
-- **Inspectable Source**: Python backend and React frontend—small enough to read in an afternoon. No black boxes.
+- **Inspectable Source**: Python backend, React web app and Kotlin Android apps—small enough to read in an afternoon. No black boxes.
 - **Self-Modifying**: The assistant can fix its own bugs, add tools, or create skills, hot-reloading changes automatically.
 - **Personal/Private Separation**: Your private data (memory, history, credentials) lives separately from the public framework code.
 
