@@ -1,5 +1,6 @@
 package com.assistant.archie.tv.shell
 
+import com.assistant.archie.tv.voice.VoiceOverlayHost
 import android.annotation.SuppressLint
 import android.os.Bundle
 import android.view.KeyEvent
@@ -91,7 +92,10 @@ private fun TvAppContent(graph: TvAppGraph, onController: (TvShellController) ->
     val voice by graph.voice.state.collectAsStateWithLifecycle()
     val state = TvShellState(connection = connection, voice = voice, showKeyHints = showKeyHints)
     CompositionLocalProvider(LocalToolImageLoader provides graph.toolImages) {
-        TvShell(state, controller, graph.toasts) { key -> TvRoutes.Entry(key, ctx) }
+        Box(Modifier.fillMaxSize()) {
+            TvShell(state, controller, graph.toasts) { key -> TvRoutes.Entry(key, ctx) }
+            VoiceOverlayHost(graph)
+        }
     }
 }
 
