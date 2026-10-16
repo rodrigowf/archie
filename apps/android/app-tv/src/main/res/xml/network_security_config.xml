@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Archie TV (spec 15 §6.1): cleartext allowed, like :app-main's usesCleartextTraffic — the backend
+  is on the LAN (default ws://192.168.0.200:80). Self-signed https/wss servers are trusted per
+  certificate by the app's own TOFU TrustStore (OkHttp) and WebTrust (WebView), which do not go
+  through this file; everything else uses the system anchors.
+-->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <base-config
+        cleartextTrafficPermitted="true"
+        tools:ignore="InsecureBaseConfiguration">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

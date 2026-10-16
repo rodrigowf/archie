@@ -64,6 +64,8 @@ include(":feature:settings")
 
 include(":app-main")
 include(":app-lite")
+// Archie TV (spec 15): com.assistant.archie.tv, Android TV / Fire TV.
+include(":app-tv")
 
 // Standalone device tools (no project dependencies).
 include(":app-mictest")

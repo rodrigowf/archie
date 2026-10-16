@@ -47,6 +47,10 @@ gradlePlugin {
             id = libs.plugins.archie.android.app.lite.get().pluginId
             implementationClass = "AndroidAppLiteConventionPlugin"
         }
+        register("androidAppTv") {
+            id = libs.plugins.archie.android.app.tv.get().pluginId
+            implementationClass = "AndroidAppTvConventionPlugin"
+        }
         register("androidAppTool") {
             id = libs.plugins.archie.android.app.tool.get().pluginId
             implementationClass = "AndroidAppToolConventionPlugin"

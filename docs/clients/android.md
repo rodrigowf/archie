@@ -3,7 +3,7 @@ name: android
 category: archie/clients
 tags: [android, kotlin, compose, navigation3, views, app-main, app-lite, a300m, poco, gradle, adb, signing, vosk]
 created: 2026-04-14
-modified: 2026-10-12
+modified: 2026-10-16
 summary: apps/android — Gradle multi-module project with the main app (com.assistant.archie) and the A300M lite app (com.assistant.peripheral).
 source: curated (consolidated from memory notes assistant/android/android_peripheral_project.md, assistant/infrastructure/repo_layout_cutover_2026_10.md, assistant/devices/peripheral_devices.md, auto-memory feedback_android_ws_keepalive_silent_drop.md, feedback_use_adb_input_for_device_tests.md, feedback_hands_on_checks_over_suites.md, feedback_run_test_before_speculating.md, project_frontend_refactor_2026_10_03.md; verified against code 2026-10-06)
 references:
@@ -19,6 +19,7 @@ references:
   - android-device.md
   - legacy-apps.md
   - web.md
+  - tv.md
   - ../devices/devices.md
   - ../operations/debugging.md
   - ../operations/working-rules.md
@@ -27,7 +28,8 @@ references:
 # Android clients (`apps/android/`)
 
 One Gradle multi-module project (`rootProject.name = "archie-android"`) builds two apps that
-talk to the same backend WebSocket/REST API as the [web client](web.md):
+talk to the same backend WebSocket/REST API as the [web client](web.md) (a third, Archie TV
+`:app-tv` for Fire TV / Android TV, has its own page: [tv.md](tv.md)):
 
 | | `:app-main` | `:app-lite` |
 |---|---|---|

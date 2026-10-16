@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  :app-tv manifest (spec 15 §6.1, T0). Archie TV runs on Fire TV (Fire OS 7/8) and Android TV /
+  Google TV 8+: a leanback app that also installs on phones (leanback/touchscreen not required).
+
+  VoiceHostService and its permissions come from :core:voice-host's manifest (nothing starts it until
+  T4 wires the voice host); :feature:settings adds BLUETOOTH_CONNECT and
+  REQUEST_IGNORE_BATTERY_OPTIMIZATIONS.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-feature
+        android:name="android.software.leanback"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.faketouch"
+        android:required="false" />
+    <!-- RECORD_AUDIO: the remote's microphone (TV-2); a TV without one still runs the app. -->
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="false" />
+    <!-- ACCESS_WIFI_STATE (merged from :core:network, the LAN scan) implies Wi-Fi; TVs may be Ethernet-only. -->
+    <uses-feature
+        android:name="android.hardware.wifi"
+        android:required="false" />
+    <!-- BLUETOOTH_CONNECT (merged from :feature:settings) implies this feature; TVs may lack it. -->
+    <uses-feature
+        android:name="android.hardware.bluetooth"
+        android:required="false" />
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- NetworkMonitor: reconnect on "network available" (T-14) and the LAN scan's subnet lookup. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Hold-to-talk and live voice through the remote's microphone (spec 15 §4, T4). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- Android 11 package visibility: KEEP_AWAKE pings to the TvServerHub launcher (TV-10). -->
+    <queries>
+        <package android:name="com.example.tvserverhub" />
+    </queries>
+
+    <!--
+      Icon in drawable-*, not mipmap: Fire OS launchers have shown the default icon for mipmap-only
+      apps. banner: the 320×180 dp leanback launcher card (xhdpi + xxhdpi PNGs from
+      docs/assets/archie-mark.svg). network_security_config: cleartext on the LAN, like :app-main's
+      usesCleartextTraffic (the default backend is ws://192.168.0.200:80); https/wss servers use the
+      TOFU TrustStore (OkHttp) and WebTrust (WebView), not this file.
+    -->
+    <application
+        android:name=".TvApplication"
+        android:allowBackup="false"
+        android:banner="@drawable/banner"
+        android:icon="@drawable/ic_launcher"
+        android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.ArchieTv">
+
+        <!--
+          Single Activity. configChanges: the Fire TV remote (re)connecting changes keyboard /
+          navigation; recreating the Activity for it would only flash the screen (all state is
+          process-scoped anyway).
+        -->
+        <activity
+            android:name=".shell.MainActivity"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustPan">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

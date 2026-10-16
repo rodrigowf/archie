@@ -31,6 +31,7 @@ webkit = "1.17.1"
 browser = "1.10.0"
 splashscreen = "1.2.0"
 profileinstaller = "1.4.1"
+tvMaterial = "1.1.0"               # androidx.tv:tv-material (:app-tv, spec 15 TV-1); AAR minSdk 23
 # ---- legacy tier (minSdk 21 modules + :app-lite); NEVER bump past these ----
 coreKtxLegacy = "1.17.0"           # 1.18.0 declares minSdk 23
 datastoreLegacy = "1.1.7"          # 1.2.0 declares minSdk 23
@@ -89,6 +90,7 @@ androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "w
 androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "browser" }
 androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "splashscreen" }
 androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version.ref = "profileinstaller" }
+androidx-tv-material = { group = "androidx.tv", name = "tv-material", version.ref = "tvMaterial" }
 # ---- legacy tier ----
 androidx-core-ktx-legacy = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtxLegacy" }
 androidx-datastore-preferences-legacy = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastoreLegacy" }
@@ -148,3 +150,4 @@ archie-android-compose = { id = "archie.android.compose" }
 archie-android-app-main = { id = "archie.android.app.main" }
 archie-android-app-lite = { id = "archie.android.app.lite" }
 archie-android-app-tool = { id = "archie.android.app.tool" }
+archie-android-app-tv = { id = "archie.android.app.tv" }
