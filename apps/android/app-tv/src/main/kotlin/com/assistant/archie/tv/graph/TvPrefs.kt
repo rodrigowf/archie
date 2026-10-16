@@ -28,6 +28,33 @@ class TvPrefs(private val prefs: SharedPreferences) {
         get() = prefs.getBoolean(KEY_SETUP_DONE, false)
         set(v) { prefs.edit { putBoolean(KEY_SETUP_DONE, v) } }
 
+    // ── T3: TV control channel (spec 15 §3.5 Settings → TV control, §5). The Settings UI comes with T5. ──
+    /** Stable per-install id the control socket registers with (spec 12 RD-1); created on first read. */
+    val controlDeviceId: String
+        @Synchronized get() = prefs.getString(T3_DEVICE_ID, null)
+            ?: java.util.UUID.randomUUID().toString().also { id -> prefs.edit { putString(T3_DEVICE_ID, id) } }
+
+    /** "Device name (shown to agents)"; null = the system device name. */
+    var controlDeviceName: String?
+        get() = prefs.getString(T3_DEVICE_NAME, null)?.takeIf { it.isNotBlank() }
+        set(v) { prefs.edit { putString(T3_DEVICE_NAME, v?.trim()) } }
+
+    /** The server's TV_CONTROL_TOKEN, when it requires one; null = none. */
+    var controlToken: String?
+        get() = prefs.getString(T3_TOKEN, null)?.takeIf { it.isNotBlank() }
+        set(v) { prefs.edit { putString(T3_TOKEN, v?.trim()) } }
+
+    /** "Allow agents to open pages" (default on). */
+    var allowAgentsToOpen: Boolean
+        get() = prefs.getBoolean(T3_ALLOW_OPEN, true)
+        set(v) { prefs.edit { putBoolean(T3_ALLOW_OPEN, v) } }
+
+    /** "Show 'Opened by Archie' toasts" (default on). */
+    var showOpenedToasts: Boolean
+        get() = prefs.getBoolean(T3_OPENED_TOASTS, true)
+        set(v) { prefs.edit { putBoolean(T3_OPENED_TOASTS, v) } }
+    // ── end T3 ──
+
     fun setTextSize(v: TvTextSize) = write { putString(KEY_TEXT_SIZE, v.name) }
     fun setShowKeyHints(v: Boolean) = write { putBoolean(KEY_SHOW_HINTS, v) }
     fun setReduceMotion(v: Boolean) = write { putBoolean(KEY_REDUCE_MOTION, v) }
@@ -53,3 +80,11 @@ class TvPrefs(private val prefs: SharedPreferences) {
         fun create(context: Context) = TvPrefs(context.getSharedPreferences(FILE, Context.MODE_PRIVATE))
     }
 }
+
+// ── T3: TV control preference keys ──
+private const val T3_DEVICE_ID = "tv_control_device_id"
+private const val T3_DEVICE_NAME = "tv_control_device_name"
+private const val T3_TOKEN = "tv_control_token"
+private const val T3_ALLOW_OPEN = "tv_control_allow_open"
+private const val T3_OPENED_TOASTS = "tv_control_opened_toasts"
+// ── end T3 ──
