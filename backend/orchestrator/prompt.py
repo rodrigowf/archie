@@ -252,7 +252,9 @@ def _self_reference_section(context: dict[str, Any]) -> str | None:
         f"Your conversation JSONL: `{jsonl_path}`\n\n"
         "Pass this path to an agent session when delegating a digest of this "
         "conversation into memory. The append stream is owned by the live "
-        "session — treat the file as read-only from any delegated agent."
+        "session — treat the file as read-only from any delegated agent.\n\n"
+        "Do not transcribe this id into memory notes yourself: `write_file` "
+        "stamps it for you (see the memory frontmatter rules)."
     )
 
 
@@ -403,16 +405,11 @@ def _mcp_section() -> str:
     return "\n".join(lines)
 
 
-def _memory_section(
-    config: OrchestratorConfig,
-    voice_provider_id: str | None = None,
-) -> str:
+def _memory_section(config: OrchestratorConfig) -> str:
     """Build the memory system section explaining both shared and private memory.
 
-    When ``voice_provider_id`` is set (only in realtime voice sessions) and a
-    matching `ORCHESTRATOR_MEMORY_<provider>.md` file exists, its contents are
-    appended as a separate "Provider-Specific Memory" subsection along with
-    short editing instructions.
+    The voice provider's own memory file is not here: it is its own section,
+    just before this one (``_provider_memory_section``).
     """
     # Get relative path for display
     relative_path = config.memory_path
@@ -425,11 +422,6 @@ def _memory_section(
     # Load memory contents
     memory_index = _load_memory_index(config)
     private_memory = _load_private_memory(config)
-    provider_memory, provider_memory_path = (
-        _load_provider_memory(config, voice_provider_id)
-        if voice_provider_id
-        else ("", None)
-    )
 
     section = f"""## Memory System
 
@@ -439,13 +431,13 @@ def _memory_section(
 
 1. **Reuse before creating.** Search the existing index for the closest file. If the new info extends or revises an existing topic, edit that file — do not create a new one for every fact.
 2. **Pick the category.** If no existing file fits, place the new file under the most specific matching folder from the ontology in MEMORY.md. If no folder fits, create a new subfolder — folders are cheap; misplaced files are expensive. Give a new folder an `INDEX.md` and add it to MEMORY.md's ontology.
-3. **Fill all frontmatter fields.** Set `created` and `modified` to today. Set `source` to the originating session UUID + title when knowable; otherwise `curated (<short reason>)`. Compute `references` from the files you cite.
+3. **Fill the frontmatter — except `source`.** Set `created` and `modified` to today, and compute `references` from the files you cite. **Leave `source` out entirely when the note comes from this conversation**: `write_file` fills it with this conversation's real id and title, and also stamps `written_by:`. You do not know your own session id and **must never compose one** — a fabricated UUID silently corrupts the note's provenance. Only write `source` yourself when the knowledge came from somewhere else: another conversation (use the exact id a search result or tool gave you), an external URL, or `curated (<short reason>)`. A `source:` naming a conversation that does not exist gets corrected and reported back as `source_corrected`. **Never cite turn numbers in anything you write.** Some notes carry per-paragraph tags like `*source: session <id>, turns 1250-1252*`; those turn numbers are positions in the conversation's JSONL, which you cannot count — you only ever see a budgeted window of recent messages plus a summary, and the file also contains tool calls and other events you never see. A wrong turn number is undetectable and points a future reader at the wrong part of the conversation, so cite the session alone. When a note genuinely needs turn-level tags, delegate the write to an agent session: its search tools return real turn numbers.
 4. **Cross-link.** Where prose mentions another memory file, link it inline with a relative markdown link `[name.md](../folder/name.md)`. Add the same path to the `references:` array. Then update those other files' `references:` arrays so the link is bidirectional.
 5. **Update the folder's `INDEX.md`** in the same edit pass — add a one-line entry. Touch MEMORY.md only for a new folder or a new start-here file.
 
 ### Editing rules
 
-- `write_file` is a full overwrite — read first, edit, then write the complete updated content. It creates parent directories automatically, so writing to `context/memory/<new-folder>/<file>.md` works without a separate mkdir.
+- `write_file` is a full overwrite — read the file **in full** (no `start_line`/`end_line`), edit, then write the complete updated content. It creates parent directories automatically, so writing to `context/memory/<new-folder>/<file>.md` works without a separate mkdir. Two writes are refused with an explanation rather than performed: one that would **shrink an existing file below half its size**, and one that would **replace a file you have not just read in full** (a partial read does not count — overwriting after reading a slice is how a note gets truncated). Fix the cause: read the whole file and write it back complete. `confirm=true` overrides, and is only right when you genuinely mean to replace the file wholesale — e.g. a deliberate stub or a file you are rewriting from scratch.
 - When you change a file's content, bump its `modified` field to today.
 - When you move a file to a different category, update its `category` field and grep the memory tree for inbound references to the old path.
 - Never omit existing index entries unless they are clearly obsolete.
@@ -498,30 +490,40 @@ For orchestrator-specific state: active workflows, pending tasks, session notes.
 
 Your private memory is currently empty."""
 
-    # Add voice-provider-specific memory (only loaded in realtime voice sessions
-    # when an ORCHESTRATOR_MEMORY_<provider>.md file exists).
-    if provider_memory and provider_memory_path is not None:
-        provider_rel = str(provider_memory_path)
-        if config.project_dir and provider_rel.startswith("/"):
-            try:
-                provider_rel = str(
-                    provider_memory_path.relative_to(Path(config.project_dir))
-                )
-            except ValueError:
-                pass
-        section += f"""
-
----
-
-### Provider-Specific Memory (`{provider_rel}`)
-
-This file is loaded **only** when you are running on the `{voice_provider_id}` realtime voice provider. Use it for guidance, alignment, or context that applies just to this provider — not the general orchestrator behavior. Edit this file (not the main private memory) when feedback or learnings only apply when speaking through `{voice_provider_id}` voice.
-
-```
-{provider_memory}
-```"""
-
     return section
+
+
+def _provider_memory_section(
+    config: OrchestratorConfig,
+    voice_provider_id: str | None = None,
+) -> str | None:
+    """The voice provider's own memory file, placed BEFORE the memory section.
+
+    Only realtime voice sessions pass ``voice_provider_id``; the section exists
+    when a matching `ORCHESTRATOR_MEMORY_<provider>.md` is present. It comes
+    ahead of the general memory (the wiki index and ORCHESTRATOR_MEMORY.md) so
+    each model locks onto its own identity first (Rodrigo's call, 2026-10-16).
+    Injected as plain markdown, NOT inside a code fence: the file carries rules
+    the model must follow on every reply (Archie's voice, the avatar's emoji
+    tags), and a fence frames its contents as quoted data — fenced, the Qwen
+    face rules were followed for ~6% of sentences (2026-10-16).
+    """
+    if not voice_provider_id:
+        return None
+    provider_memory, provider_memory_path = _load_provider_memory(config, voice_provider_id)
+    if not provider_memory or provider_memory_path is None:
+        return None
+    provider_rel = str(provider_memory_path)
+    if config.project_dir and provider_rel.startswith("/"):
+        try:
+            provider_rel = str(provider_memory_path.relative_to(Path(config.project_dir)))
+        except ValueError:
+            pass
+    return f"""## Provider-Specific Memory (`{provider_rel}`)
+
+This file is loaded **only** when you are running on the `{voice_provider_id}` realtime voice provider. Use it for guidance, alignment, or context that applies just to this provider — not the general orchestrator behavior. Edit this file (not the main private memory) when feedback or learnings only apply when speaking through `{voice_provider_id}` voice. Everything below is its content, and it is addressed to you: follow it.
+
+{provider_memory.strip()}"""
 
 
 def _scripts_section(config: OrchestratorConfig) -> str:
@@ -686,7 +688,8 @@ def build_system_prompt(
     1. Role and identity
     2. Current state (active sessions)
     3. Capabilities (MCP orchestration)
-    4. Knowledge (memory system with contents)
+    4. Knowledge: the voice provider's own memory file (voice only), then the
+       memory system with contents
     5. Guidelines
     6. Context (recent verbatim messages + summary of older ones)
 
@@ -697,9 +700,9 @@ def build_system_prompt(
 
     ``voice_provider_id`` is only passed by realtime voice sessions; when set
     and a matching ``ORCHESTRATOR_MEMORY_<provider>.md`` file exists next to
-    the main orchestrator memory, its contents are appended to the memory
-    section. Text and audio modes never pass this argument, so provider-
-    specific memory never leaks into non-voice prompts.
+    the main orchestrator memory, its contents become their own section just
+    before the memory section, ahead of ORCHESTRATOR_MEMORY.md. Text and audio modes never pass this argument,
+    so provider-specific memory never leaks into non-voice prompts.
     """
     sections = [
         _role_section(),
@@ -707,7 +710,8 @@ def build_system_prompt(
         _self_reference_section(context),
         _active_sessions_section(context),
         _mcp_section(),
-        _memory_section(config, voice_provider_id=voice_provider_id),
+        _provider_memory_section(config, voice_provider_id),
+        _memory_section(config),
         _scripts_section(config),
         _guidelines_section(),
         _history_section(recent_messages, history_summary),

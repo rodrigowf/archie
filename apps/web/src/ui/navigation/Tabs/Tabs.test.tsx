@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { expectNoAxeViolations } from '@/test/axe';
 import { renderUi } from '@/test/render';
-import { resetOverlayStackForTests } from '@/ui/a11y';
+import { resetOverlayStackForTests, WHEEL_GLIDE_MS, wheelScrollX } from '@/ui/a11y';
 import { touch } from '@/ui/a11y/touch.testutil';
 import { matchTabShortcut, resolveTabShortcut, useTabShortcuts } from './shortcuts';
 import { TabPanel, Tabs, type TabItem } from './Tabs';
@@ -184,6 +184,66 @@ describe('Tabs (strip)', () => {
     await user.keyboard('{Enter}');
     expect(getByTestId('active').textContent).toBe('energy');
     expect(queryByRole('menu')).toBeNull();
+  });
+});
+
+describe('Tabs (strip) wheel scrolling', () => {
+  /** jsdom lays nothing out: give the tablist a 300 px window over 1000 px of tabs. */
+  function overflowing(list: HTMLElement): HTMLElement {
+    Object.defineProperty(list, 'clientWidth', { configurable: true, value: 300 });
+    Object.defineProperty(list, 'scrollWidth', { configurable: true, value: 1000 });
+    return list;
+  }
+  const wheel = (el: HTMLElement, init: WheelEventInit): boolean => el.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, ...init }));
+
+  it('maps the vertical wheel to sideways scroll; leaves horizontal gestures to the browser', () => {
+    expect(wheelScrollX({ deltaX: 0, deltaY: 120, deltaMode: 0 }, 300)).toBe(120);
+    expect(wheelScrollX({ deltaX: 0, deltaY: -3, deltaMode: 1 }, 300)).toBe(-120);
+    expect(wheelScrollX({ deltaX: 0, deltaY: 1, deltaMode: 2 }, 300)).toBe(300);
+    expect(wheelScrollX({ deltaX: 30, deltaY: 10, deltaMode: 0 }, 300)).toBe(0);
+  });
+
+  it('trackpad deltas scroll directly; at the ends, sideways gestures and Ctrl+wheel pass through', () => {
+    const { getByRole } = renderUi(<Strip />);
+    const list = overflowing(getByRole('tablist'));
+    expect(wheel(list, { deltaY: -20 })).toBe(true); // already at the start
+    expect(list.scrollLeft).toBe(0);
+    expect(wheel(list, { deltaY: 20 })).toBe(false);
+    expect(list.scrollLeft).toBe(20);
+    expect(wheel(list, { deltaX: 20, deltaY: 5 })).toBe(true);
+    expect(wheel(list, { deltaY: 20, ctrlKey: true })).toBe(true);
+    expect(list.scrollLeft).toBe(20);
+    list.scrollLeft = 700;
+    expect(wheel(list, { deltaY: 20 })).toBe(true); // already at the end
+  });
+
+  it('scrollable secondary tabs (the agent tab row) scroll with the wheel too', () => {
+    const { getByRole } = renderUi(
+      <Tabs variant="secondary" scrollable aria-label="Agents" items={SESSIONS} value="voice" onChange={vi.fn()} />,
+    );
+    const list = overflowing(getByRole('tablist'));
+    expect(wheel(list, { deltaY: 30 })).toBe(false);
+    expect(list.scrollLeft).toBe(30);
+  });
+
+  it('wheel notches glide and add up, clamped to the end', () => {
+    vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame', 'performance'] });
+    try {
+      const { getByRole } = renderUi(<Strip />);
+      const list = overflowing(getByRole('tablist'));
+      expect(wheel(list, { deltaY: 120 })).toBe(false);
+      vi.advanceTimersByTime(WHEEL_GLIDE_MS / 4);
+      expect(list.scrollLeft).toBeGreaterThan(0);
+      expect(list.scrollLeft).toBeLessThan(120);
+      wheel(list, { deltaY: 120 }); // mid-glide: aims at 240, not current + 120
+      vi.advanceTimersByTime(WHEEL_GLIDE_MS + 50);
+      expect(list.scrollLeft).toBe(240);
+      for (let i = 0; i < 6; i += 1) wheel(list, { deltaY: 120 });
+      vi.advanceTimersByTime(WHEEL_GLIDE_MS + 50);
+      expect(list.scrollLeft).toBe(700);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

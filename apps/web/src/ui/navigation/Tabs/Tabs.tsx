@@ -2,20 +2,22 @@
  * Tabs (spec 13 §3.5, IA §3; mockups `.tabs`, `.tb`, `.alltabs`). `role="tablist"` with roving
  * focus (←/→, Home/End), automatic or manual activation, and three looks:
  *
- * - `primary` / `secondary`: M3 tabs (fixed or `scrollable`), an active indicator under the label.
+ * - `primary` / `secondary`: M3 tabs (fixed or `scrollable`, the wheel scrolls them sideways), an
+ *   active indicator under the label.
  * - `strip`: the session tab strip in the top app bar (the base W-07 builds on). 44 px pill tabs
  *   with a leading kind icon, label, meta (provider chip) and status slots; close × visible on
  *   the active tab, on hover and on keyboard focus; middle-click closes; double-click, F2,
  *   context menu or touch long-press asks to rename; Delete closes the focused tab;
- *   Ctrl+Shift+←/→ or a mouse drag reorders (pinned tabs stay first); a fade shows overflow and
- *   the "N ⌄" button opens the searchable all-tabs menu (`allTabsMenu`).
+ *   Ctrl+Shift+←/→ or a mouse drag reorders (pinned tabs stay first); a fade shows overflow, the
+ *   mouse wheel scrolls the row sideways, and the "N ⌄" button opens the searchable all-tabs menu
+ *   (`allTabsMenu`).
  *
  * The close × is a mouse/touch convenience with `aria-hidden` and no tab stop: a button inside
  * `role="tab"` is invalid (nested-interactive), so keyboard and screen-reader users close with
  * Delete (announced through `aria-keyshortcuts`) or Ctrl+Alt+W.
  */
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
-import { useDrag, useLongPress, useRovingFocus, type Point } from '@/ui/a11y';
+import { useDrag, useLongPress, useRovingFocus, useWheelScrollX, type Point } from '@/ui/a11y';
 import { Icon, type IconName } from '@/ui/primitives';
 import { AllTabsMenu } from './AllTabsMenu';
 import styles from './Tabs.module.css';
@@ -97,6 +99,7 @@ function M3Tabs({ items, value, onChange, variant = 'primary', scrollable, activ
     },
   });
   useSelectedIntoView(ref, value);
+  useWheelScrollX(ref);
   const cls = [styles.m3, variant === 'secondary' ? styles.secondary : styles.primary, scrollable ? styles.scrollable : '', className]
     .filter(Boolean)
     .join(' ');
@@ -183,6 +186,7 @@ function TabStrip({
     },
   });
   useSelectedIntoView(listRef, value);
+  useWheelScrollX(listRef);
 
   // Overflow fades, recomputed on resize, scroll and item changes.
   useEffect(() => {

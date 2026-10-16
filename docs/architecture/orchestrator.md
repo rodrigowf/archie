@@ -3,7 +3,7 @@ name: orchestrator
 category: archie/architecture
 tags: [orchestrator, agent-loop, tools, providers, system-prompt, background-runner, notifications, run-script, persistence, jsonl]
 created: 2026-02-23
-modified: 2026-10-12
+modified: 2026-10-16
 summary: The orchestrator agent — session vs agent loop, model providers, system prompt, the 24 tools, background runner, persistence.
 source: curated (consolidated from memory notes assistant/architecture/orchestrator-vision.md, assistant/architecture/permissions_branch_architecture.md, assistant/architecture/project-overview.md, assistant/infrastructure/features_and_integrations_summary.md; verified against code 2026-10-06)
 references:
@@ -97,21 +97,75 @@ Both text and voice use the same `ToolRegistry`: `get_definitions()` returns Ant
 ## System prompt (`build_system_prompt()` in `prompt.py`)
 
 Sections, in order: role → date/time → **This Conversation** (the orchestrator's own JSONL path, so
-it can hand it to an agent for digestion) → **active sessions** (titles, in-flight turns, pending
-permissions) → **available MCPs** → **memory** → **scripts allowlist** → guidelines (delegation,
-background events, searching) → recent history (voice only; text mode passes history as messages).
+it can hand it to an agent for digestion; it is told *not* to transcribe the id into memory notes
+itself, because `write_file` stamps it — see below) → **active sessions** (titles, in-flight turns,
+pending permissions) → **available MCPs** → the voice provider's own memory file (voice only, ahead of the
+general memory so each model takes in its own identity first) → **memory** → **scripts allowlist** →
+guidelines (delegation, background events, searching) → recent history (voice only; text mode passes
+history as messages).
 
 Files injected from `context/memory/`:
 
 | File | Limit | When |
 |---|---|---|
 | `MEMORY.md` (root index of the wiki) | `MAX_MEMORY_INDEX_CHARS = 40000`, truncated with a "read from line N" hint | Always |
-| `ORCHESTRATOR_MEMORY.md` (private orchestrator memory, no frontmatter; a new install seeds it from `install/ORCHESTRATOR_MEMORY.md` — identity + first-run onboarding, see [installation](../infrastructure/installation.md#a-new-archies-first-conversations)) | `MAX_MEMORY_CHARS = 12000` | Always |
-| `ORCHESTRATOR_MEMORY_<provider>.md` (e.g. `_qwen`, `_gemini`) | `MAX_MEMORY_CHARS` | Only in a realtime voice session on that provider |
+| `ORCHESTRATOR_MEMORY.md` (private orchestrator memory, no frontmatter; a new install seeds it from `install/ORCHESTRATOR_MEMORY.md` — identity + first-run onboarding, see [installation](../infrastructure/installation.md#a-new-archies-first-conversations)) | `MAX_MEMORY_CHARS = 24000` | Always |
+| `ORCHESTRATOR_MEMORY_<provider>.md` (e.g. `_qwen`, `_google`) | `MAX_MEMORY_CHARS` | Only in a realtime voice session on that provider; its own section before the memory section, as plain markdown, not in a code fence (it holds instructions, such as the avatar's emoji rules) |
 | `ORCHESTRATOR_SCRIPTS.md` (`run_script` allowlist) | `MAX_SCRIPTS_CHARS = 12000` | Always, verbatim |
 
 The memory section also teaches the add/update flow for the wiki (see
-[memory-and-search.md](memory-and-search.md)). The voice prompt is built by
+[memory-and-search.md](memory-and-search.md)).
+
+**Memory-note provenance is stamped in code, not recalled.** The orchestrator has no reliable view
+of its own session UUID — it appears only inside the JSONL path — so when the frontmatter rules
+asked it for one it was observed inventing well-formed ids that matched no conversation on disk (a
+content-strategy note written 2026-10-16 carried the fabricated `a4d9f5b8-...`). `write_file`
+(`tools/files.py`) now closes this by removing the requirement rather than policing it: for any
+write under `context/memory/` whose content has frontmatter, it sets `written_by:` from the live
+`context["session"]`, and **fills `source:` when the note omits it** — which is what the prompt now
+tells the orchestrator to do, since "this conversation" is the one provenance it can never need to
+recall. A `source:` that *is* present stays as written (a real other conversation, a URL,
+`curated (...)`) unless it names a UUID that exists nowhere on disk, which is rewritten to the real
+id and reported as `source_corrected`. `source` is where the knowledge came from; `written_by` is
+which session typed it, which is why both exist.
+
+**Overwrite guards.** `write_file` replaces the whole file, so a short payload destroys a long one —
+on 2026-10-16 the orchestrator wrote 751 bytes over a 19 KB memory note (it read back, noticed, and
+restored it, but nothing in the tool had stopped it; the churn is visible in session `26a0098b`).
+Two guards now refuse a write and explain why, instead of performing it:
+
+| Guard | Trigger | Constant |
+|---|---|---|
+| Dramatic shrink | the write would cut an existing file below half its current size | `SHRINK_LIMIT = 0.5` |
+| Blind overwrite | the file was not read **in full** by this conversation within the last few turns (a partial read does not count) | `READ_RECENCY_TURNS = 5` |
+
+`read_file` records each read as `(turn, whole_file)` in a bounded per-session map, so the second
+guard knows what the model has actually seen; a slice read leaves `whole_file` false. Both guards
+are bypassed by `confirm=true`, which the prompt reserves for deliberate wholesale replacement, and
+neither applies to a new or empty file. `_turn_count()` is memoised on `(path, size, mtime_ns)` so
+the extra turn lookups on every read stay cheap. Tests:
+`backend/tests/test_orchestrator_write_guards.py`.
+
+It also stamps **`written_at_turn:`** — the conversation's turn count at the instant of the write,
+counted from the JSONL by `_turn_count()` using the same definition as the wiki's paragraph source
+tags (`user`/`assistant` message entries only; tool calls, tool results, interruptions and metadata
+are not turns). This is the one trustworthy turn anchor a self-written note can carry, since the
+orchestrator cannot derive turn numbers itself. Read it as *when the note was written* — it bounds
+the material the note came from — **not** as a citation of where its paragraphs live. An
+uncountable or missing JSONL costs the field, never the write.
+
+The same section also forbids the orchestrator from **citing turn numbers** in anything it writes.
+Some notes carry per-paragraph tags (`*source: session <id>, turns 1250-1252*`) whose numbers are
+positions in the conversation JSONL; the orchestrator cannot derive them — `_history_section` gives
+it a token-budgeted window plus a prose summary, unnumbered, and the file also holds tool calls and
+other events it never sees. Unlike a fabricated UUID, a fabricated turn number is undetectable (it
+is a valid integer pointing at real but unrelated content), so there is no code-side guard: the rule
+is "cite the session alone, and delegate the write to an agent session when turn-level tags are
+actually wanted" — agents' search tools return real turn numbers (`search_history` hits carry
+`turn`; `read_conversation` centres on one). Tests:
+`backend/tests/test_orchestrator_memory_provenance.py`.
+
+The voice prompt is built by
 `OrchestratorSession.get_session_update()` with a token-budgeted history (verbatim recent window +
 summary of older turns, from `token_budget.py` and `summary_cache.py`); details in
 [voice/prompt-budget.md](../voice/prompt-budget.md).

@@ -719,7 +719,7 @@ class DefaultVoiceSessionController(
         t.connect(
             info,
             mirrorEvent = { deps.wire.sendVoiceEvent(it) },
-            sendMicChunk = { deps.wire.sendVoiceAudioIn(it) },
+            sendMicChunk = { audio, ducked -> deps.wire.sendVoiceAudioIn(audio, ducked) },
         )
     }
 

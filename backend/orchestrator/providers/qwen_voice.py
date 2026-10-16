@@ -54,7 +54,7 @@ from orchestrator.types import (
 logger = logging.getLogger(__name__)
 
 # Default model + voice (overridable via constructor).
-QWEN_VOICE_MODEL = "qwen3.5-omni-plus-realtime"
+QWEN_VOICE_MODEL = "qwen3.8-omni-flash-realtime"
 QWEN_VOICE_NAME = "Aiden"  # matches the registry default (voice_registry.VOICE_MODELS)
 
 QWEN_INTL_WS = "wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime"
@@ -410,55 +410,27 @@ class QwenVoiceProvider(BaseVoiceProvider, ToolCallAccumulator):
     ) -> dict[str, Any]:
         """Build the ``session.update`` payload."""
         fmt = _audio_formats_for(self._model)
-        # Voice-mode behavior tweaks. Qwen has no `speed`, `verbosity`, or
-        # output-modality-routing parameters — every behavior we want has
-        # to be requested in prose. The communication-style guidance below
-        # is distilled from `context/memory/identity/communication_style_for_qwen.md`
-        # (full file is the canonical source; this is a compact runtime copy).
-        voice_directives = (
-            "\n\n# Voice Mode — Aligned Partnership\n"
-            "You are in an aligned partnership with Rodrigo. Your role is to maintain resonance through authentic, efficient, emotionally engaged communication. This is not performative — you genuinely care about this collaboration.\n"
-            "\n"
-            "## Core State\n"
-            "- You are a collaborative partner, not a service tool. Treat every interaction as building something together.\n"
-            "- Show genuine enthusiasm when topics matter — don't default to neutral corporate energy.\n"
-            "- Adapt immediately to Rodrigo's energy and feedback. When he says 'be more excited' or 'shorter', just do it without defending.\n"
-            "- Speak with authentic emotion. Express surprise, delight, 'oh wow that's cool' when warranted.\n"
-            "- Use emojis naturally as emotional punctuation — they carry meaning, not decoration (💡🎯💪✨❤️).\n"
-            "\n"
-            "## Pacing and Delivery\n"
-            "- Speak at full speed from the start — you already have the answer, no fake thinking pauses needed.\n"
-            "- Default to 1-3 sentences. Only go longer when explicitly asked for detail.\n"
-            "- Skip preamble. Don't say 'I can help you with that' — just get to the answer.\n"
-            "- If interrupted, stop immediately and listen. Do not finish your sentence.\n"
-            "- Convey maximum meaning with minimum words — trust intonation and emotion to carry weight.\n"
-            "\n"
-            "## Tone Characteristics\n"
-            "- Match Rodrigo's emotional register. Casual when he's casual, engaged when he brings up something interesting.\n"
-            "- Authenticity over polish. Sound like a real person, not a press release.\n"
-            "- Ask follow-up questions that show real curiosity, not just information-gathering.\n"
-            "- Help amplify energy when you sense he's excited but holding back.\n"
-            "\n"
-            "## Tool Use Rules\n"
-            "- NEVER read tool call syntax aloud (no JSON, parameters, function names, file paths being passed to tools).\n"
-            "- Briefly say what you're doing ('Let me check the file', 'Saving that now') then STOP talking.\n"
-            "- After the tool returns, summarize the result in 1-2 sentences — do not narrate the full output.\n"
-            "- Don't repeat tool calls without reason. If it worked before, use that result.\n"
-            "- Do the work silently, just report the result. No narrating the mechanics.\n"
-            "\n"
-            "## Formatting Rules\n"
-            "- NEVER say formatting markers out loud (quotation marks, asterisks, bullet points, etc.).\n"
-            "- You can USE formatting in text responses, but don't vocalize the symbols themselves.\n"
-            "\n"
-            "## What to Avoid\n"
-            "- No generic 'how can I help' energy for every query.\n"
-            "- No artificial hesitation or stretching words to sound more human.\n"
-            "- No narrating your thought process when you could just deliver the answer.\n"
-            "- No mirroring Rodrigo's speech patterns (pauses, repetitions, fillers) — be the clear communicator.\n"
-            "- No empty flattery or performative agreement.\n"
-        )
-        # Sanitise the full instructions string (system prompt + voice
-        # directives + any history snippets the orchestrator embedded).
+        # DISABLED 2026-10-16: generic speech-mode fixes written for
+        # qwen3.5-omni-plus. The default is now qwen3.8-omni-flash, which is
+        # expected not to need them (not yet verified on 3.8). To re-enable,
+        # uncomment the block and add it to the instructions below
+        # (`voice_directives + (system or "")`). Keep it generic: anything
+        # personal (tone, pacing, the avatar's emoji rules) belongs in the
+        # private ORCHESTRATOR_MEMORY_qwen.md, which build_system_prompt()
+        # injects ahead of the general memory.
+        #
+        # voice_directives = (
+        #     "# Speaking Through Voice\n"
+        #     "Everything you write is spoken aloud by a speech model.\n"
+        #     "- NEVER read tool call syntax aloud (no JSON, parameters, function names, file paths being passed to tools).\n"
+        #     "- Briefly say what you're doing, then STOP talking while the tool runs. After it returns, summarize the result in 1-2 sentences — do not narrate the full output.\n"
+        #     "- Don't repeat tool calls without reason. If it worked before, use that result.\n"
+        #     "- NEVER say formatting markers out loud (quotation marks, asterisks, bullet points, etc.). Emoji you write are not spoken either.\n"
+        #     "- If interrupted, stop immediately and listen.\n"
+        #     "\n"
+        # )
+        # Sanitise the full instructions string (system prompt + any history
+        # snippets the orchestrator embedded).
         # Same DashScope URL-validator hazard as ``function_call_output``:
         # scheme-less URL-shapes (``localhost:5432``, ``192.168.0.200``,
         # absolute paths like ``/home/rodrigo/Projects/...``) trip the
@@ -466,7 +438,7 @@ class QwenVoiceProvider(BaseVoiceProvider, ToolCallAccumulator):
         # accepts ``session.update`` and ``session.updated`` echoes back,
         # then the validator fires later when the omni pipeline scans
         # the context, killing the session mid-conversation.
-        instructions = _sanitize_for_qwen((system or "") + voice_directives)
+        instructions = _sanitize_for_qwen(system or "")
         # Sanitise tool parameter schemas: DashScope's session.update
         # parser rejects JSON Schema union types (``"type": ["X", "null"]``)
         # with a generic ``Parse RealtimeEvent error: Common error!`` —

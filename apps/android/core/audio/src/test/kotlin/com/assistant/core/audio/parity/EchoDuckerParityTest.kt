@@ -134,6 +134,41 @@ class EchoDuckerParityTest {
     }
 
     /** NEW (2026-10-14): the "Echo ducking tail" setting adds to the 1000 ms tail (Bluetooth latency). */
+    /**
+     * 2026-10-16 (A300M): on API < 23 the speaker write blocks, and a speaker read can wait behind
+     * it. The poll used to take its time BEFORE that wait, so a read that waited 450 ms followed by
+     * an instant re-read looked like "head and writes unchanged for 450 ms" — a false drain that
+     * restored the mic mid-speech. A still-playing speaker must never count as drained.
+     */
+    @Test
+    fun drain_slowSpeakerReadsNeverFakeADrainWhilePlaying() {
+        val start = t0
+        val playEndsAt = start + 5_000
+        var headReads = 0
+        // 24 frames/ms playing, the track ~1 s ahead of the head; every other head read waits 450 ms.
+        val slow = object : com.assistant.core.audio.ports.PlaybackClock {
+            private fun playedMs() = (minOf(clock.nowMs(), playEndsAt) - start)
+            override fun headPositionFrames(): Long? {
+                if (headReads++ % 2 == 0) clock.advanceBy(450)
+                return playedMs() * 24
+            }
+            override fun totalFramesWritten(): Long = minOf(playedMs() * 24 + 24_000, 5_000L * 24)
+        }
+        val d = audioCore.echoDucker(clock, slow, log)
+        d.duck()
+        d.scheduleRestore("stale")
+        var restoredAt: Long? = null
+        driveTicks(
+            clock, start + 12_000,
+            nextDelay = { d.nextTickDelayMs },
+            tick = { d.tick() },
+            afterTick = { now -> if (restoredAt == null && !d.isDucked) restoredAt = now },
+        )
+        assertEquals(log.dump(), 0, log.count("head stuck"))
+        assertNotNull(log.dump(), restoredAt)
+        assertTrue("restored at ${restoredAt!! - start} ms, speaker played until 5000 ms", restoredAt!! >= playEndsAt + 1_000)
+    }
+
     @Test
     fun echoDuckTail_lengthensTheTailAfterTheDrain() {
         ducker.setMicGain(1.0f)

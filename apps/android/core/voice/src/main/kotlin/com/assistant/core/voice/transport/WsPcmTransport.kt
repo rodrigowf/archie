@@ -112,7 +112,7 @@ class WsPcmTransport(
     /** The backend relay forwards upstream commands itself. */
     override fun handleBackendCommand(command: JsonObject) = Unit
 
-    override suspend fun connect(info: VoiceConnection, mirrorEvent: (JsonObject) -> Unit, sendMicChunk: (String) -> Unit) {
+    override suspend fun connect(info: VoiceConnection, mirrorEvent: (JsonObject) -> Unit, sendMicChunk: (String, Boolean) -> Unit) {
         // Only guard when the loops are alive: a `voice_status: ready` can flip the phase to ACTIVE before connect.
         val now = _phase.value.phase
         if (running && now != ProviderPhase.OFF && now != ProviderPhase.ERROR) {
@@ -243,7 +243,7 @@ class WsPcmTransport(
         }
     }
 
-    private fun startCapture(gen: Int, mic: MicSource, send: (String) -> Unit) {
+    private fun startCapture(gen: Int, mic: MicSource, send: (String, Boolean) -> Unit) {
         val job = scope.launch { captureLoop(gen, mic, send) }
         // A loop cancelled before it ever ran still releases its mic (release is idempotent).
         job.invokeOnCompletion { mic.release() }
@@ -252,7 +252,7 @@ class WsPcmTransport(
         }
     }
 
-    private suspend fun captureLoop(gen: Int, mic: MicSource, send: (String) -> Unit) {
+    private suspend fun captureLoop(gen: Int, mic: MicSource, send: (String, Boolean) -> Unit) {
         val samples = ShortArray(AudioTuning.MIC_CHUNK_FRAMES)
         val bytes = ByteArray(AudioTuning.MIC_CHUNK_FRAMES * 2)
         var probeRms = 0.0
@@ -301,7 +301,9 @@ class WsPcmTransport(
                 val gain = ducker.currentMicGain
                 if (gain != 1.0f) deps.audio.pcm.applyGainPcm16Le(bytes, 0, len, gain)
                 try {
-                    send(Pcm.base64(bytes, 0, len))
+                    // `ducked` tells the server VAD not to boost this chunk: its AGC (up to +30 dB)
+                    // undid the duck and Archie interrupted himself on his own echo (2026-10-16).
+                    send(Pcm.base64(bytes, 0, len), ducker.isDucked)
                 } catch (e: Exception) {
                     log.w(tag, "sendMicChunk failed: ${e.message}")
                 }

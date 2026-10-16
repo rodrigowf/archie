@@ -348,7 +348,7 @@ object ProtocolCodec {
             is ClientFrame.SetModel -> put("model", frame.model)
             is ClientFrame.StopSubagent -> put("tool_use_id", frame.toolUseId)
             is ClientFrame.VoiceEvent -> put("event", frame.event)
-            is ClientFrame.VoiceAudioIn -> put("audio", frame.audio)
+            is ClientFrame.VoiceAudioIn -> { put("audio", frame.audio); if (frame.ducked) put("ducked", true) }
             is ClientFrame.VoiceRecordingChunk -> { put("channel", frame.channel); put("audio", frame.audio) }
             ClientFrame.Interrupt, ClientFrame.Compact, ClientFrame.Stop, ClientFrame.VoiceStop,
             ClientFrame.GetModel, ClientFrame.GetModels, ClientFrame.VoiceRecordingEnd -> Unit
@@ -402,7 +402,7 @@ object ProtocolCodec {
             "get_model" -> ClientFrame.GetModel
             "get_models" -> ClientFrame.GetModels
             "voice_event" -> ClientFrame.VoiceEvent(o.obj("event") ?: return null)
-            "voice_audio_in" -> ClientFrame.VoiceAudioIn(o.str("audio") ?: "")
+            "voice_audio_in" -> ClientFrame.VoiceAudioIn(o.str("audio") ?: "", o.bool("ducked") == true)
             "voice_recording_chunk" -> ClientFrame.VoiceRecordingChunk(o.str("channel") ?: "user", o.str("audio") ?: "")
             "voice_recording_end" -> ClientFrame.VoiceRecordingEnd
             else -> null

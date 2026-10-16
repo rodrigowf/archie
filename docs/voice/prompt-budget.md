@@ -3,7 +3,7 @@ name: prompt-budget
 category: archie/voice
 tags: [voice, openai-realtime, token-budget, system-prompt, summarizer, summary-cache, history, prompt-sizing, 16384-cap]
 created: 2026-07-21
-modified: 2026-10-13
+modified: 2026-10-16
 summary: How the voice system prompt stays under OpenAI Realtime's 16,384-token cap without truncating anything; Rodrigo's two sizing rules.
 source: curated (consolidated from memory notes assistant/architecture/voice_prompt_budget.md, assistant/architecture/feedback_dont_hard_cap_or_force_lossless_summary.md, assistant/voice/voice_lifecycle_and_wake_after_stop.md; verified against code 2026-10-06)
 references:
@@ -23,14 +23,15 @@ conversation JSONL (`OrchestratorSession.get_session_update()` in
 with `Instructions cannot be longer than 16384 tokens, you have provided N`.
 This doc explains how the prompt stays under that limit. Text mode has no
 such cap but uses the same `build_system_prompt` and `token_budget` code.
-Qwen and Gemini get the same prompt (Qwen also gets extra voice directives,
-see [qwen-omni.md](qwen-omni.md)).
+Qwen and Gemini get the same prompt (see [qwen-omni.md](qwen-omni.md) for
+Qwen's voice directives, disabled since 2026-10-16). The 16,384 cap is
+OpenAI's; DashScope accepted a ~100k-character Qwen prompt in a probe.
 
 ## Where it lives
 
 | File | What |
 |---|---|
-| `backend/orchestrator/prompt.py` | `build_system_prompt()` joins the sections: role, datetime, self-reference, active sessions, MCP, memory (+ `ORCHESTRATOR_MEMORY_<provider>.md` in voice only), scripts (`run_script` allowlist), guidelines, history |
+| `backend/orchestrator/prompt.py` | `build_system_prompt()` joins the sections: role, datetime, self-reference, active sessions, MCP, `ORCHESTRATOR_MEMORY_<provider>.md` (voice only), memory, scripts (`run_script` allowlist), guidelines, history |
 | `backend/orchestrator/token_budget.py` | the two budget constants, `estimate_tokens`, `estimate_message_tokens`, `truncate_tool_results`, `split_by_token_budget`, `summary_target_word_range` |
 | `backend/orchestrator/session.py` | `_build_history_for_prompt()` (split + summary + cache), `_summarize_history()` (the summarizer prompt), `refresh_summary_cache_if_stale()`, `_resolve_summarizer_model()` |
 | `backend/orchestrator/summary_cache.py` | sibling `<jsonl-stem>.summary.json` cache: `read`, `read_any`, `is_fresh`, `write` |

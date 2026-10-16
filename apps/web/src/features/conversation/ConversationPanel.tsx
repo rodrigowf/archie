@@ -16,7 +16,7 @@ import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { setSessionHidden } from '@/services';
 import { createSessionStore, getSessionEntry, useSession, useSessionRegistryVersion, useShallow, type SessionStore } from '@/stores';
 import { initialConversation } from '@/protocol';
-import { SubagentBar, SubagentBody, SubagentHostContext, SubagentTabs, subagentPanelId } from '@/features/subagents';
+import { showsAgentTabs, SubagentBar, SubagentBody, SubagentHostContext, SubagentTabs, subagentPanelId } from '@/features/subagents';
 import { ErrorCards, StallCard } from './cards/cards';
 import { useRichModule } from './lazyRich';
 import { ConversationEmpty } from './ConversationEmpty';
@@ -66,13 +66,18 @@ export const InlineCards = memo(function InlineCards({ localId }: { localId: str
 function ConversationPanelImpl({ localId, hidden, composer, onMessageAction, onStartVoice, onSuggestion }: ConversationPanelProps) {
   const store = useSessionStore(localId);
   const kind = useSession(localId, (s) => s.conv.ref.kind);
-  // spec 12 §4.8: the agent tab shown (null = Main); only a tab of a known subagent counts
-  const { hasAgents, subTab } = useSession(
+  // spec 12 §4.8: the agent tab shown (null = Main); only a tab of a known subagent counts.
+  // `tabsShown`: the tab row is visible (it hides when only Main is left), so Main is a tabpanel.
+  const { hasAgents, tabsShown, subTab } = useSession(
     localId,
     useShallow((s) => {
       const list = s.conv.ref.kind === 'agent' ? s.conv.subagents : [];
       const tab = s.subagentTab;
-      return { hasAgents: list.length > 0, subTab: tab && list.some((x) => x.tool_use_id === tab) ? tab : null };
+      return {
+        hasAgents: list.length > 0,
+        tabsShown: showsAgentTabs(list, s.hiddenSubagentTabs, tab),
+        subTab: tab && list.some((x) => x.tool_use_id === tab) ? tab : null,
+      };
     }),
   );
   const [pending, setPending] = useState<MessageActionRequest | null>(null);
@@ -92,7 +97,7 @@ function ConversationPanelImpl({ localId, hidden, composer, onMessageAction, onS
           <div
             className={styles.tabBody}
             hidden={subTab !== null}
-            {...(hasAgents ? { role: 'tabpanel', id: subagentPanelId(localId, null), 'aria-labelledby': `${subagentPanelId(localId, null)}-tab` } : {})}
+            {...(tabsShown ? { role: 'tabpanel', id: subagentPanelId(localId, null), 'aria-labelledby': `${subagentPanelId(localId, null)}-tab` } : {})}
           >
             <MessageList
               localId={localId}

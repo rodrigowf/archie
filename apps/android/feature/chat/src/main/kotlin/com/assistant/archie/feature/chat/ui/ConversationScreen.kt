@@ -198,8 +198,9 @@ fun ConversationContent(
     Box(modifier.fillMaxSize().onSizeChanged { widthPx = it.width }) {
         CompositionLocalProvider(LocalAgentActions provides agentActions) {
             Column(Modifier.fillMaxSize().background(ArchieTheme.colors.surface).testTag("conversation")) {
-                // Nested agent tabs (plan §4.4 item 3): appear with the session's first subagent.
-                if (agents.any) AgentTabRow(agents.tabs, agents.menu, agents.selectedId, agents.closableFinished, onAction)
+                // Nested agent tabs (plan §4.4 item 3): appear with the session's first subagent and
+                // hide again when only Main is left ("Close finished" with every agent done).
+                if (agents.showsTabs) AgentTabRow(agents.tabs, agents.menu, agents.selectedId, agents.closableFinished, onAction)
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     // Main stays composed while an agent tab is open (hidden: neither measured nor placed),
                     // so going back to Main is instant and keeps its scroll position.
@@ -261,6 +262,7 @@ fun ConversationContent(
                 }
             }
         }
+        AgentTabsClosedAnnouncement(any = agents.any, showsTabs = agents.showsTabs)
         if (agentsSheet && agents.any) {
             AgentsSheet(agents, onAction, wide = with(density) { widthPx.toDp() } >= AgentsSideSheetWidth) { agentsSheet = false }
         }

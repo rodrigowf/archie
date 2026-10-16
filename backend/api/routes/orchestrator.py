@@ -335,7 +335,11 @@ async def orchestrator_ws(ws: WebSocket):
                 audio_b64 = msg.get("audio", "")
                 if audio_b64:
                     try:
-                        await session.send_voice_audio_in(audio_b64)
+                        # ``ducked``: the client's mic is echo-ducked (the agent
+                        # is audible); the local VAD must not boost it.
+                        await session.send_voice_audio_in(
+                            audio_b64, ducked=msg.get("ducked") is True,
+                        )
                     except Exception as e:
                         logger.exception("Voice audio relay failed")
                         await pool.broadcast_orchestrator({

@@ -162,7 +162,8 @@ and nested agents fall out recursively (an AgentRun's `conv` has its own Agent c
    steals focus (FOCUS-1). Tabs keep spawn order (no reshuffling); status glyph per tab; nested agents
    carry a `↳` and a breadcrumb (`Main › Explore › worker`) inside the tab instead of a third level.
    Many agents: the row scrolls, an "N ⌄" menu lists all, and "Close finished" (sheet + menu) hides
-   finished tabs — they stay in the list and come back when opened from the card or the list.
+   finished tabs — they stay in the list and come back when opened from the card or the list. With
+   only Main left the row hides (web + Android, 2026-10-16); the Agents button's list reopens any agent.
 4. **Agent tab body** — the agent's `conv` in the normal `MessageList`; the composer is replaced by
    a read-only bar ("Viewing *Explore: find scroll logic* · Stop · Back to Main"). Messaging a
    subagent is out of scope for v1 (Claude/Qwen subagents can't receive input; Codex `sendInput`

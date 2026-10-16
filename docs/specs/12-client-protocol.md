@@ -1687,7 +1687,8 @@ startVoice():                                    // allowed from off | error
   connection_type == "websocket" (Qwen, Google; audio_relay "backend"):
      ⇐ voice_event{event:{type:"voice_status", status:"preparing"}} → connecting
      ⇐ voice_event{event:{type:"voice_status", status:"ready"}}     → active; flush voice.queue as voice_event frames
-     mic capture at audio_in_format.sample_rate, PCM16 LE mono, 100 ms chunks → WS→ {type:"voice_audio_in", audio}
+     mic capture at audio_in_format.sample_rate, PCM16 LE mono, 100 ms chunks → WS→ {type:"voice_audio_in", audio, ducked?}
+       (ducked: true while the client echo-ducks its mic; the server VAD then applies no gain. Omitted = false)
        (only after ready; earlier chunks are dropped by the server)
      ⇐ voice_audio_out{audio} → play at audio_out_format.sample_rate (owner only)
 ```

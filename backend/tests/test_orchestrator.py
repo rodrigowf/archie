@@ -901,6 +901,28 @@ class TestPromptBuilder:
         assert "qwen-only alignment content" in prompt
         assert "Provider-Specific Memory" in prompt
 
+    def test_provider_memory_precedes_general_memory_and_is_not_fenced(self, tmp_path):
+        """The provider file comes before ORCHESTRATOR_MEMORY.md (each model
+        locks onto its own identity first) and is plain markdown — a code
+        fence framed its rules as quoted data."""
+        from orchestrator.prompt import build_system_prompt
+        from orchestrator.config import OrchestratorConfig
+
+        (tmp_path / "ORCHESTRATOR_MEMORY.md").write_text("GENERAL MEMORY MARKER")
+        (tmp_path / "ORCHESTRATOR_MEMORY_qwen.md").write_text("## My face\nTag every sentence.")
+        config = OrchestratorConfig(
+            project_dir=str(tmp_path),
+            memory_path=str(tmp_path / "ORCHESTRATOR_MEMORY.md"),
+        )
+        prompt = build_system_prompt(
+            config, context={"orchestrator_sessions": {}}, voice_provider_id="qwen"
+        )
+        start = prompt.index("## Provider-Specific Memory")
+        assert start < prompt.index("## Memory System") < prompt.index("GENERAL MEMORY MARKER")
+        provider_part = prompt[start: prompt.index("## Memory System")]
+        assert "## My face\nTag every sentence." in provider_part
+        assert "```" not in provider_part
+
     def test_provider_memory_omitted_when_not_voice(self, tmp_path):
         """In text/audio mode (no voice_provider_id), the provider file must
         never be injected, even if it exists on disk."""

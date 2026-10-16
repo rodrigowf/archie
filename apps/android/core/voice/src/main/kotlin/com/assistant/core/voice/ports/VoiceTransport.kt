@@ -95,7 +95,7 @@ interface VoiceTransport {
     suspend fun connect(
         info: VoiceConnection,
         mirrorEvent: (JsonObject) -> Unit,
-        sendMicChunk: (String) -> Unit,
+        sendMicChunk: (audioB64: String, ducked: Boolean) -> Unit,
     )
 
     /** Backend → provider command (WebRTC: over the data channel or queued until open; WS: no-op). */

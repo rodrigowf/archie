@@ -145,6 +145,50 @@ class PcmPlayerParityTest {
         assertNull(player.headPositionFrames())
     }
 
+    /** 2026-10-16: on API < 23 a blocking write goes in ≤ 100 ms slices, so the frame counter moves steadily. */
+    @Test
+    fun lollipopBlockingWritesAreSlicedTo100ms() = runTest {
+        val tracks = FakeAudioTrackFactory(22)
+        val player = audioCore.pcmPlayer(tracks, 22, 24000, StandardTestDispatcher(testScheduler), RecordingLog())
+        player.start(SpeakerMode.CALL, null)
+        player.enqueue(ByteArray(14_976) { 1 }) // one ≈ 312 ms Qwen chunk
+        advanceUntilIdle()
+        assertEquals(4, tracks.last.blockingWrites.get()) // 4800 + 4800 + 4800 + 576 bytes
+        assertEquals(14_976, tracks.last.bytesWritten.get())
+        assertEquals(7_488L, player.totalFramesWritten())
+        player.cleanup()
+    }
+
+    /**
+     * 2026-10-16: the echo duck's drain reads the head and the counter while the writer may be
+     * blocked inside `write` (API < 23). Those reads must not wait for the write: when they did,
+     * the drain stalled, saw stale times and restored the mic while Archie was still talking.
+     */
+    @Test
+    fun countersNeverWaitForABlockingWrite() {
+        val pool = Executors.newFixedThreadPool(2)
+        val dispatcher = pool.asCoroutineDispatcher()
+        try {
+            val tracks = FakeAudioTrackFactory(22)
+            tracks.configure = { it.writeDelayMs = 800 }
+            val player = audioCore.pcmPlayer(tracks, 22, 24000, dispatcher, RecordingLog())
+            player.start(SpeakerMode.CALL, null)
+            player.enqueue(chunk)
+            val deadline = System.currentTimeMillis() + 5_000
+            while (tracks.last.blockingWrites.get() == 0 && System.currentTimeMillis() < deadline) Thread.sleep(5)
+            Thread.sleep(50) // the writer is now inside its 800 ms write
+            val t = System.nanoTime()
+            player.headPositionFrames()
+            player.totalFramesWritten()
+            val waitedMs = (System.nanoTime() - t) / 1_000_000
+            assertTrue("counter reads waited $waitedMs ms for the write", waitedMs < 200)
+            player.cleanup()
+        } finally {
+            dispatcher.close()
+            pool.shutdownNow()
+        }
+    }
+
     /**
      * B3: after a CALL↔MEDIA rebuild exactly one writer remains. Runs on real threads (4) so two
      * writers would overlap inside `write`; the old code launched a second writer without

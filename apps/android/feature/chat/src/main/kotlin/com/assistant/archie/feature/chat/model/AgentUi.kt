@@ -82,6 +82,12 @@ data class AgentsUi(
     val closableFinished: Int = 0,
 ) {
     val any: Boolean get() = all.isNotEmpty()
+
+    /**
+     * The tab row shows: some agent still has a tab. With only Main left (every finished tab closed)
+     * it hides; the Agents sheet (or a Task card's Open) reopens a tab. Same rule as the web.
+     */
+    val showsTabs: Boolean get() = tabs.isNotEmpty()
 }
 
 /** The selected agent tab's body (plan §4.4 item 4). */

@@ -1547,8 +1547,11 @@ class OrchestratorSession:
             self._local_id, provider_id, self._voice_model_id,
         )
 
-    async def send_voice_audio_in(self, pcm_b64: str) -> None:
+    async def send_voice_audio_in(self, pcm_b64: str, ducked: bool = False) -> None:
         """Forward a frontend mic chunk upstream (WS providers only).
+
+        ``ducked`` marks a chunk the client captured while echo-ducking
+        (see :meth:`VoiceRelay.send_audio`).
 
         While an injection window is active (``listen_recording`` is
         replaying past audio into the WS), do NOT also write the chunk into
@@ -1564,7 +1567,7 @@ class OrchestratorSession:
             and self._audio_recorder.is_recording
         ):
             self._audio_recorder.write_user_audio(pcm_b64)
-        await self._voice_relay.send_audio(pcm_b64)
+        await self._voice_relay.send_audio(pcm_b64, ducked=ducked)
 
     @property
     def is_injecting(self) -> bool:

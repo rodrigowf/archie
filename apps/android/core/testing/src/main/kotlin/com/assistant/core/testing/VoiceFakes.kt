@@ -45,7 +45,7 @@ class FakeVoiceWire(private val clock: MonotonicClock, private val order: OrderL
         data class Start(val request: VoiceStartRequest, override val atMs: Long) : Sent
         data class Stop(override val atMs: Long) : Sent
         data class Event(val event: JsonObject, override val atMs: Long) : Sent
-        data class AudioIn(val audioB64: String, override val atMs: Long) : Sent
+        data class AudioIn(val audioB64: String, override val atMs: Long, val ducked: Boolean = false) : Sent
         data class ResumeStart(val localId: String, val sdkSessionId: String?, override val atMs: Long) : Sent
     }
 
@@ -59,7 +59,7 @@ class FakeVoiceWire(private val clock: MonotonicClock, private val order: OrderL
     override fun sendVoiceStart(request: VoiceStartRequest) { order?.add("wire.voiceStart"); sent += Sent.Start(request, clock.nowMs()) }
     override fun sendVoiceStop() { order?.add("wire.voiceStop"); sent += Sent.Stop(clock.nowMs()) }
     override fun sendVoiceEvent(event: JsonObject) { sent += Sent.Event(event, clock.nowMs()) }
-    override fun sendVoiceAudioIn(audioB64: String) { sent += Sent.AudioIn(audioB64, clock.nowMs()) }
+    override fun sendVoiceAudioIn(audioB64: String, ducked: Boolean) { sent += Sent.AudioIn(audioB64, clock.nowMs(), ducked) }
     override fun sendResumeStart(localId: String, sdkSessionId: String?) { sent += Sent.ResumeStart(localId, sdkSessionId, clock.nowMs()) }
 }
 
@@ -178,7 +178,7 @@ class FakeVoiceTransport(
     var fallback: (() -> JsonObject?)? = null
     var commandsBeforeConnect = 0
     var mirror: ((JsonObject) -> Unit)? = null
-    var micSink: ((String) -> Unit)? = null
+    var micSink: ((String, Boolean) -> Unit)? = null
 
     /** What [connect] does; default: CONNECTING then ACTIVE + SessionCreated. */
     var onConnect: suspend FakeVoiceTransport.() -> Unit = {
@@ -197,7 +197,7 @@ class FakeVoiceTransport(
     override fun toggleMute(): Boolean { muted = !muted; return muted }
     override fun setSpeakerMode(mode: SpeakerMode, preferredDevice: AudioDeviceRef?) { speakerModes += mode }
 
-    override suspend fun connect(info: VoiceConnection, mirrorEvent: (JsonObject) -> Unit, sendMicChunk: (String) -> Unit) {
+    override suspend fun connect(info: VoiceConnection, mirrorEvent: (JsonObject) -> Unit, sendMicChunk: (String, Boolean) -> Unit) {
         connectInfo = info
         connectedAtMs = clock.nowMs()
         commandsBeforeConnect = commands.size

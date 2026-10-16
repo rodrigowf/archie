@@ -26,7 +26,10 @@ import com.assistant.core.audio.ports.VoiceLog
  *
  * Log lines are the old ones verbatim (inv04 §10.3 markers). Thread-safe: every entry point is
  * serialised on this instance, because the capture loop, the speaker-chunk path and the tick
- * driver run on different threads.
+ * driver run on different threads. The speaker ([PlaybackClock]) is read OUTSIDE that lock and
+ * each poll takes its time AFTER the reads: a read can wait behind a blocking write on API < 23,
+ * and when it ran under the lock with the time taken first, the capture loop stalled for seconds
+ * and stale timestamps made a still-playing speaker look "drained" (2026-10-16).
  */
 class DrainEchoDucker(
     private val clock: MonotonicClock,
@@ -113,10 +116,16 @@ class DrainEchoDucker(
         log.i(tag, "[MIC_STATE] RESTORE_IMMEDIATE($reason) → gain: $echoDuckingGain→$micGainLevel")
     }
 
-    override fun scheduleRestore(reason: String): Unit = synchronized(lock) {
-        if (gainBeforeSpeaking == null) return
-        val startedHead = unsigned(playback.headPositionFrames() ?: 0L)
+    override fun scheduleRestore(reason: String) {
+        if (!isDucked) return
+        val head = playback.headPositionFrames()
         val written = playback.totalFramesWritten()
+        synchronized(lock) { startDrainLocked(reason, head, written) }
+    }
+
+    private fun startDrainLocked(reason: String, head: Long?, written: Long) {
+        if (gainBeforeSpeaking == null) return
+        val startedHead = unsigned(head ?: 0L)
         log.i(tag, "[MIC_STATE] RESTORE_DRAIN($reason) waiting; written=$written head=$startedHead")
         val now = clock.nowMs()
         restore = Restore.Draining(
@@ -137,26 +146,30 @@ class DrainEchoDucker(
             }
         }
 
-    override fun tick(): Unit = synchronized(lock) {
-        when (val r = restore) {
-            null -> Unit
-            is Restore.Draining -> poll(r)
-            is Restore.Tail ->
-                if (clock.nowMs() - r.drainedAtMs >= r.tailMs) restoreLocked("drained:${r.reason}")
+    override fun tick() {
+        val pending = synchronized(lock) { restore }
+        if (pending is Restore.Draining) {
+            // Speaker first, outside the lock; the poll then stamps the time after these reads.
+            val head = playback.headPositionFrames()
+            val written = playback.totalFramesWritten()
+            synchronized(lock) { if (restore === pending) poll(pending, head, written) }
+            return
+        }
+        synchronized(lock) {
+            val r = restore
+            if (r is Restore.Tail && clock.nowMs() - r.drainedAtMs >= r.tailMs) restoreLocked("drained:${r.reason}")
         }
     }
 
-    /** One iteration of the old drain loop (`EchoDuckController.kt:200-265`). */
-    private fun poll(d: Restore.Draining) {
+    /** One iteration of the old drain loop (`EchoDuckController.kt:200-265`), on values just read. */
+    private fun poll(d: Restore.Draining, maybeHead: Long?, written: Long) {
         val nowMs = clock.nowMs()
         d.lastPollMs = nowMs
-        val maybeHead = playback.headPositionFrames()
         if (maybeHead == null) {
             log.d(tag, "[MIC_STATE] RESTORE_DRAIN(${d.reason}) AudioTrack gone; restoring")
             restoreLocked("drained:${d.reason}")
             return
         }
-        val written = playback.totalFramesWritten()
         val head = unsigned(maybeHead)
         d.pollCount++
 
