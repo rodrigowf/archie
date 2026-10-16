@@ -237,7 +237,8 @@ shown as an index and as tabs; their activity never enters the parent timeline. 
   to the context ring (only while the session has agents; number = running agents) opens the agents
   sheet. Above the message list, secondary tabs **Main + one tab per agent**, created automatically as
   placeholders (a transcript loads when its tab is opened, manual tab activation so arrowing does not
-  fetch), `↳` for nested agents, an "N ⌄" menu with every agent and "Close finished". An agent tab
+  fetch), `↳` for nested agents, a row that scrolls sideways with the mouse wheel, an "N ⌄" menu with
+  every agent and "Close finished". An agent tab
   shows a breadcrumb (Main › parent › agent), the transcript in the normal `MessageList`
   (`variant="subagent"`), and a read-only bar instead of the composer (Viewing … · Stop · Back to
   Main); the main list and the composer stay mounted (hidden) meanwhile. The selected agent tab and the

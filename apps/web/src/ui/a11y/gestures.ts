@@ -6,8 +6,10 @@
  *   useLongPress(ref, onLongPress)      touch hold ≥ 500 ms without moving (rename a tab, row menus)
  *   useSwipe(ref, onSwipe)              horizontal flick on touch (switch sessions from the title)
  *   useDrag(ref, handlers)              press–move–release with velocity (sheet swipe-down, reorder)
+ *   useWheelScrollX(ref)                vertical mouse wheel scrolls a sideways row (tab strips)
  *
- * The pure trackers (`createDragTracker`, `classifySwipe`) carry the math and are unit-tested.
+ * The pure helpers (`createDragTracker`, `classifySwipe`, `wheelScrollX`) carry the math and are
+ * unit-tested.
  */
 import { useEffect, type RefObject } from 'react';
 import { useLatest } from './useLatest';
@@ -349,4 +351,76 @@ export function useDrag(ref: RefObject<HTMLElement | null>, handlers: DragHandle
       document.removeEventListener('mouseup', onMouseUp);
     };
   }, [ref, enabled, axis, threshold, mouse, touch, h]);
+}
+
+/* ---------------------------------------------------------------- wheel → horizontal scroll */
+
+const WHEEL_LINE_PX = 40;
+/** Pixel deltas this small come from a trackpad and are applied as is; larger ones glide. */
+const WHEEL_PRECISE_PX = 40;
+export const WHEEL_GLIDE_MS = 160;
+
+export interface WheelLike {
+  deltaX: number;
+  deltaY: number;
+  deltaMode: number;
+}
+
+/**
+ * Sideways scroll for a wheel event, in px: the vertical delta when it dominates (a mouse wheel, a
+ * vertical trackpad swipe), 0 when the gesture is already horizontal (the browser scrolls it).
+ */
+export function wheelScrollX(e: WheelLike, pageWidth: number): number {
+  if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return 0;
+  const unit = e.deltaMode === 1 ? WHEEL_LINE_PX : e.deltaMode === 2 ? pageWidth : 1;
+  return e.deltaY * unit;
+}
+
+/**
+ * A row that overflows sideways (with its scrollbar hidden) scrolls with the vertical mouse wheel.
+ * Notched wheels glide (eased over `WHEEL_GLIDE_MS`, consecutive notches add up); trackpad deltas
+ * are applied directly. At either end the event is left alone. Ctrl+wheel (zoom) is never taken.
+ */
+export function useWheelScrollX(ref: RefObject<HTMLElement | null>): void {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    let frame = 0;
+    let target = 0;
+    const stop = (): void => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = 0;
+    };
+    const glide = (to: number): void => {
+      stop();
+      const from = el.scrollLeft;
+      const t0 = performance.now();
+      const tick = (now: number): void => {
+        const p = Math.min(1, Math.max(0, (now - t0) / WHEEL_GLIDE_MS));
+        el.scrollLeft = from + (to - from) * (1 - (1 - p) ** 3);
+        frame = p < 1 ? requestAnimationFrame(tick) : 0;
+      };
+      frame = requestAnimationFrame(tick);
+    };
+    const onWheel = (e: WheelEvent): void => {
+      if (e.ctrlKey || e.defaultPrevented) return;
+      const dx = wheelScrollX(e, el.clientWidth);
+      const max = el.scrollWidth - el.clientWidth;
+      if (!dx || max <= 0) return;
+      const from = frame ? target : el.scrollLeft;
+      const to = Math.max(0, Math.min(max, from + dx));
+      if (to === from) return;
+      e.preventDefault();
+      target = to;
+      if (e.deltaMode === 0 && Math.abs(dx) < WHEEL_PRECISE_PX) {
+        stop();
+        el.scrollLeft = to;
+      } else glide(to);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      stop();
+      el.removeEventListener('wheel', onWheel);
+    };
+  }, [ref]);
 }

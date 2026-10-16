@@ -33,5 +33,8 @@ export {
   useDrag,
   useLongPress,
   useSwipe,
+  useWheelScrollX,
+  wheelScrollX,
+  WHEEL_GLIDE_MS,
 } from './gestures';
-export type { DragHandlers, DragOptions, DragSample, LongPressOptions, Point } from './gestures';
+export type { DragHandlers, DragOptions, DragSample, LongPressOptions, Point, WheelLike } from './gestures';

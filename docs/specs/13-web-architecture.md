@@ -745,8 +745,9 @@ provider / memory / visual), a status indicator (spinner working, dot idle, warn
 disconnected; connection state is styled, fixing §6.1), title **derived from the session list**
 (**[LOAD-BEARING]** §7 #9), close × always visible on the active tab and on hover, middle-click
 close, double-click / context menu / long-press → Rename, drag to reorder (Archie pinned first),
-**⌄ All tabs** menu with search when the strip overflows, an "unseen" badge for background
-opens. Right side: status text ("Thinking…", "Using Bash…"; turns and cost in a tooltip) and the
+**⌄ All tabs** menu with search when the strip overflows, the vertical mouse wheel scrolls an
+overflowing strip sideways (the scrollbar is hidden; `useWheelScrollX` in `ui/a11y/gestures.ts`,
+also on scrollable M3 tabs such as the agent tab row), an "unseen" badge for background opens. Right side: status text ("Thinking…", "Using Bash…"; turns and cost in a tooltip) and the
 ⋮ session menu.
 
 Compact top bar: the title button opens the switcher sheet; horizontal swipe on the title
