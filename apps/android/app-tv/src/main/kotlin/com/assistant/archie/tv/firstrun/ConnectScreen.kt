@@ -82,7 +82,8 @@ import java.util.Date
  * a manual address typed with the IME, and the TOFU certificate trust for self-signed servers — the
  * phone's Settings → Connection logic (`:feature:settings`' ConnectionModel), TV-styled. First run:
  * the back-stack root; Continue marks setup done and replaces it with Home. From Settings → Connection
- * it is pushed and Continue pops. T4 inserts the remote-mic check between Connect and Home.
+ * it is pushed and Continue pops. First run: Continue shows the remote-mic check (T4, MicCheckStep.kt),
+ * which finishes setup.
  */
 
 @Composable
@@ -91,6 +92,27 @@ fun ConnectRoute(key: Connect, ctx: TvRouteContext) {
     val model = g.connectionModel
     val state by model.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    // T4: first run, step 2 = the remote-mic check (spec 15 §3.6), then Home.
+    var micStep by rememberSaveable { mutableStateOf(false) }
+    if (micStep) {
+        MicCheckRoute(ctx) {
+            g.prefs.setupDone = true
+            ctx.nav.replaceRoot(Home)
+        }
+    } else {
+        ConnectRouteBody(key, ctx, model, state, scope) { micStep = true }
+    }
+}
+
+@Composable
+private fun ConnectRouteBody(
+    key: Connect,
+    ctx: TvRouteContext,
+    model: ConnectionModel,
+    state: ConnectionUiState,
+    scope: kotlinx.coroutines.CoroutineScope,
+    startMicStep: () -> Unit,
+) {
     LaunchedEffect(Unit) { model.scan() }
     ConnectScreen(
         state = state,
@@ -111,8 +133,7 @@ fun ConnectRoute(key: Connect, ctx: TvRouteContext) {
             cancelTrust = model::cancelTrust,
             done = {
                 if (key.firstRun) {
-                    g.prefs.setupDone = true
-                    ctx.nav.replaceRoot(Home)
+                    startMicStep() // T4: the mic check finishes setup
                 } else {
                     ctx.nav.pop()
                 }

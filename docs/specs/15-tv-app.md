@@ -301,13 +301,29 @@ server URL):
 - Started with Play/Pause, the hero "Live voice" button, or Menu. Uses `:core:voice` /
   `:core:voice-host` (`AndroidVoiceHost.create(...)`) with a TV `HostConfig`: no wake word, no
   talk word, mic source override **VOICE_RECOGNITION**, speaker = media stream over HDMI.
-- The remote only streams while held, so the provider gets **walkie-talkie turns**: while held,
-  frames flow; on release the TV sends ~300 ms of silence and then an explicit end-of-turn
-  (`input_audio_buffer.commit` + `response.create` for providers that need it, via the existing
-  command path), so server VAD never waits on a stalled stream. Transport per provider as in the
-  apps (OpenAI WebRTC, Qwen/Gemini WS relay). If WebRTC's audio device module cannot take a
-  silence-padded custom source, the TV uses the WS relay for every provider — **decided in WP-T4's
-  first spike** and recorded here.
+- The remote only streams while held, so the provider gets **walkie-talkie turns**. Transport per
+  provider as in the apps (OpenAI WebRTC, Qwen/Gemini WS relay).
+- **Decision (WP-T4 spike, 2026-10-16): keep the per-provider transports; the TV hands both a
+  continuous stream.** `RemoteMicSource` stays the ONLY recorder on the remote (VOICE_RECOGNITION);
+  `LiveMicBridge` turns its bursts into a real-time stream — the remote's audio while the button is
+  held (after a 200 ms jitter pre-roll), digital silence otherwise. A turn ends the way it ends on a
+  phone: the provider's VAD hears the silence after the release (OpenAI server VAD; the backend
+  relay's Silero VAD for Qwen/Gemini, `min_silence_duration_ms` 2500 by default). Nothing ever stalls,
+  so no client end-of-turn frame is needed (and the WS relay has no client frame for one: adding it
+  would be a backend change).
+  - **WS relay (Qwen, Gemini):** the transport's `MicSourceFactory` is the bridge (`HostAudio.wsMics`),
+    a self-paced mic that returns one chunk per chunk-duration of clock time. No AudioRecord.
+  - **WebRTC (OpenAI):** the ADM always opens its own AudioRecord and only processes audio after a
+    `read()` returns, so it cannot use VOICE_RECOGNITION (it would block between bursts: no packets,
+    no silence, the server VAD waits) and it cannot be handed a custom source. The TV opens the ADM
+    on **VOICE_COMMUNICATION**, which on Fire TV never reaches the remote and streams zeros in real
+    time, and replaces every 10 ms ADM buffer with the bridge's audio (`RtcMicFeed`, additive in
+    `:core:voice`). Spike on the AFTKM (`DEBUG_MIC_SPIKE`, our VR recorder armed): VOICE_COMMUNICATION
+    48 kHz → 47.7 kHz effective, max gap 22 ms, RMS 0; 16 kHz → 15.8 kHz; `isClientSilenced` false
+    for **both** clients (src 6 and 7) while they run together. MIC and DEFAULT block like
+    VOICE_RECOGNITION (0 samples in 2.5 s), so they are no clock. Still to confirm in the field
+    (needs a held button): the remote's frames keep flowing into our VR recorder while the ADM runs.
+  - The call plays on the media stream (`USAGE_MEDIA`, `HostAudio.mediaPlayback`) over HDMI.
 - Ownership: the TV is a normal voice owner (spec 12 §7). "Voice active on another device" shows
   in the status chip and hero card with **Take over**.
 - Live voice ends on Play/Pause, Menu → End, Back from the voice overlay, or after N s idle

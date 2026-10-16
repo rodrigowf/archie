@@ -3,8 +3,8 @@
   :app-tv manifest (spec 15 §6.1, T0). Archie TV runs on Fire TV (Fire OS 7/8) and Android TV /
   Google TV 8+: a leanback app that also installs on phones (leanback/touchscreen not required).
 
-  VoiceHostService and its permissions come from :core:voice-host's manifest (nothing starts it until
-  T4 wires the voice host); :feature:settings adds BLUETOOTH_CONNECT and
+  VoiceHostService and its permissions come from :core:voice-host's manifest (it runs while live voice
+  does, T4); :feature:settings adds BLUETOOTH_CONNECT and
   REQUEST_IGNORE_BATTERY_OPTIMIZATIONS.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -41,6 +41,8 @@
     <!-- Android 11 package visibility: KEEP_AWAKE pings to the TvServerHub launcher (TV-10). -->
     <queries>
         <package android:name="com.example.tvserverhub" />
+        <!-- T4: Settings → Remote microphone reports whether Alexa's voice UI also hears the mic button (TV-3). -->
+        <package android:name="com.amazon.vizzini" />
     </queries>
 
     <!--

@@ -29,6 +29,15 @@ object DefaultMicSourcePolicy : MicSourcePolicy {
         if (sdkInt < AudioTuning.MIC_SOURCE_SWITCH_SDK) MicSourceType.VOICE_RECOGNITION else MicSourceType.VOICE_COMMUNICATION
 }
 
+/**
+ * Additive (spec 15 TV-9): the same [source] on every API level. Archie TV passes
+ * `VOICE_RECOGNITION`, the only source the Fire TV remote's microphone reaches (spec 15 §2); the
+ * phone apps never construct it and keep [DefaultMicSourcePolicy].
+ */
+class FixedMicSourcePolicy(val source: MicSourceType) : MicSourcePolicy {
+    override fun sourceFor(sdkInt: Int): MicSourceType = source
+}
+
 /** Old `PcmPlayback.kt:154, 194-208, 316-351`; `VoiceManager.kt:612` (device callback). */
 object DefaultPlaybackPolicy : PlaybackPolicy {
     private val modern = PlaybackApi(

@@ -171,7 +171,17 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
             .also { currentEngine.value = it }
     }
 
-    val wakeService = DefaultWakeServiceController(WakeServiceDeps(scope, deps.clock, log, deps.wakeStore, engineProvider))
+    /** Phones: the store as given. A host without a wake word (TV-8): every load/save says disabled. */
+    private val wakeStore: WakeConfigStore = if (deps.config.wakeWord) {
+        deps.wakeStore
+    } else {
+        object : WakeConfigStore {
+            override fun load(): WakeServiceConfig = deps.wakeStore.load().copy(enabled = false)
+            override fun save(config: WakeServiceConfig) = deps.wakeStore.save(config.copy(enabled = false))
+        }
+    }
+
+    val wakeService = DefaultWakeServiceController(WakeServiceDeps(scope, deps.clock, log, wakeStore, engineProvider))
 
     // ── cues ────────────────────────────────────────────────────────────────────────────────────
     val cues = HostCues(deps.cuePlayer, log) { _events.tryEmit(VoiceUiEvent.Cue(it)) }
@@ -494,7 +504,7 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
         val s = settingsFlow.value ?: return false
         val p = session.state.value.phase
         val voiceLive = p != SessionPhase.OFF && p != SessionPhase.ERROR
-        return s.enableWakeWord || voiceLive || switchHold || s.stayConnectedInBackground
+        return (s.enableWakeWord && deps.config.wakeWord) || voiceLive || switchHold || s.stayConnectedInBackground
     }
 
     /**
@@ -683,7 +693,8 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
         if (prev?.audioOutput != s.audioOutput) session.setAudioOutput(s.audioOutput.toChoice())
         if (prev?.buttonTriggerEnabled != s.buttonTriggerEnabled) deps.buttonTriggerPref.set(s.buttonTriggerEnabled)
         // The wake service gets ONE update per change of its six fields (single ingress, `9200d50`).
-        val wake = s.wakeConfig()
+        // A host without a wake word (Archie TV, TV-8) always hands it a disabled config.
+        val wake = if (deps.config.wakeWord) s.wakeConfig() else s.wakeConfig().copy(enabled = false)
         if (wake != lastWake) {
             lastWake = wake
             wakeService.onConfigUpdate(wake)
@@ -706,7 +717,7 @@ class VoiceHostRuntime(private val deps: RuntimeDeps) : VoiceHost {
             wakeService.notice,
             settingsFlow,
         ) { gate, pausedForVoice, restricted, notice, s ->
-            wakeHealth(s?.enableWakeWord == true, gate, pausedForVoice, restricted, notice)
+            wakeHealth(s?.enableWakeWord == true && deps.config.wakeWord, gate, pausedForVoice, restricted, notice)
         }
         val wakePhase: Flow<WakePhase?> = currentEngine.flatMapLatest { it?.phase ?: flowOf(null) }
         val visibleLink = combine(session.link, linkDismissed) { l, dismissed -> if (dismissed && l is VoiceLinkState.Failed) VoiceLinkState.Up else l }

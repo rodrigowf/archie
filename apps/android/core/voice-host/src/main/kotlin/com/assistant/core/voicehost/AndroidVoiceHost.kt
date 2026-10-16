@@ -10,6 +10,12 @@ import com.assistant.core.audio.platform.AndroidAudioTrackFactory
 import com.assistant.core.audio.platform.AndroidMicSourceFactory
 import com.assistant.core.audio.platform.ElapsedRealtimeClock
 import com.assistant.core.audio.platform.LogcatVoiceLog
+import com.assistant.core.audio.policy.FixedMicSourcePolicy
+import com.assistant.core.audio.ports.AudioStream
+import com.assistant.core.audio.ports.AudioTrackFactory
+import com.assistant.core.audio.ports.AudioTrackPort
+import com.assistant.core.audio.ports.SpeakerMode
+import com.assistant.core.audio.ports.TrackSpec
 import com.assistant.core.audio.ports.VoiceLog
 import com.assistant.core.model.DeviceSettings
 import com.assistant.core.network.ArchieApi
@@ -40,12 +46,14 @@ import com.assistant.core.voicehost.runtime.ButtonTriggerPref
 import com.assistant.core.voicehost.runtime.RuntimeDeps
 import com.assistant.core.voicehost.runtime.ServiceControl
 import com.assistant.core.voicehost.runtime.VoiceHostRuntime
+import com.assistant.core.voicehost.ports.WakeServiceConfig
 import com.assistant.core.voicehost.service.VoiceHostService
 import com.assistant.core.wakeword.DefaultWakewordCore
 import com.assistant.core.wakeword.WakeTuning
 import com.assistant.core.wakeword.platform.AndroidWakeword
 import com.assistant.core.wakeword.platform.WakeLoopThread
 import com.assistant.core.wakeword.ports.WakeConfig
+import com.assistant.core.wakeword.ports.WakeWordEngine
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -97,15 +105,30 @@ object AndroidVoiceHost {
             OrchestratorChannel.Config(autoStart = true),
         )
         val rtc = AndroidRtcPlatform(app, log)
-        val transports = DefaultVoiceTransportFactory(
-            webRtcDeps = { WebRtcDeps(io, clock, log, sdkInt, rtc, OkHttpSdpExchange(http.base, log)) },
-            wsPcmDeps = { WsPcmDeps(io, clock, log, sdkInt, AndroidMicSourceFactory(), AndroidAudioTrackFactory(app), audioCore, recordGranted) },
-        )
+        // Spec 15 §4.2 (Archie TV): `config.audio` overrides the microphone / speaker; null on phones.
+        val tvAudio = config.audio
+        val transports = if (tvAudio == null) {
+            DefaultVoiceTransportFactory(
+                webRtcDeps = { WebRtcDeps(io, clock, log, sdkInt, rtc, OkHttpSdpExchange(http.base, log)) },
+                wsPcmDeps = { WsPcmDeps(io, clock, log, sdkInt, AndroidMicSourceFactory(), AndroidAudioTrackFactory(app), audioCore, recordGranted) },
+            )
+        } else {
+            val tvCore = DefaultAudioCore(FixedMicSourcePolicy(tvAudio.micSource))
+            val tracks = AndroidAudioTrackFactory(app).let { if (tvAudio.mediaPlayback) MediaTrackFactory(it) else it }
+            DefaultVoiceTransportFactory(
+                webRtcDeps = {
+                    WebRtcDeps(
+                        io, clock, log, sdkInt, rtc, OkHttpSdpExchange(http.base, log),
+                        micSourcePolicy = FixedMicSourcePolicy(tvAudio.rtcSource ?: tvAudio.micSource),
+                        micFeed = tvAudio.rtcFeed,
+                        mediaPlayback = tvAudio.mediaPlayback,
+                    )
+                },
+                wsPcmDeps = { WsPcmDeps(io, clock, log, sdkInt, tvAudio.wsMics ?: AndroidMicSourceFactory(), tracks, tvCore, recordGranted) },
+            )
+        }
         val audio = AndroidAudioSession(app, sdkInt, log)
 
-        val wakeThread = WakeLoopThread()
-        val wakewordCore = DefaultWakewordCore()
-        val keys = AndroidWakeword.keyProvider(voiceApi)
         val servicePrefs = ServicePrefs.create(app)
         val pttScope = CoroutineScope(SupervisorJob() + Executors.newSingleThreadExecutor { r -> Thread(r, "voicehost-ptt").apply { isDaemon = true } }.asCoroutineDispatcher())
 
@@ -118,14 +141,7 @@ object AndroidVoiceHost {
                 channel = ch,
                 settings = settings.settings.map { it?.let(VoiceHostSettings::from) },
                 wakeStore = PrefsWakeConfigStore(servicePrefs),
-                wakeEngines = { cfg ->
-                    // Errata #5: a blank server URL leaves Whisper unconfigured (matches fire unconfirmed, as the old code).
-                    val whisper = if (cfg.serverUrl.isBlank()) null else wakewordCore.whisperClient(http.base, WakeTuning.WHISPER_TRANSCRIPTIONS_URL, keys, log)
-                    wakewordCore.engine(
-                        AndroidWakeword.deps(app, wakeThread, log, whisper, sdkInt),
-                        WakeConfig(cfg.talkWord, cfg.wakeWord, cfg.wakeGain, cfg.talkSilenceSensitivity),
-                    )
-                },
+                wakeEngines = wakeEngines(app, http, voiceApi, config, log, sdkInt),
                 voiceApi = VoiceApiBackend(voiceApi, log),
                 transports = transports,
                 audio = audio,
@@ -138,7 +154,10 @@ object AndroidVoiceHost {
                     override fun stop() = VoiceHostService.stop(app)
                 },
                 buttonTriggerPref = ButtonTriggerPref { servicePrefs.buttonTriggerEnabled = it },
-                pushToTalk = MicPushToTalkRecorder(AndroidMicSourceFactory(), sdkInt, pttScope, log),
+                pushToTalk = MicPushToTalkRecorder(
+                    AndroidMicSourceFactory(), sdkInt, pttScope, log,
+                    tvAudio?.let { DefaultAudioCore(FixedMicSourcePolicy(it.micSource)) } ?: DefaultAudioCore(),
+                ),
                 speakerMuter = AndroidSpeakerMuter(app, log),
                 manageConnection = channel == null,
                 dataChannelTap = dataChannelTap,
@@ -151,4 +170,37 @@ object AndroidVoiceHost {
         audio.onDevicesChanged = { runtime.lastSettings()?.audioOutput?.let { runtime.session.setAudioOutput(it.toChoice()) } }
         return runtime
     }
+
+    /**
+     * The wake engine builder. A host without a wake word (Archie TV, TV-8: no Vosk model or
+     * `libvosk` in its APK) builds none of the wake objects and its runtime never asks for an engine.
+     */
+    private fun wakeEngines(
+        app: Application,
+        http: HttpStack,
+        voiceApi: VoiceApi,
+        config: HostConfig,
+        log: VoiceLog,
+        sdkInt: Int,
+    ): (WakeServiceConfig) -> WakeWordEngine {
+        if (!config.wakeWord) return { error("this app has no wake word (HostConfig.wakeWord = false)") }
+        val wakeThread = WakeLoopThread()
+        val wakewordCore = DefaultWakewordCore()
+        val keys = AndroidWakeword.keyProvider(voiceApi)
+        return { cfg ->
+            // Errata #5: a blank server URL leaves Whisper unconfigured (matches fire unconfirmed, as the old code).
+            val whisper = if (cfg.serverUrl.isBlank()) null else wakewordCore.whisperClient(http.base, WakeTuning.WHISPER_TRANSCRIPTIONS_URL, keys, log)
+            wakewordCore.engine(
+                AndroidWakeword.deps(app, wakeThread, log, whisper, sdkInt),
+                WakeConfig(cfg.talkWord, cfg.wakeWord, cfg.wakeGain, cfg.talkSilenceSensitivity),
+            )
+        }
+    }
+}
+
+/** Plays every track on the media stream (Archie TV over HDMI, spec 15 §4.2). */
+private class MediaTrackFactory(private val inner: AudioTrackFactory) : AudioTrackFactory by inner {
+    override fun create(spec: TrackSpec): AudioTrackPort = inner.create(
+        spec.copy(speakerMode = SpeakerMode.MEDIA, legacyStream = spec.legacyStream?.let { AudioStream.MUSIC }),
+    )
 }
