@@ -33,6 +33,8 @@ class VisualizationInfoResponse(BaseModel):
     created: str
     modified: str
     size: int
+    # Starred by the user (PUT /api/visualizations/favorite); clients list these first.
+    favorite: bool = False
 
 
 class MemoryNodeResponse(BaseModel):

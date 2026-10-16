@@ -25,7 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 
 /**
  * What the visuals screens need from the app (spec 14 §2.2: the shell wires it from the graph):
- * the list, rename, the cast controller, the process-scoped [WebViewPool] and the [WebTrust] the
+ * the list, rename, stars, the cast controller, the process-scoped [WebViewPool] and the [WebTrust] the
  * WebView uses for the self-signed server certificate.
  */
 interface VisualsDeps {
@@ -34,6 +34,9 @@ interface VisualsDeps {
 
     /** Optimistic `PATCH /api/visualizations/rename` (404 tolerated), then a refresh. */
     suspend fun rename(path: String, title: String): ApiResult<Unit>
+
+    /** Optimistic star/unstar (`PUT /api/visualizations/favorite`), reverted on error, then a refresh. */
+    suspend fun setFavorite(path: String, favorite: Boolean): ApiResult<Unit>
 
     val cast: CastController
     val pool: WebViewPool
@@ -64,6 +67,7 @@ class RepositoryVisualsDeps(
     override val list: StateFlow<LoadState<List<VisualInfo>>> get() = repository.list
     override fun refresh() = repository.refresh()
     override suspend fun rename(path: String, title: String): ApiResult<Unit> = repository.rename(path, title)
+    override suspend fun setFavorite(path: String, favorite: Boolean): ApiResult<Unit> = repository.setFavorite(path, favorite)
 }
 
 /** Opening things outside the app (spec 14 §4.2: Custom Tab; ACTION_VIEW for other schemes). */

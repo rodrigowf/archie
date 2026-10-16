@@ -27,7 +27,7 @@ from .content_watcher import ContentWatcher
 from .indexer import HistoryIndexer, MemoryWatcher
 from .open_sessions import OpenSessionsStore
 from .pool import SessionPool
-from .routes import accounts, agents, auth, browser, chat, config, debug, mcp, memory, orchestrator, sessions, skills, transcribe, tv, uploads, visualizations, voice
+from .routes import accounts, agents, auth, browser, chat, config, debug, mcp, memory, orchestrator, scripts, sessions, skills, transcribe, tv, uploads, visualizations, voice
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +164,14 @@ async def lifespan(app: FastAPI):
             await app.state.pool.stop_dead_session_reaper()
         except Exception:
             logger.exception("Error stopping dead-session reaper on shutdown")
+
+        # Kill background script jobs started by visualizations (api/routes/scripts.py).
+        jobs = getattr(app.state, "script_jobs", None)
+        if jobs is not None:
+            try:
+                await jobs.shutdown()
+            except Exception:
+                logger.exception("Error cancelling script jobs on shutdown")
 
         # Kill any sign-in CLI still waiting for a pasted code (Settings → Accounts).
         try:
@@ -323,6 +331,7 @@ def create_app() -> FastAPI:
     app.include_router(tv.router)
     app.include_router(transcribe.router)
     app.include_router(visualizations.router)
+    app.include_router(scripts.router)
     app.include_router(memory.router)
 
     # index.html must never be cached — it's the bootstrap that points to

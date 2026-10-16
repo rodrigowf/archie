@@ -63,18 +63,55 @@
 
 /* Touch (and anything without a fine hovering pointer): ⋮ always visible. */
 .rowMain {
-  padding-right: 52px;
+  padding-right: calc(var(--row-pinned, 0) * 40px + 52px);
+}
+
+/* Pinned actions (the star) stay visible: left of ⋮ on touch, at the right end on hover devices. */
+.row.rowPinned .hoverActions {
+  display: flex;
+  right: 44px;
+}
+
+.hoverActions > :not(.pinned) {
+  display: none;
+}
+
+/* A toggle action (star): standard look, primary filled glyph while pressed (no container). */
+.row .toggle[aria-pressed="true"] {
+  background: none;
+  color: var(--md-sys-color-primary);
 }
 
 /* Pointer devices: icons on hover, ⋮ only while the row has keyboard focus. */
 @media (hover: hover) and (pointer: fine) {
   .rowMain {
-    padding-right: 12px;
+    padding-right: calc(var(--row-pinned-set, 0) * 40px + 12px);
   }
 
   .hoverActions {
     display: flex;
     visibility: hidden;
+  }
+
+  .hoverActions > :not(.pinned) {
+    display: inline-flex;
+  }
+
+  .hoverActions > .pinned {
+    visibility: visible;
+  }
+
+  /* An unset star (pinned, not pressed) shows on hover only, like the other row icons. */
+  .hoverActions > .pinned[aria-pressed="false"] {
+    visibility: hidden;
+  }
+
+  .row:hover .hoverActions > .pinned {
+    visibility: visible;
+  }
+
+  .row.rowPinned .hoverActions {
+    right: 4px;
   }
 
   .menuSlot {
@@ -104,11 +141,17 @@
   }
 
   .row.rowMenuOpen .rowMain {
-    padding-right: 52px;
+    padding-right: calc(var(--row-pinned-set, 0) * 40px + 52px);
   }
 
   .row:focus-within:not(:hover) .rowMain {
-    padding-right: 52px;
+    padding-right: calc(var(--row-pinned-set, 0) * 40px + 52px);
+  }
+
+  /* ⋮ shows at the right end: pinned actions move left of it. */
+  .row.rowPinned:focus-within:not(:hover) .hoverActions,
+  .row.rowPinned.rowMenuOpen:not(:hover) .hoverActions {
+    right: 44px;
   }
 
   .row:hover .menuSlot {

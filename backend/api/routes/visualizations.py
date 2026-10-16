@@ -13,6 +13,10 @@ Titles resolve in three steps, first hit wins:
 2. The ``<title>`` tag inside the HTML.
 3. A prettified version of the filename.
 
+Favorites (stars) live in ``context/.visual_favorites.json`` (``{"paths": {<path>: <starred
+at>}}``), shared by every device and synced between machines with the rest of ``context/``.
+Each entry carries ``favorite``; the clients list starred pages first.
+
 There is no cache: clients refetch on load and when
 ``api/content_watcher.py`` pushes ``visualization_changed`` (spec 12 §9.3).
 """
@@ -20,6 +24,7 @@ There is no cache: clients refetch on load and when
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -43,7 +48,7 @@ from api.routes.tv import (
     TvNotConnected,
 )
 from manager.store import SessionStore
-from utils.paths import get_public_dir
+from utils.paths import get_context_dir, get_public_dir
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +68,27 @@ _TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
 def title_key(rel_path: str) -> str:
     """The ``.titles.json`` key for a visualization's relative path."""
     return f"{TITLE_PREFIX}{rel_path}"
+
+
+def _favorites_path() -> Path:
+    return get_context_dir() / ".visual_favorites.json"
+
+
+def load_favorites() -> dict[str, str]:
+    """Starred visualization paths → when they were starred (ISO time)."""
+    try:
+        data = json.loads(_favorites_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    favs = data.get("paths") if isinstance(data, dict) else None
+    return {str(k): str(v) for k, v in favs.items()} if isinstance(favs, dict) else {}
+
+
+def _save_favorites(favs: dict[str, str]) -> None:
+    path = _favorites_path()
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps({"paths": favs}, indent=1, sort_keys=True), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def _extract_html_title(path: Path) -> str | None:
@@ -156,6 +182,7 @@ def scan_visualizations(store: SessionStore) -> list[VisualizationInfoResponse]:
         files.append(path)
 
     titles = store.get_titles()
+    favorites = load_favorites()
     births = _birth_times(files)
 
     entries: list[VisualizationInfoResponse] = []
@@ -178,6 +205,7 @@ def scan_visualizations(store: SessionStore) -> list[VisualizationInfoResponse]:
                 created=_iso(births.get(path, stat.st_mtime)),
                 modified=_iso(stat.st_mtime),
                 size=stat.st_size,
+                favorite=rel_path in favorites,
             )
         )
 
@@ -215,6 +243,33 @@ def rename_visualization(body: dict, store: SessionStore = Depends(get_store)):
         raise HTTPException(404, detail=f"Visualization {rel_path!r} not found")
 
     store.set_title(title_key(rel_path), title)
+
+
+@router.put("/favorite", status_code=204)
+async def set_favorite(body: dict, request: Request):
+    """Star or unstar a visualization: ``{path, favorite: bool}``. Every device's list refreshes
+    (a ``visualization_changed`` with no paths, which reloads no open page)."""
+    favorite = body.get("favorite")
+    if not isinstance(favorite, bool):
+        raise HTTPException(400, detail="favorite (true or false) is required")
+    raw = str(body.get("path") or "")
+    rel_path = _resolve_visualization(raw)
+    favs = load_favorites()
+    if favorite:
+        if rel_path is None:
+            raise HTTPException(404, detail=f"Visualization {raw!r} not found")
+        if rel_path in favs:
+            return
+        favs[rel_path] = datetime.now(timezone.utc).isoformat()
+    else:
+        # Unstarring a page that is gone still clears its star.
+        key = rel_path or raw.strip().lstrip("/")
+        if favs.pop(key, None) is None:
+            return
+    _save_favorites(favs)
+    pool = getattr(request.app.state, "pool", None)
+    if pool is not None:
+        await pool.notify_watchers({"type": "visualization_changed", "visualizations": [], "files": []})
 
 
 # ---------------------------------------------------------------------------

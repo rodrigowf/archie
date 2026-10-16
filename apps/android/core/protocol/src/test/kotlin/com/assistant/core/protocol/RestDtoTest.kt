@@ -123,6 +123,10 @@ class RestDtoTest {
             """[{"path":"tarot-canvas/index.html","url":"/tarot-canvas/index.html","title":"Tarô","created":"2026-10-03T13:45:45.461139+00:00","modified":"2026-10-03T13:45:45.461139+00:00","size":27851}]""",
         ).single().toModel()
         assertEquals(27851L, v.size)
+        assertFalse(v.favorite) // absent on backends without favorites
+        val starred = decode<VisualizationInfoDto>("""{"path":"a.html","url":"/a.html","favorite":true}""").toModel()
+        assertTrue(starred.favorite)
+        assertEquals(obj("""{"path":"a.html","favorite":false}"""), RestJson.encodeToJsonElement(VisualizationFavoriteRequest("a.html", false)))
         val tree = decode<List<MemoryNodeDto>>(
             """[{"name":"assistant","path":"assistant","is_dir":true,"children":[{"name":"android","path":"assistant/android","is_dir":true,"children":[{"name":"a.md","path":"assistant/android/a.md","is_dir":false,"children":null}]}]}]""",
         ).map { it.toModel() }

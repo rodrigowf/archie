@@ -107,9 +107,9 @@ internal fun rememberVisual(deps: VisualsDeps, path: String): VisualInfo? {
 
 /**
  * A visual full screen on Compact (spec 14 §4.2 `VisualScreen`, IA §9.4, mockup phone (h)): ✕,
- * the title over "Visuals · updated 2 h ago", **Show on TV** (only when the BX-2 probe says
- * available — hidden, not disabled), and ⋮ Reload / Open in browser / Copy link. The page runs in
- * the pooled in-app WebView ([VisualWebView]).
+ * the title over "Visuals · updated 2 h ago", the star toggle, **Show on TV** (only when the BX-2
+ * probe says available — hidden, not disabled), and ⋮ Reload / Open in browser / Copy link. The
+ * page runs in the pooled in-app WebView ([VisualWebView]).
  */
 @Composable
 fun VisualScreen(deps: VisualsDeps, path: String, onBack: () -> Unit, modifier: Modifier = Modifier, now: Instant? = null) {
@@ -134,6 +134,7 @@ fun VisualScreen(deps: VisualsDeps, path: String, onBack: () -> Unit, modifier: 
                 subtitle = { TopAppBarSubtitle(if (deleted) "Visuals · deleted" else if (age != null) "Visuals · updated $age" else "Visuals") },
             ) {
                 UpdatedCue(cueAt, Modifier.padding(end = 4.dp))
+                StarAction(deps, item, snackbar)
                 ShowOnTvButton(deps, path, title, snackbar, compact = true)
                 VisualMenu(href, onReload = { reload++ }, snackbar)
             }
@@ -145,8 +146,8 @@ fun VisualScreen(deps: VisualsDeps, path: String, onBack: () -> Unit, modifier: 
 
 /**
  * A visual as a workspace tab on Medium/Expanded (IA §9.2; web `VisualViewer`): a slim bar with
- * "Updated 2 h ago · folder", Show on TV and ⋮, over the pooled WebView, which stays alive while the
- * tab is hidden (VZ-4).
+ * "Updated 2 h ago · folder", the star, Show on TV and ⋮, over the pooled WebView, which stays
+ * alive while the tab is hidden (VZ-4).
  */
 @Composable
 fun VisualViewer(deps: VisualsDeps, path: String, modifier: Modifier = Modifier, now: Instant? = null) {
@@ -173,6 +174,7 @@ fun VisualViewer(deps: VisualsDeps, path: String, modifier: Modifier = Modifier,
             ) {
                 Text(meta, Modifier.weight(1f), style = ArchieTheme.typography.bodySmall.copy(fontSize = 13.sp), color = c.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 UpdatedCue(cueAt)
+                StarAction(deps, item, snackbar)
                 ShowOnTvButton(deps, path, title, snackbar, compact = false)
                 VisualMenu(href, onReload = { reload++ }, snackbar)
             }

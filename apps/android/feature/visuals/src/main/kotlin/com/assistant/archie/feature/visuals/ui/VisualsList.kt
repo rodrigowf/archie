@@ -20,7 +20,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -30,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,6 +72,7 @@ import com.assistant.core.design.components.ArchieTopAppBar
 import com.assistant.core.design.components.ButtonSize
 import com.assistant.core.design.components.ButtonStyle
 import com.assistant.core.design.components.ListItemSize
+import com.assistant.core.design.components.ListSectionHeader
 import com.assistant.core.design.components.Spinner
 import com.assistant.core.design.icons.ArchieIcon
 import com.assistant.core.design.icons.ArchieIcons
@@ -123,6 +127,7 @@ fun VisualsPane(
                 val href = VisualUrls.href(deps.origin(), v.path, v.url)
                 when (action) {
                     VisualAction.Rename -> renaming = v
+                    VisualAction.ToggleStar -> scope.launch { toggleStar(deps, v, host) }
                     VisualAction.ShowOnTv -> scope.launch { host.showSnackbar(deps.cast.cast(v.path, v.title.ifBlank { v.path }).message) }
                     VisualAction.OpenInBrowser -> ExternalLinks.open(context, href)
                     VisualAction.CopyLink -> scope.launch {
@@ -150,13 +155,32 @@ fun VisualsPane(
     }
 }
 
-enum class VisualAction(val label: String) { Rename("Rename"), ShowOnTv("Show on TV"), OpenInBrowser("Open in browser"), CopyLink("Copy link") }
+/**
+ * Keeps a list that is at the top there when its first item changes (a visual starred while the
+ * list is at the top puts the Starred section above the old first row; the key anchoring would
+ * otherwise scroll it out of view). Same mechanism as the chat list's FollowNewest: a [SideEffect]
+ * reads the previous layout, and `requestScrollToItem` overrides the anchoring for that remeasure.
+ */
+@Composable
+private fun KeepAtTop(listState: LazyListState, firstKey: Any?) {
+    val last = remember { arrayOfNulls<Any>(1) }
+    SideEffect {
+        if (firstKey == last[0]) return@SideEffect
+        last[0] = firstKey
+        val atTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+        if (atTop && !listState.isScrollInProgress) listState.requestScrollToItem(0)
+    }
+}
+
+enum class VisualAction(val label: String) { Rename("Rename"), ShowOnTv("Show on TV"), OpenInBrowser("Open in browser"), CopyLink("Copy link"), ToggleStar("Star") }
 
 /**
  * The visuals list (spec 14 §4.2 `VisualsListPane`; web parity: frontend VisualsPane.tsx):
- * search, Refresh, thumbnail-less rows with the title and "folder · age" (VZ-5), and a ⋮ per row
- * with Rename, Show on TV (only when available), Open in browser, Copy link. Rename only, no
- * delete (by design, F-36). Pull-to-refresh reloads.
+ * search, Refresh, thumbnail-less rows with the title and "folder · age" (VZ-5), a star toggle and
+ * a ⋮ per row with Rename, Show on TV (only when available), Open in browser, Copy link. Rename
+ * only, no delete (by design, F-36). Pull-to-refresh reloads. Starred visuals form a "Starred"
+ * section on top, the rest follow under "All visuals"; with nothing starred (or none matching the
+ * search) there are no headers.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -173,10 +197,9 @@ fun VisualsListPane(
     val c = ArchieTheme.colors
     var query by rememberSaveable { mutableStateOf("") }
     val items = state.value.orEmpty()
-    val words = query.lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
-    val shown = remember(items, query) {
-        items.filter { v -> "${v.title} ${v.path}".lowercase().let { t -> words.all { t.contains(it) } } }
-    }
+    val sections = remember(items, query) { visualSections(items, query) }
+    val listState = rememberLazyListState()
+    KeepAtTop(listState, if (sections.starred.isNotEmpty()) "h-starred" else sections.others.firstOrNull()?.path)
     Column(modifier.fillMaxSize().padding(horizontal = 12.dp).testTag("visuals-list")) {
         VisualsSearchField(query, { query = it }, "Search visuals") {
             if (state.loading) Box(Modifier.padding(12.dp)) { Spinner(size = 24.dp) }
@@ -189,7 +212,7 @@ fun VisualsListPane(
             }
         }
         PullToRefreshBox(isRefreshing = state.loading && state.loaded, onRefresh = onRefresh, modifier = Modifier.weight(1f).fillMaxWidth()) {
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 10.dp, bottom = 24.dp)) {
+            LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(top = 10.dp, bottom = 24.dp)) {
                 when {
                     !state.loaded && state.loading -> item(key = "loading") { Note("Loading visuals…") }
                     state.loaded && items.isEmpty() -> item(key = "empty") {
@@ -199,25 +222,42 @@ fun VisualsListPane(
                             Text("HTML files under context/public/ appear here.", style = ArchieTheme.typography.bodyMedium, color = c.onSurfaceVariant)
                         }
                     }
-                    words.isNotEmpty() && shown.isEmpty() && items.isNotEmpty() -> item(key = "nomatch") { Note("No visuals match “${query.trim()}”") }
+                    query.isNotBlank() && sections.isEmpty && items.isNotEmpty() -> item(key = "nomatch") { Note("No visuals match “${query.trim()}”") }
                 }
-                items(shown, key = { it.path }) { v ->
-                    val age = shortAge(v.modified, now ?: Instant.now())
-                    val folder = VisualUrls.folder(v.path)
-                    ArchieListItem(
-                        headline = v.title.ifBlank { v.path },
-                        onClick = { onOpen(v.path) },
-                        modifier = Modifier.testTag("visual-row:${v.path}"),
-                        size = ListItemSize.TwoLine,
-                        selected = v.path == selectedPath,
-                        leading = { VisualTile() },
-                        supporting = { Text(if (age.isNotEmpty()) "$folder · $age" else folder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        trailing = { RowMenu(v, castAvailable, onAction) },
-                    )
-                }
+                val headers = sections.starred.isNotEmpty()
+                if (headers) item(key = "h-starred", contentType = "header") { ListSectionHeader("Starred") }
+                items(sections.starred, key = { it.path }) { v -> VisualRow(v, selectedPath, castAvailable, onOpen, onAction, now) }
+                if (headers && sections.others.isNotEmpty()) item(key = "h-all", contentType = "header") { ListSectionHeader("All visuals") }
+                items(sections.others, key = { it.path }) { v -> VisualRow(v, selectedPath, castAvailable, onOpen, onAction, now) }
             }
         }
     }
+}
+
+@Composable
+private fun VisualRow(
+    v: VisualInfo,
+    selectedPath: String?,
+    castAvailable: Boolean,
+    onOpen: (String) -> Unit,
+    onAction: (VisualInfo, VisualAction) -> Unit,
+    now: Instant?,
+) {
+    val age = shortAge(v.modified, now ?: Instant.now())
+    val folder = VisualUrls.folder(v.path)
+    ArchieListItem(
+        headline = v.title.ifBlank { v.path },
+        onClick = { onOpen(v.path) },
+        modifier = Modifier.testTag("visual-row:${v.path}"),
+        size = ListItemSize.TwoLine,
+        selected = v.path == selectedPath,
+        leading = { VisualTile() },
+        supporting = { Text(if (age.isNotEmpty()) "$folder · $age" else folder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        trailing = {
+            StarButton(v.favorite, { onAction(v, VisualAction.ToggleStar) }, Modifier.testTag("visual-star:${v.path}"))
+            RowMenu(v, castAvailable, onAction)
+        },
+    )
 }
 
 @Composable

@@ -1805,18 +1805,27 @@ These flows exist on the web today and are new on Android (charter goal 5). List
 ### 9.1 Visualizations
 
 ```
-list:    GET /api/visualizations → [{path, url, title, created, modified, size}]  (sorted by modified desc)
+list:    GET /api/visualizations → [{path, url, title, created, modified, size, favorite}]  (sorted by modified desc;
+         favorite absent on older backends = false)
 refresh: when the section opens; manual Refresh / pull-to-refresh; after any view's endTurn (debounced 2 s,
          compat included, 02 §5.2 regression); on agent_session_opened/closed; on visualization_changed
          (debounced 400 ms, §9.3)
 open:    view key "viz:<path>"; load <origin> + encodePath(url) in an iframe (web) / WebView (Android)
 rename:  optimistic title → PATCH /api/visualizations/rename {path, title} (204; 404 tolerated) → refresh
+star:    optimistic favorite → PUT /api/visualizations/favorite {path, favorite: bool} (204, idempotent; 404 for an
+         unknown page when starring; on error revert + snackbar) → refresh
 ```
 - **VZ-1.** `url` is not percent-encoded (G-38): encode each path segment with `encodeURIComponent`.
 - **VZ-2.** Unknown paths return `200` + the SPA `index.html` (G-38), except unknown `*.html` / `*.htm` paths, which return `404` since 2026-10-09 (the app routes on the URL hash, so no app route ends in `.html`; a stale link must not load the whole app inside the viewer). For other paths, a client that needs to know whether a file still exists MUST `GET` it and check `Content-Type` and that the body is not the app shell. `HEAD` is not supported (405).
 - **VZ-3.** Web iframe sandbox: `allow-scripts allow-same-origin allow-popups allow-forms allow-modals` (no top navigation, no downloads). Android WebView: JavaScript and DOM storage enabled, same origin as the backend, navigation outside the visualization opens the external browser, file access disabled, the self-signed certificate accepted only for the configured backend host.
 - **VZ-4.** A visualization view keeps its frame/WebView alive while hidden (state survives view switches). Reload = remount (web) / `reload()` (Android). "Open in browser" opens `<origin><url>`.
 - **VZ-5.** Item meta: relative `modified` time (parsed with its UTC offset, A-8.4), parent folder name or "public". Rename only; no delete.
+- **VZ-8.** Favorites (2026-10-16): the list shows a **Starred** section (favorites, server order) above the rest
+  (non-favorites, no duplicates); with nothing starred there are no section headers. Every row has a star toggle, always
+  visible on touch (filled when starred; on hover devices an unset star shows on hover), and the viewer has one
+  for the open visual. Stars are server state
+  (`context/.visual_favorites.json`), shared by every device; a change reaches the other devices as an empty
+  `visualization_changed` (§9.3).
 
 ### 9.2 Memory
 
@@ -1846,6 +1855,8 @@ visualization_changed {visualizations: [{path, kind}], files: [{path, kind}]}
 memory_changed {changes: [{path, kind}]}
     changes:        markdown paths as in GET /api/memory/tree (docs/x.md is reported as archie/x.md)
 kind: "created" | "modified" | "deleted"   (advisory: an atomic save or an rsync reads as a create)
+visualization_changed {visualizations: [], files: []}
+    list metadata only (a star changed): refresh the list, reload no view
 
 onContentFrame(f):                      // channel level, never the conversation reducer
   visualization_changed: for c in f.visualizations: stamp.visuals[c.path] = {version+1, deleted: c.kind == deleted}

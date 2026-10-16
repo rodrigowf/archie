@@ -30,6 +30,7 @@ import {
   renameVisualization,
   request,
   saveServerConfig,
+  setVisualFavorite,
   TimeoutError,
   tolerate404,
 } from '@/services';
@@ -156,6 +157,7 @@ describe('errors', () => {
     await api.memory.tree();
     await api.visuals.list();
     await api.visuals.rename('a.html', 'A');
+    await api.visuals.setFavorite('a.html', true);
     await api.visuals.cast('a.html');
     await api.auth.status();
     await api.auth.login();
@@ -187,6 +189,7 @@ describe('errors', () => {
       'GET /api/memory/tree',
       'GET /api/visualizations',
       'PATCH /api/visualizations/rename',
+      'PUT /api/visualizations/favorite',
       'POST /api/visualizations/cast',
       'GET /api/auth/status',
       'POST /api/auth/login',
@@ -274,6 +277,59 @@ describe('catalog and config services', () => {
     await renameVisualization('a.html', 'B');
     h.fetch.on('POST', '/api/sessions/s1/duplicate', () => jsonResponse({ session_id: 'copy' }, 201));
     await expect(duplicateSession('s1')).resolves.toBe('copy');
+  });
+
+  it('visualization list: favorite defaults to false when an older backend omits it', async () => {
+    h.fetch.on('GET', '/api/visualizations', [
+      { path: 'a.html', url: '/a.html', title: 'A', created: '', modified: '', size: 1 },
+      { path: 'b.html', url: '/b.html', title: 'B', created: '', modified: '', size: 1, favorite: true },
+    ]);
+    await refreshVisuals();
+    expect(catalogStore.getState().visuals.items.map((v) => [v.path, v.favorite])).toEqual([
+      ['a.html', false],
+      ['b.html', true],
+    ]);
+  });
+
+  it('star is optimistic, refreshes after, and reverts that row with the server detail on error (VZ-8)', async () => {
+    let favorite = false;
+    h.fetch.on('GET', '/api/visualizations', () =>
+      jsonResponse([
+        { path: 'a.html', url: '/a.html', title: 'A', created: '', modified: '', size: 1, favorite },
+        { path: 'b.html', url: '/b.html', title: 'B', created: '', modified: '', size: 1, favorite: true },
+      ]),
+    );
+    await refreshVisuals();
+    const fav = (path: string) => catalogStore.getState().visuals.items.find((v) => v.path === path)?.favorite;
+    let release: () => void = () => undefined;
+    h.fetch.on(
+      'PUT',
+      '/api/visualizations/favorite',
+      () =>
+        new Promise<Response>((resolve) => {
+          release = () => {
+            favorite = true;
+            resolve(new Response(null, { status: 204 }));
+          };
+        }),
+    );
+    const done = setVisualFavorite('a.html', true);
+    expect(fav('a.html')).toBe(true); // before the server answers
+    await vi.waitFor(() => {
+      expect(h.fetch.calls('PUT', '/api/visualizations/favorite')).toHaveLength(1);
+    });
+    release();
+    await expect(done).resolves.toBe(true);
+    expect(h.fetch.calls('PUT', '/api/visualizations/favorite')[0]?.body).toEqual({ path: 'a.html', favorite: true });
+    await vi.waitFor(() => {
+      expect(h.fetch.calls('GET', '/api/visualizations')).toHaveLength(2);
+    });
+
+    h.fetch.on('PUT', '/api/visualizations/favorite', () => jsonResponse({ detail: 'Unknown visualization' }, 404));
+    await expect(setVisualFavorite('b.html', false)).resolves.toBe(false);
+    expect(fav('b.html')).toBe(true);
+    expect(fav('a.html')).toBe(true);
+    expect(snackbarStore.getState().queue.at(-1)).toMatchObject({ message: 'Unknown visualization', tone: 'error' });
   });
 
   it('config save: returned object replaces the copy, "Saved"; a 400 shows the detail verbatim with Retry', async () => {

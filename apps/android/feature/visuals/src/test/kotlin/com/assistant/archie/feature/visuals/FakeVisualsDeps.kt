@@ -12,11 +12,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 
-/** Mockup content (phone (h), tablet inline card) for the visuals tests and goldens. */
+/** Mockup content (phone (h), tablet inline card) for the visuals tests and goldens; one starred. */
 object VisualFixtures {
     val items = listOf(
         VisualInfo("energy/weekly-energy.html", "/energy/weekly-energy.html", "Weekly energy usage", "2026-10-03T13:00:00+00:00", "2026-10-03T13:00:00+00:00", 27_851),
-        VisualInfo("tarot-canvas/index.html", "/tarot-canvas/index.html", "Tarô Gamificado — Canvas de Progresso", "2026-10-03T09:45:45+00:00", "2026-10-03T09:45:45+00:00", 27_851),
+        VisualInfo("tarot-canvas/index.html", "/tarot-canvas/index.html", "Tarô Gamificado — Canvas de Progresso", "2026-10-03T09:45:45+00:00", "2026-10-03T09:45:45+00:00", 27_851, favorite = true),
         VisualInfo("generated/utopian_group_portrait.html", "/generated/utopian_group_portrait.html", "Utopian Group Portrait", null, "2026-10-01T10:00:00+00:00", 9_000),
         VisualInfo("music1 mix/sync report.html", "/music1 mix/sync report.html", "Music video sync report", null, "2026-09-20T10:00:00+00:00", 12_000),
         VisualInfo("dashboard.html", "/dashboard.html", "Home dashboard", null, "2026-08-02T10:00:00+00:00", 5_000),
@@ -37,6 +37,17 @@ class FakeVisualsDeps(
     var refreshes = 0
     override fun refresh() { refreshes++ }
     override suspend fun rename(path: String, title: String): ApiResult<Unit> { renames += path to title; return ApiResult.Ok(Unit) }
+    val stars = mutableListOf<Pair<String, Boolean>>()
+    var starResult: ApiResult<Unit> = ApiResult.Ok(Unit)
+
+    /** Like the repository: optimistic, reverted when [starResult] is an error. */
+    override suspend fun setFavorite(path: String, favorite: Boolean): ApiResult<Unit> {
+        stars += path to favorite
+        fun mark(on: Boolean) { list.value = LoadState(list.value.value?.map { if (it.path == path) it.copy(favorite = on) else it }) }
+        mark(favorite)
+        if (!starResult.isOk) mark(!favorite)
+        return starResult
+    }
     override val cast = CastController({ probe }, { casts += it; castResult }, scope)
     override val pool = WebViewPool(context)
     override val trust = WebTrust({ "ws://192.168.0.200:80" }, { null })

@@ -57,6 +57,32 @@ class ContentChangesRepositoryTest {
         assertEquals(1, gets("/api/visualizations"))
     }
 
+    /** A star change broadcasts an empty frame: the list refetches, no open page reloads. */
+    @Test fun anEmptyVisualizationFrameRefreshesTheListWithoutBumping() {
+        val frame = ProtocolCodec.decodeServer("""{"type":"visualization_changed","visualizations":[],"files":[]}""") as ServerFrame.VisualizationChanged
+        repo.onFrame(frame)
+        eventually { gets("/api/visualizations") == 1 }
+        assertEquals(emptyMap<String, ContentStamp>(), repo.visuals.value)
+    }
+
+    @Test fun starringIsOptimisticRevertedOnErrorAndRefetches() {
+        backend.visualizationsJson = "[${viz("a.html", "2026-10-01T00:00:00+00:00")},${viz("b.html", "2026-10-01T00:00:00+00:00")}]"
+        visuals.refresh()
+        eventually { visuals.list.value.value?.size == 2 }
+        backend.visualizationsJson = backend.visualizationsJson.replace("\"path\":\"b.html\"", "\"favorite\":true,\"path\":\"b.html\"")
+        val ok = kotlinx.coroutines.runBlocking { visuals.setFavorite("b.html", true) }
+        assertEquals(true, ok.isOk)
+        assertEquals("""{"path":"b.html","favorite":true}""", backend.favoriteBodies.single())
+        assertEquals(true, visuals.list.value.value!!.single { it.path == "b.html" }.favorite)
+        eventually { gets("/api/visualizations") == 2 }
+
+        backend.favoriteCode = 404
+        val failed = kotlinx.coroutines.runBlocking { visuals.setFavorite("a.html", true) }
+        assertEquals("Visualization not found", failed.errorMessage())
+        assertEquals(false, visuals.list.value.value!!.single { it.path == "a.html" }.favorite)
+        eventually { gets("/api/visualizations") == 3 }
+    }
+
     @Test fun memoryTreeRefetchesOnlyWhenLoadedAndAFileAppearedOrWentAway() {
         repo.onFrame(ServerFrame.MemoryChanged(listOf(ContentChange("projects/x.md", Kind.CREATED))))
         assertEquals(ContentStamp(1), repo.memory.value["projects/x.md"])
