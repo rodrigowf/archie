@@ -10,7 +10,6 @@ import com.assistant.archie.feature.settings.TrustRequest
 import com.assistant.archie.tv.firstrun.ConnectActions
 import com.assistant.archie.tv.firstrun.ConnectScreen
 import com.assistant.archie.tv.home.HomeActions
-import com.assistant.archie.tv.home.HomeCard
 import com.assistant.archie.tv.home.HomeScreen
 import com.assistant.archie.tv.home.HomeUiState
 import com.assistant.archie.tv.theme.TvTheme
@@ -83,27 +82,8 @@ object TvFixtures {
         connection = ConnectionStatus(serverUrl = "wss://192.168.0.200:443", serverLabel = "jetson", phase = ConnectionStatus.Phase.CONNECTED),
     )
 
-    val home = HomeUiState(
-        archieTitle = "Plan the TV app",
-        archieDetail = "Ready · 14 turns — “Done. It's on screen.”",
-        openNow = listOf(
-            HomeCard("Archie TV — T0 foundations", "Working · 6 turns", Conversation(localId = "a1"), busy = true),
-            HomeCard("History search eval", "Idle · 22 turns", Conversation(localId = "a2")),
-        ),
-        visuals = listOf(
-            HomeCard("Solar dashboard", "Updated 5 min ago", Viewer("visualizations/solar.html")),
-            HomeCard("TV app mockups", "Updated 2 h ago", Viewer("visualizations/tv-mockups/index.html")),
-            HomeCard("Launch plan", "Updated yesterday", Viewer("visualizations/launch.html")),
-            HomeCard("Tarot app", "Updated 3 days ago", Viewer("visualizations/tarot.html")),
-        ),
-        memory = listOf(
-            HomeCard("rodrigo personal context", "people/rodrigo", MemoryDoc("people/rodrigo/rodrigo_personal_context.md")),
-            HomeCard("personal projects index", "projects", MemoryDoc("projects/personal_projects_index.md")),
-        ),
-        recent = listOf(
-            HomeCard("Qwen self-interrupt on the A300M", "Archie · 2 h ago", Conversation(sdkId = "s1", archie = true)),
-        ),
-    )
+    /** T1's Home fixture (mockup 3). */
+    val home: HomeUiState get() = com.assistant.archie.tv.TvScreenFixtures.home
 
     val connect = ConnectionUiState(
         status = ConnectionStatus(serverUrl = "wss://192.168.0.200:443", serverLabel = "192.168.0.200", phase = ConnectionStatus.Phase.CONNECTED),

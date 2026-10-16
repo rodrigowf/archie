@@ -26,6 +26,8 @@ import com.assistant.archie.tv.graph.TvGraphOwner
 import com.assistant.archie.tv.theme.TvTheme
 import com.assistant.core.design.components.ArchieMark
 import androidx.compose.runtime.CompositionLocalProvider
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 /**
  * The single Activity (spec 15 §6.1). It holds no domain state: everything lives in the
@@ -90,7 +92,11 @@ private fun TvAppContent(graph: TvAppGraph, onController: (TvShellController) ->
     LaunchedEffect(top) { graph.navHolder.onTopChanged(top) }
     val connection by graph.connection.status.collectAsStateWithLifecycle()
     val voice by graph.voice.state.collectAsStateWithLifecycle()
-    val state = TvShellState(connection = connection, voice = voice, showKeyHints = showKeyHints)
+    // The drawer's amber dot (spec 15 §3.5): an open conversation waits for an approval.
+    val needsApproval by remember(graph) {
+        graph.openSessions.items.map { list -> list.any { it.status == com.assistant.core.data.TabStatus.NEEDS_YOU } }.distinctUntilChanged()
+    }.collectAsStateWithLifecycle(false)
+    val state = TvShellState(connection = connection, voice = voice, showKeyHints = showKeyHints, needsApproval = needsApproval)
     CompositionLocalProvider(LocalToolImageLoader provides graph.toolImages) {
         Box(Modifier.fillMaxSize()) {
             TvShell(state, controller, graph.toasts) { key -> TvRoutes.Entry(key, ctx) }

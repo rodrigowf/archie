@@ -289,5 +289,51 @@ Push a WAV with `adb push x.wav /data/local/tmp/` then `run-as com.assistant.arc
 Shell, theme, graph, first run and placeholders are in. The placeholder screens already show real
 data: Home rows (Archie, open agents, visuals, memory, recent conversations), the Conversations list
 grouped by day, the Visuals grid, the Memory tree with a text preview, memory notes as focusable
-paragraphs, Settings → Connection / Display / About. Conversation is a stub (T2). T3 (Viewer, Visuals, Memory, control channel) is described above.
-Opening a conversation never starts or resumes a session yet (spec 12 OPEN-*; T1/T2 decide).
+paragraphs, Settings → Connection / Display / About. Home, Conversations and Conversation are T1/T2's (below);
+T3 (Viewer, Visuals, Memory, control channel) and T4 (voice) are described in their own sections.
+
+## Home, Conversations, Conversation (T1 + T2)
+
+- **Shell additions.** The drawer is an overlay (collapsed 72 dp, 272 dp open over a scrim; the
+  content never moves) with an amber dot on Conversations while an open session waits for an
+  approval (`TvShellState.needsApproval`). Back or Right from the drawer returns focus to the
+  element the screen had focused: a screen registers `FocusRestoreEffect { memory.restore() }`
+  (else the content's `focusRestorer` decides). `TvOverlay { … }` (`shell/TvOverlayHost.kt`) draws a
+  screen's sheet or dialog full screen above the shell; `TvSideSheet` / `TvDialog` use it.
+  Overlays close on Back through `Modifier.dismissOnBack` and trap D-pad focus with
+  `Modifier.trapFocus()` — a focus group whose `onExit` cancels *every* exit swallows Back,
+  because Compose turns Back into a focus exit. `KeyHint(emphasis = true)` (`KeyHints.ApprovalNeeded`)
+  is drawn last, right-aligned, in the warning colors.
+- **Opening conversations** (`conversations/TvSessions.kt`, one per process): every open from Home or
+  Conversations is a user action and goes through `:feature:sessions`' `SessionsController` and
+  `OpenSessionsRepository` exactly as in `:app-main` (history agent → `openSession`, may resume;
+  pool row → `select`, reattaches; past Archie conversation → `requestResumeArchie`, with the §6.11
+  conflict dialog; New conversation → `requestNewArchie`; New agent → harness picker from
+  `GET /api/config/harnesses`, then `newAgentSession(provider)`), then pushes the
+  `Conversation(localId, sdkId, archie)` route of the view it focused. The route itself only
+  resolves (`ConversationRouting.resolve`): the Archie view, a view open here, a pool session to
+  **reattach** to, or "not open" with an Open button (user action). A view that closes leaves the
+  screen. Rename / Duplicate / Close / Delete use the controller's dialogs (rename with the Fire TV
+  keyboard).
+- **Home** (`home/`): hero = the Archie view (title, state, the end of the latest reply), Open now
+  (pool agents; status, last reply line from the view or `GET …/preview`), Visuals (newest first;
+  dot = changed this session), Memory (notes changed this session via `memory_changed`, then
+  `MEMORY.md`, the folders' `INDEX.md` and the other root files — the tree has no dates), Recent
+  conversations. Lists are sampled at 2 Hz. `FocusMemory` brings focus back to the card you left.
+- **Conversations** (`conversations/`): the apps' grouping (`HistoryList`), search with the IME
+  (OK on the field opens the keyboard; D-pad focus alone never does), preview of the focused row
+  (`GET …/preview?max=12` + session config's working directory, cached), Menu with the session
+  actions and New agent / New Archie conversation.
+- **Conversation** (`conversation/`): `:feature:chat`'s `ConversationViewModel` per view key
+  (state sampled at ≤ 10 Hz; markdown stays incremental in the ViewModel's `MarkdownStore`). The
+  transcript (`Transcript.kt`, `reverseLayout` like the apps) makes every item one tv-material
+  surface — the phone renderers (markdown blocks, `:feature:toolcards` cards) draw inside,
+  read-only, so nothing inside is a focus stop. `TranscriptModel` holds the pure rules: a block
+  taller than the viewport scrolls 0.8 viewport per Up/Down before focus moves; Rewind/FF page and
+  focus the block in the middle; focus on the newest block follows new blocks, never onto an
+  inline card (FOCUS-1); inline cards (permission, agent approval, stall, error, gap) sit at the
+  end with real buttons. Composer: Hold to talk (explains the mic, T4), Type (single-line field +
+  Fire IME; its action key — "Avançar"/"Go" — sends; while a turn runs the message goes into it
+  or waits, as in the apps), Live voice (Archie), Stop, More. Agents chip → side sheet (Stop; OK
+  opens the subagent's transcript read-only). Long-press OK on a message: copy to composer, fork,
+  rewind (confirmed).

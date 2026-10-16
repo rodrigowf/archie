@@ -72,6 +72,8 @@ fun FocusCard(
     enabled: Boolean = true,
     shape: Shape = RoundedCornerShape(TvDimens.CardCorner),
     contentPadding: PaddingValues = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+    /** The resting container (lists use a transparent one: only the focused row is raised, mockup 5). */
+    containerColor: androidx.compose.ui.graphics.Color? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val c = TvTheme.colors
@@ -83,7 +85,7 @@ fun FocusCard(
         enabled = enabled,
         shape = ClickableSurfaceDefaults.shape(shape = shape),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = c.surfaceContainer,
+            containerColor = containerColor ?: c.surfaceContainer,
             contentColor = c.onSurface,
             focusedContainerColor = c.surfaceContainerHighest,
             focusedContentColor = c.onSurface,
@@ -157,32 +159,54 @@ fun RowHeader(title: String, modifier: Modifier = Modifier, trailing: String? = 
     }
 }
 
-/** The bottom key-hint bar (not focusable): 3–4 hints for the current context. */
+/** The bottom key-hint bar (not focusable): 3–4 hints for the current context; emphasized ones sit at the end. */
 @Composable
 fun KeyHintBar(hints: List<KeyHint>, modifier: Modifier = Modifier) {
     val c = TvTheme.colors
+    val warn = ArchieTheme.extended.warning
     Row(
         modifier.fillMaxWidth().padding(top = 12.dp).testTag("key-hints"),
         horizontalArrangement = Arrangement.spacedBy(28.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        for (h in hints) {
+        for (h in hints.filterNot { it.emphasis }) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 KeyCap(h.glyph)
                 Spacer(Modifier.width(8.dp))
                 Text(h.label, style = TvTheme.type.labelLarge, color = c.onSurfaceVariant, maxLines = 1)
             }
         }
+        val emphasized = hints.filter { it.emphasis }
+        if (emphasized.isNotEmpty()) {
+            Spacer(Modifier.weight(1f))
+            for (h in emphasized) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("key-hint-emphasis")) {
+                    KeyCap(h.glyph, container = warn.colorContainer, content = warn.onColorContainer)
+                    Spacer(Modifier.width(8.dp))
+                    Text(h.label, style = TvTheme.type.labelLarge, color = warn.color, maxLines = 1)
+                }
+            }
+        }
     }
 }
 
-/** The remote key a hint refers to, drawn as a small outlined cap. */
+/** The remote key a hint refers to, drawn as a small outlined cap ([container]: a filled cap). */
 @Composable
-fun KeyCap(glyph: HintGlyph, modifier: Modifier = Modifier) {
+fun KeyCap(
+    glyph: HintGlyph,
+    modifier: Modifier = Modifier,
+    container: androidx.compose.ui.graphics.Color? = null,
+    content: androidx.compose.ui.graphics.Color? = null,
+) {
     val c = TvTheme.colors
     val shape = RoundedCornerShape(8.dp)
+    val fg = content ?: c.onSurfaceVariant
     Box(
-        modifier.heightIn(min = 28.dp).widthIn(min = 28.dp).border(1.dp, c.outline, shape).padding(horizontal = 6.dp, vertical = 3.dp),
+        modifier
+            .heightIn(min = 28.dp)
+            .widthIn(min = 28.dp)
+            .then(if (container != null) Modifier.background(container, shape) else Modifier.border(1.dp, c.outline, shape))
+            .padding(horizontal = 6.dp, vertical = 3.dp),
         contentAlignment = Alignment.Center,
     ) {
         val icon = when (glyph) {
@@ -190,12 +214,13 @@ fun KeyCap(glyph: HintGlyph, modifier: Modifier = Modifier) {
             HintGlyph.PLAY_PAUSE -> ArchieIcons.PlayArrow
             HintGlyph.MENU -> ArchieIcons.Menu
             HintGlyph.BACK -> ArchieIcons.ArrowBack
+            HintGlyph.DOWN -> ArchieIcons.KeyboardArrowDown
             HintGlyph.OK, HintGlyph.REWIND_FF -> null
         }
         if (icon != null) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = c.onSurfaceVariant)
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = fg)
         } else {
-            Text(if (glyph == HintGlyph.OK) "OK" else "RW FF", style = TvTheme.type.labelMedium, color = c.onSurfaceVariant)
+            Text(if (glyph == HintGlyph.OK) "OK" else "RW FF", style = TvTheme.type.labelMedium, color = fg)
         }
     }
 }

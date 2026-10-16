@@ -23,7 +23,18 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.Key
+import com.assistant.core.design.theme.ArchieTheme
+import androidx.tv.material3.NavigationDrawerScope
+import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
@@ -41,15 +52,12 @@ import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
-import androidx.tv.material3.DrawerValue
 import androidx.tv.material3.Icon
-import androidx.tv.material3.NavigationDrawer
 import androidx.tv.material3.NavigationDrawerItem
 import androidx.tv.material3.NavigationDrawerItemDefaults
 import androidx.tv.material3.Surface
 import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.Text
-import androidx.tv.material3.rememberDrawerState
 import com.assistant.archie.tv.theme.FocusCard
 import com.assistant.archie.tv.theme.KeyHintBar
 import com.assistant.archie.tv.theme.StatusCluster
@@ -69,6 +77,8 @@ data class TvShellState(
     val connection: ConnectionStatus = ConnectionStatus(),
     val voice: VoiceSessionState = VoiceSessionState(),
     val showKeyHints: Boolean = true,
+    /** Some open agent waits for approval: the drawer's Conversations item shows the amber dot (spec 15 §3.5). */
+    val needsApproval: Boolean = false,
 )
 
 /** Initial overlay state, for goldens (drawer expanded, options sheet open). */
@@ -94,9 +104,9 @@ fun TvShell(
 ) {
     val c = TvTheme.colors
     val focus = LocalFocusManager.current
-    SideEffect { controller.focusContent = { focus.moveFocus(FocusDirection.Right) } }
     LaunchedEffect(overlays.optionsOpen) { if (overlays.optionsOpen) controller.optionsOpen = true }
 
+    val overlayHost = remember { TvOverlayHost() }
     val top = controller.backStack.lastOrNull()
     val view = controller.registry.view(top) ?: ChromeView()
     val showDrawer = !view.fullScreen && TvDestination.of(controller.nav.root) != null
@@ -111,40 +121,61 @@ fun TvShell(
         CompositionLocalProvider(
             LocalScreenChromeRegistry provides controller.registry,
             LocalTvKeyActions provides controller.keyActions,
+            LocalTvOverlayHost provides overlayHost,
         ) {
             // Lowest-priority Back (stack root): Home / leave the app / leave the drawer. NavDisplay's
             // own handler pops; screens' and the options sheet's handlers come later and win.
             BackHandler { controller.back() }
-            Box(
-                Modifier.fillMaxSize().padding(horizontal = TvDimens.OverscanHorizontal, vertical = TvDimens.OverscanVertical),
-            ) {
-                NavigationDrawer(
-                    drawerContent = { _ ->
-                        if (showDrawer) DrawerContent(controller, this)
-                    },
-                    drawerState = rememberDrawerState(if (overlays.drawerOpen) DrawerValue.Open else DrawerValue.Closed),
-                ) {
-                    Column(Modifier.fillMaxSize().padding(start = if (showDrawer) 20.dp else 0.dp)) {
-                        if (view.showHeader) ShellHeader(view.title, state)
-                        Box(Modifier.weight(1f).fillMaxWidth()) {
-                            NavDisplay(
-                                backStack = controller.backStack,
-                                onBack = { controller.back() },
-                                entryDecorators = listOf(
-                                    rememberSaveableStateHolderNavEntryDecorator(),
-                                    rememberViewModelStoreNavEntryDecorator(),
-                                ),
-                                entryProvider = { key ->
-                                    NavEntry(key) { k ->
-                                        CompositionLocalProvider(LocalTvEntryKey provides k) { entry(k) }
-                                    }
-                                },
-                            )
-                        }
-                        if (state.showKeyHints) KeyHintBar(view.hints)
+            // Content, then (while the drawer has focus) a scrim, then the drawer on top: the drawer
+            // overlays the content as in mockup 4 instead of pushing it (spec 15 §3.4).
+            val contentFocus = remember { FocusRequester() }
+            SideEffect {
+                controller.focusContent = {
+                    if (!controller.registry.restoreFocus(controller.nav.current)) {
+                        runCatching { contentFocus.requestFocus() }.onFailure { focus.moveFocus(FocusDirection.Right) }
                     }
                 }
             }
+            Box(
+                Modifier.fillMaxSize().padding(horizontal = TvDimens.OverscanHorizontal, vertical = TvDimens.OverscanVertical),
+            ) {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(start = if (showDrawer) TvDimens.DrawerCollapsed + 20.dp else 0.dp)
+                        // Back from the drawer lands on the element that had focus here (focusRestorer).
+                        .focusRequester(contentFocus)
+                        .focusRestorer()
+                        .focusGroup()
+                        .testTag("shell-content"),
+                ) {
+                    if (view.showHeader) ShellHeader(view.title, state)
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        NavDisplay(
+                            backStack = controller.backStack,
+                            onBack = { controller.back() },
+                            entryDecorators = listOf(
+                                rememberSaveableStateHolderNavEntryDecorator(),
+                                rememberViewModelStoreNavEntryDecorator(),
+                            ),
+                            entryProvider = { key ->
+                                NavEntry(key) { k ->
+                                    CompositionLocalProvider(LocalTvEntryKey provides k) { entry(k) }
+                                }
+                            },
+                        )
+                    }
+                    if (state.showKeyHints) KeyHintBar(view.hints)
+                }
+            }
+            val expanded = showDrawer && (controller.drawerFocused || overlays.drawerOpen)
+            if (expanded) Box(Modifier.fillMaxSize().background(c.scrim.copy(alpha = 0.55f)).testTag("drawer-scrim"))
+            if (showDrawer) {
+                Box(Modifier.fillMaxHeight().padding(start = TvDimens.OverscanHorizontal, top = TvDimens.OverscanVertical, bottom = TvDimens.OverscanVertical)) {
+                    DrawerContent(controller, expanded, state.needsApproval, openOnStart = overlays.drawerOpen)
+                }
+            }
+            TvOverlayLayers(overlayHost)
             TvToastHost(toasts, Modifier.align(Alignment.TopCenter))
             if (controller.optionsOpen) {
                 OptionsSheet(
@@ -179,18 +210,49 @@ private fun ShellHeader(title: String, state: TvShellState) {
     }
 }
 
-/** Archie mark + the five destinations. Left from content enters it; Right/OK leaves it. */
+/**
+ * Archie mark + the five destinations (spec 15 §3.4, mockup 4): collapsed to icons, expanded with
+ * labels over a scrim while it has focus. Left from the content's left edge enters it (on the
+ * selected destination, or the item last focused); Right / OK leaves it; Back closes it.
+ */
 @Composable
-private fun DrawerContent(controller: TvShellController, scope: androidx.tv.material3.NavigationDrawerScope) {
+private fun DrawerContent(controller: TvShellController, expanded: Boolean, needsApproval: Boolean, openOnStart: Boolean) {
     val c = TvTheme.colors
     val selected = TvDestination.of(controller.nav.root)
-    val focus = LocalFocusManager.current
+    val requesters = remember { TvDestination.entries.associateWith { FocusRequester() } }
+    val scope = remember(expanded) {
+        object : NavigationDrawerScope {
+            override val hasFocus: Boolean = expanded
+        }
+    }
+    if (openOnStart) {
+        LaunchedEffect(Unit) {
+            // After the screen's own initial focus; the second request lands inside the group (the
+            // restorer sends the first one to the selected destination, as when the user enters).
+            repeat(2) {
+                repeat(3) { withFrameNanos { } }
+                runCatching { requesters.getValue(TvDestination.CONVERSATIONS).requestFocus() }
+            }
+        }
+    }
     Column(
         Modifier
             .fillMaxHeight()
-            .background(c.surfaceContainerLow, RoundedCornerShape(24.dp))
+            .width(if (expanded) DrawerOpenWidth else TvDimens.DrawerCollapsed)
+            .background(if (expanded) c.surfaceContainerLow else c.surface.copy(alpha = 0f), RoundedCornerShape(24.dp))
             .padding(horizontal = 8.dp, vertical = 12.dp)
             .onFocusChanged { controller.drawerFocused = it.hasFocus }
+            // Right leaves the drawer to the element the content had focused (not the nearest one).
+            .onPreviewKeyEvent { e ->
+                if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight) {
+                    controller.focusContent()
+                    true
+                } else {
+                    false
+                }
+            }
+            .focusRestorer(selected?.let { requesters.getValue(it) } ?: FocusRequester.Default)
+            .focusGroup()
             .testTag("drawer"),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -202,9 +264,23 @@ private fun DrawerContent(controller: TvShellController, scope: androidx.tv.mate
                     selected = isSelected,
                     onClick = {
                         controller.nav.selectRoot(d)
-                        focus.moveFocus(FocusDirection.Right)
+                        controller.focusContent()
                     },
-                    leadingContent = { Icon(d.icon(isSelected), contentDescription = null, modifier = Modifier.size(24.dp)) },
+                    leadingContent = {
+                        Box {
+                            Icon(d.icon(isSelected), contentDescription = null, modifier = Modifier.size(24.dp))
+                            if (d == TvDestination.CONVERSATIONS && needsApproval) {
+                                Box(
+                                    Modifier
+                                        .align(Alignment.TopEnd)
+                                        .offset(x = 4.dp, y = (-3).dp)
+                                        .size(10.dp)
+                                        .background(ArchieTheme.extended.warning.color, CircleShape)
+                                        .testTag("drawer-badge"),
+                                )
+                            }
+                        }
+                    },
                     colors = NavigationDrawerItemDefaults.colors(
                         contentColor = c.onSurface,
                         inactiveContentColor = c.onSurfaceVariant,
@@ -215,7 +291,9 @@ private fun DrawerContent(controller: TvShellController, scope: androidx.tv.mate
                         focusedSelectedContainerColor = c.inverseSurface,
                         focusedSelectedContentColor = c.inverseOnSurface,
                     ),
-                    modifier = Modifier.testTag("drawer-${d.name.lowercase()}"),
+                    modifier = Modifier
+                        .focusRequester(requesters.getValue(d))
+                        .testTag("drawer-${d.name.lowercase()}"),
                 ) {
                     Text(d.label, style = TvTheme.type.labelLarge, maxLines = 1)
                 }
@@ -223,6 +301,9 @@ private fun DrawerContent(controller: TvShellController, scope: androidx.tv.mate
         }
     }
 }
+
+/** tv-material's expanded drawer item is 256 dp wide (fixed); the open drawer fits it plus padding. */
+private val DrawerOpenWidth = 272.dp
 
 private fun TvDestination.icon(selected: Boolean): ImageVector = when (this) {
     TvDestination.HOME -> if (selected) TvIcons.HomeFilled else TvIcons.Home
