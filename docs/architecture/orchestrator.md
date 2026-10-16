@@ -129,6 +129,23 @@ recall. A `source:` that *is* present stays as written (a real other conversatio
 id and reported as `source_corrected`. `source` is where the knowledge came from; `written_by` is
 which session typed it, which is why both exist.
 
+**Overwrite guards.** `write_file` replaces the whole file, so a short payload destroys a long one —
+on 2026-10-16 the orchestrator wrote 751 bytes over a 19 KB memory note (it read back, noticed, and
+restored it, but nothing in the tool had stopped it; the churn is visible in session `26a0098b`).
+Two guards now refuse a write and explain why, instead of performing it:
+
+| Guard | Trigger | Constant |
+|---|---|---|
+| Dramatic shrink | the write would cut an existing file below half its current size | `SHRINK_LIMIT = 0.5` |
+| Blind overwrite | the file was not read **in full** by this conversation within the last few turns (a partial read does not count) | `READ_RECENCY_TURNS = 5` |
+
+`read_file` records each read as `(turn, whole_file)` in a bounded per-session map, so the second
+guard knows what the model has actually seen; a slice read leaves `whole_file` false. Both guards
+are bypassed by `confirm=true`, which the prompt reserves for deliberate wholesale replacement, and
+neither applies to a new or empty file. `_turn_count()` is memoised on `(path, size, mtime_ns)` so
+the extra turn lookups on every read stay cheap. Tests:
+`backend/tests/test_orchestrator_write_guards.py`.
+
 It also stamps **`written_at_turn:`** — the conversation's turn count at the instant of the write,
 counted from the JSONL by `_turn_count()` using the same definition as the wiki's paragraph source
 tags (`user`/`assistant` message entries only; tool calls, tool results, interruptions and metadata

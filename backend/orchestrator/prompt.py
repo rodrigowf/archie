@@ -437,7 +437,7 @@ def _memory_section(config: OrchestratorConfig) -> str:
 
 ### Editing rules
 
-- `write_file` is a full overwrite — read first, edit, then write the complete updated content. It creates parent directories automatically, so writing to `context/memory/<new-folder>/<file>.md` works without a separate mkdir.
+- `write_file` is a full overwrite — read the file **in full** (no `start_line`/`end_line`), edit, then write the complete updated content. It creates parent directories automatically, so writing to `context/memory/<new-folder>/<file>.md` works without a separate mkdir. Two writes are refused with an explanation rather than performed: one that would **shrink an existing file below half its size**, and one that would **replace a file you have not just read in full** (a partial read does not count — overwriting after reading a slice is how a note gets truncated). Fix the cause: read the whole file and write it back complete. `confirm=true` overrides, and is only right when you genuinely mean to replace the file wholesale — e.g. a deliberate stub or a file you are rewriting from scratch.
 - When you change a file's content, bump its `modified` field to today.
 - When you move a file to a different category, update its `category` field and grep the memory tree for inbound references to the old path.
 - Never omit existing index entries unless they are clearly obsolete.

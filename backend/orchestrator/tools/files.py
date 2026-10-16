@@ -80,6 +80,9 @@ def _writing_session(context: dict[str, Any]) -> tuple[str | None, str | None]:
     return uuid_str, title
 
 
+_TURN_CACHE: dict[tuple[str, int, int], int] = {}
+
+
 def _turn_count(jsonl_path: Path) -> int | None:
     """Count conversation turns in a session JSONL, as of right now.
 
@@ -93,6 +96,11 @@ def _turn_count(jsonl_path: Path) -> int | None:
     must never block a write.
     """
     try:
+        stat = jsonl_path.stat()
+        key = (str(jsonl_path), stat.st_size, stat.st_mtime_ns)
+        cached = _TURN_CACHE.get(key)
+        if cached is not None:
+            return cached
         count = 0
         with open(jsonl_path, encoding="utf-8", errors="replace") as fh:
             for line in fh:
@@ -110,10 +118,108 @@ def _turn_count(jsonl_path: Path) -> int | None:
                     message = entry.get("message")
                     if isinstance(message, dict) and message.get("role") in ("user", "assistant"):
                         count += 1
+        if len(_TURN_CACHE) > 64:  # the live JSONL changes constantly; stay bounded
+            _TURN_CACHE.clear()
+        _TURN_CACHE[key] = count
         return count or None
     except Exception:
         logger.debug("could not count turns in %s", jsonl_path, exc_info=True)
         return None
+
+
+# --- Overwrite guards -------------------------------------------------------
+#
+# ``write_file`` is a full overwrite, so a short payload silently destroys a
+# long file. On 2026-10-16 the orchestrator overwrote a 19 KB memory note with
+# 751 bytes; it happened to read the file back, notice, and restore it, but
+# nothing in the tool would have stopped it. Two cheap guards, both bypassable
+# with ``confirm=True`` once the model has acknowledged what it is doing:
+#
+#   1. **Shrink** — refuse a write that would cut an existing file to less than
+#      ``SHRINK_LIMIT`` of its current size.
+#   2. **Blind overwrite** — refuse to replace a file this conversation has not
+#      read, in full, within the last ``READ_RECENCY_TURNS`` turns. Reading a
+#      slice is not enough: overwriting after a partial read is exactly how a
+#      file gets truncated.
+
+SHRINK_LIMIT = 0.5          # a write may not drop an existing file below half
+READ_RECENCY_TURNS = 5      # how recently the file must have been read in full
+
+# (session key, resolved path) -> (turn when read, whether the whole file was read)
+_READS: dict[tuple[str, str], tuple[int | None, bool]] = {}
+
+
+def _session_key(context: dict[str, Any]) -> str:
+    jsonl_path = getattr(context.get("session"), "_jsonl_path", None)
+    return str(jsonl_path) if jsonl_path else "-"
+
+
+def _current_turn(context: dict[str, Any]) -> int | None:
+    jsonl_path = getattr(context.get("session"), "_jsonl_path", None)
+    return _turn_count(Path(jsonl_path)) if jsonl_path else None
+
+
+def _record_read(context: dict[str, Any], target: Path, whole_file: bool) -> None:
+    if len(_READS) > 512:
+        _READS.clear()
+    _READS[(_session_key(context), str(target))] = (_current_turn(context), whole_file)
+
+
+def _overwrite_objection(
+    context: dict[str, Any], target: Path, content: str
+) -> dict[str, Any] | None:
+    """Return an error payload if this write looks like an accident."""
+    try:
+        existing = target.stat().st_size
+    except OSError:
+        return None  # new file — nothing to destroy
+    if existing == 0:
+        return None
+
+    if len(content) < existing * SHRINK_LIMIT:
+        return {
+            "error": "refused: this write would shrink the file dramatically",
+            "path": str(target),
+            "existing_bytes": existing,
+            "new_bytes": len(content),
+            "why": (
+                "write_file replaces the whole file. Writing "
+                f"{len(content)} bytes over {existing} would delete most of it. "
+                "If you meant to edit, read the file in full first and write "
+                "back the complete updated text. If you really do mean to "
+                "replace it with something this short, call write_file again "
+                "with confirm=true."
+            ),
+        }
+
+    read_turn, whole_file = _READS.get((_session_key(context), str(target)), (None, False))
+    now = _current_turn(context)
+    stale = (
+        read_turn is None
+        or not whole_file
+        or (now is not None and read_turn is not None and now - read_turn > READ_RECENCY_TURNS)
+    )
+    if stale:
+        if read_turn is None:
+            detail = "you have not read this file in this conversation"
+        elif not whole_file:
+            detail = "you only read part of this file, not all of it"
+        else:
+            detail = f"you last read it {now - read_turn} turns ago"
+        return {
+            "error": "refused: overwriting a file you have not just read in full",
+            "path": str(target),
+            "existing_bytes": existing,
+            "new_bytes": len(content),
+            "why": (
+                f"write_file replaces the whole file, and {detail}. Read it "
+                "(no start_line/end_line, so you get all of it), then write "
+                "back the complete updated text — otherwise you will drop "
+                "whatever you did not see. If you are deliberately replacing "
+                "the file wholesale, call write_file again with confirm=true."
+            ),
+        }
+    return None
 
 
 def _conversation_exists(context_dir: Path, uuid_str: str) -> bool:
@@ -254,6 +360,7 @@ async def read_file(
 
     if total_lines == 0:
         # Empty file — preserve original behaviour (return empty content).
+        _record_read(context, target, whole_file=True)
         return json.dumps({
             "path": str(target),
             "content": "",
@@ -297,6 +404,9 @@ async def read_file(
         )
         sliced += marker
 
+    # A write may only replace a file this conversation has seen in full.
+    _record_read(context, target, whole_file=(s == 1 and returned_end == total_lines))
+
     return json.dumps({
         "path": str(target),
         "content": sliced,
@@ -308,7 +418,15 @@ async def read_file(
 
 @registry.register(
     name="write_file",
-    description="Write content to a file. Absolute paths write anywhere on the host; relative paths resolve against the project directory. Creates parent directories if needed.",
+    description=(
+        "Write content to a file. Absolute paths write anywhere on the host; "
+        "relative paths resolve against the project directory. Creates parent "
+        "directories if needed. This REPLACES the whole file: to edit an "
+        "existing one, read it in full first and write back the complete "
+        "updated text. Writes that would shrink a file dramatically, or "
+        "replace one you have not just read in full, are refused with an "
+        "explanation — pass confirm=true to override once you are sure."
+    ),
     input_schema={
         "type": "object",
         "properties": {
@@ -318,18 +436,33 @@ async def read_file(
             },
             "content": {
                 "type": "string",
-                "description": "The content to write to the file.",
+                "description": "The complete new contents of the file.",
+            },
+            "confirm": {
+                "type": "boolean",
+                "description": (
+                    "Set true to override a refused write (dramatic shrink, or "
+                    "overwriting a file you have not just read in full). Only "
+                    "do this when the replacement is deliberate."
+                ),
             },
         },
         "required": ["path", "content"],
     },
 )
-async def write_file(context: dict[str, Any], path: str, content: str) -> str:
+async def write_file(
+    context: dict[str, Any], path: str, content: str, confirm: bool = False
+) -> str:
     project_dir = context.get("project_dir", "")
     if not project_dir:
         return json.dumps({"error": "Project directory not configured"})
 
     target = _resolve_path(project_dir, path)
+
+    if not confirm:
+        objection = _overwrite_objection(context, target, content)
+        if objection is not None:
+            return json.dumps(objection)
 
     content, provenance = _stamp_provenance(content, context, target)
 
@@ -339,6 +472,8 @@ async def write_file(context: dict[str, Any], path: str, content: str) -> str:
         result: dict[str, Any] = {
             "path": str(target), "status": "written", "bytes": len(content),
         }
+        if confirm:
+            result["confirmed_overwrite"] = True
         if provenance.get("written_by"):
             result["written_by"] = provenance["written_by"]
         if provenance.get("written_at_turn"):
