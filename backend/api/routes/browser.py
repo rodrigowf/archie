@@ -40,6 +40,8 @@ from typing import Any
 import orjson
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 
+from api.net import is_proxied_from_lan
+
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["browser"])
 
@@ -222,29 +224,6 @@ def get_hub(request: Request) -> BrowserHub:
     return request.app.state.browser_hub
 
 
-def _is_proxied_from_lan(request: Request) -> str | None:
-    """Return the offending client address if the request came from the LAN.
-
-    The Jetson's nginx (``~/nginx-server.conf``) proxies 443 → 127.0.0.1:8765
-    and sets ``X-Real-IP`` to the true client address. A request made directly
-    to the loopback port carries no such header. So the header's presence — and
-    its value — reliably distinguishes "someone on the LAN" from "a process on
-    this machine", which app-level ``request.client.host`` cannot do behind a
-    proxy (everything looks like 127.0.0.1 there).
-
-    Returns None when the caller is local.
-    """
-    forwarded = (
-        request.headers.get("x-real-ip")
-        or (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
-    )
-    if not forwarded:
-        return None
-    if forwarded in ("127.0.0.1", "::1", "localhost"):
-        return None
-    return forwarded
-
-
 @router.get("/api/browser/status")
 async def browser_status(request: Request) -> dict[str, Any]:
     """Report extension connectivity, so callers can tell 'browser offline'
@@ -271,7 +250,7 @@ async def browser_command(request: Request) -> dict[str, Any]:
     * **Shared token**, same ``BROWSER_CONTROL_TOKEN`` the extension presents,
       in an ``X-Browser-Token`` header.
     """
-    offender = _is_proxied_from_lan(request)
+    offender = is_proxied_from_lan(request)
     if offender:
         logger.warning("Refusing browser command from LAN address %s", offender)
         raise HTTPException(
