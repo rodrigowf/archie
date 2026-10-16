@@ -28,6 +28,18 @@
   decides FREE/BUSY (real audio or human input in the last 10 min) and agents `--mark` their end.
 - Wave 2 started: T1+T2 (`feat/tv-ui`), T3 (`feat/tv-viewer`), T4 (`feat/tv-voice`).
 
+- TvServerHub self-heals its key watcher (`edbe3fe`): Android drops an app's accessibility
+  services when the app is force-stopped (verified: `pkg:android` wrote `null`); the monitor
+  service re-adds it with WRITE_SECURE_SETTINGS granted by `tv_setup.sh` (`3355bf46`).
+- Wave 2 done and merged: T3 (`acca129c`), T4 (`90bd5883`, live-voice transport decision in spec
+  §4.2), T1+T2 (`4e00161d` merge). Integration gate green: `:app-tv:check :app-main:assembleDebug
+  :app-lite:assembleDebug`. On-device (debug injection / local backend): tv_cmd viz/memory/state
+  /home/notify, voice message → new Archie conversation answered, dictation chip, live voice on
+  OpenAI WebRTC and Qwen relay, Home/Conversations/Conversation against the Jetson.
+- Test leftovers: two test Archie conversations in context (`8994871d…`, `a55f6b1c…`), from T4.
+- Wave 3 started: T5 (`feat/tv-t5`: settings, release + perf, polish), two read-only reviews
+  (shared voice/control/backend; TV UI).
+
 ## WP → commit
 
 | WP | Branch | Commit | State |
@@ -38,9 +50,12 @@
 | L1 | TvServerHub repo | dca0ee1 | done, A1/A2 verified on TV |
 | M | feat/tv | b15e0b19 | published (artifact) |
 | T0 | feat/tv-app | 74cdf842 | merged |
-| T1+T2 | feat/tv-ui | — | running |
-| T3 | feat/tv-viewer | — | running |
-| T4 | feat/tv-voice | — | running |
+| T1+T2 | feat/tv-ui | 4e00161d (merge) | merged |
+| T3 | feat/tv-viewer | acca129c | merged |
+| T4 | feat/tv-voice | 90bd5883 | merged |
+| S (setup) | feat/tv | 3355bf46 | done |
+| T5 | feat/tv-t5 | — | running |
+| Reviews | — | — | running |
 
 ## Open issues
 
