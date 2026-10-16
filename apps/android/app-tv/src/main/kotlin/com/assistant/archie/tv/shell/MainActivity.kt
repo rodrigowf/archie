@@ -47,6 +47,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         graph.connection.start()
         setContent { TvApp(graph, onController = { controller = it }, onLeaveApp = ::finish) }
+        // Spec 15 §6.2 (T5): the shell's opaque Surface covers the whole window, so the theme's
+        // window background (needed only for the starting window) would be one more full-screen
+        // fill per frame on the AFTKM's GPU, which runs at ≈ 12 ms a frame on Home.
+        window.decorView.post { window.setBackgroundDrawable(null) }
     }
 
     // RestrictedApi: androidx.core's ComponentActivity re-declares the framework's

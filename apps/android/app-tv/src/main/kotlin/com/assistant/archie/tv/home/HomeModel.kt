@@ -11,6 +11,7 @@ import com.assistant.archie.tv.shell.MemoryDoc
 import com.assistant.archie.tv.shell.Viewer
 import com.assistant.archie.tv.theme.SessionState
 import com.assistant.archie.tv.theme.TvFormat
+import com.assistant.archie.tv.visuals.VisualKind
 import com.assistant.core.conversation.AssistantEntry
 import com.assistant.core.conversation.ConversationState
 import com.assistant.core.conversation.TextBlock
@@ -45,7 +46,16 @@ data class HeroUi(
 data class AgentCardUi(val key: String, val ref: ConvRef, val provider: String?, val title: String, val state: SessionState, val lastLine: String)
 
 @Immutable
-data class VisualCardUi(val key: String, val title: String, val file: String, val updated: String?, val changed: Boolean, val target: NavKey)
+data class VisualCardUi(
+    val key: String,
+    val title: String,
+    val file: String,
+    val updated: String?,
+    val changed: Boolean,
+    val target: NavKey,
+    /** The same kind band as the Visuals grid (T3's [VisualKind], read from path + title). */
+    val kind: VisualKind = VisualKind.PAGE,
+)
 
 @Immutable
 data class MemoryCardUi(val key: String, val title: String, val folder: String, val detail: String, val target: NavKey)
@@ -100,13 +110,15 @@ object HomeModel {
                 .take(ROW_LIMIT)
                 .map { v ->
                     val stamp = changedVisuals[v.path]
+                    val title = v.title.ifBlank { TvFormat.titleOf(v.path).capitalized() }
                     VisualCardUi(
                         key = "viz:${v.path}",
-                        title = v.title.ifBlank { TvFormat.titleOf(v.path).capitalized() },
+                        title = title,
                         file = fileOf(v.path),
                         updated = TvFormat.ago(v.modified, now)?.let { "updated $it" },
                         changed = stamp != null && !stamp.deleted,
                         target = Viewer(v.path, v.title.ifBlank { null }),
+                        kind = VisualKind.of(v.path, title),
                     )
                 },
             memory = memoryCards(tree.value.orEmpty(), changedMemory),

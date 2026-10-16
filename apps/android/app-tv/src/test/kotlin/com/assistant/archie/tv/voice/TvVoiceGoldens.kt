@@ -14,6 +14,7 @@ import com.assistant.archie.tv.home.HomeActions
 import com.assistant.archie.tv.home.HomeScreen
 import com.assistant.archie.tv.settings.RemoteMicActions
 import com.assistant.archie.tv.settings.RemoteMicPage
+import com.assistant.archie.tv.settings.SettingsScreen
 import com.assistant.archie.tv.shell.Connect
 import com.assistant.archie.tv.shell.Home
 import com.assistant.archie.tv.shell.SettingsPage
@@ -91,11 +92,16 @@ class TvVoiceGoldens {
     )
 
     @Test fun remoteMicSettings() = scene("voice-settings-remote-mic", SettingsPage(TvSettingsPageId.REMOTE_MIC)) {
-        RemoteMicPage(MicCheckUi(MicStatus.READY, level = 0.64f, canPlayBack = true, lastDurationMs = 2_400, heard = true), cues = true, actions = RemoteMicActions())
+        // T5: Remote microphone is a pane of the two-pane Settings screen (mockup 14).
+        SettingsScreen(TvSettingsPageId.REMOTE_MIC, onSelect = {}, focusPaneOnStart = true) {
+            RemoteMicPage(MicCheckUi(MicStatus.READY, level = 0.64f, canPlayBack = true, lastDurationMs = 2_400, heard = true), cues = true, actions = RemoteMicActions())
+        }
     }
 
     @Test fun remoteMicAlexa() = scene("voice-settings-remote-mic-alexa", SettingsPage(TvSettingsPageId.REMOTE_MIC)) {
-        RemoteMicPage(MicCheckUi(MicStatus.ALEXA_LISTENS), cues = false, actions = RemoteMicActions())
+        SettingsScreen(TvSettingsPageId.REMOTE_MIC, onSelect = {}, focusPaneOnStart = true) {
+            RemoteMicPage(MicCheckUi(MicStatus.ALEXA_LISTENS), cues = false, actions = RemoteMicActions())
+        }
     }
 
     @Test fun firstRunMicCheck() = scene("voice-first-run-mic", Connect(firstRun = true)) {

@@ -22,6 +22,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -38,7 +41,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.RectangleShape
@@ -65,6 +67,8 @@ import com.assistant.archie.tv.theme.TvDimens
 import com.assistant.archie.tv.theme.TvIcons
 import com.assistant.archie.tv.theme.TvTheme
 import com.assistant.archie.tv.theme.TvToastHost
+import com.assistant.archie.tv.theme.dismissOnBack
+import com.assistant.archie.tv.theme.trapFocus
 import com.assistant.archie.tv.voice.VoiceChip
 import com.assistant.core.data.ConnectionStatus
 import com.assistant.core.design.components.ArchieMark
@@ -107,6 +111,21 @@ fun TvShell(
     LaunchedEffect(overlays.optionsOpen) { if (overlays.optionsOpen) controller.optionsOpen = true }
 
     val overlayHost = remember { TvOverlayHost() }
+    // The options sheet closed (Back, Menu or an option): focus goes back to the element the screen
+    // had before it opened (the screen's FocusRestoreEffect, else the content's focusRestorer) —
+    // without this the focused row leaves with the sheet and Compose drops focus, or hands it to
+    // the drawer. An option that opened a dialog (an overlay layer) or another screen keeps its focus.
+    var sheetOpenedOn by remember { mutableStateOf<NavKey?>(null) }
+    LaunchedEffect(controller.optionsOpen) {
+        if (controller.optionsOpen) {
+            sheetOpenedOn = controller.nav.current
+            return@LaunchedEffect
+        }
+        val openedOn = sheetOpenedOn ?: return@LaunchedEffect
+        sheetOpenedOn = null
+        repeat(2) { withFrameNanos { } }
+        if (controller.nav.current == openedOn && overlayHost.layers.isEmpty()) controller.focusContent()
+    }
     val top = controller.backStack.lastOrNull()
     val view = controller.registry.view(top) ?: ChromeView()
     val showDrawer = !view.fullScreen && TvDestination.of(controller.nav.root) != null
@@ -348,8 +367,10 @@ fun OptionsSheet(
                 .width(400.dp)
                 .background(c.surfaceContainerHigh, RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp))
                 .padding(horizontal = 24.dp, vertical = TvDimens.OverscanVertical + 8.dp)
-                .focusGroup()
-                .focusProperties { onExit = { cancelFocusChange() } }
+                // Back closes the sheet; a focus trap that cancels every exit would swallow it
+                // (Compose turns Back into a focus exit), so trapFocus() lets Exit through.
+                .dismissOnBack(onClose)
+                .trapFocus()
                 .testTag("options-sheet"),
         ) {
             Text("Options", style = TvTheme.type.labelLarge, color = c.primary)

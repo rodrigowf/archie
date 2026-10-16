@@ -1,14 +1,12 @@
 package com.assistant.archie.tv.firstrun
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -37,7 +35,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.graphics.SolidColor
@@ -61,6 +58,7 @@ import com.assistant.archie.tv.shell.ScreenChrome
 import com.assistant.archie.tv.shell.ScreenChromeEffect
 import com.assistant.archie.tv.shell.TvKeyHandler
 import com.assistant.archie.tv.shell.TvOption
+import com.assistant.archie.tv.shell.TvOverlay
 import com.assistant.archie.tv.shell.TvRouteContext
 import com.assistant.archie.tv.theme.CardMeta
 import com.assistant.archie.tv.theme.FocusCard
@@ -70,7 +68,9 @@ import com.assistant.archie.tv.theme.TvButton
 import com.assistant.archie.tv.theme.TvButtonStyle
 import com.assistant.archie.tv.theme.TvDimens
 import com.assistant.archie.tv.theme.TvTheme
+import com.assistant.archie.tv.theme.dismissOnBack
 import com.assistant.archie.tv.theme.rememberInitialFocus
+import com.assistant.archie.tv.theme.trapFocus
 import com.assistant.core.data.ConnectionStatus
 import com.assistant.core.design.icons.ArchieIcons
 import kotlinx.coroutines.launch
@@ -284,12 +284,17 @@ private fun AddressField(onSubmit: (String) -> String?, onCancel: () -> Unit) {
 
 /**
  * TOFU (spec 14 §4.3): the server's certificate is unknown, or changed since it was trusted. A
- * window-level dialog (it needs the whole screen, and it traps focus); Back cancels; Cancel has focus.
+ * full-screen shell overlay (TvOverlay, like the T1/T2 dialogs) over a scrim: focus is trapped
+ * inside, Back cancels, Cancel has focus.
  */
 @Composable
 fun TrustDialog(t: TrustRequest, onTrust: () -> Unit, onCancel: () -> Unit) {
-    Dialog(onDismissRequest = onCancel, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        TrustPanel(t, onTrust, onCancel)
+    val c = TvTheme.colors
+    TvOverlay {
+        BackHandler(onBack = onCancel)
+        Box(Modifier.fillMaxSize().background(c.scrim.copy(alpha = 0.6f)).testTag("trust-scrim"), contentAlignment = Alignment.Center) {
+            TrustPanel(t, onTrust, onCancel)
+        }
     }
 }
 
@@ -303,8 +308,10 @@ internal fun TrustPanel(t: TrustRequest, onTrust: () -> Unit, onCancel: () -> Un
             .widthIn(max = 680.dp)
             .background(c.surfaceContainerHigh, RoundedCornerShape(28.dp))
             .padding(horizontal = 32.dp, vertical = 28.dp)
-            .focusGroup()
-            .focusProperties { onExit = { cancelFocusChange() } }
+            // Back cancels (a trap that cancels every exit would swallow it: Compose turns Back
+            // into a focus exit); trapFocus() keeps the D-pad inside and lets Exit through.
+            .dismissOnBack(onCancel)
+            .trapFocus()
             .testTag("trust-dialog"),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {

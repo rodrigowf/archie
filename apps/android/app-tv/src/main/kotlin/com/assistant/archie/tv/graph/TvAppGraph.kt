@@ -3,8 +3,10 @@ package com.assistant.archie.tv.graph
 import android.app.Application
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
+import com.assistant.archie.feature.settings.AccountsModel
 import com.assistant.archie.feature.settings.ConnectionModel
 import com.assistant.archie.feature.settings.RepositoryConnectionControl
+import com.assistant.archie.feature.settings.ServerSettingsModel
 import com.assistant.archie.feature.settings.SettingsMessages
 import com.assistant.archie.feature.toolcards.ToolImageLoader
 import com.assistant.archie.tv.shell.TvToasts
@@ -43,6 +45,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -136,6 +140,20 @@ class TvAppGraph(
     val connectionModel: ConnectionModel by lazy {
         ConnectionModel(RepositoryConnectionControl(connection, orchestrator, http, settings), settings, settingsMessages, scope)
     }
+
+    // ── T5: Settings → Voice / Server: `:feature:settings`' models, as the phone's Settings ──
+    /** Server config + catalogs (CFG-1..6); a new server drops the cached copy (T-15). */
+    val serverSettings: ServerSettingsModel by lazy {
+        ServerSettingsModel(serverConfig, api, settingsMessages, scope).also { m ->
+            connection.status.map { it.serverUrl }.filter { it != null }.distinctUntilChanged().drop(1)
+                .onEach { m.reset(); accounts.reset() }
+                .launchIn(scope)
+        }
+    }
+
+    /** Settings → Server → Accounts (read-only on the TV). */
+    val accounts: AccountsModel by lazy { AccountsModel(api, settingsMessages, scope) }
+    // ── end T5 ──
 
     /** KEEP_AWAKE pings to the TvServerHub launcher (spec 15 §7.3): pushed content (T3), live voice (T4). */
     val launcherPing = com.assistant.archie.tv.control.LauncherPing(app)

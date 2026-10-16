@@ -29,6 +29,7 @@ import com.assistant.archie.tv.home.VisualCardUi
 import com.assistant.archie.tv.shell.MemoryDoc
 import com.assistant.archie.tv.shell.Viewer
 import com.assistant.archie.tv.theme.SessionState
+import com.assistant.archie.tv.visuals.VisualKind
 import com.assistant.core.conversation.AgentApproval
 import com.assistant.core.conversation.AssistantEntry
 import com.assistant.core.conversation.ConversationState
@@ -104,10 +105,10 @@ object TvScreenFixtures {
             AgentCardUi("open:a4", convRef(openItems[4]), "Qwen", "Biography, chapter 3", SessionState.IDLE, "Draft saved."),
         ),
         visuals = listOf(
-            VisualCardUi("viz:a", "Solar dashboard", "solar-dashboard.html", "updated 5 min ago", true, Viewer("visualizations/solar-dashboard.html")),
-            VisualCardUi("viz:b", "Archie TV plan", "tv-app/", "updated 1 h ago", false, Viewer("visualizations/tv-app/index.html")),
-            VisualCardUi("viz:c", "Wake word timeline", "wakeword-timeline.html", "updated yesterday", false, Viewer("visualizations/wakeword-timeline.html")),
-            VisualCardUi("viz:d", "Tarot app screens", "tarot-review/", "updated 2 days ago", false, Viewer("visualizations/tarot-review/index.html")),
+            VisualCardUi("viz:a", "Solar dashboard", "solar-dashboard.html", "updated 5 min ago", true, Viewer("visualizations/solar-dashboard.html"), VisualKind.DASHBOARD),
+            VisualCardUi("viz:b", "Archie TV plan", "tv-app/", "updated 1 h ago", false, Viewer("visualizations/tv-app/index.html"), VisualKind.PROJECT),
+            VisualCardUi("viz:c", "Wake word timeline", "wakeword-timeline.html", "updated yesterday", false, Viewer("visualizations/wakeword-timeline.html"), VisualKind.EXPLAINER),
+            VisualCardUi("viz:d", "Tarot app screens", "tarot-review/", "updated 2 days ago", false, Viewer("visualizations/tarot-review/index.html"), VisualKind.REVIEW),
         ),
         memory = listOf(
             MemoryCardUi("mem:a", "Fire tv", "archie/devices", "Changed while you watched", MemoryDoc("archie/devices/fire-tv.md")),

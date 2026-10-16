@@ -31,6 +31,7 @@ Menu, Play/Pause, Rewind/FF, and the mic button). The design is
 | UI | Compose + `androidx.tv:tv-material` 1.1.0 + Navigation 3; dark theme only |
 | Launch activity | `com.assistant.archie.tv/.shell.MainActivity` (`LEANBACK_LAUNCHER` + `LAUNCHER`) |
 | Debug APK | `apps/android/app-tv/build/outputs/apk/debug/app-tv-debug.apk` |
+| Release APK | `apps/android/app-tv/build/outputs/apk/release/app-tv-release.apk` (R8, baseline profile; use it for every on-device check) |
 | Version file | `apps/android/app-tv/version.properties` (starts at 1 / 0.1.0) |
 | Signing | `tv.*` entries of the gitignored `apps/android/keystore.properties` (same key as `archie.*`); debug builds fall back to the SDK debug key without them |
 
@@ -137,7 +138,7 @@ screen work packages do not need to edit it.
 - **First run** (spec 15 §3.6): until `TvPrefs.setupDone`, the stack root is `Connect(firstRun =
   true)`: LAN discovery (`ConnectionRepository.scan` → `ServerDiscovery`), manual address with the
   IME (Go connects), the TOFU certificate trust dialog for self-signed servers, then Continue →
-  Home. Settings → Connection pushes the same screen. The logic is `:feature:settings`'
+  Home. Settings → Connection → Server pushes the same screen. The logic is `:feature:settings`'
   `ConnectionModel` (the phone's Settings → Connection), one per process in the graph.
 
 ## Extension points (T1–T5)
@@ -151,7 +152,7 @@ route and screen, never the shell files.
 | T2 Conversation | `conversation/ConversationScreen.kt` (+ more files in `conversation/`) | `ConversationRoute(key: Conversation, ctx)` |
 | T3 Visuals, Viewer, Memory, control channel | `visuals/`, `viewer/`, `memory/`, `control/` | `VisualsRoute`, `ViewerRoute(key: Viewer, …)`, `MemoryRoute`, `MemoryDocRoute(key: MemoryDoc, …)` |
 | T4 Voice (done) | `voice/`, `settings/RemoteMicPage.kt`, `firstrun/MicCheckStep.kt` | `TvVoice.install` sets `TvAppGraph.voice` / `.liveVoice`; `TvVoice.hostFactory` |
-| T5 Settings, perf | `settings/` | `SettingsRoute`, `SettingsPageRoute(key: SettingsPage, …)` |
+| T5 Settings, perf (done) | `settings/`, release build, `baseline-prof.txt` | `SettingsRoute`, `SettingsPageRoute(key: SettingsPage, …)` |
 
 What a screen gets and gives:
 
@@ -189,7 +190,7 @@ moves it. Close **4409** (replaced) never reconnects from that socket; **4401** 
 - Hello: `device_id` = a random UUID kept in `TvPrefs.controlDeviceId`; `device_name` =
   `TvPrefs.controlDeviceName`, else `Settings.Global.DEVICE_NAME`, else "Fire TV" / the model;
   `token` = `TvPrefs.controlToken` when set; capabilities = every command below.
-- `TvPrefs` (Settings → TV control UI comes with T5): `allowAgentsToOpen` (default on; off refuses
+- `TvPrefs` (Settings → TV control): `allowAgentsToOpen` (default on; off refuses
   every screen-changing command, `get_state` / `notify` still work), `showOpenedToasts` (default on).
 - Commands (`CommandHandler`): parameters are checked before anything moves; then the app comes to
   the front (`navHolder.bringToFront`, waits ≤ 6 s for the shell), navigates, answers once the screen
@@ -337,3 +338,87 @@ T3 (Viewer, Visuals, Memory, control channel) and T4 (voice) are described in th
   or waits, as in the apps), Live voice (Archie), Stop, More. Agents chip → side sheet (Stop; OK
   opens the subagent's transcript read-only). Long-press OK on a message: copy to composer, fork,
   rewind (confirmed).
+
+## Settings (T5)
+
+Spec 15 §3.5, mockup 14. One screen, two panes (`settings/SettingsScreen.kt`): the list on the left
+(Connection, Remote microphone, Voice, Display, TV control, Server, About), the selected page's pane
+on the right. Moving through the list shows each page; OK or Right enters the pane; Back in the pane
+returns to the list row (a picker or a text field takes Back first); Back on the list leaves
+Settings. `Settings` opens on the list, `SettingsPage(id)` with that page's pane focused. Focus
+comes back where it was after a pushed screen (Connect) or the drawer (`FocusMemory` on the list +
+"pane had focus", saveable). The key-hint bar follows the pane: "OK Change", and "Hold to test" on
+Remote microphone.
+
+Every row is one focus stop (`settings/SettingsParts.kt`): a **switch** (OK flips it), a **choice**
+(OK opens a picker side sheet, current value checked and focused; a pick saves, Back closes, focus
+returns to the row), an **action**, or an **info line** (OK shows "Edit this in Settings on the phone
+or web app"). Status boxes and notes are focus stops without an action, so the D-pad can scroll a
+pane to its end. Text is typed only for the server address (Connect) and the TV control device name
+and token.
+
+| Page | What it shows / edits |
+|---|---|
+| Connection | status, server (OK → the Connect screen: discovery, address, certificate trust), Reconnect, certificate state (pinned / system / not encrypted) |
+| Remote microphone | T4's mic status, test meter + Play back, "Listen while other apps are open" (Q2, disabled), start/stop sounds |
+| Voice | the server's live-voice provider / Google backend / model / voice / transcription language (same partial PUTs as the apps' Voice page, CFG-6 notice), and the TV's "End live voice after" (`TvVoicePrefs.liveIdleSeconds`, default 2 min, Never…10 min) |
+| Display | text size (Normal / Large / Extra large), key hints, reduce motion (`TvPrefs`) |
+| TV control | control-socket state (`graph.tvControl.client.state`: Ready, connecting, waiting, rejected with the server's reason, replaced) + Connect again, device name (IME; empty = the system name), server token for `TV_CONTROL_TOKEN` (IME, never shown, Remove), "Allow agents to open pages", "Show 'Opened by Archie' toasts". A new name or token re-sends the hello (socket closed and reopened). |
+| Server | parity subset: text model, audio model, default harness + its model (no custom ids), Claude in Chrome, active working directory, MCP server switches (the all-enabled rule, CFG-4), accounts' sign-in state (read-only). Harness options, custom models, directories, sign-ins and keys: "Phone or web app" rows. |
+| About | app version, build type, package, server + state (OK checks again), server version ("Not reported by the server": the backend has no version endpoint), licenses |
+
+The pure part is `settings/TvSettingsLogic.kt` (choices and patches built from `:feature:settings`'
+`VoiceLogic`, `ModelLogic`, `HarnessLogic`, `McpLogic`, `WorkingDirectoryLogic`; JVM-tested in
+`TvSettingsLogicTest`). Server settings go through `graph.serverSettings` (`ServerSettingsModel`)
+and `graph.accounts` (`AccountsModel`), reset on a server change; each open refetches (CFG-3). Panes
+are state-driven (`settings/SettingsPanes.kt`); `settings/SettingsRoutes.kt` wires them to the graph.
+Goldens: `SettingsGoldens` → `src/test/screenshots/settings-*.png`.
+
+**Shell fixes that came with T5.** The options sheet and the certificate dialog use `trapFocus()` +
+`dismissOnBack` (a trap that cancels every focus exit swallowed Back); the certificate dialog is a
+`TvOverlay`, no longer a window `Dialog`. When the options sheet closes, focus goes back to the
+element the screen had (its `FocusRestoreEffect`, else the content's focus restorer) unless the option
+opened a dialog or another screen. The status cluster keeps 64 dp clear of the right edge
+(`SystemMicIndicatorClearance`): Fire OS draws its mic-in-use disc at x ≈ 878–910 dp, y ≈ 37–70 dp
+while the app records, which is always while it is open. Home's Visuals cards use T3's `VisualKind`
+band and label, like the Visuals grid.
+
+## Release build and performance (T5)
+
+```bash
+shared/scripts/heavy.sh --gradle apps/android :app-tv:assembleRelease
+adb -s 192.168.0.15:5555 install -r apps/android/app-tv/build/outputs/apk/release/app-tv-release.apk
+adb -s 192.168.0.15:5555 shell cmd package compile -f -m speed-profile com.assistant.archie.tv   # tv_setup.sh does this
+```
+
+- **R8** is on for release (`configureArchieApp`), signed with the `tv.*` key (the same key as debug
+  builds, so a release installs over a debug build in place). No app-level keep rules were needed:
+  the consumer rules of `:core:voice` (`org.webrtc.**`, JNI natives, `DefaultVoiceCore`) and
+  `:core:wakeword` (JNA, Vosk) and kotlinx-serialization's bundled rules cover the reflection; the
+  release build was driven on the TV (Home, a long conversation, Settings) without a crash.
+- **Baseline profile**: `app-tv/src/main/baseline-prof.txt`, hand-written wildcard rules (no
+  emulator or Macrobenchmark device on this toolchain): Archie's own packages
+  (`com/assistant/archie/tv`, `com/assistant/core`, `com/assistant/archie/feature`) plus coroutines,
+  kotlinx-serialization, collections-immutable, OkHttp/Okio, commonmark, Navigation 3 and
+  tv-material. AGP expands the wildcards, R8 rewrites them, the APK carries
+  `assets/dexopt/baseline.prof`; androidx.profileinstaller hands it to ART on first launch (or
+  `am broadcast -a androidx.profileinstaller.action.INSTALL_PROFILE com.assistant.archie.tv/androidx.profileinstaller.ProfileInstallReceiver`),
+  then `compile -m speed-profile` compiles it.
+- The window background is dropped after the first frame (the shell's Surface is opaque): one
+  full-screen fill less per frame (no measurable change on Home's GPU time, kept as harmless).
+
+**Measured on the AFTKM, 2026-10-16** (release, server = Jetson; `am start -W` after `force-stop`,
+`dumpsys meminfo`, `dumpsys gfxinfo` around scripted `input keyevent` runs at 4 keys/s):
+
+| | release, `verify` only | release, `speed-profile` |
+|---|---|---|
+| Cold start to Home (`TotalTime`, 3 runs) | 1.33–1.53 s | 0.67–0.74 s |
+| PSS, Archie conversation open (Home after it) | 112 MB (135) | 121–126 MB (140) |
+| Reading a long conversation (35 Up/Down + RW/FF) | p90 17 ms, p99 48 ms | p90 13 ms, p99 21–27 ms |
+| Home rows (26 D-pad steps) | p90 23 ms, p99 44 ms | p90 20 ms, p99 31 ms; ≈ 1 frame past its deadline per step |
+
+(A debug build cold-starts in ≈ 7.5 s.) `gfxinfo`'s "Janky frames" percentage counts every frame
+after an `adb shell input` key as "high input latency" (the injected event's timestamp), so use
+"Frame deadline missed" and the percentiles, or `framestats`. On Home the GPU needs ≈ 12 ms a frame
+(p90 15.5 ms) against 5 ms in a conversation: Home's remaining cost is drawing, not composition.
+

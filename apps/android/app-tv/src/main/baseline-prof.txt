@@ -1,0 +1,38 @@
+# Archie TV baseline profile (spec 15 §6.2), hand-curated: no emulator or Macrobenchmark device on
+# this toolchain, so instead of a recorded profile the rules below mark Archie's own code and the
+# libraries on the startup / transcript-scroll path as hot. AGP expands the wildcards
+# (expandReleaseArtProfileWildcards), R8 rewrites the names, and the profile ships in the APK
+# (assets/dexopt/baseline.prof). On a sideloaded install, androidx.profileinstaller hands it to ART
+# on first launch; `cmd package compile -f -m speed-profile com.assistant.archie.tv` (tv_setup.sh)
+# then compiles these methods ahead of time. Compose, Activity, Lifecycle and tv-material ship their
+# own profiles, which AGP merges with this one.
+
+# Archie TV: shell, Home, Conversation transcript, Settings, voice, control channel.
+HSPLcom/assistant/archie/tv/**->**(**)**
+Lcom/assistant/archie/tv/**;
+
+# Shared Android core and features (data layer, protocol decoding, conversation reducer, markdown,
+# tool cards, sessions, settings models).
+HSPLcom/assistant/core/**->**(**)**
+Lcom/assistant/core/**;
+HSPLcom/assistant/archie/feature/**->**(**)**
+Lcom/assistant/archie/feature/**;
+
+# Libraries without their own profiles on the hot path: coroutines/flows, JSON decoding of every
+# frame, the socket + REST stack, markdown parsing, Navigation 3.
+HSPLkotlinx/coroutines/**->**(**)**
+Lkotlinx/coroutines/**;
+HSPLkotlinx/serialization/**->**(**)**
+Lkotlinx/serialization/**;
+HSPLkotlinx/collections/immutable/**->**(**)**
+Lkotlinx/collections/immutable/**;
+HSPLokhttp3/**->**(**)**
+Lokhttp3/**;
+HSPLokio/**->**(**)**
+Lokio/**;
+HSPLorg/commonmark/**->**(**)**
+Lorg/commonmark/**;
+HSPLandroidx/navigation3/**->**(**)**
+Landroidx/navigation3/**;
+HSPLandroidx/tv/material3/**->**(**)**
+Landroidx/tv/material3/**;
