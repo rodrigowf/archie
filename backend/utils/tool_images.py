@@ -47,6 +47,10 @@ ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _MEMORY_CAP_BYTES = 32 * 1024 * 1024
 _INDEX_MAX_FILES = 256
 _IMAGE_MARK = b'"image"'  # cheap pre-filter, whatever the JSON spacing
+# Ids of a candidate line, read from the raw bytes: image lines carry the base64 twice and parsing
+# them all made the first lookup take ~5 s on the Jetson. A stray match only costs a wasted read:
+# the served line is parsed and checked (find_image).
+_TOOL_USE_ID_RE = re.compile(rb'"tool_use_id"\s*:\s*"([A-Za-z0-9_-]{1,128})"')
 
 
 def image_url(session_id: str, tool_use_id: str, n: int) -> str:
@@ -188,8 +192,8 @@ class _FileIndex:
                     if not line.endswith(b"\n"):
                         break  # partial last line: next time
                     if _IMAGE_MARK in line and b'tool_result' in line:
-                        for tool_use_id, _ in _result_blocks(line):
-                            offsets.setdefault(tool_use_id, pos)
+                        for m in _TOOL_USE_ID_RE.finditer(line):
+                            offsets.setdefault(m.group(1).decode(), pos)
                     pos += len(line)
         except OSError:
             logger.exception("tool image: could not index %s", path)
