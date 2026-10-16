@@ -1035,8 +1035,11 @@ inv04 RS-33).
 `LastExchangeSink`. That is all. The lite app does **not** use `:core:conversation`, `:core:data` or any Compose
 module.
 - Orchestrator adoption is automatic (`OrchestratorChannel`). There is no conflict dialog (inv04 §9.2 item 6).
-- `NoOrchestrator` → the face shows "No conversation open on the server", and the Start button sends `start` without
-  a local id. The backend creates one (same as the old History FAB path, without the UI).
+- `NoOrchestrator` → the face's ring around the mark turns amber (warning token) with "No conversation open · say
+  "wake up" or tap to start one". A tap on the centre button or the wake word starts a **new** orchestrator
+  conversation at once: `VoiceHostRuntime.armNewIfNoConversation()` arms a client-minted id (`armNewSession`), the
+  channel sends its `start` (no `reattach`) and the voice start carries the same id. The wake word does the same in
+  the main app (2026-10-15).
 
 ### 5.5 What runs where
 

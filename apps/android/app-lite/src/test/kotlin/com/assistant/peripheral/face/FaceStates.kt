@@ -23,6 +23,7 @@ object FaceStates {
 
     val scenes: List<Scene> = listOf(
         Scene("ready", connected, SocketState.Open, lastDoor),
+        Scene("no-conversation", connected.copy(noOrchestrator = true), SocketState.Open, LastExchange()),
         Scene("listening", connected.copy(session = live(SessionPhase.ACTIVE).copy(vadState = "speech", vadDurationMs = 1_200)), SocketState.Open,
             LastExchange("What's the weather tomorrow", null)),
         Scene("speaking", connected.copy(session = live(SessionPhase.SPEAKING)), SocketState.Open, weather),

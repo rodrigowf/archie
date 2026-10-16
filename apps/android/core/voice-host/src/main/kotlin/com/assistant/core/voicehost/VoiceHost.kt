@@ -140,7 +140,7 @@ data class LastExchange(val user: String? = null, val assistant: String? = null)
 data class VoiceUiState(
     val connection: HostConnection = HostConnection.OFFLINE,
     val serverUrl: String? = null,
-    /** The probe found no orchestrator (lite: "No conversation open on the server"). */
+    /** The probe found no orchestrator (lite: amber ring, "No conversation open"; a voice start creates one). */
     val noOrchestrator: Boolean = false,
     val session: VoiceSessionState = VoiceSessionState(),
     /** P-2 link health of live voice: Up / Reconnecting(elapsed) / Failed (manual Reconnect). */

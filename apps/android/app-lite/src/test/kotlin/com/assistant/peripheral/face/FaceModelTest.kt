@@ -141,7 +141,23 @@ class FaceModelTest {
         assertEquals(FaceGlyph.MIC_OFF, m.glyph)
         assertEquals("Wake word off · tap to talk", face(base.copy(wake = WakeHealth.DISABLED)).sub)
         assertEquals("Paused", face(base.copy(wake = WakeHealth.PAUSED_BY_USER)).word)
-        assertEquals(FaceModel.NO_ORCHESTRATOR, face(base.copy(noOrchestrator = true)).sub)
+    }
+
+    /** No conversation on the server: amber ring around the mark, a tap starts a new one (2026-10-15). */
+    @Test fun noOrchestrator_warningRingAndTapStartsOne() {
+        val m = face(base.copy(noOrchestrator = true))
+        assertEquals(FaceShape.MARK_RING, m.shape)
+        assertEquals(FaceTone.WARNING, m.tone)
+        assertEquals(FaceGlyph.MARK, m.glyph)
+        assertEquals(FaceAction.START, m.action)
+        assertEquals("No conversation open · say \"wake up\" or tap to start one", m.sub)
+        assertEquals("No conversation open · tap to start one", face(base.copy(noOrchestrator = true, wake = WakeHealth.DISABLED)).sub)
+        val paused = face(base.copy(noOrchestrator = true, wake = WakeHealth.PAUSED_BY_USER))
+        assertEquals(FaceTone.WARNING, paused.tone)
+        assertEquals(FaceAction.START, paused.action)
+        assertEquals("a conversation open: the quiet ring", FaceTone.OUTLINE, face(base).tone)
+        assertEquals("offline wins over the amber ring", FaceShape.ERROR_RING,
+            face(base.copy(noOrchestrator = true), socket = SocketState.Disconnected(true, "x")).shape)
     }
 
     @Test fun voicePhases_mapToWords() {
@@ -161,6 +177,6 @@ class FaceModelTest {
 
     @Test fun everySceneHasAWord() {
         FaceStates.scenes.forEach { assertTrue(it.name, FaceStates.model(it).word.isNotBlank()) }
-        assertEquals(10, FaceStates.scenes.size)
+        assertEquals(11, FaceStates.scenes.size)
     }
 }
