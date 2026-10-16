@@ -40,6 +40,19 @@
 - Wave 3 started: T5 (`feat/tv-t5`: settings, release + perf, polish), two read-only reviews
   (shared voice/control/backend; TV UI).
 
+- Wave 3: T5 merged (settings, release, perf: cold start 0.67-0.74 s, PSS ~125 MB, conversation
+  p99 21-27 ms; Home ≈ 1 dropped frame per D-pad step = budget, GPU-bound). Two reviews triaged
+  in `review-2026-10-16.md`; backend fixes merged (`feat/tv-fix-be`); Android fix pass running.
+- **Deployed 2026-10-16 ~20:20** (Rodrigo approved): `local` fast-forwarded to `feat/tv`
+  (`cfd5d0f4`, after merging another session's visualization work), pushed, Jetson pulled and
+  restarted. The TV app connected to `/api/tv/ws` at once. Context: skills tv-remote, tv-dev,
+  connect-tv, create-viz (3-way merged with another session's edit), ORCHESTRATOR_SCRIPTS
+  (`tv_cmd`, 3-way merged), create_visualization.py, avatar_on_tv.py, `scripts/tv_cmd.py`
+  symlink, `.env` TV_HOST_NAME=server / TV_HOST_SSH (context `0122578`).
+- A7 passed against the Jetson: `tv_cmd.py viz` from the laptop → Viewer in 1.6 s, `state` correct.
+  Viewer not full-bleed yet (added to the fix pass).
+- Rodrigo: keep Alexa voice UI off; test conversations deleted (API, 204).
+
 ## WP → commit
 
 | WP | Branch | Commit | State |
@@ -54,11 +67,13 @@
 | T3 | feat/tv-viewer | acca129c | merged |
 | T4 | feat/tv-voice | 90bd5883 | merged |
 | S (setup) | feat/tv | 3355bf46 | done |
-| T5 | feat/tv-t5 | — | running |
-| Reviews | — | — | running |
+| T5 | feat/tv-t5 | merged | done |
+| Backend fixes | feat/tv-fix-be | merged | done |
+| Android fixes | feat/tv-fix-android | — | running |
+| Reviews | — | review-2026-10-16.md | triaged |
 
 ## Open issues
 
 - Q1 Sleep mode untested on Rodrigo's monitor setup (by design).
 - Q2 background listening behind a setting, default off.
-- Keep vizzini disabled long-term? Confirm with Rodrigo at handoff.
+- vizzini stays disabled (Rodrigo, 2026-10-16).
