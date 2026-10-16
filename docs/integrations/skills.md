@@ -3,7 +3,7 @@ name: skills
 category: archie/integrations
 tags: [skills, slash-commands, skill-md, agents, scripts, run-script, orchestrator-scripts, scaffold-skill, self-modification, catalog]
 created: 2026-04-15
-modified: 2026-10-09
+modified: 2026-10-15
 summary: How skills, agents and scripts work in Archie (format, locations, discovery, run_script allowlist) plus the catalog of every skill.
 source: curated (consolidated from memory notes assistant/utilities/project_skills_not_registered.md, assistant/infrastructure/features_and_integrations_summary.md §15, projects/home-automation/tuya_local_control.md, ORCHESTRATOR_SCRIPTS.md, context/AGENTS.md; verified against code 2026-10-06)
 references:
@@ -152,8 +152,9 @@ an agent session ([orchestrator](../architecture/orchestrator.md)).
   (`script`, `args`, `exit_code`, `stdout`, `stderr`). Paths are normalized to repo-root-relative;
   anything not in the list is refused.
 - Current entries: lamp control (`tuya_lamps.py`), the browser extension (`browser_cmd.py`), the
-  voice prompt size diagnostic (`measure_voice_prompt.py`) and read-only X API calls
-  (`x_api.py`, whose write commands need explicit approval per message).
+  voice prompt size diagnostic (`measure_voice_prompt.py`) and putting the avatar on the Fire TV
+  (`avatar_on_tv.py`). X API access is deliberately *not* allowlisted — it goes through a session
+  with the `/x` skill, where reads cost money per call and writes act publicly as Rodrigo.
 
 ## Skill catalog
 

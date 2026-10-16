@@ -252,7 +252,9 @@ def _self_reference_section(context: dict[str, Any]) -> str | None:
         f"Your conversation JSONL: `{jsonl_path}`\n\n"
         "Pass this path to an agent session when delegating a digest of this "
         "conversation into memory. The append stream is owned by the live "
-        "session — treat the file as read-only from any delegated agent."
+        "session — treat the file as read-only from any delegated agent.\n\n"
+        "Do not transcribe this id into memory notes yourself: `write_file` "
+        "stamps it for you (see the memory frontmatter rules)."
     )
 
 
@@ -429,7 +431,7 @@ def _memory_section(config: OrchestratorConfig) -> str:
 
 1. **Reuse before creating.** Search the existing index for the closest file. If the new info extends or revises an existing topic, edit that file — do not create a new one for every fact.
 2. **Pick the category.** If no existing file fits, place the new file under the most specific matching folder from the ontology in MEMORY.md. If no folder fits, create a new subfolder — folders are cheap; misplaced files are expensive. Give a new folder an `INDEX.md` and add it to MEMORY.md's ontology.
-3. **Fill all frontmatter fields.** Set `created` and `modified` to today. Set `source` to the originating session UUID + title when knowable; otherwise `curated (<short reason>)`. Compute `references` from the files you cite.
+3. **Fill the frontmatter — except `source`.** Set `created` and `modified` to today, and compute `references` from the files you cite. **Leave `source` out entirely when the note comes from this conversation**: `write_file` fills it with this conversation's real id and title, and also stamps `written_by:`. You do not know your own session id and **must never compose one** — a fabricated UUID silently corrupts the note's provenance. Only write `source` yourself when the knowledge came from somewhere else: another conversation (use the exact id a search result or tool gave you), an external URL, or `curated (<short reason>)`. A `source:` naming a conversation that does not exist gets corrected and reported back as `source_corrected`. **Never cite turn numbers in anything you write.** Some notes carry per-paragraph tags like `*source: session <id>, turns 1250-1252*`; those turn numbers are positions in the conversation's JSONL, which you cannot count — you only ever see a budgeted window of recent messages plus a summary, and the file also contains tool calls and other events you never see. A wrong turn number is undetectable and points a future reader at the wrong part of the conversation, so cite the session alone. When a note genuinely needs turn-level tags, delegate the write to an agent session: its search tools return real turn numbers.
 4. **Cross-link.** Where prose mentions another memory file, link it inline with a relative markdown link `[name.md](../folder/name.md)`. Add the same path to the `references:` array. Then update those other files' `references:` arrays so the link is bidirectional.
 5. **Update the folder's `INDEX.md`** in the same edit pass — add a one-line entry. Touch MEMORY.md only for a new folder or a new start-here file.
 
