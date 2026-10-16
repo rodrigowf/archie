@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug builds only (spec 15 §4, WP T4): voice test hooks driven with `adb shell am broadcast`, so
+  voice can be tested end to end on the TV without a human holding the remote. Guarded by the DUMP
+  permission (adb shell has it; apps do not). Not in release builds.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <receiver
+            android:name=".voice.DebugMicReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="com.assistant.archie.tv.DEBUG_MIC_BURST" />
+                <action android:name="com.assistant.archie.tv.DEBUG_MIC_SPIKE" />
+                <action android:name="com.assistant.archie.tv.DEBUG_NEW_ARCHIE" />
+                <action android:name="com.assistant.archie.tv.DEBUG_OPEN_AGENT" />
+                <action android:name="com.assistant.archie.tv.DEBUG_CLOSE_AGENT" />
+                <action android:name="com.assistant.archie.tv.DEBUG_LIVE_VOICE" />
+                <action android:name="com.assistant.archie.tv.DEBUG_SET_SERVER" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

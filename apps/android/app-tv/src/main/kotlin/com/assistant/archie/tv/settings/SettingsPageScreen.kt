@@ -49,6 +49,7 @@ fun SettingsPageRoute(key: SettingsPage, ctx: TvRouteContext) {
             val info = remember(context) { context.packageManager.getPackageInfo(context.packageName, 0) }
             AboutPage(appVersion = "${info.versionName} (${PackageInfoCompat.getLongVersionCode(info)})", server = g.currentServerUrl())
         }
+        TvSettingsPageId.REMOTE_MIC -> RemoteMicRoute(ctx) // T4 (RemoteMicPage.kt)
         else -> PendingPage(key.id)
     }
 }

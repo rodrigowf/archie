@@ -2,6 +2,7 @@ package com.assistant.core.voice.transport
 
 import com.assistant.core.audio.policy.DefaultMicSourcePolicy
 import com.assistant.core.audio.ports.AudioDeviceRef
+import com.assistant.core.audio.ports.MicSourcePolicy
 import com.assistant.core.audio.ports.ProviderKind
 import com.assistant.core.audio.ports.SpeakerMode
 import com.assistant.core.voice.VoiceLogMarkers
@@ -262,7 +263,7 @@ class WebRtcTransport(private val deps: WebRtcDeps) : VoiceTransport {
     /** Returns true once the data channel is open, false when the session failed or was torn down. */
     private suspend fun establish(session: Session, endpoint: String, token: String): Boolean {
         initializeGlobalsOnce(deps.platform)
-        val factory = deps.platform.createFactory(audioOptions(deps.sdkInt), ::onRecordedAudio)
+        val factory = deps.platform.createFactory(audioOptions(deps.sdkInt, deps.micSourcePolicy, deps.mediaPlayback), ::onRecordedAudio)
         if (!adopt(session) { session.factory = factory }) {
             factory.dispose()
             return false
@@ -400,6 +401,7 @@ class WebRtcTransport(private val deps: WebRtcDeps) : VoiceTransport {
 
     /** ADM record hook (record thread): the gain, incl. the duck gain, before WebRTC processing. */
     private fun onRecordedAudio(buffer: ByteBuffer) {
+        deps.micFeed?.fill(buffer)
         if (meters.get() > 0) micLevel.offer(rms(buffer))
         val gain = duck.currentMicGain
         if (gain != 1.0f) applyGain(buffer, gain)
@@ -495,14 +497,19 @@ class WebRtcTransport(private val deps: WebRtcDeps) : VoiceTransport {
         )
 
         /** Software-only AEC/NS/AGC (field choice, **LB**); mic source per API level (RS-24). */
-        internal fun audioOptions(sdkInt: Int) = RtcAudioOptions(
+        internal fun audioOptions(
+            sdkInt: Int,
+            micSourcePolicy: MicSourcePolicy = DefaultMicSourcePolicy,
+            mediaPlayback: Boolean = false,
+        ) = RtcAudioOptions(
             useHardwareAec = false,
             useHardwareNs = false,
             webRtcBasedAec = true,
             webRtcBasedNs = true,
             webRtcBasedAgc = true,
-            micSource = DefaultMicSourcePolicy.sourceFor(sdkInt),
+            micSource = micSourcePolicy.sourceFor(sdkInt),
             mandatoryConstraints = VoiceTuning.GOOG_CONSTRAINTS.associateWith { "true" },
+            mediaPlayback = mediaPlayback,
         )
 
         private fun initializeGlobalsOnce(platform: RtcPlatform) {

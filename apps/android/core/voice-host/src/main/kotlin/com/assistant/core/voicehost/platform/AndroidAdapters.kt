@@ -123,8 +123,9 @@ class MicPushToTalkRecorder(
     private val sdkInt: Int,
     private val scope: CoroutineScope,
     private val log: VoiceLog,
+    /** Additive (spec 15 TV-9): Archie TV passes a fixed-source core; phones keep the default. */
+    private val audioCore: DefaultAudioCore = DefaultAudioCore(),
 ) : PushToTalkRecorder {
-    private val audioCore = DefaultAudioCore()
     private val lock = Any()
     private var job: Job? = null
     private val frames = ArrayList<ShortArray>()

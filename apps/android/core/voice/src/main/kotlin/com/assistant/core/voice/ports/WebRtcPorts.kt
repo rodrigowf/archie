@@ -1,5 +1,7 @@
 package com.assistant.core.voice.ports
 
+import com.assistant.core.audio.policy.DefaultMicSourcePolicy
+import com.assistant.core.audio.ports.MicSourcePolicy
 import com.assistant.core.audio.ports.MicSourceType
 import com.assistant.core.audio.ports.MonotonicClock
 import com.assistant.core.audio.ports.VoiceLog
@@ -29,7 +31,22 @@ data class RtcAudioOptions(
     val micSource: MicSourceType,
     /** `MediaConstraints.mandatory` of the audio source (the goog* set). */
     val mandatoryConstraints: Map<String, String>,
+    /**
+     * Additive (spec 15 §4.2): play the call on the media stream (`USAGE_MEDIA`) instead of the ADM's
+     * default voice-communication attributes. Archie TV only (HDMI); phones keep `false`.
+     */
+    val mediaPlayback: Boolean = false,
 )
+
+/**
+ * Additive (spec 15 §4.2): replaces each recorded ADM buffer (10 ms of mono PCM16 little-endian at
+ * the ADM's rate, `remaining() / 2 * 100` Hz) in place, on the record thread, before gain and before
+ * WebRTC processing. Archie TV feeds the remote's audio this way and digital silence between its
+ * bursts, so the ADM's own recorder is only the clock. `null` (phones) = the recorded audio as is.
+ */
+fun interface RtcMicFeed {
+    fun fill(buffer: ByteBuffer)
+}
 
 data class RtcPeerOptions(
     val unifiedPlan: Boolean,
@@ -94,4 +111,10 @@ class WebRtcDeps(
     val sdkInt: Int,
     val platform: RtcPlatform,
     val sdp: SdpExchange,
+    /** Additive (spec 15 TV-9): the ADM's `setAudioSource`. Default: the API-level policy (phones). */
+    val micSourcePolicy: MicSourcePolicy = DefaultMicSourcePolicy,
+    /** Additive (spec 15 §4.2): see [RtcMicFeed]. `null` (phones) = the ADM's own recording. */
+    val micFeed: RtcMicFeed? = null,
+    /** Additive (spec 15 §4.2): see [RtcAudioOptions.mediaPlayback]. */
+    val mediaPlayback: Boolean = false,
 )

@@ -84,7 +84,14 @@ app-tv/src/main/kotlin/com/assistant/archie/tv/
                               TvToastHost, TvEmptyState, TvBadge, rememberInitialFocus
            TvIcons, TvFormat
   home/ conversations/ conversation/ visuals/ viewer/ memory/ settings/ firstrun/   one route each
-  voice/   TvVoiceSeams       LiveVoiceToggle, VoiceChip (T4 adds RemoteMicSource, router, overlay)
+  voice/   TvVoice            process-scoped wiring (TvVoiceOwner = the Application); TvVoice.hostFactory
+           RemoteMicSource    the ONE recorder on the remote (VOICE_RECOGNITION 16 kHz) + BurstDetector
+           TvVoiceRouter      burst → Live / Dictation / VoiceMessage / Test (pure)
+           TvVoiceController  overlay + mic-test state; voice messages (VoiceIo) and dictation (/api/transcribe)
+           LiveMicBridge      the live call's continuous mic (WS relay MicSource, WebRTC RtcMicFeed)
+           TvLiveVoice        Play/Pause toggle over the voice host, idle end, KEEP_AWAKE pings
+           VoiceOverlayHost   hold pill, Sending…, live panel, dictation chip; the RECORD_AUDIO request
+           TvVoiceSeams       LiveVoiceToggle, VoiceChip (status chip), TvVoicePresence
   control/                    (T3: TvControlClient, CommandHandler, StateReporter, LauncherPing)
 ```
 
@@ -134,7 +141,7 @@ route and screen, never the shell files.
 | T1 Home + Conversations | `home/HomeScreen.kt`, `conversations/ConversationsScreen.kt` | `HomeRoute(ctx)`, `ConversationsRoute(ctx)` |
 | T2 Conversation | `conversation/ConversationScreen.kt` (+ more files in `conversation/`) | `ConversationRoute(key: Conversation, ctx)` |
 | T3 Visuals, Viewer, Memory, control channel | `visuals/`, `viewer/`, `memory/`, `control/` | `VisualsRoute`, `ViewerRoute(key: Viewer, …)`, `MemoryRoute`, `MemoryDocRoute(key: MemoryDoc, …)` |
-| T4 Voice | `voice/`, `settings/` Remote mic + Voice pages, first-run mic step | `TvAppGraph.voiceHostFactory`, `.voice`, `.liveVoice` |
+| T4 Voice (done) | `voice/`, `settings/RemoteMicPage.kt`, `firstrun/MicCheckStep.kt` | `TvVoice.install` sets `TvAppGraph.voice` / `.liveVoice`; `TvVoice.hostFactory` |
 | T5 Settings, perf | `settings/` | `SettingsRoute`, `SettingsPageRoute(key: SettingsPage, …)` |
 
 What a screen gets and gives:
@@ -158,6 +165,57 @@ What a screen gets and gives:
 - **State-driven screens.** Keep every screen a `XScreen(state, actions)` composable fed by its
   `XRoute`, so Roborazzi goldens (`src/test/.../TvShellGoldens.kt`, 960×540 dp television
   qualifier) render it without a graph.
+
+## Voice (T4)
+
+Spec 15 §4. Everything starts from the remote's mic button, which never reaches the app as a key:
+
+- **`RemoteMicSource`** keeps one `AudioRecord(VOICE_RECOGNITION, 16 kHz)` armed while the app is
+  started (process lifecycle). `read()` blocks while the button is up, so a watchdog (50 ms) ends a
+  burst after 350 ms without frames; bursts under 250 ms are dropped ("Too short"), 60 s is the cap.
+  Fire OS shows its microphone indicator top-right while the app is open (the recorder is armed).
+- **Routing** (`TvVoiceRouter`, decided when the burst starts): live voice owned here → the call;
+  an agent conversation on screen → dictation (`POST /api/transcribe` → chip with Send focused /
+  Edit with the IME / Cancel; Send = `ConversationRepository.send`); a mic test page → the test
+  meter; anything else → a voice message to Archie (`send_audio` WAV on the orchestrator socket, as
+  the phone's push-to-talk; with no Archie conversation open it starts a new one first).
+- **Live voice** (Play/Pause, hero button): `AndroidVoiceHost.create` with `HostConfig.tv` — no wake
+  word, the call on the media stream. The TV never opens a second recorder on the remote:
+  `LiveMicBridge` turns its bursts into a continuous stream (voice while held, digital silence
+  otherwise), fed to the WS relay (Qwen/Gemini) as its `MicSource` and to WebRTC (OpenAI) through
+  `RtcMicFeed` with the ADM recording VOICE_COMMUNICATION only as a clock (spec 15 §4.2 has the
+  spike). The provider's VAD ends each turn on the silence. Ends on Play/Pause, Back while the
+  panel shows, or 120 s with nobody talking (`TvVoicePrefs.liveIdleSeconds`).
+- **Status chip**: Idle · Listening (button held) · Thinking (sending / transcribing, live thinking)
+  · Speaking · Live · On phone.
+- **Settings → Remote microphone** (`settings/RemoteMicPage.kt`): status (Ready / Alexa also listens
+  / no permission / busy), the test meter with Play back, "Listen while other apps are open" (Q2,
+  not built: disabled), start / stop sounds. First run step 2 (`firstrun/MicCheckStep.kt`) is the
+  same check after Connect.
+
+Shared-module additions (each default keeps the phones unchanged, each with a test):
+`:core:audio` `FixedMicSourcePolicy`, `DefaultAudioCore(micSource)`; `:core:voice`
+`WebRtcDeps.micSourcePolicy / micFeed / mediaPlayback`, `RtcAudioOptions.mediaPlayback`,
+`RtcMicFeed`; `:core:voice-host` `HostConfig.wakeWord / audio`, `HostConfig.tv`, `HostAudio`,
+`NotificationSpec.tv`, `MicPushToTalkRecorder(audioCore)`; the runtime never builds a wake engine
+when `wakeWord = false`.
+
+**Testing without a human** (debug builds only, `src/debug`): `DebugMicReceiver`, guarded by the DUMP
+permission so only `adb shell` can call it:
+
+```bash
+R="adb -s 192.168.0.15:5555 shell am broadcast -n com.assistant.archie.tv/.voice.DebugMicReceiver -a com.assistant.archie.tv"
+$R.DEBUG_MIC_BURST --es wav hello.wav     # a WAV in the app's files dir, played as a held mic button
+$R.DEBUG_SET_SERVER --es url http://127.0.0.1:8777   # with adb reverse tcp:8777 tcp:8777 to a lean backend
+$R.DEBUG_OPEN_AGENT                       # a new agent session on screen (dictation target)
+$R.DEBUG_CLOSE_AGENT --es local_id <id>
+$R.DEBUG_NEW_ARCHIE                       # a new Archie conversation
+$R.DEBUG_LIVE_VOICE                       # the Play/Pause toggle
+$R.DEBUG_MIC_SPIKE                        # logs which mic sources stream next to the armed remote
+```
+
+Push a WAV with `adb push x.wav /data/local/tmp/` then `run-as com.assistant.archie.tv cp
+/data/local/tmp/x.wav files/`. Logs: `ArchieTv/Voice`, `ArchieTv/Debug`.
 
 ## Status (T0, 2026-10-16)
 
