@@ -3,7 +3,7 @@ name: orchestrator
 category: archie/architecture
 tags: [orchestrator, agent-loop, tools, providers, system-prompt, background-runner, notifications, run-script, persistence, jsonl]
 created: 2026-02-23
-modified: 2026-10-12
+modified: 2026-10-16
 summary: The orchestrator agent — session vs agent loop, model providers, system prompt, the 24 tools, background runner, persistence.
 source: curated (consolidated from memory notes assistant/architecture/orchestrator-vision.md, assistant/architecture/permissions_branch_architecture.md, assistant/architecture/project-overview.md, assistant/infrastructure/features_and_integrations_summary.md; verified against code 2026-10-06)
 references:
@@ -98,16 +98,18 @@ Both text and voice use the same `ToolRegistry`: `get_definitions()` returns Ant
 
 Sections, in order: role → date/time → **This Conversation** (the orchestrator's own JSONL path, so
 it can hand it to an agent for digestion) → **active sessions** (titles, in-flight turns, pending
-permissions) → **available MCPs** → **memory** → **scripts allowlist** → guidelines (delegation,
-background events, searching) → recent history (voice only; text mode passes history as messages).
+permissions) → **available MCPs** → the voice provider's own memory file (voice only, ahead of the
+general memory so each model takes in its own identity first) → **memory** → **scripts allowlist** →
+guidelines (delegation, background events, searching) → recent history (voice only; text mode passes
+history as messages).
 
 Files injected from `context/memory/`:
 
 | File | Limit | When |
 |---|---|---|
 | `MEMORY.md` (root index of the wiki) | `MAX_MEMORY_INDEX_CHARS = 40000`, truncated with a "read from line N" hint | Always |
-| `ORCHESTRATOR_MEMORY.md` (private orchestrator memory, no frontmatter; a new install seeds it from `install/ORCHESTRATOR_MEMORY.md` — identity + first-run onboarding, see [installation](../infrastructure/installation.md#a-new-archies-first-conversations)) | `MAX_MEMORY_CHARS = 12000` | Always |
-| `ORCHESTRATOR_MEMORY_<provider>.md` (e.g. `_qwen`, `_gemini`) | `MAX_MEMORY_CHARS` | Only in a realtime voice session on that provider |
+| `ORCHESTRATOR_MEMORY.md` (private orchestrator memory, no frontmatter; a new install seeds it from `install/ORCHESTRATOR_MEMORY.md` — identity + first-run onboarding, see [installation](../infrastructure/installation.md#a-new-archies-first-conversations)) | `MAX_MEMORY_CHARS = 24000` | Always |
+| `ORCHESTRATOR_MEMORY_<provider>.md` (e.g. `_qwen`, `_google`) | `MAX_MEMORY_CHARS` | Only in a realtime voice session on that provider; its own section before the memory section, as plain markdown, not in a code fence (it holds instructions, such as the avatar's emoji rules) |
 | `ORCHESTRATOR_SCRIPTS.md` (`run_script` allowlist) | `MAX_SCRIPTS_CHARS = 12000` | Always, verbatim |
 
 The memory section also teaches the add/update flow for the wiki (see

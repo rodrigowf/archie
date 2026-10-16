@@ -3,7 +3,7 @@ name: qwen-omni
 category: archie/voice
 tags: [voice, qwen, qwen-omni, dashscope, alibaba, websocket, voice-relay, silero, vad, schema-sanitiser, common-error]
 created: 2026-05-16
-modified: 2026-10-10
+modified: 2026-10-16
 summary: Qwen-Omni realtime voice over DashScope via the backend relay; the "Common error!" bisector, sanitisers, client-side Silero VAD, the 320-audio cap (silence gating + audio budget), reconnect, voices.
 source: curated (consolidated from memory notes assistant/voice/qwen_omni_voice_adaptation.md, assistant/voice/voice-multimodel-plan.md, auto-memory feedback_qwen_voice_dashscope_2026_05, project_qwen_voice_gate_no_staleness_clear; verified against code 2026-10-06)
 references:
@@ -41,7 +41,8 @@ Code: `backend/orchestrator/providers/qwen_voice.py` (`QwenVoiceProvider`),
 
 | Model | Default voice | Audio in / out |
 |---|---|---|
-| `qwen3.5-omni-plus-realtime` (default) | `Aiden` | `pcm` 24 kHz / `pcm` 24 kHz |
+| `qwen3.8-omni-flash-realtime` (default since 2026-10-16) | `Aiden` | `pcm16` 16 kHz / `pcm24` 24 kHz (sent by `_MODEL_AUDIO_FORMATS`; the model itself reports `pcm`/`pcm` in `session.created` and accepts both) |
+| `qwen3.5-omni-plus-realtime` | `Aiden` | `pcm` 24 kHz / `pcm` 24 kHz |
 | `qwen3-omni-flash-realtime` | `Aiden` | `pcm16` 16 kHz / `pcm24` 24 kHz |
 | dated snapshots (`…-realtime-2026-03-15`) or other discovered ids | inherit their alias's entry (`qwen_model_entry`) | by family |
 
@@ -62,10 +63,31 @@ default `en`), but see "language is poisoned" below.
 `tool_choice` is `"auto"`. Plus calls tools reliably with it. Flash needs
 `"required"`, which is not exposed per session yet.
 
-Only the Qwen prompt gets an extra "Voice Mode" directives block appended in
-`format_session_config` (pacing, never read tool syntax or formatting markers
-aloud, 1–3 sentences). Qwen has no `speed`/`verbosity` knobs, so behaviour has
-to be asked for in prose. The OpenAI prompt does not need it.
+`format_session_config` used to add a block of Qwen-only voice directives.
+Until 2026-10-16 it was personal (the user's name, tone, pacing) and was
+**appended** after the whole prompt, ending with "use emojis naturally as
+emotional punctuation (💡🎯💪✨❤️)" — mostly emoji the avatar ignores. Since
+2026-10-16 the personal part lives in the private
+`context/memory/ORCHESTRATOR_MEMORY_qwen.md`, and the remaining generic fixes
+(never read tool syntax or formatting markers aloud, stop talking while a tool
+runs) are **commented out** in `format_session_config`: they were written for
+`qwen3.5-omni-plus`, and the new default `qwen3.8-omni-flash` is expected not
+to need them. Re-enable them there if 3.8 reads tool syntax or markers aloud.
+
+The provider memory file is injected as plain markdown (no code fence) **before**
+the general memory section, so the model takes in its provider identity first
+([orchestrator.md](../architecture/orchestrator.md)). With the old layout —
+face rules mid-prompt inside a code fence, the conflicting directive at the
+end — Qwen tagged about 6% of its sentences in a fresh session.
+
+**No size limit on `instructions`.** The 16,384-token cap in
+[prompt-budget.md](prompt-budget.md) is OpenAI Realtime's. A direct probe on
+2026-10-16 (`qwen3.5-omni-plus-realtime`, text turn, canary words at both ends)
+sent up to 99,867 characters: DashScope echoed every character in
+`session.updated`, billed 24,231 input tokens (≈0.24 tokens/char, linear in
+size), and the model recalled both canaries. The real Qwen prompt is about
+66k characters (~16k tokens). At that size the model can still miss one line in
+the middle of the prompt, so rules that matter go at the end.
 
 ## DashScope's "Common error!"
 

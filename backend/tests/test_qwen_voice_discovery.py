@@ -84,7 +84,7 @@ def test_live_list_merges_static_and_sorts_newest_first(monkeypatch):
         "qwen3.5-omni-plus-realtime-2026-03-15",
         "qwen3-omni-flash-realtime",  # static, not returned by the API
     ]
-    assert [e["id"] for e in result["qwen"] if e["default"]] == ["qwen3.5-omni-plus-realtime"]
+    assert [e["id"] for e in result["qwen"] if e["default"]] == ["qwen3.8-omni-flash-realtime"]
 
 
 def test_live_list_falls_back_to_static_on_failure(monkeypatch):
@@ -92,7 +92,7 @@ def test_live_list_falls_back_to_static_on_failure(monkeypatch):
     monkeypatch.setattr(discovery, "_fetch_qwen_models", AsyncMock(return_value=[]))
     result = asyncio.run(discovery.list_voice_models_live())
     assert {e["id"] for e in result["qwen"]} == {
-        "qwen3.5-omni-plus-realtime", "qwen3-omni-flash-realtime",
+        "qwen3.8-omni-flash-realtime", "qwen3.5-omni-plus-realtime", "qwen3-omni-flash-realtime",
     }
 
 
@@ -104,8 +104,8 @@ def test_snapshot_inherits_alias_entry():
 
 
 def test_unknown_model_gets_family_voices_and_label():
-    flash = qwen_model_entry("qwen3.8-omni-flash-realtime")
-    assert flash["label"] == "Qwen3.8-Omni Flash"
+    flash = qwen_model_entry("qwen3.9-omni-flash-realtime")
+    assert flash["label"] == "Qwen3.9-Omni Flash"
     assert flash["voices"] is _QWEN_FLASH_VOICES
     plus = qwen_model_entry("qwen4-omni-plus-realtime")
     assert plus["label"] == "Qwen4-Omni Plus"

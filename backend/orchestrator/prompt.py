@@ -403,16 +403,11 @@ def _mcp_section() -> str:
     return "\n".join(lines)
 
 
-def _memory_section(
-    config: OrchestratorConfig,
-    voice_provider_id: str | None = None,
-) -> str:
+def _memory_section(config: OrchestratorConfig) -> str:
     """Build the memory system section explaining both shared and private memory.
 
-    When ``voice_provider_id`` is set (only in realtime voice sessions) and a
-    matching `ORCHESTRATOR_MEMORY_<provider>.md` file exists, its contents are
-    appended as a separate "Provider-Specific Memory" subsection along with
-    short editing instructions.
+    The voice provider's own memory file is not here: it is its own section,
+    just before this one (``_provider_memory_section``).
     """
     # Get relative path for display
     relative_path = config.memory_path
@@ -425,11 +420,6 @@ def _memory_section(
     # Load memory contents
     memory_index = _load_memory_index(config)
     private_memory = _load_private_memory(config)
-    provider_memory, provider_memory_path = (
-        _load_provider_memory(config, voice_provider_id)
-        if voice_provider_id
-        else ("", None)
-    )
 
     section = f"""## Memory System
 
@@ -498,30 +488,40 @@ For orchestrator-specific state: active workflows, pending tasks, session notes.
 
 Your private memory is currently empty."""
 
-    # Add voice-provider-specific memory (only loaded in realtime voice sessions
-    # when an ORCHESTRATOR_MEMORY_<provider>.md file exists).
-    if provider_memory and provider_memory_path is not None:
-        provider_rel = str(provider_memory_path)
-        if config.project_dir and provider_rel.startswith("/"):
-            try:
-                provider_rel = str(
-                    provider_memory_path.relative_to(Path(config.project_dir))
-                )
-            except ValueError:
-                pass
-        section += f"""
-
----
-
-### Provider-Specific Memory (`{provider_rel}`)
-
-This file is loaded **only** when you are running on the `{voice_provider_id}` realtime voice provider. Use it for guidance, alignment, or context that applies just to this provider — not the general orchestrator behavior. Edit this file (not the main private memory) when feedback or learnings only apply when speaking through `{voice_provider_id}` voice.
-
-```
-{provider_memory}
-```"""
-
     return section
+
+
+def _provider_memory_section(
+    config: OrchestratorConfig,
+    voice_provider_id: str | None = None,
+) -> str | None:
+    """The voice provider's own memory file, placed BEFORE the memory section.
+
+    Only realtime voice sessions pass ``voice_provider_id``; the section exists
+    when a matching `ORCHESTRATOR_MEMORY_<provider>.md` is present. It comes
+    ahead of the general memory (the wiki index and ORCHESTRATOR_MEMORY.md) so
+    each model locks onto its own identity first (Rodrigo's call, 2026-10-16).
+    Injected as plain markdown, NOT inside a code fence: the file carries rules
+    the model must follow on every reply (Archie's voice, the avatar's emoji
+    tags), and a fence frames its contents as quoted data — fenced, the Qwen
+    face rules were followed for ~6% of sentences (2026-10-16).
+    """
+    if not voice_provider_id:
+        return None
+    provider_memory, provider_memory_path = _load_provider_memory(config, voice_provider_id)
+    if not provider_memory or provider_memory_path is None:
+        return None
+    provider_rel = str(provider_memory_path)
+    if config.project_dir and provider_rel.startswith("/"):
+        try:
+            provider_rel = str(provider_memory_path.relative_to(Path(config.project_dir)))
+        except ValueError:
+            pass
+    return f"""## Provider-Specific Memory (`{provider_rel}`)
+
+This file is loaded **only** when you are running on the `{voice_provider_id}` realtime voice provider. Use it for guidance, alignment, or context that applies just to this provider — not the general orchestrator behavior. Edit this file (not the main private memory) when feedback or learnings only apply when speaking through `{voice_provider_id}` voice. Everything below is its content, and it is addressed to you: follow it.
+
+{provider_memory.strip()}"""
 
 
 def _scripts_section(config: OrchestratorConfig) -> str:
@@ -686,7 +686,8 @@ def build_system_prompt(
     1. Role and identity
     2. Current state (active sessions)
     3. Capabilities (MCP orchestration)
-    4. Knowledge (memory system with contents)
+    4. Knowledge: the voice provider's own memory file (voice only), then the
+       memory system with contents
     5. Guidelines
     6. Context (recent verbatim messages + summary of older ones)
 
@@ -697,9 +698,9 @@ def build_system_prompt(
 
     ``voice_provider_id`` is only passed by realtime voice sessions; when set
     and a matching ``ORCHESTRATOR_MEMORY_<provider>.md`` file exists next to
-    the main orchestrator memory, its contents are appended to the memory
-    section. Text and audio modes never pass this argument, so provider-
-    specific memory never leaks into non-voice prompts.
+    the main orchestrator memory, its contents become their own section just
+    before the memory section, ahead of ORCHESTRATOR_MEMORY.md. Text and audio modes never pass this argument,
+    so provider-specific memory never leaks into non-voice prompts.
     """
     sections = [
         _role_section(),
@@ -707,7 +708,8 @@ def build_system_prompt(
         _self_reference_section(context),
         _active_sessions_section(context),
         _mcp_section(),
-        _memory_section(config, voice_provider_id=voice_provider_id),
+        _provider_memory_section(config, voice_provider_id),
+        _memory_section(config),
         _scripts_section(config),
         _guidelines_section(),
         _history_section(recent_messages, history_summary),
