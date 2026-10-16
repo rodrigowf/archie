@@ -20,23 +20,32 @@ REPO="$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)"
 ARCHIE_PKG=com.assistant.archie.tv
 HUB_PKG=com.example.tvserverhub
 HUB_A11Y="$HUB_PKG/.KeyWatchService"
+HUB_A11Y_LONG="$HUB_PKG/$HUB_PKG.KeyWatchService"   # same service, the form Settings may write
 PROBE_A11Y="com.assistant.tvprobe/.KeyWatchService"
+PROBE_A11Y_LONG="com.assistant.tvprobe/com.assistant.tvprobe.KeyWatchService"
+REVERSE_PORT=tcp:8777   # the only adb reverse this script cleans up (others belong to someone else)
 ALEXA_UI=com.amazon.vizzini
 DISCOVER="$HOME/AndroidStudioProjects/TvServerHub/scripts/discover-firetv.sh"
 HUB_APK_DEFAULT="$HOME/AndroidStudioProjects/TvServerHub/app/build/outputs/apk/debug/app-debug.apk"
 
 serial="${TV_SERIAL:-}"; archie_apk=""; hub_apk=""; install=1; alexa=disable; mode=setup
+usage_error() { echo "$1 (see --help)" >&2; exit 2; }
 while [ $# -gt 0 ]; do
   case "$1" in
-    --serial) serial="$2"; shift 2 ;;
-    --archie-apk) archie_apk="$2"; shift 2 ;;
-    --hub-apk) hub_apk="$2"; shift 2 ;;
+    --serial|--archie-apk|--hub-apk)
+      { [ $# -ge 2 ] && [ -n "$2" ] && [ "${2#--}" = "$2" ]; } || usage_error "$1 needs a value"
+      case "$1" in
+        --serial) serial="$2" ;;
+        --archie-apk) archie_apk="$2" ;;
+        --hub-apk) hub_apk="$2" ;;
+      esac
+      shift 2 ;;
     --no-install) install=0; shift ;;
     --keep-alexa) alexa=keep; shift ;;
     --restore-alexa) mode=restore; shift ;;
     --check) mode=check; shift ;;
     -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
+    *) usage_error "unknown option: $1" ;;
   esac
 done
 
@@ -56,6 +65,21 @@ adb connect "$serial" >/dev/null 2>&1
 adb -s "$serial" get-state >/dev/null 2>&1 || { echo "adb cannot reach $serial (TV off, or accept the debugging prompt on screen)" >&2; exit 1; }
 A() { adb -s "$serial" shell "$@" 2>/dev/null | tr -d '\r'; }
 installed() { A pm list packages "$1" | grep -qx "package:$1"; }
+failed=0
+
+# Prints the enabled accessibility services ("" when none). Fails — and prints nothing — when adb
+# fails or the answer is not "null" or a colon-separated list of components, so a bad read can
+# never be written back over the user's other services.
+read_a11y() {
+  local out rc
+  out="$(adb -s "$serial" shell settings get secure enabled_accessibility_services 2>/dev/null)"; rc=$?
+  out="$(printf '%s' "$out" | tr -d '\r')"
+  [ "$rc" = 0 ] || return 1
+  [ "$out" = "null" ] && { printf ''; return 0; }
+  [ -z "$out" ] && return 0
+  printf '%s' "$out" | grep -qxE '[A-Za-z0-9_.$]+/[A-Za-z0-9_.$]+(:[A-Za-z0-9_.$]+/[A-Za-z0-9_.$]+)*' || return 1
+  printf '%s' "$out"
+}
 
 check() {
   echo
@@ -73,7 +97,7 @@ check() {
   printf '%-34s %s\n' "Launcher overlay app-op" "$(op $HUB_PKG SYSTEM_ALERT_WINDOW | grep . || echo default)"
   printf '%-34s %s\n' "Launcher may re-enable watcher" "$(A dumpsys package $HUB_PKG | grep -q 'WRITE_SECURE_SETTINGS: granted=true' && echo yes || echo NO)"
   a11y="$(A settings get secure enabled_accessibility_services)"
-  printf '%-34s %s\n' "Launcher key watcher" "$(echo "$a11y" | grep -q "$HUB_A11Y" && echo enabled || echo DISABLED)"
+  printf '%-34s %s\n' "Launcher key watcher" "$(echo "$a11y" | tr ':' '\n' | grep -qxF -e "$HUB_A11Y" -e "$HUB_A11Y_LONG" && echo enabled || echo DISABLED)"
   printf '%-34s %s\n' "Launcher idle service" "$(A dumpsys activity services $HUB_PKG | grep -q ScreensaverMonitorService && echo running || echo 'not running (starts with the launcher)')"
   if installed $ALEXA_UI; then
     st="$(A pm list packages -d $ALEXA_UI | grep -q "$ALEXA_UI" && echo "disabled — mic button belongs to Archie" || echo "enabled — Alexa also reacts to the mic button")"
@@ -120,13 +144,21 @@ if installed $HUB_PKG; then
   # Lets the launcher re-enable its own key watcher: Android drops an app's accessibility
   # services from the enabled list whenever the app is force-stopped.
   A pm grant $HUB_PKG android.permission.WRITE_SECURE_SETTINGS
-  cur="$(A settings get secure enabled_accessibility_services)"
-  [ "$cur" = "null" ] && cur=""
-  # Drop the probe's watcher and empty entries; append the launcher's once.
-  new="$(echo "$cur" | tr ':' '\n' | grep -v -e '^$' -e "^$PROBE_A11Y\$" -e "^$HUB_A11Y\$" | paste -sd: -)"
-  new="${new:+$new:}$HUB_A11Y"
-  [ "$new" != "$cur" ] && A settings put secure enabled_accessibility_services "$new"
-  A settings put secure accessibility_enabled 1
+  if cur="$(read_a11y)"; then
+    # Drop the probe's watcher and empty entries; append the launcher's once (in either form).
+    new="$(printf '%s\n' "$cur" | tr ':' '\n' | grep -vxF -e '' -e "$PROBE_A11Y" -e "$PROBE_A11Y_LONG" | paste -sd: -)"
+    if ! printf '%s\n' "$new" | tr ':' '\n' | grep -qxF -e "$HUB_A11Y" -e "$HUB_A11Y_LONG"; then
+      new="${new:+$new:}$HUB_A11Y"
+    fi
+    # Single-quoted for the TV's shell: adb joins the arguments into one remote command line, so
+    # an unquoted "$" in a component name (Outer$Inner) would be expanded there.
+    [ "$new" != "$cur" ] && A settings put secure enabled_accessibility_services "'$new'"
+    A settings put secure accessibility_enabled 1
+  else
+    warn "Could not read the TV's enabled accessibility services (adb failed or the answer was unexpected)."
+    warn "Skipped enabling the launcher's key watcher so the other services are not overwritten; re-run when adb is stable."
+    failed=1
+  fi
 fi
 
 # --- Alexa ------------------------------------------------------------------------------------
@@ -139,6 +171,9 @@ fi
 for p in $ARCHIE_PKG $HUB_PKG; do
   installed "$p" && { say "Compiling $p (speed-profile)"; A cmd package compile -f -m speed-profile "$p" | tail -1; }
 done
-adb -s "$serial" reverse --remove-all >/dev/null 2>&1 || true
+if adb -s "$serial" reverse --list 2>/dev/null | awk '{print $2}' | grep -qxF "$REVERSE_PORT"; then
+  adb -s "$serial" reverse --remove "$REVERSE_PORT" >/dev/null 2>&1 || true
+fi
 
 check
+exit "$failed"

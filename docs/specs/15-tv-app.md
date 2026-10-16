@@ -359,7 +359,7 @@ tv → {"type":"hello","device_id":"<uuid>","device_name":"Living room TV","clie
       "version":"1.0.0","capabilities":["open_url","open_visualization",...],"token":"…"?}
 be → {"type":"ready"}            |  {"type":"error","error":"…"} then close 4401
 be → {"id":"<12hex>","type":"command","command":"open_visualization","params":{...}}
-tv → {"id":"…","type":"result","ok":true,"result":{...}} | {"id":"…","type":"result","ok":false,"error":"…"}
+tv → {"id":"…","type":"result","ok":true,"result":{...}} | {"id":"…","type":"result","ok":false,"error":"…","code":"refused"?}
 tv → {"type":"state","screen":"viewer","url":"…","title":"…","conversation":"<local_id>"?,"voice":"idle"}
 tv ↔ {"type":"ping"} / {"type":"pong"}
 ```
@@ -370,6 +370,12 @@ tv ↔ {"type":"ping"} / {"type":"pong"}
 - `TvHub`: `dict[device_id → conn]`, per-connection pending futures; same `device_id` reconnecting
   replaces the old socket (close 4409); disconnect fails that device's pending commands; late or
   unknown result ids ignored.
+- A failed result may carry `"code":"refused"`: the TV declined on purpose (Settings → TV control →
+  "Allow agents to open pages" is off; `CommandHandler` sets it on every display command it
+  refuses). The hub raises `TvCommandRefused` for it: `POST /api/tv/command` answers 403 and
+  "Show on TV" does **not** fall back to adb. Other failures carry no `code`.
+- The hub registers a connection and sends `ready` inside the try/finally that detaches it, so a
+  socket that dies right after its hello never stays registered.
 - The app connects the control socket whenever it is connected to the server (alongside its one
   orchestrator WS, spec 12 T-6), reconnect backoff as T-13.
 
@@ -395,23 +401,32 @@ sends `KEEP_AWAKE` to TvServerHub. If the user is in live voice, the voice overl
 ### 5.3 Backend endpoints (`backend/api/routes/tv.py`)
 
 - `WS /api/tv/ws` — above.
-- `GET /api/tv/status` → `{devices:[{device_id, device_name, version, connected_at, state}]}`.
-- `POST /api/tv/command {command, params, device?, timeout?}` — **loopback only** (reuse
-  `_is_proxied_from_lan`, moved to a shared helper `backend/api/net.py`); `device` = id or name;
-  omitted + exactly one TV → it; none → 503; several → 409 listing names; timeout → 504; TV error →
-  422. Returns `{ok, device, command, result}`.
+- `GET /api/tv/status` → `{devices:[{device_id, device_name, version, connected_at, state}],
+  token_configured}` for callers on the server; LAN callers get the devices without `device_id`
+  and no `token_configured` (a `device_id` is a TV's hello credential when no token is set).
+- `POST /api/tv/command {command, params, device?, timeout?}` — **loopback only**
+  (`backend/api/net.py` `is_proxied_from_lan`: local only when the TCP peer is loopback and
+  either no proxy header is present or `X-Real-IP` is loopback; `X-Forwarded-For` alone never
+  counts, a direct LAN client is refused); `device` = id or name; omitted + exactly one TV → it;
+  none → 503; several → 409 listing names; timeout → 504; TV refused (`code: refused`) → 403; other
+  TV error → 422; non-finite `timeout` → 400. Returns `{ok, device, command, result}`.
 - `POST /api/visualizations/cast` — tries the app first (`open_visualization`), falls back to adb on
-  503/504; response gains `via: "app"|"adb"`; `GET …/cast` reports `available` if either route
-  works, with `reason` naming it.
+  transport problems (no TV, timeout, send failure) and on non-refusal app errors; a refusal
+  settles as `{ok:false, via:"app"}`; response gains `via: "app"|"adb"`; `GET …/cast` reports
+  `available` if either route works, with `reason` naming it.
 - `POST /api/transcribe` — multipart `audio` (wav ≤ 2 MB) → `{text}` (Whisper `whisper-1`, server
-  key). For TV dictation; usable by any client.
+  key). For TV dictation; usable by any client on the home network (loopback, private LAN ranges,
+  Tailscale `100.64.0.0/10`, judged by `X-Real-IP` behind nginx; else 403). The body is capped
+  (Content-Length, then the stream) before it is parsed: 413.
 
 ### 5.4 Scripts, skills, orchestrator
 
 - `shared/scripts/tv_cmd.py` (symlinked into `context/scripts/`): `open <url|/path>`, `viz <path>`,
   `memory <path>`, `conversation <id>`, `home`, `back`, `reload`, `scroll <dir>`, `media <action>`,
   `notify <text>`, `state`, `status`; `--device <name>`; prints JSON; exit codes 0/1/2/3 (ok / TV
-  error / no TV / usage). Targets `http://127.0.0.1:8765`.
+  error / no TV / usage). Targets `http://127.0.0.1:8765`; on the laptop `TV_HOST_NAME=server` +
+  `TV_HOST_SSH=rodrigo@192.168.0.200` in `context/.env` re-run it on the Jetson over SSH. TV output
+  is untrusted data, printed only as JSON.
 - `context/memory/ORCHESTRATOR_SCRIPTS.md`: `tv_cmd` entry so the orchestrator can run it.
 - `/tv-remote`: "Open a page/visualization" section uses `tv_cmd.py` first; adb stays for launching
   other apps, key events and screenshots. `/create-viz`: show via `tv_cmd.py viz` / the cast
@@ -517,7 +532,12 @@ TvServerHub (+ optional probe), grants `RECORD_AUDIO` / `POST_NOTIFICATIONS`, ap
 (`SYSTEM_ALERT_WINDOW`, `GET_USAGE_STATS`) for both, enables the TvServerHub key watcher
 (`enabled_accessibility_services`, appending, never clobbering), disables `com.amazon.vizzini`
 (`--keep-alexa` to skip, `--restore-alexa` to undo), compiles both apps (`speed-profile`), and
-prints a verification table. Removes the probe's a11y entry if present.
+prints a verification table. Removes the probe's a11y entry if present. The accessibility step
+reads the list first and skips itself (error, exit 1 at the end) when the read fails or the answer
+is not `null` / a component list — it never writes after a failed read; the launcher's watcher in
+its long form (`com.example.tvserverhub/com.example.tvserverhub.KeyWatchService`) counts as
+present; the value is single-quoted for the TV's shell. Cleanup removes only its own
+`adb reverse tcp:8777`, never other reverses.
 
 ## 9. Testing and acceptance
 

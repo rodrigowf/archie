@@ -195,7 +195,8 @@ async def test_run_adb_kills_on_timeout(monkeypatch):
 
 class FakeTvSocket:
     """A TV app connection that answers each command on the hub's loop:
-    ``ok``, ``error`` or ``silent`` (never answers)."""
+    ``ok``, ``error``, ``refused`` (the user's setting is off) or ``silent``
+    (never answers)."""
 
     def __init__(self, mode: str = "ok") -> None:
         self.mode = mode
@@ -210,6 +211,9 @@ class FakeTvSocket:
         reply = {"id": frame["id"], "type": "result", "ok": self.mode == "ok"}
         if self.mode == "ok":
             reply["result"] = {"screen": "viewer", "url": "u", "title": "My chart"}
+        elif self.mode == "refused":
+            reply["error"] = "agents may not change what this TV shows"
+            reply["code"] = "refused"
         else:
             reply["error"] = "viewer crashed"
         asyncio.get_running_loop().call_soon(TvHub.handle_result, self.conn, reply)
@@ -262,6 +266,33 @@ def test_cast_falls_back_to_adb_when_the_app_reports_an_error(client, adb):
                        json={"path": "visualizations/my chart.html"}).json()
     assert body["via"] == "adb" and body["ok"] is True
     assert "viewer crashed" in body["message"]
+    assert len(_am_calls(calls)) == 1
+
+
+def test_cast_respects_the_tvs_refusal_and_skips_adb(client, adb):
+    """The TV's user turned off "Allow agents to open pages": adb must not
+    route around that choice."""
+    calls, _ = adb
+    tv = _attach_tv(client, mode="refused")
+    body = client.post("/api/visualizations/cast",
+                       json={"path": "visualizations/my chart.html"}).json()
+    assert len(tv.sent) == 1
+    assert body["ok"] is False and body["via"] == "app"
+    assert "may not change" in body["message"]
+    assert calls == []  # not even `adb devices`
+
+
+def test_cast_falls_back_to_adb_when_the_send_fails(client, adb):
+    calls, _ = adb
+    tv = _attach_tv(client)
+
+    async def broken(text: str) -> None:
+        raise RuntimeError("socket is gone")
+
+    tv.send_text = broken
+    body = client.post("/api/visualizations/cast",
+                       json={"path": "visualizations/my chart.html"}).json()
+    assert body["ok"] is True and body["via"] == "adb"
     assert len(_am_calls(calls)) == 1
 
 

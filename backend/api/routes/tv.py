@@ -16,7 +16,7 @@ Wire protocol, JSON text frames both directions (modelled on
     backend → {"type": "ready"}  |  {"type": "error", "error": "<reason>"} then close 4401
     backend → {"id": "ab12...", "type": "command", "command": "open_visualization", "params": {...}}
     tv      → {"id": "ab12...", "type": "result", "ok": true, "result": {...}}
-    tv      → {"id": "ab12...", "type": "result", "ok": false, "error": "..."}
+    tv      → {"id": "ab12...", "type": "result", "ok": false, "error": "...", "code": "refused"?}
     tv      → {"type": "state", "screen": "viewer", "url": "...", "title": "...", ...}
     tv     ↔  {"type": "ping"} / {"type": "pong"}
 
@@ -25,16 +25,23 @@ Unlike the browser hub this is **multi-device**: one connection per
 (close 4409); each connection owns its pending commands, so one TV dropping
 fails only its own in-flight commands.
 
+A failed result may carry ``"code": "refused"``: the TV deliberately declined
+(the user turned off "Allow agents to open pages"). That raises
+:class:`TvCommandRefused`, which callers must not route around (no adb
+fallback) and ``POST /api/tv/command`` maps to 403.
+
 **Auth is optional.** A TV only *receives* URLs to show, so the risk of an
 open socket is an impostor seeing them; same-``device_id`` replacement caps
 it. When ``TV_CONTROL_TOKEN`` is configured (env, then ``context/.env``) the
-hello must carry it. The command endpoint is loopback-only either way.
+hello must carry it. The command endpoint is loopback-only either way, and ``GET /api/tv/status``
+hides device ids from callers that are not on this machine.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import secrets
 import time
@@ -83,6 +90,12 @@ class TvAmbiguous(RuntimeError):
 
 class TvCommandError(RuntimeError):
     """The TV ran the command and reported a failure."""
+
+
+class TvCommandRefused(TvCommandError):
+    """The TV declined the command on purpose (``"code": "refused"``: the
+    user's "Allow agents to open pages" setting is off). Not a transport
+    problem — do not retry it another way."""
 
 
 class TvCommandTimeout(RuntimeError):
@@ -134,8 +147,8 @@ class TvConnection:
     state: dict[str, Any] | None = None
     pending: dict[str, asyncio.Future[Any]] = field(default_factory=dict)
 
-    def describe(self) -> dict[str, Any]:
-        return {
+    def describe(self, include_id: bool = True) -> dict[str, Any]:
+        info = {
             "device_id": self.device_id,
             "device_name": self.device_name,
             "client": self.client,
@@ -144,6 +157,9 @@ class TvConnection:
             "connected_at": self.connected_at,
             "state": dict(self.state) if self.state is not None else None,
         }
+        if not include_id:
+            del info["device_id"]
+        return info
 
     def fail_pending(self, exc: Exception) -> None:
         """Resolve every in-flight command with ``exc`` (no caller waits out
@@ -169,8 +185,8 @@ class TvHub:
     def devices(self) -> list[TvConnection]:
         return sorted(self._devices.values(), key=lambda c: c.connected_at)
 
-    def status(self) -> dict[str, Any]:
-        return {"devices": [c.describe() for c in self.devices()]}
+    def status(self, include_ids: bool = True) -> dict[str, Any]:
+        return {"devices": [c.describe(include_ids) for c in self.devices()]}
 
     def resolve(self, device: str | None = None) -> TvConnection:
         """Pick the target TV: by id, else by name (case-insensitive); omitted
@@ -278,7 +294,9 @@ class TvHub:
         if msg.get("ok"):
             fut.set_result(msg.get("result"))
         else:
-            fut.set_exception(TvCommandError(str(msg.get("error") or "unknown error")))
+            error = str(msg.get("error") or "unknown error")
+            exc_type = TvCommandRefused if msg.get("code") == "refused" else TvCommandError
+            fut.set_exception(exc_type(error))
 
     @staticmethod
     def handle_state(conn: TvConnection, msg: dict[str, Any]) -> None:
@@ -293,7 +311,15 @@ def get_hub(request: Request) -> TvHub:
 @router.get("/api/tv/status")
 async def tv_status(request: Request) -> dict[str, Any]:
     """Connected TVs with their last reported state, so callers can tell
-    'no TV' apart from 'command failed'."""
+    'no TV' apart from 'command failed'.
+
+    Callers on this machine (``tv_cmd.py``) get the full view. Anyone else —
+    a LAN client, directly or through nginx — gets names, versions and state
+    but no ``device_id`` (a TV's hello credential when no token is set) and
+    no ``token_configured``.
+    """
+    if is_proxied_from_lan(request):
+        return get_hub(request).status(include_ids=False)
     status = get_hub(request).status()
     status["token_configured"] = _resolve_token() is not None
     return status
@@ -314,7 +340,7 @@ async def tv_command(request: Request) -> dict[str, Any]:
             status_code=403,
             detail=(
                 "TV commands are loopback-only; this request arrived from "
-                f"{offender} via the reverse proxy. Run tv_cmd.py on the server."
+                f"{offender}, not from this machine. Run tv_cmd.py on the server."
             ),
         )
 
@@ -341,6 +367,10 @@ async def tv_command(request: Request) -> dict[str, Any]:
         timeout = float(body.get("timeout") or DEFAULT_COMMAND_TIMEOUT_S)
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="'timeout' must be a number") from None
+    if not math.isfinite(timeout):
+        # NaN slips through min/max (every comparison is False) and inf
+        # would wait forever on a TV that never answers.
+        raise HTTPException(status_code=400, detail="'timeout' must be a finite number")
     timeout = min(max(timeout, 0.1), MAX_COMMAND_TIMEOUT_S)
 
     hub = get_hub(request)
@@ -353,6 +383,9 @@ async def tv_command(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=409, detail=str(e)) from e
     except TvCommandTimeout as e:
         raise HTTPException(status_code=504, detail=str(e)) from e
+    except TvCommandRefused as e:
+        # The TV's user turned agent control off: a refusal, not a bad request.
+        raise HTTPException(status_code=403, detail=f"the TV refused: {e}") from e
     except TvCommandError as e:
         # The command ran and failed (unknown command, bad path) — a client
         # error, distinct from the transport being broken.
@@ -420,11 +453,12 @@ async def tv_ws(ws: WebSocket):
         version=_short_str(hello.get("version"), _MAX_NAME_LEN),
         capabilities=[c for c in caps if isinstance(c, str)] if isinstance(caps, list) else [],
     )
-    await hub.attach(conn)
-    await ws.send_text(orjson.dumps({"type": "ready"}).decode())
-
     # --- receive loop --------------------------------------------------
+    # attach and the ready frame sit inside the try so a socket that dies
+    # right after its hello is detached instead of staying registered.
     try:
+        await hub.attach(conn)
+        await ws.send_text(orjson.dumps({"type": "ready"}).decode())
         while True:
             raw = await ws.receive_text()
             try:

@@ -15,6 +15,7 @@ from api.routes import tv
 from api.routes.tv import (
     TvAmbiguous,
     TvCommandError,
+    TvCommandRefused,
     TvCommandTimeout,
     TvConnection,
     TvHub,
@@ -23,6 +24,10 @@ from api.routes.tv import (
 
 TOKEN = "tv-token-xyz789"
 DEVICE = "6f1c0d2e-0000-4000-8000-000000000001"
+# The command endpoint and the full status view are loopback-only, and
+# TestClient's default peer ("testclient") is not an address.
+LOCAL = ("127.0.0.1", 50000)
+LAN = ("192.168.0.55", 50000)
 
 
 # ---------------------------------------------------------------------------
@@ -115,14 +120,14 @@ def test_token_absent_or_blank_is_none(no_token, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_hello_without_token_accepted_when_none_configured(no_token):
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         with client.websocket_connect("/api/tv/ws") as ws:
             ws.send_text(_hello())
             assert ws.receive_json() == {"type": "ready"}
 
 
 def test_hello_with_valid_token_accepted(token):
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         with client.websocket_connect("/api/tv/ws") as ws:
             ws.send_text(_hello(TOKEN))
             assert ws.receive_json() == {"type": "ready"}
@@ -130,7 +135,7 @@ def test_hello_with_valid_token_accepted(token):
 
 @pytest.mark.parametrize("presented", [None, "wrong"])
 def test_hello_with_bad_token_rejected_4401(token, presented):
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         with client.websocket_connect("/api/tv/ws") as ws:
             ws.send_text(_hello(presented))
             assert ws.receive_json() == {"type": "error", "error": "unauthorized"}
@@ -148,7 +153,7 @@ def test_hello_with_bad_token_rejected_4401(token, presented):
     (_hello(device_id="  "), "missing_device_id"),
 ])
 def test_malformed_hello_rejected(no_token, frame, error):
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         with client.websocket_connect("/api/tv/ws") as ws:
             ws.send_text(frame)
             assert ws.receive_json() == {"type": "error", "error": error}
@@ -156,13 +161,13 @@ def test_malformed_hello_rejected(no_token, frame, error):
 
 def test_hello_timeout(no_token, monkeypatch):
     monkeypatch.setattr(tv, "HELLO_TIMEOUT_S", 0.05)
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         with client.websocket_connect("/api/tv/ws") as ws:
             assert ws.receive_json() == {"type": "error", "error": "hello_timeout"}
 
 
 def test_ping_pong_and_junk_ignored(no_token):
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         with client.websocket_connect("/api/tv/ws") as ws:
             ws.send_text(_hello())
             ws.receive_json()  # ready
@@ -179,13 +184,13 @@ def test_ping_pong_and_junk_ignored(no_token):
 # ---------------------------------------------------------------------------
 
 def test_status_empty(no_token):
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         body = client.get("/api/tv/status").json()
     assert body == {"devices": [], "token_configured": False}
 
 
 def test_status_lists_device_and_caches_state_frames(no_token):
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         with client.websocket_connect("/api/tv/ws") as ws:
             ws.send_text(_hello())
             ws.receive_json()  # ready
@@ -209,8 +214,64 @@ def test_status_lists_device_and_caches_state_frames(no_token):
     assert after == []  # disconnect removes it
 
 
+def test_status_hides_device_ids_from_the_lan(no_token):
+    app = _make_app()
+    with TestClient(app, client=LOCAL) as local, TestClient(app, client=LAN) as lan:
+        with local.websocket_connect("/api/tv/ws") as ws:
+            ws.send_text(_hello())
+            ws.receive_json()  # ready
+            full = local.get("/api/tv/status").json()
+            direct = lan.get("/api/tv/status").json()
+            proxied = local.get("/api/tv/status", headers={"X-Real-IP": "192.168.0.9"}).json()
+            spoofed = local.get("/api/tv/status",
+                                headers={"X-Forwarded-For": "127.0.0.1"}).json()
+
+    assert full["devices"][0]["device_id"] == DEVICE
+    assert full["token_configured"] is False
+    for view in (direct, proxied, spoofed):
+        assert set(view) == {"devices"}  # no token_configured
+        (dev,) = view["devices"]
+        assert "device_id" not in dev
+        assert dev["device_name"] == "Living room TV"
+        assert dev["version"] == "1.0.0"
+        assert "state" in dev
+
+
+def test_status_full_view_through_nginx_from_this_machine(no_token):
+    with TestClient(_make_app(), client=LOCAL) as client:
+        body = client.get("/api/tv/status", headers={"X-Real-IP": "127.0.0.1"}).json()
+    assert body == {"devices": [], "token_configured": False}
+
+
+@pytest.mark.asyncio
+async def test_socket_dying_right_after_hello_is_not_left_registered(no_token):
+    """attach + the ready frame sit inside the try/finally that detaches."""
+    from types import SimpleNamespace
+
+    hub = TvHub()
+
+    class DyingSocket:
+        app = SimpleNamespace(state=SimpleNamespace(tv_hub=hub))
+
+        async def accept(self):
+            pass
+
+        async def receive_text(self):
+            return _hello()
+
+        async def send_text(self, text):
+            raise RuntimeError("socket died")
+
+        async def close(self, code=1000):
+            pass
+
+    await tv.tv_ws(DyingSocket())
+    assert hub.devices() == []
+    assert hub.connected is False
+
+
 def test_name_defaults_to_device_id(no_token):
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         with client.websocket_connect("/api/tv/ws") as ws:
             ws.send_text(orjson.dumps({"type": "hello", "device_id": "abc"}).decode())
             ws.receive_json()
@@ -224,7 +285,7 @@ def test_name_defaults_to_device_id(no_token):
 # ---------------------------------------------------------------------------
 
 def test_command_round_trip_over_the_socket(no_token):
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         with client.websocket_connect("/api/tv/ws") as ws:
             ws.send_text(_hello())
             ws.receive_json()  # ready
@@ -258,7 +319,7 @@ def test_command_round_trip_over_the_socket(no_token):
 
 
 def test_reconnect_same_device_closes_old_socket_4409(no_token):
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         with client.websocket_connect("/api/tv/ws") as old:
             old.send_text(_hello())
             old.receive_json()
@@ -311,6 +372,20 @@ async def test_failed_result_raises_command_error():
     hub.handle_result(conn, {"id": conn.ws.sent[0]["id"], "type": "result",
                              "ok": False, "error": "unknown command: frobnicate"})
     with pytest.raises(TvCommandError, match="unknown command"):
+        await task
+
+
+@pytest.mark.asyncio
+async def test_refused_result_raises_command_refused():
+    hub = TvHub()
+    conn = _conn()
+    await hub.attach(conn)
+    task = asyncio.create_task(hub.send_command("open_url", {"url": "/x/"}))
+    await asyncio.sleep(0)
+    hub.handle_result(conn, {"id": conn.ws.sent[0]["id"], "type": "result",
+                             "ok": False, "error": "agents may not change what this TV shows",
+                             "code": "refused"})
+    with pytest.raises(TvCommandRefused, match="may not change"):
         await task
 
 
@@ -469,7 +544,7 @@ def _app_with(hub) -> FastAPI:
 
 def test_command_relays_device_and_timeout(no_token):
     hub = _StubHub(result={"screen": "viewer"})
-    with TestClient(_app_with(hub)) as client:
+    with TestClient(_app_with(hub), client=LOCAL) as client:
         r = client.post("/api/tv/command", json={
             "command": "open_url", "params": {"url": "/x/"},
             "device": "Living room TV", "timeout": 3,
@@ -482,7 +557,7 @@ def test_command_relays_device_and_timeout(no_token):
 
 def test_command_default_timeout_and_clamp(no_token):
     hub = _StubHub()
-    with TestClient(_app_with(hub)) as client:
+    with TestClient(_app_with(hub), client=LOCAL) as client:
         client.post("/api/tv/command", json={"command": "home"})
         client.post("/api/tv/command", json={"command": "home", "timeout": 9999})
     assert hub.calls[0][3] == tv.DEFAULT_COMMAND_TIMEOUT_S
@@ -494,9 +569,10 @@ def test_command_default_timeout_and_clamp(no_token):
     (TvAmbiguous(["A", "B"]), 409),
     (TvCommandTimeout("timed out"), 504),
     (TvCommandError("unknown command"), 422),
+    (TvCommandRefused("agents may not change what this TV shows"), 403),
 ])
 def test_command_error_mapping(no_token, raises, status):
-    with TestClient(_app_with(_StubHub(raises=raises))) as client:
+    with TestClient(_app_with(_StubHub(raises=raises)), client=LOCAL) as client:
         r = client.post("/api/tv/command", json={"command": "home"})
     assert r.status_code == status
     if status == 409:
@@ -509,16 +585,19 @@ def test_command_error_mapping(no_token, raises, status):
     {"command": "home", "params": [1]},
     {"command": "home", "device": 5},
     {"command": "home", "timeout": "soon"},
+    {"command": "home", "timeout": "nan"},
+    {"command": "home", "timeout": "inf"},
+    {"command": "home", "timeout": "-Infinity"},
 ])
 def test_command_bad_requests(no_token, body):
     hub = _StubHub()
-    with TestClient(_app_with(hub)) as client:
+    with TestClient(_app_with(hub), client=LOCAL) as client:
         assert client.post("/api/tv/command", json=body).status_code == 400
     assert hub.calls == []
 
 
 def test_command_non_json_body(no_token):
-    with TestClient(_app_with(_StubHub())) as client:
+    with TestClient(_app_with(_StubHub()), client=LOCAL) as client:
         r = client.post("/api/tv/command", content=b"nope",
                         headers={"Content-Type": "application/json"})
     assert r.status_code == 400
@@ -527,7 +606,7 @@ def test_command_non_json_body(no_token):
 @pytest.mark.parametrize("header", ["X-Real-IP", "X-Forwarded-For"])
 def test_command_refuses_lan_requests_through_the_proxy(no_token, header):
     hub = _StubHub()
-    with TestClient(_app_with(hub)) as client:
+    with TestClient(_app_with(hub), client=LOCAL) as client:
         r = client.post("/api/tv/command", json={"command": "home"},
                         headers={header: "192.168.0.55"})
     assert r.status_code == 403
@@ -535,15 +614,32 @@ def test_command_refuses_lan_requests_through_the_proxy(no_token, header):
     assert hub.calls == []
 
 
+def test_command_refuses_a_direct_lan_client(no_token):
+    hub = _StubHub()
+    with TestClient(_app_with(hub), client=LAN) as client:
+        r = client.post("/api/tv/command", json={"command": "home"})
+    assert r.status_code == 403
+    assert hub.calls == []
+
+
+def test_command_refuses_spoofed_forwarded_for(no_token):
+    hub = _StubHub()
+    with TestClient(_app_with(hub), client=LOCAL) as client:
+        r = client.post("/api/tv/command", json={"command": "home"},
+                        headers={"X-Forwarded-For": "127.0.0.1"})
+    assert r.status_code == 403
+    assert hub.calls == []
+
+
 def test_command_allows_loopback_forwarded_value(no_token):
-    with TestClient(_app_with(_StubHub())) as client:
+    with TestClient(_app_with(_StubHub()), client=LOCAL) as client:
         r = client.post("/api/tv/command", json={"command": "home"},
                         headers={"X-Real-IP": "127.0.0.1"})
     assert r.status_code == 200
 
 
 def test_real_hub_without_tv_is_503(no_token):
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         r = client.post("/api/tv/command", json={"command": "home"})
     assert r.status_code == 503
     assert "not connected" in r.json()["detail"]

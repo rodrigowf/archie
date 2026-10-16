@@ -242,7 +242,9 @@ class CommandHandlerTest {
         env.allow = false
         val h = CommandHandler(env)
         for (c in listOf("open_url", "open_visualization", "open_memory", "open_conversation", "home", "back", "reload", "scroll", "media")) {
-            assertTrue(c, "Allow agents to open pages" in err(h.handle(cmd(c, "url" to "/x/", "path" to "projects/x.md", "local_id" to "L"))))
+            val r = h.handle(cmd(c, "url" to "/x/", "path" to "projects/x.md", "local_id" to "L"))
+            assertTrue(c, "Allow agents to open pages" in err(r))
+            assertEquals(c, TvReply.CODE_REFUSED, (r as TvReply.Error).code) // the backend must not fall back to adb
         }
         assertEquals(listOf<NavKey>(Home), env.stack.toList())
         ok(h.handle(cmd("get_state")))

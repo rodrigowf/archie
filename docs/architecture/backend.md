@@ -52,7 +52,7 @@ search in [memory-and-search.md](memory-and-search.md).
 | `backend/api/serializers.py` | `serialize_event()` — typed manager events → wire JSON |
 | `backend/api/models.py` | Pydantic response models |
 | `backend/api/guard.py` | Browser-origin guard: `RequestGuardMiddleware`, `TrustedCORSMiddleware`, `require_trusted_origin` ([below](#auth-and-the-browser-origin-guard)) |
-| `backend/api/net.py` | `is_proxied_from_lan()` — tells a loopback caller from a LAN one behind nginx (`X-Real-IP` / `X-Forwarded-For`); the gate of the loopback-only `browser` and `tv` command endpoints |
+| `backend/api/net.py` | `is_proxied_from_lan()` — local only when the TCP peer is loopback and there is no proxy header or nginx's `X-Real-IP` is loopback (a lone `X-Forwarded-For` never counts); the gate of the loopback-only `browser` and `tv` command endpoints and of the full `GET /api/tv/status` view. `is_from_home_network()` (loopback, private LAN, Tailscale) gates `/api/transcribe` |
 | `backend/api/connections.py`, `deps.py` | `ConnectionManager`; FastAPI dependencies (`get_pool`, `get_store`) |
 | `backend/manager/` | Session managers wrapping the harness CLIs, `SessionStore`, `ManagerConfig`, `AuthManager`, loop watchdog |
 | `backend/orchestrator/` | The orchestrator agent, model and voice providers, tools |
@@ -105,7 +105,7 @@ browser-origin guard and a CORS policy that echoes only trusted origins (no cred
 | `debug.py` | `/api/debug/log` | Remote console: clients POST log lines, appended to `logs/remote_console.log` ([debugging](../operations/debugging.md)) |
 | `browser.py` | `/api/browser/status`, `POST /api/browser/command`, `WS /api/browser/ws` | Hub for the Chrome extension ([browser-extension](../clients/browser-extension.md)); the WS needs the `BROWSER_CONTROL_TOKEN`, `command` is loopback-only |
 | `tv.py` | `/api/tv/status`, `POST /api/tv/command`, `WS /api/tv/ws` | TV control channel (`TvHub`, one connection per `device_id`) for the Archie TV app ([fire-tv](../devices/fire-tv.md), spec 12 §9.5); optional `TV_CONTROL_TOKEN` for the hello, `command` is loopback-only; driven by `shared/scripts/tv_cmd.py` |
-| `transcribe.py` | `POST /api/transcribe` | Dictation: multipart `audio` (WAV ≤ 2 MB, optional `language`) → `{text}` via OpenAI `whisper-1` with the server's key, 25 s timeout (503 no key, 502 upstream error, 504 timeout) |
+| `transcribe.py` | `POST /api/transcribe` | Dictation: multipart `audio` (WAV ≤ 2 MB, optional `language`) → `{text}` via OpenAI `whisper-1` with the server's key, 25 s timeout (503 no key, 502 upstream error, 504 timeout); home network only (loopback, private LAN, Tailscale; `X-Real-IP` behind nginx, else 403) and the body is capped before it is parsed (413) |
 
 The wire protocol of the two main sockets (frames, `session_started`, seq/replay, permissions,
 voice signaling) is specified in `docs/specs/12-client-protocol.md`; the as-is

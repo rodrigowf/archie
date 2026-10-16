@@ -3,11 +3,25 @@
 A client posts a short WAV recording and gets the text back, transcribed by
 OpenAI ``whisper-1`` with the **server's** ``OPENAI_API_KEY``. Built for the
 Archie TV's dictation into agent conversations (the TV never holds API keys),
-usable by any client. Same LAN trust model as the rest of the REST API.
+usable by any client.
+
+Because every call spends the server's OpenAI key, the endpoint is a little
+stricter than the rest of the REST API:
+
+* **Home network only.** The caller (the peer and, behind nginx, ``X-Real-IP``
+  — ``api.net.is_from_home_network``) must be loopback, a private LAN range or
+  Tailscale (``100.64.0.0/10``); anything else gets 403, so an accidentally
+  exposed port is not a free Whisper proxy.
+* **Size checked before the body is parsed.** FastAPI's ``File()`` parameters
+  would have Starlette spool the whole multipart body to disk before the
+  handler runs, so the handler reads the raw body itself: a ``Content-Length``
+  over the cap is refused unread, and a chunked body is cut off as soon as it
+  passes the cap. The audio part is checked again after parsing.
 
     POST /api/transcribe   multipart: audio=<wav ≤ 2 MB>, language=<ISO code>?
     → 200 {"text": "..."}
-      400 empty upload · 413 too large · 415 not a WAV
+      400 empty upload / unreadable form · 403 not from the home network
+      413 too large · 415 not a WAV · 422 no ``audio`` field
       503 no OpenAI key on the server · 502 OpenAI error · 504 OpenAI timeout
 """
 
@@ -16,8 +30,10 @@ from __future__ import annotations
 import logging
 
 import httpx
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, HTTPException, Request
+from starlette.datastructures import UploadFile
 
+from api.net import is_from_home_network, real_client_address
 from api.routes.config import _resolve_openai_key
 
 logger = logging.getLogger(__name__)
@@ -28,6 +44,9 @@ TRANSCRIBE_MODEL = "whisper-1"
 TRANSCRIBE_TIMEOUT_S = 25.0
 # 2 MB of 16 kHz mono PCM16 is ~65 s — above the TV's 60 s burst cap.
 MAX_AUDIO_BYTES = 2 * 1024 * 1024
+# The whole multipart body: the audio plus boundaries, part headers and the
+# language field.
+MAX_BODY_BYTES = MAX_AUDIO_BYTES + 64 * 1024
 
 
 def _make_client() -> httpx.AsyncClient:
@@ -39,21 +58,65 @@ def _is_wav(data: bytes) -> bool:
     return len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WAVE"
 
 
+def _too_large() -> HTTPException:
+    return HTTPException(
+        status_code=413,
+        detail=f"audio too large (max {MAX_AUDIO_BYTES // (1024 * 1024)} MB)",
+    )
+
+
+async def _read_capped_body(request: Request) -> bytes:
+    """The raw request body, refusing anything over ``MAX_BODY_BYTES``
+    before (declared length) or while (chunked) it is read."""
+    declared = request.headers.get("content-length")
+    if declared is not None:
+        try:
+            if int(declared) > MAX_BODY_BYTES:
+                raise _too_large()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="bad Content-Length") from None
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > MAX_BODY_BYTES:
+            raise _too_large()
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 @router.post("/api/transcribe")
-async def transcribe(
-    audio: UploadFile = File(...),
-    language: str | None = Form(None),
-) -> dict[str, str]:
-    # Read one byte past the cap so an oversized upload is detected without
-    # pulling the whole thing into memory.
-    data = await audio.read(MAX_AUDIO_BYTES + 1)
+async def transcribe(request: Request) -> dict[str, str]:
+    if not is_from_home_network(request):
+        logger.warning("Refusing transcription for %s (not the home network)",
+                       real_client_address(request))
+        raise HTTPException(
+            status_code=403, detail="transcription is only served to the home network",
+        )
+
+    body = await _read_capped_body(request)
+
+    async def replay() -> dict:
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    # Parse the already-capped bytes (in memory: ≤ MAX_BODY_BYTES).
+    try:
+        async with Request(request.scope, replay).form(max_files=1, max_fields=4) as form:
+            audio = form.get("audio")
+            language = form.get("language")
+            if not isinstance(audio, UploadFile):
+                raise HTTPException(status_code=422, detail="'audio' file field is required")
+            # Read one byte past the cap: the body cap leaves room for
+            # multipart overhead, the audio itself must still fit.
+            data = await audio.read(MAX_AUDIO_BYTES + 1)
+    except HTTPException:
+        raise
+    except Exception as e:  # MultiPartException, malformed form
+        raise HTTPException(status_code=400, detail=f"unreadable form: {e}") from None
     if not data:
         raise HTTPException(status_code=400, detail="audio is empty")
     if len(data) > MAX_AUDIO_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail=f"audio too large (max {MAX_AUDIO_BYTES // (1024 * 1024)} MB)",
-        )
+        raise _too_large()
     if not _is_wav(data):
         raise HTTPException(status_code=415, detail="audio must be a WAV file")
 
@@ -64,7 +127,7 @@ async def transcribe(
         )
 
     form = {"model": TRANSCRIBE_MODEL, "response_format": "json"}
-    lang = (language or "").strip()
+    lang = language.strip() if isinstance(language, str) else ""
     if lang:
         form["language"] = lang
 
