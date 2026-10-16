@@ -67,6 +67,25 @@ class CompactShellUiTest {
         compose.onNodeWithTag("placeholder-B-08").assertIsDisplayed()
     }
 
+    @Test fun drawerNew_withSessionsOpen_offersArchieAndAgent() {
+        show()
+        compose.onNodeWithContentDescription("Open navigation").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("drawer-new").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("New Archie conversation").performClick()
+        compose.waitForIdle()
+        assertTrue(actions.contains(ShellAction.NewArchie))
+
+        compose.onNodeWithContentDescription("Open navigation").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("drawer-new").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("New agent session").performClick()
+        compose.waitForIdle()
+        assertTrue(actions.contains(ShellAction.NewAgent))
+    }
+
     @Test fun titleOpensSwitcher_rowsFromOpenSessions_selectAndNew() {
         show()
         compose.onNode(titleInTopBar("Living-room TV")).performClick()
