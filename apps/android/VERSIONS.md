@@ -39,6 +39,12 @@ All versions named in spec 14 exist and are used as written.
 | compileSdk / targetSdk | 37 / 36 | yes | 37 / 36 | SDK package is `platforms;android-37.0` (rev 2); AGP resolves `compileSdk = 37` to it |
 | NDK / CMake | 26.1.10909125 / 3.22.1 | installed | — | not used until A-07 adds the shim |
 
+### Added later
+
+- 2026-10-16 (spec 15, WP T0): `androidx.tv:tv-material` **1.1.0** (latest stable on Google Maven, `maven-metadata.xml`
+  2026-05-06; AAR manifest `minSdk 23`, POM pulls Compose 1.10.3 artifacts, resolved up to the BOM's 1.12.1). Modern tier,
+  `:app-tv` only.
+
 ### Added to the catalog beyond the spec 14 excerpt (all verified to exist)
 
 `androidx.compose.ui:ui-graphics`, `ui-tooling`, `ui-tooling-preview`, `ui-test-junit4`, `ui-test-manifest`,
