@@ -7,6 +7,9 @@
  *   trailing stamp. They are mouse affordances (out of the tab order); the keyboard path is the
  *   ⋮ menu, which shows while the row has focus.
  * - Touch devices: the ⋮ menu button is always visible.
+ * - A `pinned` action (a star) is always visible on touch, left of ⋮; on hover devices it stays
+ *   visible at the right end while set (`pressed` not false) and shows on hover otherwise. A
+ *   `pressed` one is a toggle (aria-pressed, filled glyph).
  */
 import { useId, useRef, useState, type ReactNode } from 'react';
 import type { IconName } from '@/ui/icons';
@@ -24,6 +27,11 @@ export interface RowAction {
   readonly destructive?: boolean;
   /** Only in the ⋮ menu (not as a hover icon). */
   readonly menuOnly?: boolean;
+  /** Toggle state: aria-pressed on the icon button, filled glyph while pressed. */
+  readonly pressed?: boolean;
+  /** Always visible on touch; on hover devices only while `pressed` is not false (else on hover).
+   *  Put it last: it keeps its place on hover. */
+  readonly pinned?: boolean;
 }
 
 export interface ActionRowProps {
@@ -49,10 +57,12 @@ export function ActionRow({ leading, label, supporting, trailing, active, title,
   const rowId = `row${useId().replace(/:/g, '')}`;
   const menuRef = useRef<HTMLButtonElement>(null);
   const hoverActions = actions.filter((a) => !a.menuOnly);
+  const pinned = hoverActions.filter((a) => a.pinned).length;
+  const pinnedSet = hoverActions.filter((a) => a.pinned && a.pressed !== false).length;
   return (
     <div
-      className={cx(styles.row, supporting ? styles.rowTwo : null, open ? styles.rowMenuOpen : null, className)}
-      style={{ ['--row-actions' as string]: String(hoverActions.length) }}
+      className={cx(styles.row, supporting ? styles.rowTwo : null, open ? styles.rowMenuOpen : null, pinned ? styles.rowPinned : null, className)}
+      style={{ ['--row-actions' as string]: String(hoverActions.length), ['--row-pinned' as string]: String(pinned), ['--row-pinned-set' as string]: String(pinnedSet) }}
       data-row={rest['data-row']}
     >
       <NavigationDrawerItem
@@ -74,6 +84,9 @@ export function ActionRow({ leading, label, supporting, trailing, active, title,
               size="small"
               iconSize={20}
               icon={a.icon}
+              filled={a.pressed}
+              selected={a.pressed}
+              className={cx(a.pinned ? styles.pinned : null, a.pressed !== undefined ? styles.toggle : null)}
               aria-label={a.label}
               aria-describedby={rowId}
               title={a.label}

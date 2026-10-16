@@ -1,6 +1,7 @@
 package com.assistant.archie.feature.visuals
 
 import android.app.Application
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -87,6 +88,42 @@ class VisualsUiTest {
         compose.onNodeWithTag("visual-row:dashboard.html").performClick()
         assertEquals(listOf("dashboard.html"), opened)
         compose.onNodeWithText("public · ", substring = true).assertIsDisplayed()
+    }
+
+    @Test fun `starred visuals get their own section and the star toggles`() {
+        val deps = FakeVisualsDeps(app)
+        compose.setContent { ArchieTheme { VisualsScreen(deps, onBack = {}, onOpen = {}) } }
+        compose.onNodeWithText("Starred").assertIsDisplayed()
+        compose.onNodeWithText("All visuals").assertIsDisplayed()
+        compose.onNodeWithTag("visual-star:tarot-canvas/index.html").assertContentDescriptionEquals("Unstar")
+        compose.onNodeWithTag("visual-star:$path").assertContentDescriptionEquals("Star").performClick()
+        compose.waitForIdle()
+        assertEquals(listOf(path to true), deps.stars)
+        compose.onNodeWithTag("visual-star:$path").assertContentDescriptionEquals("Unstar")
+        // Unstar both: no headers left, the list looks as before stars.
+        compose.onNodeWithTag("visual-star:$path").performClick()
+        compose.onNodeWithTag("visual-star:tarot-canvas/index.html").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Starred").assertDoesNotExist()
+        compose.onNodeWithText("All visuals").assertDoesNotExist()
+    }
+
+    @Test fun `a failed star is reverted with a message`() {
+        val deps = FakeVisualsDeps(app).apply { starResult = ApiResult.HttpError(404, "Visualization not found") }
+        compose.setContent { ArchieTheme { VisualsScreen(deps, onBack = {}, onOpen = {}) } }
+        compose.onNodeWithTag("visual-star:$path").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("visual-star:$path").assertContentDescriptionEquals("Star")
+        compose.onNodeWithText("Could not star the visual: Visualization not found").assertIsDisplayed()
+    }
+
+    @Test fun `viewer top bar stars the open visual`() {
+        val deps = FakeVisualsDeps(app)
+        compose.setContent { ArchieTheme { VisualScreen(deps, path, onBack = {}) } }
+        compose.onNodeWithTag("visual-star").assertContentDescriptionEquals("Star").performClick()
+        compose.waitForIdle()
+        assertEquals(listOf(path to true), deps.stars)
+        compose.onNodeWithTag("visual-star").assertContentDescriptionEquals("Unstar")
     }
 
     @Test fun `inline card hides Show on TV unless available`() {

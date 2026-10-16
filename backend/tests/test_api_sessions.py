@@ -306,3 +306,81 @@ class TestResolvePermission:
             headers={"content-type": "application/json"},
         )
         assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# POST /api/sessions/inject — restored sessions and reopen-on-send
+# ---------------------------------------------------------------------------
+
+def _inject_app(*, live=None, restored=None, info=None):
+    """``live`` / ``restored``: sdk id → local id of a spawned / restored-not-spawned session."""
+    live = dict(live or {})
+    restored = dict(restored or {})
+    app = create_app()
+    store = MagicMock()
+    store.get_session_info.return_value = info
+    pool = MagicMock()
+    pool.find_open_by_sdk_id.side_effect = lambda sdk: live.get(sdk) or restored.get(sdk)
+    pool.has.side_effect = lambda lid: lid in live.values()
+
+    async def ensure_live(lid):
+        if lid in restored.values():
+            live.update({k: v for k, v in restored.items() if v == lid})
+            return True
+        return lid in live.values()
+
+    pool.ensure_live = AsyncMock(side_effect=ensure_live)
+    pool.create = AsyncMock(return_value="new-local")
+    pool.send_or_queue = AsyncMock(return_value="started")
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_pool] = lambda: pool
+    return app, pool
+
+
+async def _post(app, body):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        return await ac.post("/api/sessions/inject", json=body)
+
+
+class TestInject:
+    async def test_live_session(self):
+        app, pool = _inject_app(live={"sdk1": "l1"})
+        r = await _post(app, {"sdk_session_id": "sdk1", "text": "hi"})
+        assert r.status_code == 200 and r.json()["local_id"] == "l1" and r.json()["reopened"] is False
+        pool.send_or_queue.assert_awaited_once_with("l1", "hi")
+
+    async def test_restored_session_is_spawned(self):
+        app, pool = _inject_app(restored={"sdk1": "l1"})
+        r = await _post(app, {"sdk_session_id": "sdk1", "text": "hi"})
+        assert r.status_code == 200
+        pool.ensure_live.assert_awaited_once_with("l1")
+        pool.create.assert_not_called()
+
+    async def test_closed_session_without_open_is_404(self):
+        app, pool = _inject_app()
+        r = await _post(app, {"sdk_session_id": "sdk1", "text": "hi"})
+        assert r.status_code == 404 and "open: true" in r.json()["detail"]
+        pool.create.assert_not_called()
+
+    async def test_closed_session_reopens_with_open(self, monkeypatch):
+        import api.session_factory
+
+        monkeypatch.setattr(api.session_factory, "build_session_config", lambda **kw: ("cfg", {"m": {}}, {}))
+        app, pool = _inject_app(info=SessionInfo(session_id="sdk1", started_at=_NOW, last_activity=_NOW, title="t", message_count=1))
+        pool.has.side_effect = lambda lid: lid == "new-local"
+        r = await _post(app, {"sdk_session_id": "sdk1", "text": "hi", "open": True})
+        assert r.status_code == 200 and r.json() == {"ok": True, "local_id": "new-local", "delivery": "started", "reopened": True}
+        pool.create.assert_awaited_once_with("cfg", resume_sdk_id="sdk1", mcp_servers={"m": {}})
+
+    async def test_reopen_unknown_session_is_404(self):
+        app, pool = _inject_app(info=None)
+        r = await _post(app, {"sdk_session_id": "sdk1", "text": "hi", "open": True})
+        assert r.status_code == 404
+        pool.create.assert_not_called()
+
+    async def test_reopen_refuses_archie_conversations(self):
+        info = SessionInfo(session_id="sdk1", started_at=_NOW, last_activity=_NOW, title="t", message_count=1, is_orchestrator=True)
+        app, pool = _inject_app(info=info)
+        r = await _post(app, {"sdk_session_id": "sdk1", "text": "hi", "open": True})
+        assert r.status_code == 400
+        pool.create.assert_not_called()

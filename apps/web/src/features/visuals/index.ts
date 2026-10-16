@@ -10,4 +10,4 @@ export { VisualsPane, type VisualsPaneProps } from './VisualsPane';
 export { VisualViewer, preloadVisualViewer } from './lazy';
 export type { VisualViewerProps } from './VisualViewer';
 export { VisualCard, type VisualCardProps } from './VisualCard';
-export { findVisual, showOnTv, visualUrl, vizFolder, vizHref, vizOrigin } from './viz';
+export { findVisual, partitionVisuals, showOnTv, visualUrl, vizFolder, vizHref, vizOrigin } from './viz';

@@ -1,10 +1,10 @@
 ---
 name: visualizations-and-sharing
 category: archie/integrations
-tags: [visualizations, create-viz, context-public, markdown-reader, memory-urls, uploads, sharing, ipad, fire-tv, hardlink, review-artifacts, media-generation, remotion]
+tags: [visualizations, create-viz, scripts-api, favorites, context-public, markdown-reader, memory-urls, uploads, sharing, ipad, fire-tv, hardlink, review-artifacts, media-generation, remotion]
 created: 2026-04-15
-modified: 2026-10-09
-summary: Making things viewable on any device — /create-viz (interactive canvases, live reload, in-app links), what each URL prefix serves, the markdown reader, review-artifact placement, media generation skills.
+modified: 2026-10-16
+summary: Making things viewable on any device — /create-viz (interactive canvases and workbenches, live reload, in-app links, favorites, the scripts API pages run actions with), what each URL prefix serves, the markdown reader, review-artifact placement, media generation skills.
 source: curated (consolidated from memory notes assistant/infrastructure/features_and_integrations_summary.md §8, §10, §14, assistant/utilities/markdown_workflow.md, assistant/utilities/memory_url_and_hardlink_edit_gotcha.md, assistant/utilities/review_artifacts_location.md, assistant/utilities/experiments_dont_touch_app.md, projects/content-creation/content_creation_project.md (tooling parts); verified against code 2026-10-06)
 references:
   - skills.md
@@ -50,13 +50,16 @@ check which mount owns it before looking for the file. Full route table: [backen
 ## `/create-viz`: interactive canvases
 
 The personal skill `context/skills/create-viz/` (`SKILL.md` + `references/patterns.md`,
-`references/devices.md`, rewritten 2026-10-09) treats visualizations as the agents' canvas: project
-interfaces that grow with the work (one folder per project at the public root, e.g.
-`context/public/<project>/index.html` with its assets beside it), interactive explainers, review and
-editor pages that post choices back to the session (`POST /api/sessions/inject`), and live
+`references/devices.md`; rewritten 2026-10-09, workbench framing and actions added 2026-10-16)
+treats visualizations as the shared workbench between the agents and Rodrigo, with three
+channels: the agent writes state onto the page (live reload, below); Rodrigo sends picks and
+annotations back into the agent's session (`POST /api/sessions/inject`, which reopens a closed
+session with `open: true`); and the page runs allowlisted scripts itself, with no chat open
+([the scripts API](#actions-the-scripts-api)). Kinds: project workbenches that grow with the
+work (one folder per project at the public root, e.g. `context/public/<project>/index.html` with
+its assets beside it), control panels, interactive explainers, review and editor pages, and live
 dashboards that read the backend. Agents write the HTML directly with Write/Edit and edit it in
-place; the apps reload open pages on every change (below). `<title>` names the page in the
-Visuals list.
+place; the apps reload open pages on every change. `<title>` names the page in the Visuals list.
 
 `context/scripts/create_visualization.py` (templates `basic`, `chart`, `dashboard`, `tv-remote`
 into `context/public/visualizations/<name>.html`; `--show-url`, `--display-tv`) and
@@ -98,6 +101,11 @@ for the Visuals screens of the web and Android apps:
   Title: `.titles.json` key `viz:<path>` (manual rename), else the `<title>` tag, else the
   prettified file name. Symlinks escaping `context/public/` are skipped.
 - `PATCH /api/visualizations/rename {path, title}` stores a manual title.
+- `PUT /api/visualizations/favorite {path, favorite}` stars or unstars a page (added 2026-10-16).
+  Stars live in `context/.visual_favorites.json` (`{"paths": {<path>: <starred at>}}`), so every
+  device and both machines share them; each list entry carries `favorite`, and the apps show a
+  **Starred** section above the rest (spec 12 VZ-8). A change is pushed as a
+  `visualization_changed` with empty lists: devices refresh the list and reload no open page.
 - `GET /api/visualizations/cast` → `{available, reason}`; `POST /api/visualizations/cast {path}`
   opens the file's URL in the Fire TV's TvServerHub WebView over adb. Details (device selection,
   `FIRE_TV_ADB_SERIAL`, `VIZ_CAST_BASE_URL`) in [fire-tv](../devices/fire-tv.md).
@@ -107,6 +115,45 @@ for the Visuals screens of the web and Android apps:
 pinned by `FIRE_TV_ADB_SERIAL`, else the first connected device whose manufacturer is Amazon, and
 runs `adb -s <serial> shell am start -n com.example.tvserverhub/.WebPageViewActivity -e url <url>`
 with the URL it printed. Run `/connect-tv` first if the TV is not on adb.
+
+## Actions: the scripts API
+
+`backend/api/routes/scripts.py` (2026-10-16) lets a page run a project script and read its output,
+so a canvas can act without any chat open: a lamps panel, a "re-render" button, a data refresh.
+
+- `POST /api/scripts/run {script, args?, input?, timeout?}` waits for the script and answers
+  `{script, args, exit_code, stdout, stderr, json, timed_out, duration_ms}` (`json` = stdout parsed
+  when it is one JSON document; a non-zero exit is still HTTP 200). Default wait 60 s, at most
+  300 s.
+- `background: true` (with an optional `max_runtime`, default 30 min, at most 4 h) answers
+  `{job_id, status: "running", …}` at once. `GET /api/scripts/jobs/{id}` gives the status
+  (`running | succeeded | failed | timed_out | cancelled`) and the output so far (the newest
+  200 000 characters per stream), `DELETE` cancels, `GET /api/scripts/jobs` lists recent jobs.
+  Jobs live in the backend's memory: finished ones are kept an hour, a restart cancels running
+  ones.
+- `GET /api/scripts` lists what can run. Errors: 400 bad body, 403 not allowlisted, 404 missing
+  script or job, 429 more than 4 runs (or 4 jobs) at once.
+
+**Allowlist.** `context/scripts/allowed_scripts.json` (`{"scripts": {"<repo path>":
+{description, usage, timeout, max_runtime}}}`) plus every `path:` in
+`context/memory/ORCHESTRATOR_SCRIPTS.md` (scripts already approved for unattended runs). Both
+are re-read on every call, so an edit needs no restart. Page-only scripts go in the JSON file,
+because `ORCHESTRATOR_SCRIPTS.md` is part of the orchestrator's (and voice's) prompt.
+
+**How a script runs** (`backend/utils/script_runner.py`, shared with the orchestrator's
+`run_script` tool): from the repo root, with no shell. `.py` files go through
+`context/scripts/run.sh` (the venv, `context/.env` loaded); other files must be executable.
+Arguments are separate argv entries; `input` (a string, or any JSON value sent as JSON) arrives on
+stdin. Each run gets its own process group, so a timeout or a cancel also kills what it started.
+Runs are logged (`scripts API: …`).
+
+**Security.** The API has no login: anything that reaches it on the LAN or the tailnet can already
+drive agent sessions with a shell (`/api/sessions/inject`), so the scripts API adds no new
+capability for a client. What protects against other web sites is the request guard
+([backend](../architecture/backend.md)): cross-site writes are refused, and this router also
+origin-checks reads (`require_trusted_origin`), since job output can carry anything a script
+prints. "Only from pages inside the app" cannot be enforced (pages share the app's origin, and any
+marker could be sent by curl), so the allowlist is what limits the blast radius of a buggy page.
 
 ## The markdown reader
 

@@ -10,8 +10,9 @@
  *   i.e. remounts it, which reloads across origins and history states (VZ-4).
  * - **[LOAD-BEARING]** inv02 F-36 / spec 13 §4.4: the iframe stays mounted while the panel is
  *   hidden (`hidden` never unmounts it), so interactive visualizations keep their state.
- * - Toolbar (mockup h): "Updated 2 h ago · folder", **Show on TV** (only when the BX-2 probe says
- *   available — hidden, not disabled, spec 13 §3.7), ⋮ Reload / Open in browser / Copy link.
+ * - Toolbar (mockup h): "Updated 2 h ago · folder", Star / Unstar (VZ-8, while the page is in the
+ *   list), **Show on TV** (only when the BX-2 probe says available — hidden, not disabled, spec 13
+ *   §3.7), ⋮ Reload / Open in browser / Copy link.
  * - Live reload (spec 12 §9.3, VZ-6): when the content watcher reports this page or one of its
  *   assets changed, the frame remounts once per burst (debounced) and a short "Updated" cue
  *   shows. A hidden view waits until it is shown again (its state is not thrown away for a page
@@ -21,6 +22,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { parseServerTime } from '@/features/history';
 import { copyText, formatRelativeTime } from '@/platform';
+import { setVisualFavorite } from '@/services';
 import { showSnackbar, useCapabilities, useCatalog, useContentStamp } from '@/stores';
 import { Button, IconButton } from '@/ui/controls';
 import { Menu, MenuItem } from '@/ui/overlays';
@@ -142,6 +144,19 @@ export function VisualViewer({ path, url, hidden }: VisualViewerProps) {
           <span className={styles.updatedCue} role="status">
             Updated
           </span>
+        ) : null}
+        {item && !deleted ? (
+          <IconButton
+            icon="star"
+            size="small"
+            selected={item.favorite}
+            className={styles.star}
+            aria-label={item.favorite ? 'Unstar' : 'Star'}
+            title={item.favorite ? 'Unstar' : 'Star'}
+            onClick={() => {
+              void setVisualFavorite(path, !item.favorite);
+            }}
+          />
         ) : null}
         {castAvailable ? (
           <Button

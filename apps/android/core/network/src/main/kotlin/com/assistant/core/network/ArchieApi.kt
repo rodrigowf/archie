@@ -48,6 +48,7 @@ import com.assistant.core.protocol.SessionConfigDto
 import com.assistant.core.protocol.SessionIdResponse
 import com.assistant.core.protocol.SessionInfoDto
 import com.assistant.core.protocol.SkillsDto
+import com.assistant.core.protocol.VisualizationFavoriteRequest
 import com.assistant.core.protocol.VisualizationInfoDto
 import com.assistant.core.protocol.VisualizationRenameRequest
 import com.assistant.core.protocol.VoiceModelsDto
@@ -211,6 +212,9 @@ class ArchieApi(private val rest: RestCaller) {
 
     suspend fun renameVisualization(path: String, title: String): ApiResult<Unit> =
         rest.sendJson("PATCH", rest.url("/api/visualizations/rename"), json(VisualizationRenameRequest(path, title)))
+
+    suspend fun setVisualizationFavorite(path: String, favorite: Boolean): ApiResult<Unit> =
+        rest.sendJson("PUT", rest.url("/api/visualizations/favorite"), json(VisualizationFavoriteRequest(path, favorite)))
 
     suspend fun castProbe(): ApiResult<CastProbeDto> = rest.getJson(rest.url("/api/visualizations/cast"))
 

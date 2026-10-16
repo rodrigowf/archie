@@ -365,6 +365,13 @@ describe('mock server REST', () => {
     expect((await get('/api/sessions/y/config')).body).toMatchObject({ provider: 'codex', harness_options: { effort: 'ultra', web_search: null } });
     expect((await req('/api/sessions/y/config', 'PUT', { harness_options: { thinking_budget: 99999 } })).status).toBe(400);
     expect((await get('/api/visualizations/cast')).body).toMatchObject({ available: false });
+    expect((await req('/api/visualizations/favorite', 'PUT', { path: 'solar-system/index.html', favorite: true })).status).toBe(204);
+    expect((await req('/api/visualizations/favorite', 'PUT', { path: 'nope.html', favorite: true })).status).toBe(404);
+    expect((await req('/api/visualizations/favorite', 'PUT', { path: 'nope.html', favorite: false })).status).toBe(204);
+    expect((await req('/api/visualizations/favorite', 'PUT', { path: 'solar-system/index.html', favorite: 'yes' })).status).toBe(400);
+    const viz = (await get('/api/visualizations')).body as { path: string; favorite: boolean }[];
+    expect(viz.find((v) => v.path === 'solar-system/index.html')?.favorite).toBe(true);
+    expect(viz.find((v) => v.path === 'charts/weekly.html')?.favorite).toBe(false);
     const up = await fetch(`${server.url}/api/uploads`, { method: 'POST', body: new Blob(['hello']), headers: { 'content-type': 'text/plain' } });
     const upBody = (await up.json()) as { url: string; size: number };
     expect(upBody.size).toBe(5);

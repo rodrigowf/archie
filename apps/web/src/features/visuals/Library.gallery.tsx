@@ -1,6 +1,6 @@
 /**
- * W-14 gallery board: the three list destinations (Chats history, Memory tree, Visuals list) and
- * the inline visual card, on synthetic data seeded into the catalog store. Dev-only. Documents
+ * W-14 gallery board: the three list destinations (Chats history, Memory tree, Visuals list with
+ * one starred visual) and the inline visual card, on synthetic data seeded into the catalog store. Dev-only. Documents
  * and the viewer need a backend (mock server) and are checked in the app instead.
  */
 import { useState, type ReactNode } from 'react';
@@ -48,9 +48,9 @@ const MEMORY: MemoryNode[] = [
 ];
 
 const VISUALS: VisualizationInfo[] = [
-  { path: 'visuals/weekly-energy.html', url: '/visuals/weekly-energy.html', title: 'Weekly energy usage', created: iso(2 * H), modified: iso(2 * H), size: 1 },
-  { path: 'solar-system/index.html', url: '/solar-system/index.html', title: 'Solar system', created: iso(4 * D), modified: iso(4 * D), size: 1 },
-  { path: 'movie-night.html', url: '/movie-night.html', title: 'Movie night plan', created: iso(9 * D), modified: iso(9 * D), size: 1 },
+  { path: 'visuals/weekly-energy.html', url: '/visuals/weekly-energy.html', title: 'Weekly energy usage', created: iso(2 * H), modified: iso(2 * H), size: 1, favorite: false },
+  { path: 'solar-system/index.html', url: '/solar-system/index.html', title: 'Solar system', created: iso(4 * D), modified: iso(4 * D), size: 1, favorite: true },
+  { path: 'movie-night.html', url: '/movie-night.html', title: 'Movie night plan', created: iso(9 * D), modified: iso(9 * D), size: 1, favorite: false },
 ];
 
 const OPEN: OpenNowItem[] = [

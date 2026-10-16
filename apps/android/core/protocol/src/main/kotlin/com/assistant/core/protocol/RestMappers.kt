@@ -47,7 +47,7 @@ fun PoolSessionDto.toModel() = PoolSession(
 
 fun AuthStatusDto.toModel() = AuthStatus(authenticated, authUrl, headless)
 
-fun VisualizationInfoDto.toModel() = VisualInfo(path, url, title, created, modified, size)
+fun VisualizationInfoDto.toModel() = VisualInfo(path, url, title, created, modified, size, favorite)
 
 fun MemoryNodeDto.toModel(): MemoryNode = MemoryNode(name, path, isDir, children?.map { it.toModel() })
 

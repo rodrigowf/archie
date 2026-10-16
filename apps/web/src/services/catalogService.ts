@@ -1,6 +1,6 @@
 /**
  * Fetchers that fill `@/stores` catalog and server-config stores, plus the list mutations
- * (rename, duplicate) and config saves. Mutations are not broadcast (G-27, MC-1): the acting
+ * (rename, duplicate, star) and config saves. Mutations are not broadcast (G-27, MC-1): the acting
  * client refreshes its own stores. Every failure surfaces the backend `detail` verbatim.
  */
 import {
@@ -140,6 +140,27 @@ export async function renameVisualization(path: string, title: string): Promise<
     }
   }
   void refreshVisuals();
+}
+
+/**
+ * §9.1 star (VZ-8): optimistic `favorite`, `PUT`, then refresh. On failure only this row's star
+ * goes back and the snackbar shows the server detail. Resolves `false` on failure (never rejects).
+ */
+export async function setVisualFavorite(path: string, favorite: boolean): Promise<boolean> {
+  const set = (f: boolean): void => {
+    updateVisualItems((items) => items.map((v) => (v.path === path ? { ...v, favorite: f } : v)));
+  };
+  set(favorite);
+  try {
+    await api.visuals.setFavorite(path, favorite);
+    return true;
+  } catch (err) {
+    set(!favorite);
+    showSnackbar(errorMessage(err), { tone: 'error' });
+    return false;
+  } finally {
+    void refreshVisuals();
+  }
 }
 
 // ───────────────────────── server config (§8.1) ─────────────────────────

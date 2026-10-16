@@ -400,6 +400,12 @@ Test, and the Environment keys list with reveal-on-demand / edit / delete / add)
   documents). Chat links go through `rememberChatLinkHandler` (`shell/ContentWiring.kt`): visuals
   and memory files open as workspace items; memory documents open visuals in the app too (a
   `VisualDoc` screen on Compact).
+- Stars (favorites): `VisualInfo.favorite` (false when the backend omits it). The Visuals list
+  shows a "Starred" section on top and the rest under "All visuals" (no headers when nothing
+  starred matches); each row and the viewer's top bar have a star toggle that calls
+  `PUT /api/visualizations/favorite` (`VisualsRepository.setFavorite`: optimistic, reverted with
+  a snackbar on error). The server's empty `visualization_changed` frame refreshes the list on
+  every device and reloads no open page.
 
 ## Tool-result images (main app)
 

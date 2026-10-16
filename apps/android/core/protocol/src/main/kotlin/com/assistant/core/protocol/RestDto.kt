@@ -149,10 +149,16 @@ data class VisualizationInfoDto(
     val created: String? = null,
     val modified: String? = null,
     val size: Long = 0,
+    /** Absent on backends without favorites. */
+    val favorite: Boolean = false,
 )
 
 @Serializable
 data class VisualizationRenameRequest(val path: String, val title: String)
+
+/** `PUT /api/visualizations/favorite` → 204 (idempotent; 404 = not a visualization). */
+@Serializable
+data class VisualizationFavoriteRequest(val path: String, val favorite: Boolean)
 
 /** `GET /api/visualizations/cast`. */
 @Serializable

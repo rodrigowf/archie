@@ -38,6 +38,10 @@ class FakeBackend {
     private val startedHere = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     @Volatile var sessionsJson = "[]"
     @Volatile var visualizationsJson = "[]"
+
+    /** `PUT /api/visualizations/favorite` answer code; bodies received are recorded. */
+    @Volatile var favoriteCode = 204
+    val favoriteBodies = CopyOnWriteArrayList<String>()
     @Volatile var memoryTreeJson = "[]"
     @Volatile var messagesJson = """{"messages":[],"total_count":0,"has_more":false,"start_index":0}"""
 
@@ -61,6 +65,11 @@ class FakeBackend {
                     path == "/api/sessions/pool/live" -> json(poolBody())
                     path == "/api/sessions" -> json(sessionsJson)
                     path == "/api/visualizations" -> json(visualizationsJson)
+                    path == "/api/visualizations/favorite" && request.method == "PUT" -> {
+                        favoriteBodies += request.body.readUtf8()
+                        if (favoriteCode == 204) MockResponse().setResponseCode(204)
+                        else json("""{"detail":"Visualization not found"}""").setResponseCode(favoriteCode)
+                    }
                     path == "/api/memory/tree" -> json(memoryTreeJson)
                     path.startsWith("/api/sessions/") && path.contains("/messages") -> json(messagesJson)
                     path.endsWith("/close") -> {

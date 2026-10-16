@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from api.deps import get_pool, get_store
@@ -15,6 +17,8 @@ from api.models import (
 )
 from api.pool import SessionPool
 from manager.store import SessionStore
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -484,21 +488,26 @@ def fork_session(
 async def inject_message(
     body: dict,
     pool: SessionPool = Depends(get_pool),
+    store: SessionStore = Depends(get_store),
 ):
-    """Inject a user message into a live pool session as if it were typed
+    """Inject a user message into an agent session as if it were typed
     in the chat tab.
 
     Body accepts either ``local_id`` directly, or ``sdk_session_id`` which
-    is resolved to a local_id via the pool's reverse map.
+    is resolved to a local_id via the pool. ``open: true`` (with
+    ``sdk_session_id``) reopens a closed session from history first — the
+    page's Send button is a user action, so this may resume (spec 12 OPEN-4);
+    the response then says ``reopened: true``. A session restored after a
+    backend restart and not spawned yet is brought up either way.
 
-    Used by out-of-band tools (e.g. the gender-vid1 editor page) that
-    need to push a structured payload back to the parent Claude Code
-    session without going through the chat WebSocket. Drives the same
-    ``pool.send_or_queue`` path the chat endpoint uses, so the message
-    appears in the session's JSONL and broadcasts to every subscribed
-    WebSocket (including the live chat tab) — and goes into any
-    in-flight turn (steering, spec 12 I-16) rather than interrupting it.
-    ``delivery`` says how: ``steered``, ``started`` or ``queued``.
+    Used by visualizations and other out-of-band tools that need to push
+    a structured payload back to the parent agent session without going
+    through the chat WebSocket. Drives the same ``pool.send_or_queue``
+    path the chat endpoint uses, so the message appears in the session's
+    JSONL and broadcasts to every subscribed WebSocket (including the live
+    chat tab) — and goes into any in-flight turn (steering, spec 12 I-16)
+    rather than interrupting it. ``delivery`` says how: ``steered``,
+    ``started`` or ``queued``.
     """
     text = body.get("text")
     if not isinstance(text, str) or not text.strip():
@@ -506,15 +515,20 @@ async def inject_message(
 
     local_id = body.get("local_id")
     sdk_session_id = body.get("sdk_session_id")
+    reopen = body.get("open") is True
+    reopened = False
 
     if not local_id and sdk_session_id:
-        local_id = pool.find_by_sdk_id(sdk_session_id)
+        local_id = pool.find_open_by_sdk_id(sdk_session_id)
+        if not local_id and reopen:
+            local_id = await _reopen_from_history(pool, store, sdk_session_id)
+            reopened = True
         if not local_id:
             raise HTTPException(
                 404,
                 detail=(
-                    f"No live pool session for sdk_session_id={sdk_session_id!r}. "
-                    "Pass local_id directly, or open the session first."
+                    f"No open session for sdk_session_id={sdk_session_id!r}. "
+                    "Pass open: true to reopen it from history, or open it first."
                 ),
             )
 
@@ -524,9 +538,15 @@ async def inject_message(
         )
 
     if not pool.has(local_id):
-        raise HTTPException(
-            404, detail=f"No live pool session with local_id={local_id!r}",
-        )
+        # Restored after a restart and not spawned yet: spawn it like a chat tab's first use would.
+        try:
+            live = await pool.ensure_live(local_id)
+        except Exception as e:
+            raise HTTPException(500, detail=f"Could not start session {local_id!r}: {e}")
+        if not live:
+            raise HTTPException(
+                404, detail=f"No open pool session with local_id={local_id!r}",
+            )
 
     try:
         delivery = await pool.send_or_queue(local_id, text)
@@ -535,7 +555,31 @@ async def inject_message(
     except Exception as e:
         raise HTTPException(500, detail=f"send_or_queue failed: {e}")
 
-    return {"ok": True, "local_id": local_id, "delivery": delivery}
+    return {"ok": True, "local_id": local_id, "delivery": delivery, "reopened": reopened}
+
+
+async def _reopen_from_history(pool: SessionPool, store: SessionStore, sdk_session_id: str) -> str:
+    """Resume a closed agent session from its JSONL (the same path as opening it from History)."""
+    from api.session_factory import build_session_config
+    from api.routes.session_config import save_session_config
+
+    info = store.get_session_info(sdk_session_id)
+    if info is None:
+        raise HTTPException(404, detail=f"Session {sdk_session_id!r} not found in history.")
+    if info.is_orchestrator:
+        raise HTTPException(400, detail="Archie conversations cannot be reopened as agent sessions.")
+    try:
+        config, mcps, resolved = build_session_config(resume_sdk_id=sdk_session_id, mcp_override=None)
+        local_id = await pool.create(config, resume_sdk_id=sdk_session_id, mcp_servers=mcps)
+    except Exception as e:
+        raise HTTPException(500, detail=f"Could not reopen session {sdk_session_id!r}: {e}")
+    if resolved.get("persist_provider"):
+        try:
+            save_session_config(sdk_session_id, {"provider": resolved["persist_provider"]})
+        except Exception:
+            logger.warning("Failed to persist the provider of reopened session %s", sdk_session_id)
+    logger.info("inject: reopened session %s as %s", sdk_session_id, local_id)
+    return local_id
 
 
 @router.post("/{local_id}/close", status_code=204)

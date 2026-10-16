@@ -7,6 +7,7 @@
  *   dev server would answer with the app shell; `VITE_VIZ_ORIGIN` points frames at the backend
  *   (spec 13 §1.4). Production: same origin.
  * - VZ-5: meta = relative `modified` (offset-aware, A-8.4) and the parent folder or "public".
+ * - VZ-8: the list is split into Starred and the rest, each in server order (`modified` desc).
  * - Show on TV (BX-2, IA §9.4): `POST /api/visualizations/cast {path}` → `{ok, message}`; the
  *   failure snackbar shows the server's message verbatim; success says "Showing “title” on TV".
  */
@@ -36,6 +37,14 @@ export function vizFolder(path: string): string {
   const last = parts[parts.length - 1] ?? '';
   // `charts/index.html` belongs to "charts"; `a/b/c.html` to "b".
   return parts[parts.length - 2] ?? (last || 'public');
+}
+
+/** VZ-8: favorites and the rest, each in the order given (no duplicates). */
+export function partitionVisuals(items: readonly VisualizationInfo[]): { starred: VisualizationInfo[]; rest: VisualizationInfo[] } {
+  const starred: VisualizationInfo[] = [];
+  const rest: VisualizationInfo[] = [];
+  for (const v of items) (v.favorite ? starred : rest).push(v);
+  return { starred, rest };
 }
 
 export function findVisual(items: readonly VisualizationInfo[], path: string): VisualizationInfo | undefined {

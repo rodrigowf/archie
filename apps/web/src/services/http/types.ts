@@ -239,6 +239,8 @@ export interface VisualizationInfo {
   created: string;
   modified: string;
   size: number;
+  /** Starred (spec 12 §9.1). Older backends omit it: decoded as false. */
+  favorite: boolean;
 }
 
 export interface AuthStatus {
