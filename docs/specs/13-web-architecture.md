@@ -58,8 +58,8 @@ frontend-next/
 ├── tsconfig.json                        # solution file → tsconfig.app.json, tsconfig.protocol.json, tsconfig.node.json
 ├── .browserslistrc                      # [main] and [compat] environments
 ├── eslint.config.js / stylelint.config.mjs
-├── public-main/                         # manifest.json, sw.js, pcm-capture-worklet.js, icon-192/512.png, icon.svg
-├── public-compat/                       # icon.svg, icon-192.png (no manifest, no SW, no worklet)
+├── public-main/                         # manifest.json, sw.js, pcm-capture-worklet.js, archie-mark.svg, archie-mark-192/512.png, archie-mark-maskable-512.png, archie-mark-square-192.png (apple-touch); old logo icon-*.png/icon.svg kept, unused
+├── public-compat/                       # archie-mark.svg, archie-mark-192.png (old icon.svg/icon-192.png kept, unused; no manifest, no SW, no worklet)
 ├── scripts/                             # build gates and generators (§2.3, §6)
 ├── mock-server/                         # fixture-replaying mock backend (§6.5)
 ├── qa/                                  # QA checklists; qa/screenshots/ is gitignored (fn/.gitignore)

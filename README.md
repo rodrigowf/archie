@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/logo.svg" alt="Assistant logo" width="160" />
+  <img src="docs/assets/archie-mark.svg" alt="Archie logo" width="160" />
 </p>
 
 # Archie, the Ultimate Personal Assistant

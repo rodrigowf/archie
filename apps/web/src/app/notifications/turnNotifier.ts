@@ -49,7 +49,7 @@ function knownTitle(f: AgentTurnFinishedFrame): string | null {
 
 function iconUrl(): string {
   const base = import.meta.env.BASE_URL || '/';
-  return `${base.endsWith('/') ? base : `${base}/`}icon-192.png`;
+  return `${base.endsWith('/') ? base : `${base}/`}archie-mark-192.png`;
 }
 
 function str(v: unknown): string | null {
