@@ -137,6 +137,9 @@ class TvAppGraph(
         ConnectionModel(RepositoryConnectionControl(connection, orchestrator, http, settings), settings, settingsMessages, scope)
     }
 
+    /** The live navigator + current screen for control commands (T3) and the voice router (T4). */
+    val navHolder = com.assistant.archie.tv.shell.TvNavHolder()
+
     // ── Voice seams (T4) ────────────────────────────────────────────────────────────────────────
 
     /** The process-scoped voice host, built on first access (T4 passes [voiceHostFactory]). */

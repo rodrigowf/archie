@@ -26,6 +26,14 @@ open class TvApplication : Application(), TvGraphOwner, VoiceHostOwner {
     override fun onCreate() {
         super.onCreate()
         graph.attachNetwork()
+        // TV control commands bring the app forward from the background (spec 15 §5.2); Fire OS
+        // allows the background start with the SYSTEM_ALERT_WINDOW app-op tv_setup.sh grants.
+        graph.navHolder.bringToFront = {
+            startActivity(
+                android.content.Intent(this, com.assistant.archie.tv.shell.MainActivity::class.java)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+            )
+        }
         ProcessLifecycleOwner.get().lifecycle.addObserver(graph.processLifecycle)
     }
 }

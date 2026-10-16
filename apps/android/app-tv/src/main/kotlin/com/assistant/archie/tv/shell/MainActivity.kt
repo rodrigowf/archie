@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.background
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,6 +81,12 @@ private fun TvAppContent(graph: TvAppGraph, onController: (TvShellController) ->
         TvShellController(backStack, liveVoice = { graph.liveVoice.toggle() }, onLeaveApp = onLeaveApp).also(onController)
     }
     val ctx = remember(controller) { TvRouteContext(graph, controller.nav) }
+    DisposableEffect(controller) {
+        graph.navHolder.attach(controller.nav)
+        onDispose { graph.navHolder.detach(controller.nav) }
+    }
+    val top = backStack.lastOrNull()
+    LaunchedEffect(top) { graph.navHolder.onTopChanged(top) }
     val connection by graph.connection.status.collectAsStateWithLifecycle()
     val voice by graph.voice.state.collectAsStateWithLifecycle()
     val state = TvShellState(connection = connection, voice = voice, showKeyHints = showKeyHints)
