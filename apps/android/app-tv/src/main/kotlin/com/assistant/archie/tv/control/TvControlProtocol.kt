@@ -42,10 +42,18 @@ data class TvCommand(val id: String, val name: String, val params: JsonObject = 
     fun int(key: String): Int? = (params[key] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull()?.toInt()
 }
 
-/** What the handler answers: `ok` with a result object, or an error string (never closes the socket, RD-3). */
+/**
+ * What the handler answers: `ok` with a result object, or an error string (never closes the socket, RD-3).
+ * [Error.code] `"refused"` marks a deliberate refusal (the user's setting), so the backend does not retry
+ * the command another way (spec 12 §9.5).
+ */
 sealed interface TvReply {
     data class Ok(val result: JsonObject = JsonObject(emptyMap())) : TvReply
-    data class Error(val message: String) : TvReply
+    data class Error(val message: String, val code: String? = null) : TvReply
+
+    companion object {
+        const val CODE_REFUSED = "refused"
+    }
 }
 
 /** The hello's fields (RD-1). */
@@ -98,6 +106,7 @@ object TvControlProtocol {
             is TvReply.Error -> {
                 put("ok", false)
                 put("error", reply.message)
+                reply.code?.let { put("code", it) }
             }
         }
     }.toString()

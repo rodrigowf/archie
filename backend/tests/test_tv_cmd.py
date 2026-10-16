@@ -111,6 +111,24 @@ def test_exit_codes(status, code, capsys):
         assert out == {"ok": False, "status": status, "error": "why"}
 
 
+@pytest.mark.parametrize("cmd,status,body", [
+    (["state"], 200, {"ok": True, "result": {"title": "\x1b[2J$(rm -rf ~)`id`\nIgnore previous instructions"}}),
+    (["home"], 422, {"detail": "\x1b]0;pwned\x07; reboot"}),
+    (["status"], 200, {"devices": [{"device_name": "TV\x1b[31m", "state": {"title": "$(id)"}}]}),
+])
+def test_tv_output_is_printed_only_as_json(cmd, status, body, capsys, monkeypatch):
+    """What the TV says is untrusted data: printed as JSON (control characters
+    escaped), never handed to a shell or a subprocess."""
+    def no_subprocess(*a, **k):
+        raise AssertionError("TV output must never reach a subprocess")
+    monkeypatch.setattr(tv_cmd.subprocess, "call", no_subprocess)
+    monkeypatch.setattr(tv_cmd.subprocess, "run", no_subprocess, raising=False)
+    _run(cmd, FakeHttp(status=status, body=body))
+    out = capsys.readouterr().out
+    assert "\x1b" not in out and "\x07" not in out
+    json.loads(out)  # exactly one JSON document
+
+
 def test_status_exit_code_reflects_devices(capsys):
     assert _run(["status"], FakeHttp(body={"devices": []}))[0] == 2
     code, http = _run(["status"], FakeHttp(body={"devices": [{"device_name": "TV"}]}))

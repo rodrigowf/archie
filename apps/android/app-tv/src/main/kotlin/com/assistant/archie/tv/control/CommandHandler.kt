@@ -87,7 +87,7 @@ class CommandHandler(
         if (name !in TvCommands.ALL) return TvReply.Error("unknown command: $name")
         if (name == TvCommands.GET_STATE) return TvReply.Ok(TvControlProtocol.obj("type" to "state").let { JsonObject(it + env.state()) })
         if (name in TvCommands.DISPLAY && !env.allowAgentsToOpen()) {
-            return TvReply.Error("agents may not change what this TV shows (Settings → TV control → Allow agents to open pages is off)")
+            return TvReply.Error("agents may not change what this TV shows (Settings → TV control → Allow agents to open pages is off)", TvReply.CODE_REFUSED)
         }
         if (name == TvCommands.NOTIFY) return notify(cmd)
 

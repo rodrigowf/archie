@@ -234,6 +234,11 @@ class TvControlClientTest {
         val ok = Json.parseToJsonElement(TvControlProtocol.result("id1", TvReply.Ok())).jsonObject
         assertEquals(true, ok["ok"]!!.jsonPrimitive.boolean)
         assertEquals(JsonObject(emptyMap()), ok["result"])
+        val refused = Json.parseToJsonElement(TvControlProtocol.result("id2", TvReply.Error("off", TvReply.CODE_REFUSED))).jsonObject
+        assertEquals(false, refused["ok"]!!.jsonPrimitive.boolean)
+        assertEquals("refused", refused["code"]!!.jsonPrimitive.content)
+        val plain = Json.parseToJsonElement(TvControlProtocol.result("id3", TvReply.Error("nope"))).jsonObject
+        assertNull(plain["code"])
         assertEquals(15_000L, TvControlClient.defaultBackoff(30))
     }
 }

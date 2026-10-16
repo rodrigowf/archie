@@ -1923,7 +1923,7 @@ tv → {"type":"hello","device_id":"<uuid>","device_name":"Living room TV","clie
 be → {"type":"ready"}  |  {"type":"error","error":"<reason>"} + close 4401
        reasons: hello_timeout, invalid_json, expected_hello, unauthorized, missing_device_id
 be → {"id":"<12 hex>","type":"command","command":"<name>","params":{...}}
-tv → {"id":"<same>","type":"result","ok":true,"result":{...}}  |  {"id":"…","type":"result","ok":false,"error":"…"}
+tv → {"id":"<same>","type":"result","ok":true,"result":{...}}  |  {"id":"…","type":"result","ok":false,"error":"…","code":"refused"?}
 tv → {"type":"state","screen":"viewer","url":"…","title":"…","conversation":"<local_id>"?,"voice":"idle"}
 tv ↔ {"type":"ping"} / {"type":"pong"}
 ```
@@ -1952,20 +1952,28 @@ tv ↔ {"type":"ping"} / {"type":"pong"}
 | `get_state` | — | — | the current `state` frame |
 
   An unknown command, or one the current screen cannot honour, answers `ok:false` with an error
-  string; it never closes the socket.
+  string; it never closes the socket. A command the TV declines **on purpose** — the user turned
+  off Settings → TV control → "Allow agents to open pages" — answers `ok:false` with
+  `"code":"refused"` as well; no other failure carries `code`. A refusal MUST NOT be routed
+  around (no adb fallback).
 - **RD-4. Focus.** A command is a user action (FOCUS-1 exemption): it brings the app to the front,
   navigates, and wakes the launcher's blank screen. Live voice overlays stay up.
 - **RD-5. State.** The TV sends `state` whenever its screen, URL, title, conversation or voice
   state changes (and after `ready`); the server caches the last one per device for
   `GET /api/tv/status`.
 - **RD-6. Server endpoints.** `GET /api/tv/status` → `{devices:[{device_id, device_name, client,
-  version, capabilities, connected_at, state}], token_configured}`. `POST /api/tv/command
-  {command, params?, device?, timeout?}` is **loopback-only** (403 through the reverse proxy):
+  version, capabilities, connected_at, state}], token_configured}` for callers on the server; a
+  LAN caller gets the same devices without `device_id` and no `token_configured`.
+  `POST /api/tv/command {command, params?, device?, timeout?}` is **loopback-only** — local means
+  the TCP peer is loopback and there is no proxy header or `X-Real-IP` is loopback; anything else
+  (through the reverse proxy, a direct LAN client, `X-Forwarded-For` without `X-Real-IP`) → 403:
   `200 {ok, device:{device_id, device_name}, command, result}`; no TV / no such TV → 503; several
-  TVs and no `device` → 409; timeout → 504; `ok:false` → 422. Scripts use
-  `shared/scripts/tv_cmd.py`. "Show on TV" (`POST /api/visualizations/cast`) sends
-  `open_visualization` to the TV app when one is connected and falls back to adb when none is, or
-  it times out or fails; its response carries `via: "app" | "adb"`.
+  TVs and no `device` → 409; timeout → 504; `ok:false` with `code: "refused"` → 403; other
+  `ok:false` → 422; non-finite `timeout` → 400. Scripts use `shared/scripts/tv_cmd.py`. "Show on
+  TV" (`POST /api/visualizations/cast`) sends `open_visualization` to the TV app when one is
+  connected and falls back to adb when none is, or it times out, the send fails or it reports a
+  non-refusal error; a refusal settles as `{ok:false, via:"app"}`. Its response carries
+  `via: "app" | "adb"`.
 
 ---
 

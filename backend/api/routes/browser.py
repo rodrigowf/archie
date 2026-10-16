@@ -244,7 +244,8 @@ async def browser_command(request: Request) -> dict[str, Any]:
 
     Two gates, both required:
 
-    * **Loopback only.** A request arriving via nginx from the LAN is refused.
+    * **Loopback only.** A request from the LAN — through nginx or straight to
+      the port — is refused (``api.net.is_proxied_from_lan``).
       This channel runs arbitrary JS in a logged-in browser, so it deliberately
       does not inherit the rest of the API's open-to-the-LAN posture.
     * **Shared token**, same ``BROWSER_CONTROL_TOKEN`` the extension presents,
@@ -257,7 +258,7 @@ async def browser_command(request: Request) -> dict[str, Any]:
             status_code=403,
             detail=(
                 "browser commands are loopback-only; this request arrived from "
-                f"{offender} via the reverse proxy. Use an SSH tunnel."
+                f"{offender}, not from this machine. Use an SSH tunnel."
             ),
         )
 

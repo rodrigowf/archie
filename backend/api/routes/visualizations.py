@@ -35,7 +35,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from api.deps import get_store
 from api.models import VisualizationInfoResponse
-from api.routes.tv import TvAmbiguous, TvCommandError, TvCommandTimeout, TvNotConnected
+from api.routes.tv import (
+    TvAmbiguous,
+    TvCommandError,
+    TvCommandRefused,
+    TvCommandTimeout,
+    TvNotConnected,
+)
 from manager.store import SessionStore
 from utils.paths import get_public_dir
 
@@ -221,7 +227,10 @@ def rename_visualization(body: dict, store: SessionStore = Depends(get_store)):
 # 2. **adb** (the fallback, and the only route before the TV app): open the
 #    visualization's network URL in the TvServerHub WebView on the Fire TV via
 #    ``adb shell am start -n com.example.tvserverhub/.WebPageViewActivity -e url``.
-#    Used when no TV app is connected, or it timed out or reported an error.
+#    Used when no TV app is connected, or it timed out, could not be sent to,
+#    or reported an error. Never when the app *refused* (``code: refused``:
+#    the user turned off "Allow agents to open pages") — routing around the
+#    user's choice through adb would defeat it.
 #
 # Never raises on TV problems — the result is always ``{ok, via, message}``.
 # ---------------------------------------------------------------------------
@@ -353,7 +362,8 @@ async def _cast_via_app(request: Request, rel_path: str) -> tuple[dict | None, s
     """Ask the Archie TV app to open *rel_path*.
 
     Returns ``(response, "")`` when the app route settled the request (shown,
-    or a failure adb cannot fix), or ``(None, reason)`` to fall back to adb.
+    refused by the TV's user, or a failure adb cannot fix), or
+    ``(None, reason)`` to fall back to adb (transport problems only).
     """
     hub = _tv_hub(request)
     if hub is None or not hub.connected:
@@ -370,6 +380,10 @@ async def _cast_via_app(request: Request, rel_path: str) -> tuple[dict | None, s
     except TvCommandTimeout:
         logger.warning("TV app did not answer open_visualization %s; trying adb", rel_path)
         return None, "the TV app did not answer"
+    except TvCommandRefused as exc:
+        # A deliberate "no" from the TV's user: respect it, no adb.
+        logger.info("TV app refused open_visualization %s: %s", rel_path, exc)
+        return {"ok": False, "via": "app", "message": f"The TV refused: {exc}"}, ""
     except TvCommandError as exc:
         logger.warning("TV app failed open_visualization %s: %s; trying adb", rel_path, exc)
         return None, f"the TV app reported: {exc}"
