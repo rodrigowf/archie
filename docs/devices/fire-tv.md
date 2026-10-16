@@ -31,46 +31,74 @@ the web app itself — can be put on the TV.
 
 ## TvServerHub
 
-- **Launcher** (`MainActivity.kt`, `AppLauncher.kt`): a Compose app grid with tiles for
-  services on the Jetson (an "Agentic" tile, Jellyfin on `:8096`, Copyparty on `:3923`) and an
-  animated gradient background. On start, `initializeEnvironment()` starts the screensaver
-  service, sets `screensaver_enabled=0`, `screen_off_timeout=2147483647` and
-  `stay_on_while_plugged_in=7`, and launches YouTube in the background for casting.
-- **`WebPageViewActivity`** opens any URL: JavaScript on, hardware-accelerated, camera/microphone
-  permissions auto-granted, remote WebView debugging on, Back navigates history, `singleTask`
-  (reused for each new URL). Certificate errors are accepted for the local server.
+Reworked to **v2.0** on 2026-10-16 (spec [15-tv-app.md](../specs/15-tv-app.md) §7): a two-card
+launcher, a D-pad settings screen and an idle engine that blanks the screen.
+
+- **Launcher** (`MainActivity.kt`, `AppLauncher.kt`): two centered cards over the animated
+  gradient — **Archie** (launches Archie TV, `com.assistant.archie.tv`; toast "Archie TV is not
+  installed" when it is missing) and **YouTube** (`com.amazon.firetv.youtube/dev.cobalt.app.MainActivity`)
+  — plus a **gear** in the top-right corner (D-pad Up from the cards). **Menu** (82) and
+  **Settings** (176) also open Settings. The old in-launcher WebView and its Agentic / Jellyfin /
+  Copyparty tiles are gone.
+- **Settings** (`SettingsActivity.kt`), D-pad only — Left/Right/OK change a value, Back saves and
+  closes: *When idle* (**Black screen** / Turn display off (sleep) / Do nothing), *Idle time before
+  blanking* (5–60 min, **15**), *Never blank while media plays* (**on**), *Return to launcher when
+  idle* (Off / **80 s** / 2 / 5 / 10 min), *Test: blank now*, and status rows (key watcher, usage
+  access, overlay permission, monitor service + current idle time), each with its adb fix.
+- **Once per boot** (keyed by `BOOT_COUNT`; the v1 `initialized` flag was set once and never
+  reset): `screensaver_enabled=0`, `screen_off_timeout=2147483647`, `stay_on_while_plugged_in=7`,
+  and YouTube launched in the background for casting (by `BootReceiver`, whose YouTube component
+  name is fixed in v2.0).
+- **`WebPageViewActivity`** opens any URL — the adb fallback for "Show on TV": JavaScript on,
+  hardware-accelerated, camera/microphone permissions auto-granted, remote WebView debugging on,
+  Back navigates history, `singleTask` (reused for each new URL). Certificate errors are accepted
+  for the local server.
 
 ```bash
-adb -s 192.168.0.16:5555 shell am start -n com.example.tvserverhub/.WebPageViewActivity -e url "https://example.com"
+adb -s 192.168.0.15:5555 shell am start -n com.example.tvserverhub/.WebPageViewActivity -e url "https://example.com"
 ```
 
-### ScreensaverMonitorService
+### ScreensaverMonitorService (idle engine)
 
-TvServerHub replaces Android's screensaver with its own:
+A foreground service ticks every **10 s**, reads the settings, detects the foreground app
+(`UsageEvents` foreground events, fallback usage stats / `getRunningTasks`) and media
+(`AudioManager.isMusicActive`), and asks the pure `IdleLogic.decide()` (unit-tested):
 
-1. Native screensaver off, screen timeout at maximum.
-2. `ScreensaverMonitorService` runs as a **foreground service**, checking every
-   **10 s** (`CHECK_INTERVAL = 10000L`).
-3. It tracks app switches (`UsageStatsManager`, fallback `getRunningTasks`), media playback
-   (`AudioManager.isMusicActive`) and remote input (DPAD / gamepad / keyboard sources).
-4. After **80 s** idle (`IDLE_TIMEOUT = 80`) it brings `MainActivity` back to the front.
+- **Key presses** come from `KeyWatchService`, an AccessibilityService with
+  `flagRequestFilterKeyEvents` that sees every remote key in every app and **never consumes** one
+  (v1 counted input *devices*, so it never saw a press). HOME and the Alexa/mic key never reach it.
+  Without it, only app switches and media count as activity.
+- `lastActivity` = latest of key press, switch to another app, `KEEP_AWAKE` hold-off, and media
+  playing (when *never blank while media plays* is on).
+- **Return to launcher**: idle ≥ 80 s in any app except TvServerHub and **Archie TV**, not while media plays.
+- **Blank**: idle ≥ 15 min in any app (Archie TV included), not while media plays → `BlankActivity`:
+  pure black, keeps the screen on, immersive; the first key opens the launcher; it closes itself
+  when anything else comes to the front (e.g. Archie TV showing pushed content).
+- **Sleep** (`GLOBAL_ACTION_LOCK_SCREEN`) is implemented but **untested on the living-room
+  display** — it may not come back on; Settings shows a warning.
+- **`KEEP_AWAKE`** — exported broadcast `com.example.tvserverhub.action.KEEP_AWAKE`, optional int
+  extra `seconds` (hold idle off that long). Archie TV sends it on pushed content and every 60 s
+  while voice is live, with `setPackage("com.example.tvserverhub")`.
 
-It needs three app-ops, granted after every fresh install:
+Setup after a fresh install (Archie's `tv_setup.sh` does it): two app-ops and the key watcher.
 
 ```bash
-adb -s 192.168.0.16:5555 shell "appops set com.example.tvserverhub android:get_usage_stats allow"
-adb -s 192.168.0.16:5555 shell "appops set com.example.tvserverhub SYSTEM_ALERT_WINDOW allow"
-adb -s 192.168.0.16:5555 shell "appops get com.example.tvserverhub"   # expect GET_USAGE_STATS, SYSTEM_ALERT_WINDOW, START_FOREGROUND: allow
+adb -s 192.168.0.15:5555 shell "appops set com.example.tvserverhub android:get_usage_stats allow"
+adb -s 192.168.0.15:5555 shell "appops set com.example.tvserverhub SYSTEM_ALERT_WINDOW allow"
+adb -s 192.168.0.15:5555 shell settings put secure enabled_accessibility_services com.example.tvserverhub/.KeyWatchService   # append if others are enabled
+adb -s 192.168.0.15:5555 shell settings put secure accessibility_enabled 1
+adb -s 192.168.0.15:5555 shell am broadcast -a com.example.tvserverhub.action.KEEP_AWAKE -p com.example.tvserverhub --ei seconds 300   # test KEEP_AWAKE
 ```
 
-**Pitfall: the service can be killed by Android under memory pressure.** It is `START_STICKY`
-but does not reliably come back. Symptom: the TV no longer returns to the launcher after
-inactivity, and there are no screensaver logs (the launcher process may still be running).
+**Pitfall: the service is not running after a reinstall** (the update kills the process) and can
+be killed under memory pressure. It is started again by the key watcher when the system rebinds
+it, by the launcher (`onCreate`/`onResume`) and at boot. Symptom: no return to the launcher, no black screen, no `ScreensaverMonitor` status line
+(one per minute) in logcat; Settings → Status shows "Stopped".
 
 ```bash
-adb -s 192.168.0.16:5555 shell "dumpsys activity services com.example.tvserverhub" | grep -A 10 ScreensaverMonitorService
-# no output → not running. Restarting the activity re-runs initializeEnvironment():
-adb -s 192.168.0.16:5555 shell "am force-stop com.example.tvserverhub && sleep 1 && am start -n com.example.tvserverhub/.MainActivity"
+adb -s 192.168.0.15:5555 shell "dumpsys activity services com.example.tvserverhub" | grep -A 3 ScreensaverMonitorService
+# no output → not running. Opening the launcher starts it:
+adb -s 192.168.0.15:5555 shell am start -n com.example.tvserverhub/.MainActivity
 ```
 
 ## Connecting
