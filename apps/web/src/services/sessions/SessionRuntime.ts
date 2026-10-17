@@ -65,6 +65,8 @@ export class SessionRuntime extends ConversationRuntime {
       sdkId: opts.sdkId ?? null,
       provider: opts.provider ?? 'claude',
       liveStatus: opts.liveStatus ?? null,
+      // a session that started elsewhere (pool row or agent_session_opened): H-2a applies
+      live: opts.reattach === true || opts.liveStatus != null,
       reattach: opts.reattach,
     });
     const handle = createSessionStore({ localId: opts.localId, conv, readOnly: opts.readOnly, hidden: opts.hidden });
@@ -104,6 +106,8 @@ export class SessionRuntime extends ConversationRuntime {
     } else {
       // a brand-new session has no history: the entries are built from this stream (T-10)
       this.step({ type: 'history_page', mode: 'replace', response: EMPTY_PAGE });
+      // H-2a: one started elsewhere may already have an id in pool/live → the reducer reloads it
+      if (this.conv.ref.live) void this.learnSdkId();
     }
     this.socket.connect();
   }

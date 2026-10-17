@@ -359,7 +359,7 @@ export abstract class ConversationRuntime implements RuntimeHandle {
     }
   }
 
-  private async learnSdkId(): Promise<void> {
+  protected async learnSdkId(): Promise<void> {
     const id = await this.hooks.lookupSdkId(this.localId);
     if (id && !this.disposed && !this.conv.ref.sdkId) this.step({ type: 'sdk_id', sdkId: id });
   }

@@ -257,6 +257,31 @@ describe('identity (ID-2, ST-2) and pool events', () => {
     expect(feed(fresh, { type: 'turn_complete', session_id: 'abc' }).conv.ref.sdkId).toBe('abc');
   });
 
+  // spec 12 H-2a (2026-10-17): a session started elsewhere and auto-opened from agent_session_opened
+  // before its sdk id existed showed no prompt (a fresh subscriber gets no replay).
+  it('an attached view (live) without an sdkId reloads once it learns the id (H-2a)', () => {
+    const attached = feed(agent({ sdkId: null, live: true }), { type: 'status', status: 'processing' }, { type: 'text_complete', text: 'tail' }).conv;
+    const r = feed(attached, { type: 'sdk_id', sdkId: 'sdk-42' });
+    expect(r.conv.ref.sdkId).toBe('sdk-42');
+    expect(r.conv.reloading).toBe(true);
+    expect(r.effects).toContainEqual({ type: 'reload', needsSdkId: false });
+    const t = feed(attached, { type: 'turn_complete', session_id: 'sdk-9', is_error: false });
+    expect(t.effects).toContainEqual({ type: 'reload', needsSdkId: false });
+  });
+
+  it('an attached view without an sdkId asks the pool on subscribe; an own new session does not (H-2a)', () => {
+    const attached = feed(agent({ sdkId: null, live: true, subscribed: false }), { type: 'socket_open' }).conv;
+    expect(feed(attached, { type: 'session_started', session_id: 'L1' }).effects).toContainEqual({ type: 'learn_sdk_id' });
+    const own = feed(agent({ sdkId: null, subscribed: false }), { type: 'socket_open' }).conv;
+    expect(feed(own, { type: 'session_started', session_id: 'L1' }).effects).not.toContainEqual({ type: 'learn_sdk_id' });
+  });
+
+  it('an own new session keeps H-2: learning its sdkId never reloads', () => {
+    const fresh = feed(agent({ sdkId: null }), { type: 'status', status: 'processing' }).conv;
+    expect(feed(fresh, { type: 'sdk_id', sdkId: 'x' }).conv.reloading).toBe(false);
+    expect(feed(fresh, { type: 'turn_complete', session_id: 'abc', is_error: false }).effects.some((e) => e.type === 'reload')).toBe(false);
+  });
+
   it('pool/live status is authoritative for the turn state (ST-2); the orchestrator row is ignored', () => {
     let conv = feed(agent(), { type: 'pool_status', status: 'tool_use' }).conv;
     expect(conv.inTurn).toBe(true);
