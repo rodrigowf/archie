@@ -477,3 +477,17 @@ after an `adb shell input` key as "high input latency" (the injected event's tim
 "Frame deadline missed" and the percentiles, or `framestats`. On Home the GPU needs ≈ 12 ms a frame
 (p90 15.5 ms) against 5 ms in a conversation: Home's remaining cost is drawing, not composition.
 
+
+## Fixes after launch (2026-10-17)
+
+- **History of a session opened mid first turn** (shared `:core:conversation` / `:core:data`, so the
+  phone app gets it too): a pool view opened before its sdk id was known showed only the live tail.
+  The cold open now asks `pool/live` for the id, and an attached view reloads once it learns it
+  (spec 12 H-2a); SEQ-6 overflow reloads look the id up inside the reload (web parity) and a
+  successful reload clears the gap flag. Tests: `ConnectionManagerTest` (`attachedView…`, `seq6_…`,
+  `aSuccessfulReloadClearsTheGap`).
+- **Rewind paging looped**: on TV devices Compose's default bring-into-view pins the focused item to a
+  pivot, so focusing the middle block after a page scrolled the list back. The transcript and the
+  memory reader use `theme/TvReadingScroll.kt` (`ReadingScroll`): no scroll when the focused block is
+  visible, else the shortest move. Tests: `ReadingScrollTest`. Verified on the AFTKM: Rewind pages
+  from the newest message to the first prompt of a 98-message session.

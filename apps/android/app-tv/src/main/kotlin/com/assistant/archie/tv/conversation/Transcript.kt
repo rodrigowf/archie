@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import com.assistant.archie.tv.theme.ReadingScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -191,6 +192,7 @@ fun Transcript(
     }
 
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        ReadingScroll {
         LazyColumn(
             Modifier
                 .widthIn(max = TranscriptMaxWidth)
@@ -237,6 +239,7 @@ fun Transcript(
                     .testTag("t:${item.key}")
                 TranscriptItem(item, kind, toolCards, onAction, onLongPress, itemModifier, readOnly)
             }
+        }
         }
     }
 }

@@ -3,6 +3,8 @@ package com.assistant.core.conversation
 import com.assistant.core.model.ConnectionState
 import com.assistant.core.model.HarnessProvider
 import com.assistant.core.model.LiveStatus
+import com.assistant.core.model.SessionKind
+import com.assistant.core.model.SessionRef
 import com.assistant.core.model.SessionStatus
 import com.assistant.core.protocol.ClientFrame
 import com.assistant.core.protocol.ModelInfoDto
@@ -73,14 +75,85 @@ class ConnectionManagerTest {
     }
 
     @Test
-    fun seq6_overflowWithoutSdkIdKeepsEntriesAndFlagsAGap() {
+    fun seq6_overflowWithoutSdkIdReloadsOnceThePoolNamesIt() {
+        // A session opened while its first turn runs (no sdk id yet) whose replay overflowed: the
+        // reload still happens — the effect handler asks pool/live for the id first (SEQ-6, as the web
+        // app's runReload does). Before this fix the view kept only the live tail (2026-10-17, TV).
         val s = agent(sdkId = null).send("go").on(processing(), ServerFrame.TextDelta("a", 3, stream))
             .input(ConversationInput.SocketOpened)
         val r = ConversationReducer.step(s, ConversationInput.Frame(started(ResumeState("L1:2", 1), overflow = true)))
-        assertTrue(ConversationEffect.LookupSdkId in r.effects)
-        assertFalse(r.state.reloading)
-        assertTrue(r.state.gapPossible)
-        assertShape("U(go) A[T(a)~]", r.state)
+        assertTrue(ConversationEffect.CanonicalReload in r.effects)
+        assertTrue(r.state.reloading)
+        val done = r.state.input(
+            ConversationInput.SdkIdLearned("sdk-42"),
+            ConversationInput.HistoryPage(PageMode.REPLACE, page(0, 2, userLine("go"), assistantText("everything so far"))),
+        )
+        assertEquals("sdk-42", done.ref.sdkId)
+        assertFalse(done.reloading)
+        assertFalse(done.gapPossible)
+        assertShape("U(go):history A[T(everything so far)]", done)
+    }
+
+    @Test
+    fun seq6_overflowWithoutAnySdkIdKeepsEntriesAndFlagsAGap() {
+        // pool/live had no id either: the handler reports ReloadFailed — entries kept, "Reload" offered.
+        val s = agent(sdkId = null).send("go").on(processing(), ServerFrame.TextDelta("a", 3, stream))
+            .input(ConversationInput.SocketOpened)
+            .on(started(ResumeState("L1:2", 1), overflow = true))
+        val f = s.input(ConversationInput.ReloadFailed)
+        assertFalse(f.reloading)
+        assertTrue(f.gapPossible)
+        assertShape("U(go) A[T(a)~]", f)
+    }
+
+    /** A view attached to a running pool session before its sdk id was known (cold open had nothing to fetch). */
+    private fun attachedWithoutSdkId() =
+        ConversationState.initial(SessionRef("L1", null, SessionKind.AGENT, HarnessProvider.CLAUDE, live = true)).copy(
+            status = SessionStatus.IDLE,
+            connection = ConnectionState.SUBSCRIBED,
+            history = HistoryState(loaded = true),
+        ).on(processing(), ServerFrame.TextDelta("live tail", 40, stream))
+
+    @Test
+    fun attachedViewReloadsHistoryOnceThePoolNamesTheSdkId() {
+        // 2026-10-17 (TV): an agent session started elsewhere, opened mid first turn → only the live
+        // tail showed. A fresh subscriber gets no replay; the history must come from REST.
+        val r = ConversationReducer.step(attachedWithoutSdkId(), ConversationInput.SdkIdLearned("sdk-42"))
+        assertTrue(ConversationEffect.CanonicalReload in r.effects)
+        assertTrue(r.state.reloading)
+        val done = r.state.input(ConversationInput.HistoryPage(PageMode.REPLACE, page(0, 3, userLine("lamps"), assistantText("earlier work"), assistantText("live tail"))))
+        assertShape("U(lamps):history A[T(earlier work) T(live tail)]", done)
+    }
+
+    @Test
+    fun attachedViewReloadsHistoryWhenTheFirstTurnNamesTheSdkId() {
+        val r = ConversationReducer.step(attachedWithoutSdkId(), ConversationInput.Frame(turnComplete("sdk-9")))
+        assertEquals("sdk-9", r.state.ref.sdkId)
+        assertTrue(ConversationEffect.CanonicalReload in r.effects)
+    }
+
+    @Test
+    fun attachedViewWithoutSdkIdAsksThePoolOnSubscribe() {
+        val s = ConversationState.initial(SessionRef("L1", null, SessionKind.AGENT, HarnessProvider.CLAUDE, live = true))
+            .input(ConversationInput.SocketOpened)
+        assertTrue(ConversationEffect.LookupSdkId in s.effectsOf(started(rs = null)))
+        assertFalse(ConversationEffect.LookupSdkId in agent(sdkId = null).input(ConversationInput.SocketOpened).effectsOf(started(rs = null)))
+    }
+
+    @Test
+    fun ownNewSessionDoesNotReloadWhenItLearnsItsSdkId() {
+        // created here: the view already holds everything since the first prompt (T-10)
+        val fresh = agent(sdkId = null).send("go").on(processing())
+        assertFalse(ConversationEffect.CanonicalReload in fresh.effectsOf(turnComplete("sdk-9")))
+        assertFalse(ConversationEffect.CanonicalReload in fresh.effectsOf(ConversationInput.SdkIdLearned("sdk-7")))
+    }
+
+    @Test
+    fun aSuccessfulReloadClearsTheGap() {
+        val s = agent().input(ConversationInput.BeginReload, ConversationInput.ReloadFailed)
+        assertTrue(s.gapPossible)
+        val r = s.input(ConversationInput.BeginReload, ConversationInput.HistoryPage(PageMode.REPLACE, page(0, 1, userLine("q"))))
+        assertFalse(r.gapPossible)
     }
 
     @Test

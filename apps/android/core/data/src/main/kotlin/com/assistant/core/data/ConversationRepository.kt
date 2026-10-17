@@ -579,9 +579,15 @@ class ConversationRepository(
 
         /** §5.2: hold frames, fetch the last page (404 = empty), apply, then flush. */
         fun coldOpen() {
-            val sdkId = state.value.ref.sdkId
+            val ref = state.value.ref
             post(ConversationInput.BeginReload)
             jobs += scope.launch {
+                // A pool session opened from a row that predates its sdk id: ask pool/live once, so the
+                // history shows now rather than when the first turn ends (reducer: reloadIfAttachedWithoutHistory).
+                val sdkId = ref.sdkId ?: if (ref.live && ref.kind == SessionKind.AGENT) {
+                    history.syncPool()?.firstOrNull { it.localId == ref.localId }?.sdkId
+                        ?.also { post(ConversationInput.SdkIdLearned(it)) }
+                } else null
                 val page = if (sdkId == null) ApiResult.Ok(PaginatedMessagesDto()) else fetchPage(sdkId)
                 post(page.getOrNull()?.let { ConversationInput.HistoryPage(PageMode.REPLACE, it) } ?: ConversationInput.ReloadFailed)
             }
@@ -639,12 +645,15 @@ class ConversationRepository(
         private fun onEffect(e: ConversationEffect) {
             when (e) {
                 is ConversationEffect.SendStart -> sendFrame(e.frame)
-                ConversationEffect.CanonicalReload -> {
-                    val sdkId = state.value.ref.sdkId
-                    if (sdkId == null) post(ConversationInput.ReloadFailed)
-                    else jobs += scope.launch {
-                        post(fetchPage(sdkId).getOrNull()?.let { ConversationInput.HistoryPage(PageMode.REPLACE, it) } ?: ConversationInput.ReloadFailed)
+                ConversationEffect.CanonicalReload -> jobs += scope.launch {
+                    // SEQ-6: no sdk id yet (a view opened during the session's first turn) → ask pool/live.
+                    val sdkId = state.value.ref.sdkId ?: run {
+                        val localId = state.value.ref.localId
+                        history.syncPool()?.firstOrNull { it.localId == localId }?.sdkId
+                            ?.also { post(ConversationInput.SdkIdLearned(it)) }
                     }
+                    if (sdkId == null) post(ConversationInput.ReloadFailed)
+                    else post(fetchPage(sdkId).getOrNull()?.let { ConversationInput.HistoryPage(PageMode.REPLACE, it) } ?: ConversationInput.ReloadFailed)
                 }
                 ConversationEffect.LookupSdkId -> jobs += scope.launch {
                     val localId = state.value.ref.localId

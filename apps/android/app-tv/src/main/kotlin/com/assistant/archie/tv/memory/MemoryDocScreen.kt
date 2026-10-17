@@ -66,6 +66,7 @@ import com.assistant.archie.tv.shell.TvKeyHandler
 import com.assistant.archie.tv.shell.TvOption
 import com.assistant.archie.tv.shell.TvRouteContext
 import com.assistant.archie.tv.shell.Viewer
+import com.assistant.archie.tv.theme.ReadingScroll
 import com.assistant.archie.tv.theme.TvDimens
 import com.assistant.archie.tv.theme.TvEmptyState
 import com.assistant.archie.tv.theme.TvFormat
@@ -309,7 +310,8 @@ fun MemoryDocScreen(state: MemoryDocUi, actions: MemoryDocActions, scroller: Rea
                     selectedLinkBackground = c.primaryContainer,
                     codeBackground = style.inlineCodeBackground,
                 )
-                LazyColumn(
+                ReadingScroll {
+                    LazyColumn(
                     Modifier.weight(1f).fillMaxWidth(),
                     state = scroller.list,
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -358,6 +360,7 @@ fun MemoryDocScreen(state: MemoryDocUi, actions: MemoryDocActions, scroller: Rea
                             TvMarkdownBlock(b, style, colors, selectedLink = if (focused) selectedLink else -1)
                         }
                     }
+                }
                 }
             }
         }

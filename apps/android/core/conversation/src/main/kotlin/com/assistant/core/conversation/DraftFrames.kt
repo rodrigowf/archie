@@ -173,11 +173,13 @@ private fun Draft.onTurnComplete(f: ServerFrame.TurnComplete) {
         )
         val it = f.inputTokens ?: (f.usage?.get("input_tokens") as? JsonPrimitive)?.content?.toLongOrNull()
         if (it != null && it > 0) counters = counters.copy(contextTokens = it)
-        if (!f.sessionId.isNullOrEmpty() && ref.sdkId == null) ref = ref.copy(sdkId = f.sessionId)
+        val learned = !f.sessionId.isNullOrEmpty() && ref.sdkId == null
+        if (learned) ref = ref.copy(sdkId = f.sessionId)
         if (f.isError == true && !f.result.isNullOrEmpty()) {
             appendEntry(NoticeEntry(newEntryId(), NoticeKind.ERROR, f.result!!, mapOf("code" to "turn_error")))
         }
         endTurn("complete")
+        if (learned) reloadIfAttachedWithoutHistory()
         if (ref.sdkId == null) effects += ConversationEffect.LookupSdkId     // ID-2 (Gemini sends no session_id)
     } else {
         val it = f.inputTokens

@@ -19,6 +19,7 @@ private fun Draft.applyInput(input: ConversationInput) {
         is ConversationInput.HistoryPage -> {
             HistoryMerger.applyPage(this, input.mode, input.page)
             if (input.mode == PageMode.REPLACE && reloading) {
+                gapPossible = false                                            // the page covers the gap (web parity)
                 refetchOpenSubagents()                                         // §5.6: before the buffered frames, so theirs are held
                 finishReload()
             }
@@ -50,7 +51,10 @@ private fun Draft.applyInput(input: ConversationInput) {
             // No replay for the orchestrator and Qwen/Gemini (SEQ-7): live activity may be missing.
             if (inTurn && !ref.seqCapable) gapPossible = true
         }
-        is ConversationInput.SdkIdLearned -> if (ref.sdkId == null) ref = ref.copy(sdkId = input.sdkId)
+        is ConversationInput.SdkIdLearned -> if (ref.sdkId == null) {
+            ref = ref.copy(sdkId = input.sdkId)
+            reloadIfAttachedWithoutHistory()
+        }
         is ConversationInput.PoolStatus -> poolStatus(input.status)
         ConversationInput.DismissBanner -> connectionBanner = null
         is ConversationInput.ClearAgentApprovals -> {
@@ -99,6 +103,7 @@ private fun Draft.onSessionStarted(f: ServerFrame.SessionStarted) {
     connectionBanner = null
     if (!f.sessionId.isNullOrEmpty() && f.sessionId != ref.localId) ref = ref.copy(localId = f.sessionId!!)   // ID-1
     if (isOrchestrator && !f.jsonlId.isNullOrEmpty()) ref = ref.copy(sdkId = f.jsonlId)                      // backend O-3
+    if (isAgent && ref.live && ref.sdkId == null) effects += ConversationEffect.LookupSdkId                   // ID-2: attached mid first turn
     val window = if (isAgent) f.contextWindow else f.modelInfo?.modelInfo?.contextWindow
     counters = counters.copy(contextWindow = window ?: counters.contextWindow ?: ConversationReducer.DEFAULT_CONTEXT_WINDOW)
 
@@ -135,13 +140,23 @@ private fun ServerFrame.hasSeq() = seq != null && !streamId.isNullOrEmpty()
 
 private val RESTART_STATUSES = setOf(SessionStatus.CONNECTING, SessionStatus.STOPPED, SessionStatus.TERMINATED)
 
-/** §5.6 / SEQ-6. Returns true when a reload is now pending. */
-private fun Draft.startCanonicalReload(): Boolean {
-    if (ref.sdkId == null) {
-        gapPossible = true
-        effects += ConversationEffect.LookupSdkId
-        return false
-    }
+/**
+ * A view attached to a session that started elsewhere (`ref.live`) before its sdk id was known had
+ * nothing to cold-open (§5.2), and a fresh subscriber gets no replay: its history must come from REST
+ * once the id is known (pool/live or the first `turn_complete`, ID-2). A session created here
+ * (`live = false`) already holds everything since its first prompt and is left alone.
+ */
+internal fun Draft.reloadIfAttachedWithoutHistory() {
+    if (isAgent && ref.live && !reloading) startCanonicalReload()
+}
+
+/**
+ * §5.6 / SEQ-6. Returns true when a reload is now pending. Without an sdk id the effect handler asks
+ * `pool/live` for it first and answers [ConversationInput.ReloadFailed] (gap, entries kept) only if
+ * there is still none — as the web app's `runReload` does. (Flagging the gap and only learning the id
+ * left a view opened during a long first turn with just its live tail, 2026-10-17.)
+ */
+internal fun Draft.startCanonicalReload(): Boolean {
     reloading = true
     effects += ConversationEffect.CanonicalReload
     return true
