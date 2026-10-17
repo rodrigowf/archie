@@ -74,6 +74,13 @@ enum class RemoteMicState {
 
     /** The recorder could not be opened (retried while in front). */
     UNAVAILABLE,
+
+    /**
+     * This device's microphone streams continuously from the moment it is armed (`read()` never
+     * blocks, as on phones and most Android TV boxes): there is no "button held" signal, so the
+     * source disarmed itself. Probed again the next time the app comes to the front.
+     */
+    UNSUPPORTED,
 }
 
 /**
@@ -110,6 +117,21 @@ class RemoteMicSource(
     private var retry: ScheduledFuture<*>? = null
     private var injecting = 0
 
+    /** When the current recorder was armed (the continuous-stream probe's reference). */
+    private var armedAt = 0L
+
+    /** The continuous-stream probe still runs (the first [TvVoiceTuning.PROBE_MS] after arming). */
+    private var probing = false
+
+    /**
+     * A burst that began right at arm time, held back until it proves to be a real press (it ends
+     * before the probe does) or a continuous stream (it does not: the source is unsupported).
+     */
+    private var held: MutableList<MicBurst>? = null
+
+    /** [route] as a function value, allocated once (the reader calls it for every frame). */
+    private val routeFn: (MicBurst) -> Unit = { route(it) }
+
     /** Arms the source (idempotent): the app came to the front, or the permission was just granted. */
     fun start() {
         synchronized(lock) {
@@ -125,15 +147,29 @@ class RemoteMicSource(
             if (rec == null) {
                 _state.value = RemoteMicState.UNAVAILABLE
                 log("recorder unavailable — retrying in ${TvVoiceTuning.REARM_RETRY_MS} ms")
-                retry = timers?.schedule({ start() }, TvVoiceTuning.REARM_RETRY_MS, TimeUnit.MILLISECONDS)
+                retry = timers?.schedule({ startIfWanted() }, TvVoiceTuning.REARM_RETRY_MS, TimeUnit.MILLISECONDS)
                 return
             }
             recorder = rec
+            armedAt = clock.nowMs()
+            probing = true
+            held = null
             val gen = ++generation
             ensureWatchdog()
             _state.value = RemoteMicState.READY
             log("armed (VOICE_RECOGNITION, ${TvVoiceTuning.SAMPLE_RATE_HZ} Hz)")
             startThread { readLoop(gen, rec) }
+        }
+    }
+
+    /**
+     * A queued re-arm (after a failed open or a read error): arms only while the app still wants
+     * the mic — a retry that fires after [stop] (the app went to the background) does nothing.
+     */
+    internal fun startIfWanted() {
+        synchronized(lock) {
+            if (!wanted) return
+            start()
         }
     }
 
@@ -144,7 +180,8 @@ class RemoteMicSource(
             retry?.cancel(false)
             retry = null
             generation++
-            detector.flush(sink)
+            endBurst()
+            probing = false
             if (injecting == 0) stopWatchdog()
             _state.value = RemoteMicState.OFF
             recorder.also { recorder = null }
@@ -171,20 +208,81 @@ class RemoteMicSource(
             if (gen != generation) return false
             if (n < 0) {
                 log("read error $n — re-arming")
-                detector.flush(sink)
+                endBurst()
+                probing = false
                 recorder = null
                 _state.value = RemoteMicState.UNAVAILABLE
-                if (wanted) retry = timers?.schedule({ start() }, TvVoiceTuning.REARM_RETRY_MS, TimeUnit.MILLISECONDS)
+                if (wanted) retry = timers?.schedule({ startIfWanted() }, TvVoiceTuning.REARM_RETRY_MS, TimeUnit.MILLISECONDS)
                 return false
             }
-            if (n > 0) detector.onFrame(clock.nowMs(), buf.copyOf(n), sink)
+            val now = clock.nowMs()
+            if (n > 0) detector.onFrame(now, buf.copyOf(n), routeFn)
+            if (checkProbe(now)) {
+                recorder = null // this reader exits and releases it
+                return false
+            }
             return true
         }
     }
 
     /** Watchdog tick: ends a burst after the gap. */
     internal fun tick() {
-        synchronized(lock) { detector.onTick(clock.nowMs(), sink) }
+        val rec = synchronized(lock) {
+            val now = clock.nowMs()
+            detector.onTick(now, routeFn)
+            if (checkProbe(now)) recorder.also { recorder = null } else null
+        }
+        rec?.stop() // unblocks the reader, which releases it
+    }
+
+    /**
+     * Every detector event passes here (under [lock]). A burst that starts within
+     * [TvVoiceTuning.PROBE_START_MS] of arming is held back while the probe runs; anything else goes
+     * straight to [sink].
+     */
+    private fun route(e: MicBurst) {
+        val h = held
+        when {
+            h != null -> {
+                h += e
+                if (e is MicBurst.End) { // it paused: a real press at arm time — deliver it now
+                    held = null
+                    probing = false
+                    h.forEach(sink)
+                }
+            }
+            e is MicBurst.Start && probing && e.atMs - armedAt < TvVoiceTuning.PROBE_START_MS -> held = mutableListOf(e)
+            else -> sink(e)
+        }
+    }
+
+    /**
+     * Ends the probe once [TvVoiceTuning.PROBE_MS] have passed since arming. True = the source
+     * just turned out to stream continuously: the held burst (audio since arming) is dropped, the
+     * source is [RemoteMicState.UNSUPPORTED] and disarmed (the caller stops the recorder; a reader
+     * exits on the generation change).
+     */
+    private fun checkProbe(now: Long): Boolean {
+        if (!probing || now - armedAt < TvVoiceTuning.PROBE_MS) return false
+        probing = false
+        if (held == null) return false
+        held = null
+        detector.reset()
+        generation++
+        if (injecting == 0) stopWatchdog()
+        _state.value = RemoteMicState.UNSUPPORTED
+        log("frames never stopped since arming — this microphone streams continuously; hold-to-talk is unsupported, disarmed")
+        return true
+    }
+
+    /** A burst in progress ends now: a held one is dropped (nothing of it was delivered). */
+    private fun endBurst() {
+        if (held != null) {
+            held = null
+            detector.reset()
+        } else {
+            detector.flush(sink)
+        }
     }
 
     /**
@@ -203,7 +301,7 @@ class RemoteMicSource(
                 var at = 0
                 while (at < pcm.size) {
                     val end = minOf(pcm.size, at + step)
-                    synchronized(lock) { detector.onFrame(clock.nowMs(), pcm.copyOfRange(at, end), sink) }
+                    synchronized(lock) { detector.onFrame(clock.nowMs(), pcm.copyOfRange(at, end), routeFn) }
                     at = end
                     Thread.sleep(step * 1000L / TvVoiceTuning.SAMPLE_RATE_HZ)
                 }

@@ -139,7 +139,7 @@ private fun ControlRoute(ctx: TvRouteContext) {
             systemName = systemName,
             allowOpen = allow,
             openedToasts = toasts,
-            canRetry = state is TvControlState.Rejected || state is TvControlState.Waiting || state is TvControlState.Replaced,
+            canRetry = state is TvControlState.Rejected || state is TvControlState.Waiting,
             tokenSet = tokenSet,
         ),
         ControlPaneActions(

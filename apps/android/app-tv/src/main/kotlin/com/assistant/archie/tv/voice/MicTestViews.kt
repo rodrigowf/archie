@@ -37,7 +37,7 @@ import com.assistant.core.design.theme.ArchieTheme
  */
 
 /** What the status box says. */
-enum class MicStatus { READY, ALEXA_LISTENS, NO_PERMISSION, UNAVAILABLE, NO_VOICE }
+enum class MicStatus { READY, ALEXA_LISTENS, NO_PERMISSION, UNAVAILABLE, UNSUPPORTED, NO_VOICE }
 
 /** The status + meter as the screens render them (state-driven for the goldens). */
 @Immutable
@@ -56,6 +56,7 @@ data class MicCheckUi(
 fun micStatus(permission: Boolean, mic: RemoteMicState, alexa: AlexaState, voice: Boolean = true): MicStatus = when {
     !voice -> MicStatus.NO_VOICE
     !permission || mic == RemoteMicState.NO_PERMISSION -> MicStatus.NO_PERMISSION
+    mic == RemoteMicState.UNSUPPORTED -> MicStatus.UNSUPPORTED
     alexa == AlexaState.LISTENS -> MicStatus.ALEXA_LISTENS
     mic == RemoteMicState.UNAVAILABLE -> MicStatus.UNAVAILABLE
     else -> MicStatus.READY
@@ -122,6 +123,11 @@ private fun statusText(ui: MicCheckUi): Triple<ImageVector, String, String> = wh
     )
     MicStatus.NO_PERMISSION -> Triple(ArchieIcons.MicOff, "No audio permission", "Allow the microphone so Archie can hear the remote.")
     MicStatus.UNAVAILABLE -> Triple(ArchieIcons.MicOff, "The microphone is busy", "Another app holds it. Archie keeps trying.")
+    MicStatus.UNSUPPORTED -> Triple(
+        ArchieIcons.MicOff,
+        "This device's microphone streams continuously",
+        "Hold-to-talk needs a remote that streams only while its button is held.",
+    )
     MicStatus.NO_VOICE -> Triple(ArchieIcons.MicOff, "Voice is not available", "This build has no voice.")
 }
 

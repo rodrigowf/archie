@@ -20,8 +20,10 @@ data class LiveTranscript(val user: String? = null, val assistant: String? = nul
 
 /**
  * Live voice through the remote (spec 15 §4.2) over the shared voice host: Play/Pause / hero /
- * Menu toggle it, the TV is a normal voice owner (spec 12 §7: a toggle while another device owns
- * voice takes it over), and the remote's bursts are walkie-talkie turns fed through [bridge].
+ * Menu toggle it, the TV is a normal voice owner (spec 12 §7). While another device owns voice a
+ * toggle never takes it over silently: it offers "Take over?" (toast), and only [takeOver] — the
+ * "Take over" buttons, or Play/Pause again within [TAKE_OVER_CONFIRM_MS] of the offer — starts
+ * here. The remote's bursts are walkie-talkie turns fed through [bridge].
  *
  * Ends on the toggle, the panel's End / Back, or after [idleSeconds] with neither side talking.
  * While live it pings the launcher (KEEP_AWAKE) every [TvVoiceTuning.LIVE_KEEP_AWAKE_MS].
@@ -43,6 +45,9 @@ class TvLiveVoice(
 
     @Volatile private var lastActivity = 0L
     private var watch: Job? = null
+
+    /** When the last "Take over?" offer was made (0 = none pending). */
+    @Volatile private var offeredAt = 0L
 
     init {
         host?.let { h ->
@@ -81,15 +86,40 @@ class TvLiveVoice(
                 log("live voice: user stop")
                 h.stopVoice()
             }
-            !hasPermission() -> requestPermission()
-            else -> {
-                if (s.remoteVoiceActive && !s.isOwner) log("live voice: taking over from another device")
-                bridge.reset()
-                _transcript.value = LiveTranscript()
-                h.startVoice(Trigger.BUTTON)
+            s.remoteVoiceActive && !s.isOwner -> {
+                val now = clock.nowMs()
+                if (offeredAt > 0 && now - offeredAt <= TAKE_OVER_CONFIRM_MS) {
+                    start(h, takingOver = true) // pressed again after the offer: the explicit take-over
+                } else {
+                    offeredAt = now
+                    log("live voice: owned by another device — offering take over")
+                    toast(TAKE_OVER_OFFER, false)
+                }
             }
+            else -> start(h, takingOver = false)
         }
         return true
+    }
+
+    /** The explicit "Take over" (spec 12 §7): starts live voice here even while another device owns it. */
+    override fun takeOver(): Boolean {
+        val h = host ?: return toggle()
+        val s = h.state.value.session
+        if (s.isOwner && s.phase.isLive()) return true
+        start(h, takingOver = s.remoteVoiceActive && !s.isOwner)
+        return true
+    }
+
+    private fun start(h: VoiceHost, takingOver: Boolean) {
+        offeredAt = 0
+        if (!hasPermission()) {
+            requestPermission()
+            return
+        }
+        if (takingOver) log("live voice: taking over from another device")
+        bridge.reset()
+        _transcript.value = LiveTranscript()
+        h.startVoice(Trigger.BUTTON)
     }
 
     /** The panel's End button / Back from the overlay. */
@@ -143,6 +173,11 @@ class TvLiveVoice(
 
     companion object {
         const val WATCH_TICK_MS = 1_000L
+
+        /** Play/Pause again within this long after the "Take over?" toast takes over. */
+        const val TAKE_OVER_CONFIRM_MS = 6_000L
+
+        const val TAKE_OVER_OFFER = "Live voice is on another device — Take over? Press ⏯ again"
 
         fun SessionPhase.isLive(): Boolean = this != SessionPhase.OFF && this != SessionPhase.ERROR
 

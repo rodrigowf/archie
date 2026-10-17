@@ -16,6 +16,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.NavKey
@@ -104,7 +105,8 @@ private fun TvAppContent(graph: TvAppGraph, onController: (TvShellController) ->
     CompositionLocalProvider(LocalToolImageLoader provides graph.toolImages) {
         Box(Modifier.fillMaxSize()) {
             TvShell(state, controller, graph.toasts) { key -> TvRoutes.Entry(key, ctx) }
-            VoiceOverlayHost(graph)
+            // The dictation chip takes focus outside the shell: not a lost focus (B3 fallback).
+            Box(Modifier.fillMaxSize().onFocusChanged { controller.externalFocused = it.hasFocus }) { VoiceOverlayHost(graph) }
         }
     }
 }

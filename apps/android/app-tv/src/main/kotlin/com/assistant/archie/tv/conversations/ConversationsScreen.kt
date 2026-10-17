@@ -1,5 +1,6 @@
 package com.assistant.archie.tv.conversations
 
+import com.assistant.archie.tv.theme.dpadFocusRestorer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,7 +35,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -73,6 +73,7 @@ import com.assistant.core.design.theme.ArchieTheme
 import com.assistant.core.markdown.ui.Markdown
 import com.assistant.core.markdown.ui.MarkdownStyle
 import com.assistant.core.network.ApiResult
+import android.os.SystemClock
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import java.time.Instant
@@ -130,20 +131,25 @@ fun ConversationsRoute(ctx: TvRouteContext) {
     }
 }
 
-/** The preview of the focused row: fetched after focus rests 300 ms, cached for the process. */
+/**
+ * The preview of the focused row: fetched after focus rests 300 ms, cached ([PreviewCache]: by
+ * message count and state, open rows for 30 s at most, B8).
+ */
 @Composable
 private fun rememberPreview(g: TvAppGraph, row: ConvRowUi?): State<PreviewUi> {
     val sdk = row?.sdkId
-    return produceState(PreviewCache.get(sdk) ?: PreviewUi(loading = sdk != null), sdk) {
-        if (sdk == null) {
+    val version = row?.let(PreviewCache::versionOf)
+    return produceState(row?.let(previews::get) ?: PreviewUi(loading = sdk != null), sdk, version) {
+        if (row == null || sdk == null) {
             value = PreviewUi()
             return@produceState
         }
-        PreviewCache.get(sdk)?.let {
+        previews.get(row)?.let {
             value = it
             return@produceState
         }
-        value = PreviewUi(loading = true)
+        // A newer version of a preview on screen stays visible while the new one loads.
+        if (value.lines.isEmpty()) value = PreviewUi(loading = true)
         delay(300)
         val msgs = g.api.preview(sdk, 12)
         val cfg = g.api.sessionConfig(sdk)
@@ -151,23 +157,13 @@ private fun rememberPreview(g: TvAppGraph, row: ConvRowUi?): State<PreviewUi> {
             is ApiResult.Ok -> PreviewUi(lines = ConversationsModel.previewLines(msgs.value, 6), workingDir = (cfg as? ApiResult.Ok)?.value?.workingDirectory)
             else -> PreviewUi(error = msgs.errorMessage() ?: "Couldn't load the preview")
         }
-        if (ui.error == null) PreviewCache.put(sdk, ui)
+        if (ui.error == null) previews.put(row, ui)
         value = ui
     }
 }
 
-/** A small LRU of previews (the list re-focuses the same rows often). */
-private object PreviewCache {
-    private val map = object : LinkedHashMap<String, PreviewUi>(32, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, PreviewUi>?) = size > 30
-    }
-
-    @Synchronized fun get(sdk: String?): PreviewUi? = sdk?.let { map[it] }
-
-    @Synchronized fun put(sdk: String, ui: PreviewUi) {
-        map[sdk] = ui
-    }
-}
+/** The process's preview cache (the list re-focuses the same rows often). */
+private val previews = PreviewCache(now = { SystemClock.elapsedRealtime() })
 
 @Composable
 fun ConversationsScreen(
@@ -196,7 +192,12 @@ fun ConversationsScreen(
     )
     val firstRow = sections.firstOrNull()?.rows?.firstOrNull()?.key
     val search = remember { FocusRequester() }
-    FocusRestoreEffect { memory.restore() }
+    // The row it was on, else the first row, else the search box (B3: a row left the list).
+    FocusRestoreEffect {
+        memory.restore() ||
+            firstRow?.let { k -> runCatching { memory.requester(k).requestFocus() }.getOrDefault(false) } == true ||
+            runCatching { search.requestFocus() }.getOrDefault(false)
+    }
     LaunchedEffect(firstRow != null) {
         withFrameNanos { }
         val key = initialFocusKey ?: firstRow
@@ -239,7 +240,7 @@ fun ConversationsScreen(
 private fun ConversationList(sections: List<ConvSectionUi>, memory: FocusMemory, actions: ConversationsActions, modifier: Modifier) {
     val listState = rememberLazyListState()
     LazyColumn(
-        modifier.fillMaxWidth().focusRestorer().testTag("conversations-list"),
+        modifier.fillMaxWidth().dpadFocusRestorer().testTag("conversations-list"),
         state = listState,
         verticalArrangement = Arrangement.spacedBy(4.dp),
         contentPadding = PaddingValues(start = 6.dp, end = 6.dp, top = 8.dp, bottom = 24.dp),

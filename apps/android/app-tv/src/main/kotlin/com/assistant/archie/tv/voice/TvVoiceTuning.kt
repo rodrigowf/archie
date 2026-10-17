@@ -28,6 +28,17 @@ object TvVoiceTuning {
     /** Watchdog tick that measures the gap (`read()` blocks while the button is up). */
     const val WATCHDOG_TICK_MS = 50L
 
+    /**
+     * Continuous-stream probe (devices where `read()` never blocks): a burst that starts this soon
+     * after arming is held back until it pauses (a real press, delivered then) or until
+     * [PROBE_MS] after arming without a [BURST_END_GAP_MS] gap (the mic streams continuously: the
+     * source is unsupported and disarms). On the AFTKM nothing arrives until the button is held.
+     */
+    const val PROBE_START_MS = 400L
+
+    /** See [PROBE_START_MS]. */
+    const val PROBE_MS = 2_500L
+
     /** The recorder is re-opened this long after a failure while the app is in front. */
     const val REARM_RETRY_MS = 3_000L
 

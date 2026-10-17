@@ -1,5 +1,6 @@
 package com.assistant.archie.tv.firstrun
 
+import com.assistant.archie.tv.theme.dpadFocusRestorer
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -36,7 +37,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
@@ -191,7 +191,7 @@ fun ConnectScreen(state: ConnectionUiState, firstRun: Boolean, actions: ConnectA
             )
             Spacer(Modifier.height(18.dp))
             RowHeader("Servers", trailing = if (state.status.scanning) "Searching the network…" else null)
-            LazyColumn(Modifier.weight(1f).focusRestorer(), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(6.dp)) {
+            LazyColumn(Modifier.weight(1f).dpadFocusRestorer(), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(6.dp)) {
                 itemsIndexed(state.rows, key = { _, r -> r.url }) { i, row ->
                     ServerCard(
                         row,

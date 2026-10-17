@@ -148,18 +148,56 @@ class TvControlClientTest {
         assertTrue(c.state.value is TvControlState.Connecting)
     }
 
-    @Test fun replaced4409NeverReconnectsFromThatSocket() = runTest {
+    @Test fun replaced4409RetriesWithAGrowingBackoff() = runTest {
         val sockets = FakeSockets()
         val c = client(sockets)
         c.setTarget("https://h")
         sockets.last.ready()
         sockets.last.listener.onClosed(TvControlProtocol.CLOSE_REPLACED, "")
-        assertEquals(TvControlState.Replaced, c.state.value)
-        advanceTimeBy(120_000)
+        assertEquals(TvControlState.Waiting(0, 1_000L, TvControlClient.REPLACED_REASON), c.state.value)
+        advanceTimeBy(1_001)
         runCurrent()
-        assertEquals(1, sockets.opened.size)
-        // The server becoming reachable again (orchestrator reconnect) is a new start.
+        assertEquals(2, sockets.opened.size)
+        // Replaced again right after its ready (another client with this id): the wait keeps growing,
+        // although `ready` resets the ordinary backoff.
+        sockets.last.ready()
+        sockets.last.listener.onClosed(TvControlProtocol.CLOSE_REPLACED, "")
+        assertEquals(TvControlState.Waiting(1, 2_000L, TvControlClient.REPLACED_REASON), c.state.value)
+        advanceTimeBy(2_001)
+        runCurrent()
+        sockets.last.ready()
+        sockets.last.listener.onClosed(TvControlProtocol.CLOSE_REPLACED, "")
+        assertEquals(TvControlState.Waiting(2, 4_000L, TvControlClient.REPLACED_REASON), c.state.value)
+        // The server becoming reachable again (orchestrator reconnect) is a fresh start.
         c.reconnectNow()
+        assertEquals(4, sockets.opened.size)
+    }
+
+    @Test fun rejected4401WithAnotherReasonRetries() = runTest {
+        for (reason in listOf("hello_timeout", "invalid_json", "expected_hello")) {
+            val sockets = FakeSockets()
+            val c = client(sockets)
+            c.setTarget("https://h")
+            sockets.last.listener.onOpen()
+            sockets.last.listener.onMessage("""{"type":"error","error":"$reason"}""")
+            sockets.last.listener.onClosed(TvControlProtocol.CLOSE_UNAUTHORIZED, "")
+            assertEquals(TvControlState.Waiting(0, 1_000L, "refused: $reason"), c.state.value)
+            advanceTimeBy(1_001)
+            runCurrent()
+            assertEquals(reason, 2, sockets.opened.size)
+            c.stop()
+        }
+    }
+
+    @Test fun a4401WithoutAReasonRetries() = runTest {
+        val sockets = FakeSockets()
+        val c = client(sockets)
+        c.setTarget("https://h")
+        sockets.last.listener.onOpen()
+        sockets.last.listener.onClosed(TvControlProtocol.CLOSE_UNAUTHORIZED, "")
+        assertTrue(c.state.value is TvControlState.Waiting)
+        advanceTimeBy(1_001)
+        runCurrent()
         assertEquals(2, sockets.opened.size)
     }
 

@@ -43,8 +43,10 @@ object TvKeyCodes {
 }
 
 /**
- * Routes accelerator keys: [overlay] (options sheet, dialogs) first, then the current [screen],
- * then [defaults] (Menu / long-press OK → the options sheet; Play/Pause → live voice).
+ * Routes accelerator keys: [overlay] (options sheet, a screen's dialog or sheet) first, then the
+ * current [screen], then [defaults] (Menu / long-press OK → the options sheet; Play/Pause → live
+ * voice). While an overlay shows, the screen behind it never sees a key: what the overlay does not
+ * handle goes to [defaults] (B6).
  *
  * - An accelerator handled on key-down also swallows its key-up (and repeats); one nobody handles
  *   goes to the view hierarchy unchanged (e.g. Rewind/FF reach a WebView).
@@ -62,9 +64,12 @@ class KeyRouter(
     private val swallowed = mutableSetOf<Int>()
     private var longFired = false
 
-    /** Routes [key] through overlay → screen → defaults. */
-    fun route(key: TvKey): Boolean =
-        overlay()?.onKey(key) == true || screen()?.onKey(key) == true || defaults.onKey(key)
+    /** Routes [key] through overlay → defaults, or (no overlay) screen → defaults. */
+    fun route(key: TvKey): Boolean {
+        val o = overlay()
+        if (o != null) return o.onKey(key) || defaults.onKey(key)
+        return screen()?.onKey(key) == true || defaults.onKey(key)
+    }
 
     /**
      * @param passOn delivers the event to the view hierarchy (Compose focus); returns whether it consumed it.

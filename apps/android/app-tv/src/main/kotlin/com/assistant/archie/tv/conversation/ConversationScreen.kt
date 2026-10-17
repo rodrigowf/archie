@@ -30,6 +30,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.Key
+import com.assistant.archie.tv.shell.FocusRestoreEffect
+import com.assistant.archie.tv.theme.rememberFocusMemory
+import com.assistant.archie.tv.theme.focusMemory
+import com.assistant.archie.tv.theme.FocusMemory
+import com.assistant.archie.tv.theme.FocusSettling
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -79,11 +89,15 @@ data class ConversationHeaderUi(
     val connection: ConnectionStatus.Phase = ConnectionStatus.Phase.CONNECTED,
     val voiceLabel: String = "Idle",
     val voiceActive: Boolean = false,
+    /** Another device owns live voice: "Live voice" reads "Take over" (spec 12 §7). */
+    val voiceElsewhere: Boolean = false,
 )
 
 class ConversationScreenActions(
     val onAction: (ChatAction) -> Unit = {},
     val liveVoice: () -> Unit = {},
+    /** The explicit take-over of live voice owned by another device. */
+    val takeOver: () -> Unit = {},
     val holdToTalk: () -> Unit = {},
     val rename: () -> Unit = {},
     val newConversation: () -> Unit = {},
@@ -146,7 +160,13 @@ fun ConversationScreen(
                         enabled = composer.canCompact,
                     ) { onAction(ChatAction.Compact) },
                 )
-                if (header.archie) add(TvOption("c:voice", "Live voice", ArchieIcons.GraphicEq) { actions.liveVoice() })
+                if (header.archie) {
+                    if (header.voiceElsewhere) {
+                        add(TvOption("c:voice", "Take over live voice", ArchieIcons.GraphicEq, detail = "It is on another device") { actions.takeOver() })
+                    } else {
+                        add(TvOption("c:voice", "Live voice", ArchieIcons.GraphicEq) { actions.liveVoice() })
+                    }
+                }
                 add(TvOption("c:type", "Type", ArchieIcons.Keyboard, enabled = composer.enabled) { typing = true })
                 add(TvOption("c:rename", "Rename", ArchieIcons.Edit) { actions.rename() })
                 add(TvOption("c:new", "New", ArchieIcons.AddComment, detail = if (header.archie) "New Archie conversation" else "New agent session") { actions.newConversation() })
@@ -172,6 +192,7 @@ fun ConversationScreen(
     // the history arrives — unless the user already moved.
     val typeButton = remember { FocusRequester() }
     val talkButton = remember { FocusRequester() }
+    val composerMemory = rememberFocusMemory()
     var userMoved by rememberSaveable { mutableStateOf(false) }
     var placed by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
@@ -179,14 +200,32 @@ fun ConversationScreen(
         if (!placed) runCatching { (if (header.archie) talkButton else typeButton).requestFocus() }
     }
     LaunchedEffect(newest != null, state.loaded) {
-        if (placed || userMoved) return@LaunchedEffect
+        if (!TranscriptModel.shouldPlaceInitialFocus(placed, userMoved, typing || overlayOpen)) return@LaunchedEffect
         val target = initialFocusKey ?: newest ?: return@LaunchedEffect
         withFrameNanos { }
         withFrameNanos { }
-        if (controller.focus(target)) placed = true
+        if (TranscriptModel.shouldPlaceInitialFocus(placed, userMoved, typing || overlayOpen) && controller.focus(target)) placed = true
+    }
+    // Focus comes back (an overlay closed, the focused card left): the element it left, else the
+    // newest block, else the composer (B3).
+    FocusRestoreEffect {
+        when (val t = TranscriptModel.restoreTarget(controller.lastFocusedKey, controller.requesters.keys, newest)) {
+            is TranscriptModel.Restore.Block -> controller.focus(t.key)
+            TranscriptModel.Restore.Composer -> composerMemory.restore() || runCatching { (if (header.archie) talkButton else typeButton).requestFocus() }.getOrDefault(false)
+        }
     }
 
-    Box(modifier.fillMaxSize().testTag("conversation")) {
+    Box(
+        modifier
+            .fillMaxSize()
+            // B5: any D-pad / OK press before the history placed focus is the user's move: placement
+            // then never takes focus from them.
+            .onPreviewKeyEvent { e ->
+                if (!placed && !userMoved && e.type == KeyEventType.KeyDown && e.key in UserMoveKeys) userMoved = true
+                false
+            }
+            .testTag("conversation"),
+    ) {
         Column(Modifier.fillMaxSize()) {
             Header(header, state, onAgents = { overlay = ConversationOverlay.AGENTS })
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -245,13 +284,18 @@ fun ConversationScreen(
             } else {
                 ComposerRow(
                     archie = header.archie,
+                    voiceElsewhere = header.voiceElsewhere,
                     working = working,
                     enabled = composer.enabled,
                     talk = talkButton,
                     type = typeButton,
+                    memory = composerMemory,
                     actions = actions,
                     onType = { typing = true },
-                    onFocusComposer = { controller.toBottom() },
+                    onFocusComposer = {
+                        controller.toBottom()
+                        if (!FocusSettling.active) controller.lastFocusedKey = TranscriptController.COMPOSER
+                    },
                 )
                 LaunchedEffect(Unit) {
                     // Back from the keyboard: focus returns to Type.
@@ -342,24 +386,40 @@ private fun Header(header: ConversationHeaderUi, state: ConversationUiState, onA
 @Composable
 private fun ComposerRow(
     archie: Boolean,
+    voiceElsewhere: Boolean,
     working: Boolean,
     enabled: Boolean,
     talk: FocusRequester,
     type: FocusRequester,
+    memory: FocusMemory,
     actions: ConversationScreenActions,
     onType: () -> Unit,
     onFocusComposer: () -> Unit,
 ) {
     val keys = LocalTvKeyActions.current
     Row(
-        Modifier.fillMaxWidth().onFocusChanged { if (it.hasFocus) onFocusComposer() }.testTag("composer"),
+        Modifier
+            .fillMaxWidth()
+            .onFocusChanged { if (it.hasFocus) onFocusComposer() }
+            .testTag("composer"),
         horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TvButton("Hold to talk", actions.holdToTalk, Modifier.focusRequester(talk).testTag("composer-talk"), icon = ArchieIcons.Mic)
-        TvButton("Type", onType, Modifier.focusRequester(type).testTag("composer-type"), icon = ArchieIcons.Keyboard, enabled = enabled)
-        if (archie) TvButton("Live voice", actions.liveVoice, Modifier.testTag("composer-voice"), icon = ArchieIcons.GraphicEq)
-        TvButton("Stop", { actions.onAction(ChatAction.Stop) }, Modifier.testTag("composer-stop"), icon = ArchieIcons.StopFilled, enabled = working)
-        TvButton("More", { keys.openOptions() }, Modifier.testTag("composer-more"), icon = ArchieIcons.Menu)
+        // [memory]: focus comes back to the button it left (B3: an overlay opened from More closed).
+        TvButton("Hold to talk", actions.holdToTalk, Modifier.focusRequester(talk).focusMemory(memory, "talk").testTag("composer-talk"), icon = ArchieIcons.Mic)
+        TvButton("Type", onType, Modifier.focusRequester(type).focusMemory(memory, "type").testTag("composer-type"), icon = ArchieIcons.Keyboard, enabled = enabled)
+        if (archie) {
+            TvButton(
+                if (voiceElsewhere) "Take over" else "Live voice",
+                if (voiceElsewhere) actions.takeOver else actions.liveVoice,
+                Modifier.focusMemory(memory, "voice").testTag("composer-voice"),
+                icon = ArchieIcons.GraphicEq,
+            )
+        }
+        TvButton("Stop", { actions.onAction(ChatAction.Stop) }, Modifier.focusMemory(memory, "stop").testTag("composer-stop"), icon = ArchieIcons.StopFilled, enabled = working)
+        TvButton("More", { keys.openOptions() }, Modifier.focusMemory(memory, "more").testTag("composer-more"), icon = ArchieIcons.Menu)
     }
 }
+
+/** Keys that count as the user's own move (B5). */
+private val UserMoveKeys = setOf(Key.DirectionUp, Key.DirectionDown, Key.DirectionLeft, Key.DirectionRight, Key.DirectionCenter, Key.Enter, Key.NumPadEnter)

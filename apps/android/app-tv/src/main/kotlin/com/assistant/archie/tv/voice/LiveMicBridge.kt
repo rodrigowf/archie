@@ -60,24 +60,33 @@ class LiveMicBridge(private val clock: MonotonicClock) {
     /** Samples buffered at 16 kHz (tests). */
     internal val buffered: Int get() = synchronized(lock) { size }
 
-    /** Fills [out] with [count] samples at [rateHz]: remote audio when primed, zeros otherwise. */
+    /**
+     * Fills [out] with [count] samples at [rateHz]: remote audio when primed, zeros otherwise.
+     * Runs on the transports' record threads: allocation-free (one [SampleSource] for the bridge's
+     * life, samples as unboxed Ints).
+     */
     fun pull(out: ShortArray, count: Int, rateHz: Int) = synchronized(lock) {
         resampler.setOutputRate(rateHz)
-        for (i in 0 until count) {
-            out[i] = if (primed) resampler.next(::takeOne) else 0
+        var i = 0
+        while (i < count) {
+            out[i] = if (primed) resampler.next(ringSource) else 0
+            i++
         }
     }
 
-    /** One 16 kHz sample for the resampler; ends the primed run when the ring runs dry. */
-    private fun takeOne(): Short? {
+    /** The ring as the resampler's input, created once (no per-sample function reference). */
+    private val ringSource = SampleSource { takeOne() }
+
+    /** One 16 kHz sample for the resampler ([SampleSource.NONE] when dry); ends the primed run when the ring runs dry. */
+    private fun takeOne(): Int {
         if (size == 0) {
             if (!bursting) primed = false
-            return null
+            return SampleSource.NONE
         }
         val s = ring[head]
         head = (head + 1) % ring.size
         size--
-        return s
+        return s.toInt()
     }
 
     /** The WS relay's microphone: [MicSourceFactory.open] returns a self-paced view of this bridge. */
@@ -135,10 +144,19 @@ class LiveMicBridge(private val clock: MonotonicClock) {
     }
 }
 
+/** Input of [LinearResampler]: the next sample as an Int, or [NONE] when there is none (no boxing). */
+fun interface SampleSource {
+    fun take(): Int
+
+    companion object {
+        const val NONE = Int.MIN_VALUE
+    }
+}
+
 /**
  * Streaming linear-interpolation resampler from [inRateHz] to any output rate (16 kHz voice into
- * the transports' 24 kHz / 48 kHz). Pulls input samples on demand; a missing sample (null) yields
- * the last value faded to silence.
+ * the transports' 24 kHz / 48 kHz). Pulls input samples on demand; a missing sample
+ * ([SampleSource.NONE]) yields silence and restarts cleanly on the next one.
  */
 class LinearResampler(private val inRateHz: Int) {
     private var outRateHz = inRateHz
@@ -155,21 +173,22 @@ class LinearResampler(private val inRateHz: Int) {
         pos = 1.0; prev = 0; cur = 0; started = false
     }
 
-    fun next(take: () -> Short?): Short {
+    fun next(source: SampleSource): Short {
         val step = inRateHz.toDouble() / outRateHz
         if (!started) {
-            val first = take() ?: return 0
-            prev = first; cur = first; pos = 1.0; started = true
+            val first = source.take()
+            if (first == SampleSource.NONE) return 0
+            prev = first.toShort(); cur = prev; pos = 1.0; started = true
         }
         while (pos >= 1.0) {
-            val s = take()
-            if (s == null) {
+            val s = source.take()
+            if (s == SampleSource.NONE) {
                 // Ran dry: restart cleanly on the next sample (no click from stale interpolation).
                 started = false
                 return 0
             }
             prev = cur
-            cur = s
+            cur = s.toShort()
             pos -= 1.0
         }
         val v = prev + (cur - prev) * pos

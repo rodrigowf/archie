@@ -1,5 +1,6 @@
 package com.assistant.archie.tv.home
 
+import com.assistant.archie.tv.theme.dpadFocusRestorer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,7 +34,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.testTag
@@ -44,6 +44,7 @@ import androidx.navigation3.runtime.NavKey
 import androidx.tv.material3.Icon
 import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.Text
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.assistant.archie.feature.sessions.SessionTarget
 import com.assistant.archie.tv.conversations.ConvRef
 import com.assistant.archie.tv.conversations.NewAgentSheet
@@ -72,6 +73,7 @@ import com.assistant.archie.tv.theme.TvButtonStyle
 import com.assistant.archie.tv.theme.TvTheme
 import com.assistant.archie.tv.theme.focusMemory
 import com.assistant.archie.tv.theme.rememberFocusMemory
+import com.assistant.archie.tv.voice.VoiceChip
 import com.assistant.core.design.components.ArchieMark
 import com.assistant.core.design.components.Spinner
 import com.assistant.core.design.icons.ArchieIcons
@@ -80,7 +82,7 @@ import kotlinx.coroutines.launch
 
 /*
  * Home (spec 15 §3.5, mockups 3 / 3b): the hero (current Archie conversation) and four rows — Open
- * now, Visuals, Memory, Recent conversations. Every row is a LazyRow with focusRestorer(); the
+ * now, Visuals, Memory, Recent conversations. Every row is a LazyRow with dpadFocusRestorer(); the
  * screen remembers the card that had focus (FocusMemory) so coming back from a conversation or a
  * viewer lands on it. Rewind / Fast-forward jump a row. HomeScreen is state-driven (goldens).
  */
@@ -89,6 +91,8 @@ class HomeActions(
     val open: (ConvRef) -> Unit = {},
     val push: (NavKey) -> Unit = {},
     val liveVoice: () -> Unit = {},
+    /** The explicit take-over of live voice owned by another device. */
+    val takeOver: () -> Unit = {},
     val newConversation: () -> Unit = {},
     val newAgent: () -> Unit = {},
     val refresh: () -> Unit = {},
@@ -100,7 +104,10 @@ class HomeActions(
 fun HomeRoute(ctx: TvRouteContext) {
     val g = ctx.graph
     val sessions = remember(g) { TvSessions.of(g) }
-    val state by rememberHomeState(g)
+    val home by rememberHomeState(g)
+    val voice by g.voice.state.collectAsStateWithLifecycle()
+    val elsewhere = VoiceChip.elsewhere(voice)
+    val state = if (elsewhere == home.hero.voiceElsewhere) home else home.copy(hero = home.hero.copy(voiceElsewhere = elsewhere))
     var picker by rememberSaveable { mutableStateOf(false) }
     HomeScreen(
         state,
@@ -108,6 +115,7 @@ fun HomeRoute(ctx: TvRouteContext) {
             open = { ref -> sessions.open(ref.target, ctx.nav) },
             push = ctx.nav::push,
             liveVoice = { g.liveVoice.toggle() },
+            takeOver = { g.liveVoice.takeOver() },
             newConversation = { sessions.newArchie(ctx.nav) },
             newAgent = { picker = true },
             refresh = {
@@ -190,7 +198,9 @@ fun HomeScreen(
     )
 
     val heroOpen = rowRequesters.getValue(HomeRow.HERO)
-    FocusRestoreEffect { memory.restore() }
+    // Back from the drawer / an overlay, or focus dropped (the card left its row): the card it was
+    // on, else the hero's Open (B3).
+    FocusRestoreEffect { memory.restore() || runCatching { heroOpen.requestFocus() }.getOrDefault(false) }
     LaunchedEffect(Unit) {
         repeat(2) { withFrameNanos { } }
         val restored = (initialFocusKey != null && runCatching { memory.requester(initialFocusKey).requestFocus() }.isSuccess) || memory.restore()
@@ -280,7 +290,7 @@ private fun <T> CardRow(
     card: @Composable (T) -> Unit,
 ) {
     LazyRow(
-        modifier.focusRequester(requester).focusRestorer(),
+        modifier.focusRequester(requester).dpadFocusRestorer(),
         horizontalArrangement = Arrangement.spacedBy(20.dp),
         contentPadding = PaddingValues(vertical = 8.dp, horizontal = 12.dp),
     ) {
@@ -332,7 +342,12 @@ private fun Hero(hero: HeroUi, actions: HomeActions, openRequester: FocusRequest
                     icon = ArchieIcons.Forum,
                     style = TvButtonStyle.Primary,
                 )
-                TvButton("Live voice", actions.liveVoice, Modifier.focusMemory(memory, "hero:voice").testTag("hero-voice"), icon = ArchieIcons.GraphicEq)
+                TvButton(
+                    if (hero.voiceElsewhere) "Take over" else "Live voice",
+                    if (hero.voiceElsewhere) actions.takeOver else actions.liveVoice,
+                    Modifier.focusMemory(memory, "hero:voice").testTag("hero-voice"),
+                    icon = ArchieIcons.GraphicEq,
+                )
                 TvButton("New conversation", actions.newConversation, Modifier.focusMemory(memory, "hero:new").testTag("hero-new"), icon = ArchieIcons.AddComment)
                 Spacer(Modifier.weight(1f))
                 Icon(ArchieIcons.Mic, contentDescription = null, tint = c.onSurfaceVariant, modifier = Modifier.size(18.dp))

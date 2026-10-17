@@ -40,6 +40,18 @@ class TvNavigator(private val backStack: MutableList<NavKey>) {
         return true
     }
 
+    /**
+     * Removes [key]'s entry (the topmost one with that key), wherever it is — a screen leaving by
+     * itself (its conversation closed) calls this instead of [pop], so two leave signals for the
+     * same screen can never pop the entry below it (B7). Never removes the root. False when absent.
+     */
+    fun remove(key: NavKey): Boolean {
+        val i = backStack.lastIndexOf(key)
+        if (i <= 0) return false
+        backStack.removeAt(i)
+        return true
+    }
+
     /** A drawer destination replaces the whole stack (spec 15 §3.4). */
     fun selectRoot(destination: TvDestination) = replaceRoot(destination.key)
 

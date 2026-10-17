@@ -26,8 +26,37 @@ class TvShellController(
     /** The options sheet (Menu) is showing. */
     var optionsOpen by mutableStateOf(false)
 
+    /** Dialogs and sheets the screens open ([TvOverlay]); the KeyRouter sends keys to the top one. */
+    val overlayHost = TvOverlayHost()
+
+    /** The options sheet or a screen overlay shows. */
+    val overlayShowing: Boolean get() = optionsOpen || overlayHost.active
+
+    /** Opens the options sheet. */
+    fun openOptions() {
+        optionsOpen = true
+    }
+
     /** Focus is inside the navigation drawer (set by the drawer's focus listener). */
     var drawerFocused by mutableStateOf(false)
+
+    /** Something inside the shell (content, drawer, sheets) has focus. */
+    var shellFocused by mutableStateOf(false)
+
+    /** Something drawn outside the shell has focus (the voice overlay's dictation chip; set by the Activity). */
+    var externalFocused by mutableStateOf(false)
+
+    /** The back-stack entry focus last entered (set by the shell around every entry). */
+    var focusedOn: NavKey? = null
+
+    /** Nothing in the app has focus: the focused element went away (B3). */
+    val focusLost: Boolean get() = !shellFocused && !externalFocused
+
+    /** What components see of the shell's focus ([LocalTvShellFocus]). */
+    val focusProbe: TvShellFocus = object : TvShellFocus {
+        override fun misplaced() = focusLost || drawerFocused
+        override val editingText = androidx.compose.runtime.mutableIntStateOf(0)
+    }
 
     /** Moves focus from the drawer to the content (set by the shell; needs the FocusManager). */
     var focusContent: () -> Unit = {}
@@ -38,21 +67,21 @@ class TvShellController(
     private val overlayKeys = TvKeyHandler { key ->
         when (key) {
             TvKey.MENU, TvKey.LONG_OK -> { optionsOpen = false; true }
-            TvKey.PLAY_PAUSE -> false        // live voice still works over the sheet
+            TvKey.PLAY_PAUSE -> false        // → the defaults: live voice still works over the sheet
             else -> true                     // nothing scrolls underneath
         }
     }
 
     private val defaults = TvKeyHandler { key ->
         when (key) {
-            TvKey.MENU, TvKey.LONG_OK -> { optionsOpen = true; true }
+            TvKey.MENU, TvKey.LONG_OK -> { openOptions(); true }
             TvKey.PLAY_PAUSE -> liveVoice()
             TvKey.REWIND, TvKey.FAST_FORWARD -> false
         }
     }
 
     val router = KeyRouter(
-        overlay = { if (optionsOpen) overlayKeys else null },
+        overlay = { if (optionsOpen) overlayKeys else overlayHost.keys },
         screen = { screen?.let { s -> TvKeyHandler(s::onKey) } },
         defaults = defaults,
     )
@@ -64,7 +93,7 @@ class TvShellController(
         }
 
         override fun openOptions() {
-            optionsOpen = true
+            this@TvShellController.openOptions()
         }
     }
 
@@ -95,5 +124,12 @@ class TvShellController(
     companion object {
         const val GLOBAL_HOME = "global:home"
         const val GLOBAL_SETTINGS = "global:settings"
+
+        /**
+         * The screens whose focus the shell puts back when it drops (B3). The Viewer and the memory
+         * reader keep focus in their page / blocks themselves; Connect is a form.
+         */
+        fun refocusesWhenLost(key: NavKey?): Boolean =
+            key is Home || key is Conversations || key is Conversation || key is Visuals || key is Memory || key is Settings || key is SettingsPage
     }
 }

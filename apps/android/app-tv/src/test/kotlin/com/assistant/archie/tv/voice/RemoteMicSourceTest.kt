@@ -40,15 +40,28 @@ class RemoteMicSourceTest {
         )
         private val frame = ShortArray(TvVoiceTuning.READ_SAMPLES) { 3_000 }
 
-        /** The button is held for [ms]: one 20 ms frame per 20 ms. */
-        fun hold(ms: Long) {
+        /**
+         * The button is held for [ms]: one 20 ms frame per 20 ms. [strict] = the reader must keep
+         * reading throughout; otherwise it stops when the source tells the reader to exit.
+         */
+        fun hold(ms: Long, strict: Boolean = true) {
             var t = 0L
             while (t < ms) {
-                assertTrue(source.step(1, frame, frame.size))
+                val reading = source.step(generation, frame, frame.size)
+                if (strict) assertTrue(reading) else if (!reading) return
                 clock.now += 20
                 t += 20
                 source.tick()
             }
+        }
+
+        /** The reader generation of the current recorder (1 after the first [arm]). */
+        var generation = 1
+
+        /** Arms, then waits out the arm-time window (on the AFTKM nothing arrives until a press). */
+        fun arm() {
+            source.start()
+            idle(TvVoiceTuning.PROBE_START_MS)
         }
 
         /** The button is up for [ms]: no frames, the watchdog ticks every 50 ms. */
@@ -90,7 +103,7 @@ class RemoteMicSourceTest {
     @Test
     fun burstStartsOnTheFirstFrameAndEndsAfter350msWithoutFrames() {
         val r = Rig()
-        r.source.start()
+        r.arm()
         val t0 = r.clock.now
         r.hold(1_000)
         assertEquals(1, r.starts().size)
@@ -111,7 +124,7 @@ class RemoteMicSourceTest {
     @Test
     fun burstsShorterThan250msAreMarkedTooShort() {
         val r = Rig()
-        r.source.start()
+        r.arm()
         r.hold(200)
         r.idle(400)
         val end = r.ends().single()
@@ -126,7 +139,7 @@ class RemoteMicSourceTest {
     @Test
     fun burstIsCappedAt60sAndTheRestOfTheHoldIsIgnored() {
         val r = Rig()
-        r.source.start()
+        r.arm()
         r.hold(61_000)
         val end = r.ends().single()
         assertTrue(end.capped)
@@ -143,7 +156,7 @@ class RemoteMicSourceTest {
     @Test
     fun aLateFrameAfterTheGapStartsANewBurstEvenWithoutATick() {
         val r = Rig()
-        r.source.start()
+        r.arm()
         r.hold(400)
         r.clock.now += 600 // the watchdog never ran
         r.hold(400)
@@ -155,7 +168,7 @@ class RemoteMicSourceTest {
     @Test
     fun stopEndsTheBurstAndUnblocksTheReader() {
         val r = Rig()
-        r.source.start()
+        r.arm()
         r.hold(600)
         r.source.stop()
         assertEquals(1, r.ends().size)
@@ -167,11 +180,110 @@ class RemoteMicSourceTest {
     @Test
     fun readErrorDropsTheRecorderAndEndsTheBurst() {
         val r = Rig()
-        r.source.start()
+        r.arm()
         r.hold(600)
         assertFalse(r.source.step(1, ShortArray(1), -3))
         assertEquals(RemoteMicState.UNAVAILABLE, r.source.state.value)
         assertEquals(1, r.ends().size)
+    }
+
+    // ── A1: devices where read() never blocks (phones, other TV boxes) ──
+
+    @Test
+    fun continuousFramesFromArmTimeMarkTheSourceUnsupportedAndSendNothing() {
+        val r = Rig()
+        r.source.start()
+        r.hold(TvVoiceTuning.PROBE_MS + 100, strict = false) // frames from the first read on, never a gap
+        assertEquals(RemoteMicState.UNSUPPORTED, r.source.state.value)
+        assertTrue("nothing of the stream reached the router", r.events.isEmpty())
+        assertFalse("disarmed: the reader exits", r.source.step(1, ShortArray(320), 320))
+        r.idle(1_000)
+        assertTrue(r.events.isEmpty())
+    }
+
+    @Test
+    fun continuousStreamIsNeverAutoSentAsACappedBurst() {
+        val r = Rig()
+        r.source.start()
+        // A stream that keeps coming even after the probe would have been a capped 60 s burst.
+        var t = 0L
+        while (t < 61_000 && r.source.step(1, ShortArray(320) { 3_000 }, 320)) {
+            r.clock.now += 20
+            t += 20
+            r.source.tick()
+        }
+        assertTrue(r.ends().none { it.capped })
+        assertTrue(r.starts().isEmpty())
+        assertEquals(RemoteMicState.UNSUPPORTED, r.source.state.value)
+    }
+
+    @Test
+    fun unsupportedIsProbedAgainWhenTheAppReturns() {
+        val r = Rig()
+        r.source.start()
+        r.hold(TvVoiceTuning.PROBE_MS + 100, strict = false)
+        assertEquals(RemoteMicState.UNSUPPORTED, r.source.state.value)
+        r.source.stop()
+        r.source.start()
+        assertEquals(2, r.opened)
+        assertEquals(RemoteMicState.READY, r.source.state.value)
+    }
+
+    @Test
+    fun aPressHeldAtArmTimeIsDeliveredWhenItPauses() {
+        // Fire TV: the user happened to hold the button while the app came to the front.
+        val r = Rig()
+        r.source.start()
+        r.hold(1_000)
+        assertTrue("held back while the probe runs", r.events.isEmpty())
+        r.idle(400)
+        assertEquals(1, r.starts().size)
+        assertEquals(1_000, r.ends().single().durationMs)
+        assertEquals(50, r.frames().size)
+        assertEquals(RemoteMicState.READY, r.source.state.value)
+        r.hold(500) // later presses go straight through
+        assertEquals(2, r.starts().size)
+    }
+
+    @Test
+    fun fireTvPressesAfterArmingAreUnchanged() {
+        // AFTKM: nothing arrives until the button is held, so the probe never holds anything back.
+        val r = Rig()
+        r.source.start()
+        r.idle(TvVoiceTuning.PROBE_START_MS)
+        r.hold(3_000) // a long press that spans the end of the probe window
+        assertEquals("delivered live, not held", 1, r.starts().size)
+        assertEquals(150, r.frames().size)
+        r.idle(400)
+        assertEquals(3_000, r.ends().single().durationMs)
+        assertEquals(RemoteMicState.READY, r.source.state.value)
+        assertFalse(r.recorder.stopped)
+    }
+
+    @Test
+    fun stopDuringAHeldBurstDropsIt() {
+        val r = Rig()
+        r.source.start()
+        r.hold(600)
+        r.source.stop()
+        assertTrue("nothing was delivered, so no End either", r.events.isEmpty())
+        assertEquals(RemoteMicState.OFF, r.source.state.value)
+    }
+
+    // ── A6: a queued re-arm after stop() ──
+
+    @Test
+    fun queuedRetryDoesNotReArmAfterStop() {
+        val r = Rig(opens = false)
+        r.source.start() // fails, a retry is queued
+        r.source.stop() // the app went to the background before the retry fired
+        r.source.startIfWanted() // the retry fires
+        assertEquals(1, r.opened)
+        assertEquals(RemoteMicState.OFF, r.source.state.value)
+
+        r.source.start()
+        r.source.startIfWanted() // while wanted, the retry re-opens
+        assertEquals(3, r.opened)
     }
 
     @Test

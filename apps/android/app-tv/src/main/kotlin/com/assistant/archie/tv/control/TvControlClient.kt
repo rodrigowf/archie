@@ -69,11 +69,12 @@ sealed interface TvControlState {
     /** Dropped; the next attempt in [delayMs]. */
     data class Waiting(val attempt: Int, val delayMs: Long, val reason: String?) : TvControlState
 
-    /** Close 4401 (bad / missing token, malformed hello): stopped until [TvControlClient.retry]. */
+    /**
+     * Close 4401 after the server's `unauthorized` (wrong / missing token): stopped until
+     * [TvControlClient.retry] or a new target. Other 4401 reasons (`hello_timeout`,
+     * `invalid_json`, …) and 4409 (replaced) back off and retry ([Waiting]).
+     */
     data class Rejected(val reason: String) : TvControlState
-
-    /** Close 4409: a newer socket with this device id took over; this one does not reconnect. */
-    data object Replaced : TvControlState
 }
 
 /**
@@ -81,9 +82,12 @@ sealed interface TvControlState {
  * [setTarget] server, says hello, answers pings, runs every `command` through [onCommand] and
  * answers exactly one `result` per id (RD-2), and sends `state` frames ([sendState], RD-5).
  *
- * Reconnects with 1 s × 2ⁿ backoff capped at 15 s (spec 12 T-13; reset once `ready` arrives). A
- * close with **4409** (replaced by a newer socket of this device) does not reconnect from that socket; **4401**
- * (rejected) stops until [retry] or a new target, and is logged as "TV control rejected".
+ * Reconnects with 1 s × 2ⁿ backoff capped at 15 s (spec 12 T-13; reset once `ready` arrives). Only
+ * a **4401** whose reason (the `error` frame the server sends before closing) is `unauthorized`
+ * stops for good — until [retry] or a new target — and is logged as "TV control rejected"; any other
+ * 4401 (`hello_timeout`, `invalid_json`, …) retries with the backoff. **4409** (replaced by a newer
+ * socket with this device id) retries too, with a backoff that keeps growing across consecutive
+ * replacements (two clients with one id never ping-pong faster than every 15 s).
  *
  * Thread-safe: socket callbacks arrive on OkHttp threads; state changes are serialized on [lock].
  */
@@ -110,12 +114,16 @@ class TvControlClient(
     private var lastError: String? = null
     private var lastState: String? = null
 
+    /** Consecutive 4409 closes (reset by [setTarget], [retry], [reconnectNow]). */
+    private var replacedStreak = 0
+
     /** The server to stay connected to (null = none). A new server reconnects at once and clears a rejection. */
     fun setTarget(url: String?) = synchronized(lock) {
         if (url == serverUrl && (socket != null || reconnectJob?.isActive == true || _state.value is TvControlState.Rejected)) return
         closeLocked()
         serverUrl = url
         attempt = 0
+        replacedStreak = 0
         if (url == null) _state.value = TvControlState.Idle else openLocked()
     }
 
@@ -127,6 +135,7 @@ class TvControlClient(
         if (serverUrl == null || socket != null) return
         if (_state.value is TvControlState.Rejected) return
         attempt = 0
+        replacedStreak = 0
         openLocked()
     }
 
@@ -134,6 +143,7 @@ class TvControlClient(
     fun retry() = synchronized(lock) {
         if (serverUrl == null || socket != null) return
         attempt = 0
+        replacedStreak = 0
         openLocked()
     }
 
@@ -248,13 +258,23 @@ class TvControlClient(
         readyJob?.cancel(); readyJob = null
         when (code) {
             TvControlProtocol.CLOSE_UNAUTHORIZED -> {
-                val why = lastError ?: reason?.takeIf { it.isNotBlank() } ?: "unauthorized"
-                log('W', "TV control rejected: $why")
-                _state.value = TvControlState.Rejected(why)
+                val why = lastError ?: reason?.takeIf { it.isNotBlank() } ?: "no reason given"
+                if (why == UNAUTHORIZED) {
+                    log('W', "TV control rejected: $why")
+                    _state.value = TvControlState.Rejected(why)
+                } else if (serverUrl != null) {
+                    // hello_timeout, invalid_json, …: a transient or local hiccup, not a verdict on this TV.
+                    log('W', "TV control refused the hello ($why) — retrying")
+                    scheduleLocked(gen, "refused: $why")
+                } else {
+                    _state.value = TvControlState.Idle
+                }
             }
             TvControlProtocol.CLOSE_REPLACED -> {
-                log('W', "TV control socket replaced by a newer one (4409)")
-                _state.value = TvControlState.Replaced
+                log('W', "TV control socket replaced by a newer one (4409) — retrying")
+                attempt = maxOf(attempt, replacedStreak)
+                replacedStreak++
+                if (serverUrl != null) scheduleLocked(gen, REPLACED_REASON) else _state.value = TvControlState.Idle
             }
             else -> {
                 if (serverUrl == null) {
@@ -277,6 +297,11 @@ class TvControlClient(
         const val READY_TIMEOUT_MS = 15_000L
         const val BASE_DELAY_MS = 1_000L
         const val MAX_DELAY_MS = 15_000L
+
+        /** The only 4401 reason that stops the client for good (a wrong / missing token). */
+        const val UNAUTHORIZED = "unauthorized"
+
+        const val REPLACED_REASON = "replaced by a newer connection with this TV's id"
 
         /** 1 s × 2ⁿ, capped at 15 s (spec 15 §5.1 → spec 12 T-13). */
         fun defaultBackoff(attempt: Int): Long = minOf(MAX_DELAY_MS, BASE_DELAY_MS shl attempt.coerceIn(0, 20))

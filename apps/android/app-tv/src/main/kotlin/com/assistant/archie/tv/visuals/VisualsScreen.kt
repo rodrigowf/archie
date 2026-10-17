@@ -1,5 +1,6 @@
 package com.assistant.archie.tv.visuals
 
+import com.assistant.archie.tv.theme.dpadFocusRestorer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,7 +33,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
@@ -41,6 +41,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.Text
 import com.assistant.archie.feature.visuals.VisualUrls
+import com.assistant.archie.tv.control.TvLinks
+import com.assistant.archie.tv.shell.FocusRestoreEffect
+import com.assistant.archie.tv.theme.FocusSettling
 import com.assistant.archie.tv.shell.KeyHints
 import com.assistant.archie.tv.shell.ScreenChrome
 import com.assistant.archie.tv.shell.ScreenChromeEffect
@@ -140,7 +143,7 @@ fun VisualsRoute(ctx: TvRouteContext) {
                     if (r !is ApiResult.Ok) g.toasts.show("Could not rename: ${(r as? ApiResult.HttpError)?.detail ?: "server unreachable"}", error = true)
                 }
             },
-            linkOf = { VisualUrls.href(UrlScheme.httpBase(g.currentServerUrl()), it.path) },
+            linkOf = { TvLinks.withoutDefaultPort(VisualUrls.href(UrlScheme.httpBase(g.currentServerUrl()), it.path)) },
         ),
         initialFocusPath = focus,
     )
@@ -179,8 +182,16 @@ fun VisualsScreen(
         ),
     )
     val requesters = remember { HashMap<String, FocusRequester>() }
-    val grid = rememberLazyGridState()
     val search = remember { FocusRequester() }
+    val grid = rememberLazyGridState()
+    // Back from the drawer, a closed dialog or sheet, or a lost focus: the card the user was on,
+    // else the first card in view, else the search box (B3).
+    FocusRestoreEffect {
+        fun tryFocus(r: FocusRequester?) = r != null && runCatching { r.requestFocus() }.getOrDefault(false)
+        tryFocus(focusedPath?.let { requesters[it] }) ||
+            tryFocus(state.cards.getOrNull(grid.firstVisibleItemIndex)?.path?.let { requesters[it] }) ||
+            tryFocus(search)
+    }
     // Initial focus (spec 15 §3.1-3): the remembered / requested card, else the first one, else the search box.
     LaunchedEffect(state.cards.isNotEmpty()) {
         withFrameNanos { }
@@ -222,7 +233,7 @@ fun VisualsScreen(
         } else {
             LazyVerticalGrid(
                 GridCells.Fixed(4),
-                Modifier.weight(1f).fillMaxWidth().focusRestorer().testTag("visuals-grid"),
+                Modifier.weight(1f).fillMaxWidth().dpadFocusRestorer().testTag("visuals-grid"),
                 state = grid,
                 contentPadding = PaddingValues(6.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
@@ -239,7 +250,7 @@ fun VisualsScreen(
                         onClick = { actions.onOpen(v) },
                         modifier = Modifier
                             .focusRequester(req)
-                            .onFocusChanged { if (it.isFocused) focusedPath = v.path }
+                            .onFocusChanged { if (it.isFocused && !FocusSettling.active) focusedPath = v.path }
                             .testTag("visual-${v.path}"),
                     )
                 }

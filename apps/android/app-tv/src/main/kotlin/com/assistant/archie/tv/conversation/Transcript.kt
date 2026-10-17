@@ -37,6 +37,7 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.assistant.archie.feature.chat.ChatAction
+import com.assistant.archie.tv.theme.FocusSettling
 import com.assistant.archie.feature.chat.ui.ToolCardRenderer
 import com.assistant.core.model.SessionKind
 import kotlinx.coroutines.CoroutineScope
@@ -63,6 +64,12 @@ class TranscriptController(val listState: LazyListState, private val scope: Coro
     /** The block (item key) that has focus, or null (focus is elsewhere: composer, header). */
     var focusedKey by mutableStateOf<String?>(null)
         internal set
+
+    /**
+     * Where focus was last on this screen: a block's key, [COMPOSER], or null (never focused). Kept
+     * while focus is away (an overlay, the drawer) so it can be put back (B3).
+     */
+    var lastFocusedKey: String? = null
 
     /** Keys of items that can take focus, newest first (as laid out). */
     internal var order: List<String> = emptyList()
@@ -119,6 +126,11 @@ class TranscriptController(val listState: LazyListState, private val scope: Coro
     /** Back to the newest item (the composer took focus). */
     fun toBottom() {
         scope.launch { listState.scrollToItem(0) }
+    }
+
+    companion object {
+        /** [lastFocusedKey] when the composer row had focus. */
+        const val COMPOSER = "\u0000composer"
     }
 }
 
@@ -214,8 +226,12 @@ fun Transcript(
                 val itemModifier = Modifier
                     .focusRequester(requester)
                     .onFocusChanged { s ->
-                        if (s.hasFocus) controller.focusedKey = item.key
-                        else if (controller.focusedKey == item.key) controller.focusedKey = null
+                        if (s.hasFocus) {
+                            controller.focusedKey = item.key
+                            if (!FocusSettling.active) controller.lastFocusedKey = item.key
+                        } else if (controller.focusedKey == item.key) {
+                            controller.focusedKey = null
+                        }
                     }
                     .onPlaced { controller.coords[item.key] = it }
                     .testTag("t:${item.key}")

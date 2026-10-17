@@ -34,7 +34,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
@@ -49,6 +48,8 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Icon
 import androidx.tv.material3.LocalContentColor
@@ -74,12 +75,18 @@ import com.assistant.archie.tv.theme.TvButtonStyle
 import com.assistant.archie.tv.theme.TvDimens
 import com.assistant.archie.tv.theme.TvFormat
 import com.assistant.archie.tv.theme.TvTheme
+import com.assistant.archie.tv.theme.dismissOnBack
 import com.assistant.archie.tv.theme.rememberInitialFocus
+import com.assistant.archie.tv.theme.trapFocus
 import com.assistant.core.design.components.ArchieMark
 import com.assistant.core.design.icons.ArchieIcons
 import com.assistant.core.markdown.InternalLinks
 import com.assistant.core.network.UrlScheme
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /*
@@ -89,6 +96,19 @@ import kotlinx.coroutines.launch
  * sheet; Play/Pause → page media; Rewind/FF scroll; Back = page history, then close. A pushed page
  * ("Opened by Archie") keeps the TvServerHub launcher awake. Live reload keeps the scroll position.
  */
+
+/**
+ * Pings the launcher at once and every [everyMs] while [foreground] is true; stops while it is false
+ * and starts over (an immediate ping) when it is true again. Runs until cancelled.
+ */
+suspend fun keepAwakeWhileForeground(foreground: Flow<Boolean>, everyMs: Long, ping: () -> Unit) {
+    foreground.distinctUntilChanged().collectLatest { inFront ->
+        while (inFront) {
+            ping()
+            delay(everyMs)
+        }
+    }
+}
 
 /** The absolute URL a [Viewer] target opens: root-relative paths resolve against the server, each segment encoded (VZ-1). */
 fun viewerUrl(target: String, serverUrl: String): String {
@@ -157,13 +177,16 @@ fun ViewerRoute(key: Viewer, ctx: TvRouteContext) {
             updated = 0
         }
     }
-    // KEEP_AWAKE while a pushed page shows (spec 15 TV-10): nobody touches the remote while watching it.
+    // KEEP_AWAKE while a pushed page shows (spec 15 TV-10): nobody touches the remote while watching
+    // it. Only while the Viewer is in front (RESUMED): never from the background (B4).
     if (key.pushed) {
-        LaunchedEffect(key) {
-            while (true) {
-                g.launcherPing.ping(force = true)
-                delay(KEEP_AWAKE_EVERY_MS)
-            }
+        val lifecycle = LocalLifecycleOwner.current.lifecycle
+        LaunchedEffect(key, lifecycle) {
+            keepAwakeWhileForeground(
+                foreground = lifecycle.currentStateFlow.map { it.isAtLeast(Lifecycle.State.RESUMED) },
+                everyMs = KEEP_AWAKE_EVERY_MS,
+                ping = { g.launcherPing.ping(force = true) },
+            )
         }
     }
 
@@ -195,7 +218,11 @@ fun ViewerRoute(key: Viewer, ctx: TvRouteContext) {
             onBack = { if (!controller.back()) ctx.nav.pop() },
             onClose = { ctx.nav.pop() },
             onReload = controller::reload,
-            onRetry = controller::retry,
+            onRetry = {
+                controller.retry()
+                // The error panel (and its focused Retry) leaves: the page takes focus (B9).
+                controller.webView?.let { w -> w.post { w.requestFocus() } }
+            },
             onHardReset = controller::hardReset,
             onPointer = { controller.setPointer(it) },
             onZoom = controller::zoomBy,
@@ -265,6 +292,9 @@ fun ViewerScreen(
             hints = emptyList(),
             fullScreen = true,
             showHeader = false,
+            // Spec 15 §3.5: the page fills the screen (made for 1920×1080, its own safe area); the
+            // Viewer's chips, toast and sheet keep to the overscan-safe box below.
+            edgeToEdge = true,
             keys = TvKeyHandler { key ->
                 when (key) {
                     TvKey.MENU -> {
@@ -300,20 +330,24 @@ fun ViewerScreen(
         if (state.loading && state.progress in 1..99) {
             Box(Modifier.fillMaxWidth(state.progress / 100f).height(3.dp).background(c.primary).align(Alignment.TopStart))
         }
-        if (state.pointerMode && state.error == null) {
-            PointerCursor(state.cursor)
-            PointerChip(Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp))
-        }
+        if (state.pointerMode && state.error == null) PointerCursor(state.cursor)
         state.error?.let { err -> ErrorPanel(err, actions) }
-        if (state.updated) {
-            UpdatedChip(if (state.deleted) "Deleted" else "Updated", Modifier.align(Alignment.TopEnd).padding(12.dp))
-        }
-        if (toastVisible && state.toast != null) {
-            ViewerToast(state.toast, Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
+        // The chips and the toast stay inside the overscan-safe box (the page itself is edge to edge).
+        Box(Modifier.fillMaxSize().padding(horizontal = TvDimens.OverscanHorizontal, vertical = TvDimens.OverscanVertical)) {
+            if (state.pointerMode && state.error == null) {
+                PointerChip(Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp))
+            }
+            if (state.updated) {
+                UpdatedChip(if (state.deleted) "Deleted" else "Updated", Modifier.align(Alignment.TopEnd).padding(12.dp))
+            }
+            if (toastVisible && state.toast != null) {
+                ViewerToast(state.toast, Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
+            }
         }
         if (optionsOpen) {
             ViewerOptionsSheet(
                 state = state,
+                onDismiss = closeOptions,
                 onReload = { closeOptions(); actions.onReload() },
                 onPointer = { actions.onPointer(!state.pointerMode); closeOptions() },
                 onZoom = actions.onZoom,
@@ -406,7 +440,7 @@ private fun ErrorPanel(error: String, actions: ViewerActions) {
     val c = TvTheme.colors
     val retry = rememberInitialFocus(error)
     Column(
-        Modifier.fillMaxSize().background(c.surface).padding(24.dp).focusGroup().testTag("viewer-error"),
+        Modifier.fillMaxSize().background(c.surface).padding(horizontal = TvDimens.OverscanHorizontal, vertical = TvDimens.OverscanVertical).focusGroup().testTag("viewer-error"),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterVertically),
     ) {
@@ -427,6 +461,7 @@ private fun ErrorPanel(error: String, actions: ViewerActions) {
 @Composable
 fun ViewerOptionsSheet(
     state: ViewerUi,
+    onDismiss: () -> Unit,
     onReload: () -> Unit,
     onPointer: () -> Unit,
     onZoom: (Int) -> Unit,
@@ -442,11 +477,13 @@ fun ViewerOptionsSheet(
             Modifier
                 .align(Alignment.CenterEnd)
                 .fillMaxHeight()
-                .width(400.dp)
+                .width(400.dp + TvDimens.OverscanHorizontal)
                 .background(c.surfaceContainerHigh, RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp))
-                .padding(horizontal = 22.dp, vertical = TvDimens.OverscanVertical)
-                .focusGroup()
-                .focusProperties { onExit = { cancelFocusChange() } }
+                // Drawn edge to edge: the rows keep to the overscan-safe box.
+                .padding(start = 22.dp, end = 22.dp + TvDimens.OverscanHorizontal, top = TvDimens.OverscanVertical, bottom = TvDimens.OverscanVertical)
+                // Back closes the sheet; a trap that cancels every exit would swallow it (B1).
+                .dismissOnBack(onDismiss)
+                .trapFocus()
                 .testTag("viewer-options"),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {

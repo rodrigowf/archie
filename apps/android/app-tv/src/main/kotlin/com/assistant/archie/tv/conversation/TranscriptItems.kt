@@ -369,12 +369,11 @@ private fun InlineCardItem(card: InlineCardUi, onAction: (ChatAction) -> Unit, m
                 modifier = modifier.testTag("card-permission"),
             ) {
                 if (readOnly) return@ActionCard
-                if (card.answered) {
-                    Text("Answer sent…", style = TvTheme.type.labelLarge)
-                } else {
-                    TvButton("Reject", { onAction(ChatAction.Permission(b.requestId, allow = false)) }, Modifier.testTag("perm-reject"), icon = ArchieIcons.Close)
-                    TvButton("Approve", { onAction(ChatAction.Permission(b.requestId, allow = true)) }, Modifier.testTag("perm-approve"), icon = ArchieIcons.Check)
-                }
+                // Answered: the buttons stay (disabled, still focusable) until the card leaves, so the
+                // focus on them is not dropped; the screen then focuses the newest block (B3).
+                if (card.answered) Text("Answer sent…", style = TvTheme.type.labelLarge)
+                TvButton("Reject", { onAction(ChatAction.Permission(b.requestId, allow = false)) }, Modifier.testTag("perm-reject"), icon = ArchieIcons.Close, enabled = !card.answered)
+                TvButton("Approve", { onAction(ChatAction.Permission(b.requestId, allow = true)) }, Modifier.testTag("perm-approve"), icon = ArchieIcons.Check, enabled = !card.answered)
             }
         }
         is InlineCardUi.AgentApprovalCard -> {
@@ -391,12 +390,9 @@ private fun InlineCardItem(card: InlineCardUi, onAction: (ChatAction) -> Unit, m
                 modifier = modifier.testTag("card-agent-approval"),
             ) {
                 if (readOnly) return@ActionCard
-                if (card.answered) {
-                    Text("Answer sent…", style = TvTheme.type.labelLarge)
-                } else {
-                    TvButton("Reject", { onAction(ChatAction.AgentApproval(a.localId, a.requestId, false)) }, icon = ArchieIcons.Close)
-                    TvButton("Approve", { onAction(ChatAction.AgentApproval(a.localId, a.requestId, true)) }, Modifier.testTag("agent-approve"), icon = ArchieIcons.Check)
-                }
+                if (card.answered) Text("Answer sent…", style = TvTheme.type.labelLarge)
+                TvButton("Reject", { onAction(ChatAction.AgentApproval(a.localId, a.requestId, false)) }, icon = ArchieIcons.Close, enabled = !card.answered)
+                TvButton("Approve", { onAction(ChatAction.AgentApproval(a.localId, a.requestId, true)) }, Modifier.testTag("agent-approve"), icon = ArchieIcons.Check, enabled = !card.answered)
             }
         }
         is InlineCardUi.Stall -> ActionCard(

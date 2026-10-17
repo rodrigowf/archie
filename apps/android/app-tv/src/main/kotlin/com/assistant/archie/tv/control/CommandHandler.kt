@@ -198,12 +198,12 @@ class CommandHandler(
     private suspend fun openViewer(nav: TvNavigator, path: String, title: String?): TvReply {
         val t = title ?: TvFormat.titleOf(path)
         show(nav, Viewer(path, t, pushed = true))
-        return TvReply.Ok(TvControlProtocol.obj("screen" to "viewer", "url" to VisualUrls.href(env.origin(), path), "title" to t))
+        return TvReply.Ok(TvControlProtocol.obj("screen" to "viewer", "url" to TvLinks.withoutDefaultPort(VisualUrls.href(env.origin(), path)), "title" to t))
     }
 
     private suspend fun openWeb(nav: TvNavigator, url: String): TvReply {
         show(nav, Viewer(url, null, pushed = true))
-        return TvReply.Ok(TvControlProtocol.obj("screen" to "viewer", "url" to url))
+        return TvReply.Ok(TvControlProtocol.obj("screen" to "viewer", "url" to TvLinks.withoutDefaultPort(url)))
     }
 
     /** Pushes [key]; a Viewer replaces a Viewer on top (agents opening page after page don't pile up history). */

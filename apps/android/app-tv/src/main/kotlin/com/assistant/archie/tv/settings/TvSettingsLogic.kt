@@ -325,7 +325,6 @@ object TvSettingsStatus {
             Tone.WAIT,
         )
         is TvControlState.Rejected -> Line("The server refused this TV", s.reason, Tone.BAD)
-        TvControlState.Replaced -> Line("Another app took over", "A newer connection with this TV's id replaced this one.", Tone.BAD)
     }
 
     /** `host:port` of a server URL (default ports by scheme): the key of a pinned certificate. */

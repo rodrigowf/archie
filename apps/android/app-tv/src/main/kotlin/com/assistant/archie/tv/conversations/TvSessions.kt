@@ -113,8 +113,8 @@ class TvSessions internal constructor(private val graph: TvAppGraph) {
         scope,
     )
 
-    /** When this TV last closed / deleted a conversation (its own "closed" notice is not news). */
-    @Volatile private var lastOwnClose = 0L
+    /** Closes / deletes this TV confirmed: their own "closed" notice is not news (B11). */
+    private val ownCloses = OwnCloseFilter(now = System::currentTimeMillis)
 
     /** Dialogs, busy label and snack of the session flows. */
     val ui: StateFlow<SessionsUiState> get() = controller.state
@@ -128,8 +128,9 @@ class TvSessions internal constructor(private val graph: TvAppGraph) {
         }
         scope.launch {
             graph.openSessions.notices.collect { n ->
-                // A close / delete this TV just asked for comes back as "closed elsewhere": not news.
-                if (System.currentTimeMillis() - lastOwnClose < OWN_CLOSE_QUIET_MS && n.reopenSdkId == null) return@collect
+                // A close / delete this TV just confirmed comes back as "<title> was closed elsewhere":
+                // not news. Only that session's notice, once, within a few seconds (B11).
+                if (n.reopenSdkId == null && ownCloses.consume(n.message)) return@collect
                 graph.toasts.show(n.message, error = n.reopenSdkId != null, seconds = 6)
             }
         }
@@ -259,7 +260,14 @@ class TvSessions internal constructor(private val graph: TvAppGraph) {
 
     /** Session dialog answers; a resolved Archie conflict (Open / Stop and start) shows the Archie conversation. */
     fun onIntent(i: SessionsIntent) {
-        if (i == SessionsIntent.ConfirmClose || i == SessionsIntent.ConfirmDelete) lastOwnClose = System.currentTimeMillis()
+        // Stamped on confirm (not on request: a cancelled dialog closes nothing), for that session.
+        when (val d = controller.state.value.dialog) {
+            is SessionDialog.Close -> if (i == SessionsIntent.ConfirmClose) ownCloses.expect(titlesOf(d.key, d.title))
+            is SessionDialog.Delete -> if (i == SessionsIntent.ConfirmDelete) {
+                ownCloses.expect(setOf(d.target.title, graph.history.titleFor(d.target.sdkId, d.target.localId, AGENT_PLACEHOLDER)))
+            }
+            else -> Unit
+        }
         controller.onIntent(i)
         if (i is SessionsIntent.ResolveConflict && i.choice != ConflictChoice.CANCEL) {
             navOr(null)?.let { nav -> if (nav.current != Conversation(archie = true)) nav.push(Conversation(archie = true)) }
@@ -270,8 +278,15 @@ class TvSessions internal constructor(private val graph: TvAppGraph) {
     fun duplicate(target: SessionTarget) = controller.onIntent(SessionsIntent.Duplicate(target))
     fun delete(target: SessionTarget) = controller.onIntent(SessionsIntent.RequestDelete(target))
     fun close(item: WorkspaceItem) {
-        lastOwnClose = System.currentTimeMillis()
         controller.onIntent(SessionsIntent.RequestClose(item))
+        // An idle agent closes at once (no dialog): that is the confirmation.
+        if (controller.state.value.dialog !is SessionDialog.Close) ownCloses.expect(titlesOf(item.key, item.title))
+    }
+
+    /** The titles a "closed" notice of [key] can start with (the repository names it from history). */
+    private fun titlesOf(key: ItemKey, shown: String): Set<String> {
+        val ref = (key as? ItemKey.Agent)?.let { graph.conversations.current(it.conversation)?.ref }
+        return setOfNotNull(shown, ref?.let { graph.history.titleFor(it.sdkId, it.localId, AGENT_PLACEHOLDER) })
     }
 
     /** The server's harness catalog (`GET /api/config/harnesses`) for the New agent picker. */
@@ -282,7 +297,8 @@ class TvSessions internal constructor(private val graph: TvAppGraph) {
 
     companion object {
         const val START_WAIT_MS = 15_000L
-        private const val OWN_CLOSE_QUIET_MS = 8_000L
+        /** `OpenSessionsRepository`'s placeholder title of an agent without history. */
+        private const val AGENT_PLACEHOLDER = "New agent session"
         private const val WAIT_DIALOG = 1
         private const val WAIT_STARTED = 2
 

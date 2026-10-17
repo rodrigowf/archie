@@ -1,5 +1,13 @@
 package com.assistant.archie.tv.settings
 
+import com.assistant.archie.tv.theme.dpadFocusRestorer
+import com.assistant.archie.tv.theme.FocusMemory
+import com.assistant.archie.tv.theme.FocusSettling
+import androidx.compose.runtime.CompositionLocalProvider
+import kotlinx.coroutines.launch
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.runtime.rememberCoroutineScope
+import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
@@ -27,7 +35,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
@@ -114,21 +121,49 @@ fun SettingsScreen(
     fun focusList() = runCatching { memory.requester(selected.name).requestFocus() }.isSuccess
     fun focusPane() = runCatching { paneFocus.requestFocus() }.isSuccess
 
-    FocusRestoreEffect { if (paneHadFocus) focusPane() || focusList() else focusList() }
+    // The pane remembers its focused row (PaneColumn rows report to [paneMemory]) and focus comes
+    // back there (B3: Menu → Back used to land on the list row, or on the pane's first row).
+    val paneMemory = rememberSaveable(selected, saver = FocusMemory.Saver) { FocusMemory() }
+    fun backToPane() = paneMemory.restore() || focusPane()
+    FocusRestoreEffect { if (paneHadFocus) backToPane() || focusList() else focusList() }
+    // When the user's last key inside Settings was pressed: the list gaining focus right after one is
+    // a move to the list; without one it is Compose parking focus there (an overlay such as the
+    // options sheet closed), and the pane row the user left gets it back (B3).
+    val lastKeyAt = remember { longArrayOf(0L) }
+    val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
         // After the pane's first layout (its rows exist only then).
         repeat(2) { withFrameNanos { } }
         if (!(paneHadFocus && focusPane())) focusList()
     }
 
-    Row(modifier.fillMaxSize().testTag("settings"), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+    Row(
+        modifier
+            .fillMaxSize()
+            .onPreviewKeyEvent { e ->
+                if (e.type == KeyEventType.KeyDown) lastKeyAt[0] = SystemClock.uptimeMillis()
+                false
+            }
+            .testTag("settings"),
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
         Column(
             Modifier
                 .width(ListWidth)
                 .fillMaxHeight()
                 .padding(vertical = 6.dp)
-                .onFocusChanged { if (it.hasFocus) paneHadFocus = false }
-                .focusRestorer(memory.requester(selected.name))
+                .onFocusChanged {
+                    if (!it.hasFocus || FocusSettling.active) return@onFocusChanged
+                    if (SystemClock.uptimeMillis() - lastKeyAt[0] < USER_MOVE_MS) {
+                        paneHadFocus = false
+                    } else if (paneHadFocus) {
+                        scope.launch {
+                            withFrameNanos { }
+                            backToPane()
+                        }
+                    }
+                }
+                .dpadFocusRestorer(memory.requester(selected.name))
                 .focusGroup()
                 .testTag("settings-list"),
             verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -163,19 +198,22 @@ fun SettingsScreen(
                 .onFocusChanged {
                     inPane = it.hasFocus
                     // Remember only real moves between the panes (not focus leaving for an overlay).
-                    if (it.hasFocus) paneHadFocus = true
+                    if (it.hasFocus && !FocusSettling.active) paneHadFocus = true
                 }
                 .focusRequester(paneFocus)
-                .focusRestorer()
+                // No focusRestorer: [paneMemory] brings focus back to the row (FocusRestoreEffect).
                 .focusGroup()
                 .testTag("settings-pane"),
         ) {
-            pane(selected)
+            CompositionLocalProvider(LocalPaneFocus provides paneMemory) { pane(selected) }
         }
     }
 }
 
 private val ListWidth = 248.dp
+
+/** A focus change this soon after a key inside Settings is the user's move. */
+private const val USER_MOVE_MS = 600L
 
 /** One list entry (mockup 14 `.li`): icon tile + title; the selected one sits on a tinted row. */
 @Composable

@@ -77,6 +77,12 @@ interface TvScreenContract {
     /** The shell header (title + status cluster); full-screen screens usually draw their own. */
     val showHeader: Boolean
 
+    /**
+     * Edge to edge (the Viewer, spec 15 §3.5 "full-screen WebView, no chrome"): no overscan padding,
+     * no key-hint bar, no header; the screen keeps its own overlays inside the safe area.
+     */
+    val edgeToEdge: Boolean get() = false
+
     /** Accelerators (Menu, Play/Pause, Rewind/FF, long-press OK) before the global defaults. */
     fun onKey(key: TvKey): Boolean
 }
@@ -88,6 +94,7 @@ data class ScreenChrome(
     override val options: List<TvOption> = emptyList(),
     override val fullScreen: Boolean = false,
     override val showHeader: Boolean = true,
+    override val edgeToEdge: Boolean = false,
     val keys: TvKeyHandler? = null,
 ) : TvScreenContract {
     override fun onKey(key: TvKey): Boolean = keys?.onKey(key) == true
@@ -101,6 +108,7 @@ data class ChromeView(
     val options: List<OptionView> = emptyList(),
     val fullScreen: Boolean = false,
     val showHeader: Boolean = true,
+    val edgeToEdge: Boolean = false,
 ) {
     @Immutable
     data class OptionView(val id: String, val label: String, val icon: ImageVector?, val detail: String?, val enabled: Boolean)
@@ -112,6 +120,7 @@ data class ChromeView(
             options = c.options.map { OptionView(it.id, it.label, it.icon, it.detail, it.enabled) },
             fullScreen = c.fullScreen,
             showHeader = c.showHeader,
+            edgeToEdge = c.edgeToEdge,
         )
     }
 }

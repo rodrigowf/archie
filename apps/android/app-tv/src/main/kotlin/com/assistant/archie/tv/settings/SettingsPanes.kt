@@ -1,5 +1,10 @@
 package com.assistant.archie.tv.settings
 
+import androidx.compose.foundation.layout.Box
+import com.assistant.archie.tv.theme.FocusMemory
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -42,13 +47,43 @@ internal val PanePadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
 
 @Composable
 internal fun PaneColumn(tag: String, modifier: Modifier = Modifier, content: LazyListScope.() -> Unit) {
+    val memory = LocalPaneFocus.current
     LazyColumn(
         modifier.fillMaxSize().testTag(tag),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         contentPadding = PanePadding,
-        content = content,
+        content = { if (memory == null) content() else RowMemoryScope(this, memory).content() },
     )
 }
+
+/** The pane's focus memory (SettingsScreen provides one per page): every row reports to it (B3). */
+internal val LocalPaneFocus = staticCompositionLocalOf<FocusMemory?> { null }
+
+/**
+ * Wraps each row of a pane in a focus-memory box (by key, else position), so focus can come back to
+ * the row the user left when an overlay closes; the rows themselves stay as they are.
+ */
+private class RowMemoryScope(private val base: LazyListScope, private val memory: FocusMemory) : LazyListScope by base {
+    private var next = 0
+
+    override fun item(key: Any?, contentType: Any?, content: @Composable LazyItemScope.() -> Unit) {
+        val id = "row:" + (key ?: next)
+        next++
+        val m = memory
+        base.item(key, contentType) { Box(Modifier.rowMemory(m, id)) { content() } }
+    }
+
+    override fun items(count: Int, key: ((index: Int) -> Any)?, contentType: (index: Int) -> Any?, itemContent: @Composable LazyItemScope.(index: Int) -> Unit) {
+        val start = next
+        next += count
+        val m = memory
+        base.items(count, key, contentType) { i -> Box(Modifier.rowMemory(m, "row:" + (key?.invoke(i) ?: (start + i)))) { itemContent(i) } }
+    }
+}
+
+/** A requester on the row's box (it focuses the row inside) + "had focus last" for [memory]. */
+private fun Modifier.rowMemory(memory: FocusMemory, id: String): Modifier =
+    focusRequester(memory.requester(id)).onFocusChanged { if (it.hasFocus) memory.onFocused(id) }
 
 // ───────────────────────────── choices: picker + focus back on the row ─────────────────────────────
 
