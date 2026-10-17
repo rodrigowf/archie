@@ -127,6 +127,7 @@ object Wav {
         val r = LinearResampler(fromHz).also { it.setOutputRate(toHz) }
         var i = 0
         val n = (pcm.size.toLong() * toHz / fromHz).toInt()
-        return ShortArray(n) { r.next { if (i < pcm.size) pcm[i++] else null } }
+        val source = SampleSource { if (i < pcm.size) pcm[i++].toInt() else SampleSource.NONE }
+        return ShortArray(n) { r.next(source) }
     }
 }

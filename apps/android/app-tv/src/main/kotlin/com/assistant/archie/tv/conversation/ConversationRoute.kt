@@ -82,11 +82,11 @@ fun ConversationRoute(key: Conversation, ctx: TvRouteContext) {
     // This screen showed a view and it went away (closed here, elsewhere, or deleted): leave (OPEN-3).
     var hadView by remember(key) { mutableStateOf(false) }
     if (convKey != null) hadView = true
-    LaunchedEffect(hadView, convKey == null) { if (hadView && convKey == null && !key.archie) ctx.nav.pop() }
+    LaunchedEffect(hadView, convKey == null) { if (hadView && convKey == null && !key.archie) ctx.nav.remove(key) }
 
     when {
-        key.archie -> ArchieConversation(g, ctx, sessions)
-        convKey != null -> ConversationView(g, ctx, sessions, convKey, archie = false)
+        key.archie -> ArchieConversation(g, ctx, sessions, key)
+        convKey != null -> ConversationView(g, ctx, sessions, convKey, archie = false, routeKey = key)
         hadView -> Waiting("Closing…")
         resolution is ConversationRouting.Resolution.Reattach -> {
             LaunchedEffect(resolution.pool.localId) { sessions.reattach(resolution.pool) }
@@ -98,7 +98,7 @@ fun ConversationRoute(key: Conversation, ctx: TvRouteContext) {
 }
 
 @Composable
-private fun ArchieConversation(g: TvAppGraph, ctx: TvRouteContext, sessions: TvSessions) {
+private fun ArchieConversation(g: TvAppGraph, ctx: TvRouteContext, sessions: TvSessions, routeKey: Conversation) {
     val archie by g.conversations.state(ConversationKey.ARCHIE).collectAsStateWithLifecycle()
     val connection by g.connection.status.collectAsStateWithLifecycle()
     if (archie == null) {
@@ -120,11 +120,11 @@ private fun ArchieConversation(g: TvAppGraph, ctx: TvRouteContext, sessions: TvS
         }
         return
     }
-    ConversationView(g, ctx, sessions, ConversationKey.ARCHIE, archie = true)
+    ConversationView(g, ctx, sessions, ConversationKey.ARCHIE, archie = true, routeKey = routeKey)
 }
 
 @Composable
-private fun ConversationView(g: TvAppGraph, ctx: TvRouteContext, sessions: TvSessions, convKey: ConversationKey, archie: Boolean) {
+private fun ConversationView(g: TvAppGraph, ctx: TvRouteContext, sessions: TvSessions, convKey: ConversationKey, archie: Boolean, routeKey: Conversation) {
     val itemKey = if (archie) ItemKey.Archie else ItemKey.Agent(convKey)
     val vm: ConversationViewModel = viewModel(
         key = "conversation:${convKey.value}",
@@ -152,7 +152,8 @@ private fun ConversationView(g: TvAppGraph, ctx: TvRouteContext, sessions: TvSes
     // OPEN-3: the server closed it (or it was closed / deleted from here): the screen goes.
     var seen by remember { mutableStateOf(false) }
     if (raw != null) seen = true
-    LaunchedEffect(raw == null, seen) { if (seen && raw == null && !archie) ctx.nav.pop() }
+    // Both this and the route's own check can see the close: remove this screen's entry once (B7).
+    LaunchedEffect(raw == null, seen) { if (seen && raw == null && !archie) ctx.nav.remove(routeKey) }
 
     LaunchedEffect(vm) {
         vm.effectFlow.collect { e ->
@@ -173,12 +174,14 @@ private fun ConversationView(g: TvAppGraph, ctx: TvRouteContext, sessions: TvSes
             connection = connection.phase,
             voiceLabel = VoiceChip.label(voice),
             voiceActive = VoiceChip.active(voice),
+            voiceElsewhere = VoiceChip.elsewhere(voice),
         ),
         draft = draft,
         reduceMotion = display.reduceMotion,
         actions = ConversationScreenActions(
             onAction = vm::onAction,
             liveVoice = { g.liveVoice.toggle() },
+            takeOver = { g.liveVoice.takeOver() },
             holdToTalk = {
                 ctx.toasts.show(
                     if (archie) "Hold the mic button on the remote and speak: Archie gets it when you let go."

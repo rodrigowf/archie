@@ -68,6 +68,25 @@ object TvLinks {
         }
     }
 
+    /**
+     * [url] without the scheme's default port (`http://h:80/x` → `http://h/x`, `https://h:443` →
+     * `https://h`), as Chromium reports it: command results and `state` frames name a page the same way.
+     */
+    fun withoutDefaultPort(url: String): String {
+        val schemeEnd = url.indexOf("://")
+        if (schemeEnd <= 0) return url
+        val default = when (url.substring(0, schemeEnd).lowercase()) {
+            "http" -> ":80"
+            "https" -> ":443"
+            else -> return url
+        }
+        val hostStart = schemeEnd + 3
+        val authorityEnd = url.indexOfAny(charArrayOf('/', '?', '#'), hostStart).let { if (it < 0) url.length else it }
+        val authority = url.substring(hostStart, authorityEnd)
+        if (!authority.endsWith(default) || authority.endsWith("]")) return url
+        return url.substring(0, authorityEnd - default.length) + url.substring(authorityEnd)
+    }
+
     private fun decodePath(raw: String): String? {
         val parts = raw.split('/').filter { it.isNotEmpty() }.map {
             try {

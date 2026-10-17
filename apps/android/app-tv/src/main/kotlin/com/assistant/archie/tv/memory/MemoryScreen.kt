@@ -1,5 +1,6 @@
 package com.assistant.archie.tv.memory
 
+import com.assistant.archie.tv.theme.dpadFocusRestorer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,7 +35,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
@@ -50,6 +50,8 @@ import com.assistant.archie.feature.memory.folderCrumb
 import com.assistant.archie.feature.memory.folderIds
 import com.assistant.archie.feature.memory.modifiedLine
 import com.assistant.archie.feature.memory.pinIndexFirst
+import com.assistant.archie.tv.shell.FocusRestoreEffect
+import com.assistant.archie.tv.theme.FocusSettling
 import com.assistant.archie.tv.shell.KeyHints
 import com.assistant.archie.tv.shell.MemoryDoc
 import com.assistant.archie.tv.shell.ScreenChrome
@@ -230,6 +232,14 @@ fun MemoryScreen(state: MemoryUi, actions: MemoryActions, modifier: Modifier = M
     val requesters = remember { HashMap<String, FocusRequester>() }
     val list = rememberLazyListState()
     val search = remember { FocusRequester() }
+    // Back from the drawer / an overlay, or focus dropped (a row left with a collapse): the row it
+    // was on, else the first row in view, else the search box (B3).
+    FocusRestoreEffect {
+        fun tryFocus(r: FocusRequester?) = r != null && runCatching { r.requestFocus() }.getOrDefault(false)
+        tryFocus(focused?.path?.let { requesters[it] }) ||
+            tryFocus(state.rows.getOrNull(list.firstVisibleItemIndex)?.path?.let { requesters[it] }) ||
+            tryFocus(search)
+    }
     LaunchedEffect(state.rows.isNotEmpty()) {
         withFrameNanos { }
         if (state.rows.isEmpty()) {
@@ -257,7 +267,7 @@ fun MemoryScreen(state: MemoryUi, actions: MemoryActions, modifier: Modifier = M
                 )
             } else {
                 LazyColumn(
-                    Modifier.fillMaxSize().focusRestorer().testTag("memory-tree"),
+                    Modifier.fillMaxSize().dpadFocusRestorer().testTag("memory-tree"),
                     state = list,
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     contentPadding = PaddingValues(4.dp),
@@ -274,7 +284,7 @@ fun MemoryScreen(state: MemoryUi, actions: MemoryActions, modifier: Modifier = M
                             modifier = Modifier
                                 .focusRequester(req)
                                 .onFocusChanged {
-                                    if (it.isFocused) {
+                                    if (it.isFocused && !FocusSettling.active) {
                                         focused = r
                                         actions.onFocus(r)
                                     }

@@ -16,9 +16,15 @@ import kotlinx.coroutines.flow.stateIn
  * [VoiceChip]. `TvVoice.install` replaces both with the real ones.
  */
 
-/** Play/Pause, the hero "Live voice" button, Menu → Live voice. Returns true when it acted. */
+/**
+ * Play/Pause, the hero "Live voice" button, Menu → Live voice. Returns true when it acted.
+ * While another device owns live voice, [toggle] only offers to take over (spec 12 §7, V-12);
+ * [takeOver] is the explicit action (the "Take over" buttons).
+ */
 fun interface LiveVoiceToggle {
     fun toggle(): Boolean
+
+    fun takeOver(): Boolean = toggle()
 }
 
 /**
@@ -32,7 +38,7 @@ object VoiceChip {
 
     fun label(s: VoiceSessionState): String = when {
         s.vadState == HOLD -> "Listening"
-        s.remoteVoiceActive && !s.isOwner && (s.phase == SessionPhase.OFF || s.phase == SessionPhase.ERROR) -> "On phone"
+        elsewhere(s) -> "On phone"
         else -> when (s.phase) {
             SessionPhase.OFF, SessionPhase.ERROR -> "Idle"
             SessionPhase.CONNECTING, SessionPhase.SUMMARIZING -> "Connecting"
@@ -42,6 +48,10 @@ object VoiceChip {
             SessionPhase.ENDING -> "Ending"
         }
     }
+
+    /** Another device owns live voice and this one has none: "Live voice" becomes "Take over". */
+    fun elsewhere(s: VoiceSessionState): Boolean =
+        s.remoteVoiceActive && !s.isOwner && (s.phase == SessionPhase.OFF || s.phase == SessionPhase.ERROR)
 
     fun active(s: VoiceSessionState): Boolean = s.vadState == HOLD || (s.phase != SessionPhase.OFF && s.phase != SessionPhase.ERROR)
 

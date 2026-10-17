@@ -208,3 +208,72 @@ fun conversationOptions(ref: ConvRef, sessions: TvSessions, nav: TvNavigator): L
         add(TvOption("conv:delete", "Delete", ArchieIcons.Delete, detail = why ?: "Asks first", enabled = !noSdk) { sessions.delete(ref.session) })
     }
 }
+
+/**
+ * Previews of conversation rows (B8): an entry is valid only for the row's [versionOf] (message
+ * count + live state, so a conversation that moved on is fetched again), and an open row's for
+ * [openTtlMs] at most (its message count is unknown while it runs). LRU of [max]. Thread-safe.
+ */
+class PreviewCache(
+    private val now: () -> Long,
+    private val openTtlMs: Long = 30_000,
+    private val max: Int = 30,
+) {
+    private class Entry(val version: String, val ui: PreviewUi, val at: Long)
+
+    private val map = object : LinkedHashMap<String, Entry>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Entry>?) = size > max
+    }
+
+    @Synchronized
+    fun get(row: ConvRowUi): PreviewUi? {
+        val sdk = row.sdkId ?: return null
+        val e = map[sdk] ?: return null
+        if (e.version != versionOf(row)) return null
+        if (row.state != null && now() - e.at >= openTtlMs) return null
+        return e.ui
+    }
+
+    @Synchronized
+    fun put(row: ConvRowUi, ui: PreviewUi) {
+        val sdk = row.sdkId ?: return
+        map[sdk] = Entry(versionOf(row), ui, now())
+    }
+
+    companion object {
+        fun versionOf(row: ConvRowUi): String = "${row.messageCount}|${row.state}"
+    }
+}
+
+/**
+ * Notices of closes this TV confirmed itself (B11): the repository reports every close of the agent
+ * on screen as "<title> was closed elsewhere". [expect] is called on confirm with the session's
+ * titles; [consume] swallows one matching notice within [windowMs] — any other session's notice,
+ * or a later one, still shows. Thread-safe.
+ */
+class OwnCloseFilter(private val now: () -> Long, private val windowMs: Long = 8_000) {
+    private class Pending(val titles: Set<String>, val at: Long)
+
+    private val pending = ArrayList<Pending>()
+
+    @Synchronized
+    fun expect(titles: Collection<String>) {
+        prune()
+        val t = titles.filter { it.isNotBlank() }.toSet()
+        if (t.isNotEmpty()) pending += Pending(t, now())
+    }
+
+    @Synchronized
+    fun consume(message: String): Boolean {
+        prune()
+        val i = pending.indexOfFirst { p -> p.titles.any { message.startsWith("$it ") } }
+        if (i < 0) return false
+        pending.removeAt(i)
+        return true
+    }
+
+    private fun prune() {
+        val t = now()
+        pending.removeAll { t - it.at >= windowMs }
+    }
+}

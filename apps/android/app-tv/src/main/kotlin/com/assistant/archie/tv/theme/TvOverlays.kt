@@ -27,10 +27,12 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -51,6 +53,9 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.assistant.archie.tv.shell.LocalTvKeyActions
+import com.assistant.archie.tv.shell.LocalTvShellFocus
+import com.assistant.archie.tv.shell.TvKey
+import com.assistant.archie.tv.shell.TvKeyHandler
 import com.assistant.archie.tv.shell.TvOverlay
 
 /*
@@ -60,7 +65,10 @@ import com.assistant.archie.tv.shell.TvOverlay
  * Every overlay traps focus, closes on Back and never takes focus by itself unless the user opened it.
  */
 
-/** A right side sheet over a scrim (Menu sheets, agents, provider picker). Back closes it. */
+/**
+ * A right side sheet over a scrim (Menu sheets, agents, provider picker). Back or Menu closes it
+ * (Menu, like the options sheet); Rewind / FF never reach the screen behind it.
+ */
 @Composable
 fun TvSideSheet(
     title: String,
@@ -72,7 +80,17 @@ fun TvSideSheet(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val c = TvTheme.colors
-    TvOverlay {
+    val latestClose by rememberUpdatedState(onClose)
+    val keys = remember {
+        TvKeyHandler { key ->
+            when (key) {
+                TvKey.MENU -> { latestClose(); true }
+                TvKey.PLAY_PAUSE -> false // live voice
+                else -> true
+            }
+        }
+    }
+    TvOverlay(keys) {
         BackHandler(onBack = onClose)
         Box(Modifier.fillMaxSize().background(c.scrim.copy(alpha = 0.55f)).testTag("side-sheet-scrim")) {
             Column(
@@ -83,6 +101,7 @@ fun TvSideSheet(
                     .background(c.surfaceContainerHigh, RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp))
                     .padding(start = 24.dp, end = TvDimens.OverscanHorizontal, top = TvDimens.OverscanVertical + 8.dp, bottom = TvDimens.OverscanVertical)
                     .dismissOnBack(onClose)
+                    .then(rememberRefocusInside())
                     .trapFocus()
                     .testTag("side-sheet"),
             ) {
@@ -148,6 +167,7 @@ fun TvDialog(
                     .background(c.surfaceContainerHigh, RoundedCornerShape(28.dp))
                     .padding(28.dp)
                     .dismissOnBack(onDismiss)
+                    .then(rememberRefocusInside())
                     .trapFocus()
                     .testTag("dialog"),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -194,15 +214,22 @@ fun TvTextInput(
     val c = TvTheme.colors
     var editing by rememberSaveable { mutableStateOf(startEditing) }
     var refocusPill by remember { mutableStateOf(false) }
+    var refocusIfMisplaced by remember { mutableStateOf(false) }
     val field = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     val keys = LocalTvKeyActions.current
+    val shellFocus = LocalTvShellFocus.current
     fun setEditing(v: Boolean) {
         if (editing == v) return
         editing = v
         onEditingChanged(v)
     }
     if (editing) {
+        // The shell never moves focus away from a field in edit mode (an overlay closing).
+        DisposableEffect(shellFocus) {
+            shellFocus.editingText.intValue++
+            onDispose { shellFocus.editingText.intValue-- }
+        }
         BackHandler {
             keyboard?.hide()
             refocusPill = true
@@ -239,8 +266,15 @@ fun TvTextInput(
                     setEditing(false)
                 }
                 .onFocusChanged {
-                    if (it.hasFocus) gained[0] = true
-                    else if (gained[0] && editing) setEditing(false)
+                    if (it.hasFocus) {
+                        gained[0] = true
+                    } else if (gained[0] && editing) {
+                        // Focus left the field without our Back / action key: the Fire TV's full-screen
+                        // keyboard closed and Compose parked focus somewhere (the drawer). Back to the pill
+                        // when it is misplaced; a real move (D-pad out of the field) stays (B3).
+                        refocusIfMisplaced = true
+                        setEditing(false)
+                    }
                 }
                 .testTag("text-input-field"),
             decorationBox = { inner ->
@@ -268,6 +302,13 @@ fun TvTextInput(
                 withFrameNanos { }
                 runCatching { pillRequester.requestFocus() }
                 refocusPill = false
+            }
+        }
+        if (refocusIfMisplaced) {
+            LaunchedEffect(Unit) {
+                repeat(2) { withFrameNanos { } }
+                if (shellFocus.misplaced()) runCatching { pillRequester.requestFocus() }
+                refocusIfMisplaced = false
             }
         }
         FocusCard(

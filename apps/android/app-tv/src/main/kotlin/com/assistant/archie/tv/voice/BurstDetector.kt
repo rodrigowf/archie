@@ -65,6 +65,12 @@ class BurstDetector(
         if (phase != Phase.IDLE) closeBurst(emit)
     }
 
+    /** Forgets a burst in progress without emitting anything (its frames were never delivered). */
+    fun reset() {
+        phase = Phase.IDLE
+        samples = 0
+    }
+
     private fun addFrame(pcm: ShortArray, emit: (MicBurst) -> Unit) {
         val room = maxSamples() - samples
         val take = minOf(room, pcm.size.toLong()).toInt()

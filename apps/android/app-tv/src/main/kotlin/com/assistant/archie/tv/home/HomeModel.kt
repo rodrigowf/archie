@@ -39,6 +39,8 @@ data class HeroUi(
     val time: String? = null,
     /** The end of the latest reply, plain text (the card shows two lines). */
     val lastReply: String = "",
+    /** Another device owns live voice: the Live voice button reads "Take over" (spec 12 §7). */
+    val voiceElsewhere: Boolean = false,
 )
 
 /** An agent session in "Open now". */

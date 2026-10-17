@@ -72,4 +72,16 @@ class TvLinksTest {
             assertNull(bad, TvLinks.resolve(bad, o))
         }
     }
+
+    @Test
+    fun defaultPortsAreDroppedLikeChromiumReportsThem() {
+        assertEquals("http://192.168.0.200/visualizations/a.html", TvLinks.withoutDefaultPort("http://192.168.0.200:80/visualizations/a.html"))
+        assertEquals("https://h/x?y=1", TvLinks.withoutDefaultPort("https://h:443/x?y=1"))
+        assertEquals("http://h", TvLinks.withoutDefaultPort("http://h:80"))
+        assertEquals("http://h:8765/x", TvLinks.withoutDefaultPort("http://h:8765/x"))
+        assertEquals("http://h:443/x", TvLinks.withoutDefaultPort("http://h:443/x"))
+        assertEquals("https://h:80/x", TvLinks.withoutDefaultPort("https://h:80/x"))
+        assertEquals("http://h:8080/x", TvLinks.withoutDefaultPort("http://h:8080/x"))
+        assertEquals("ftp://h:80/x", TvLinks.withoutDefaultPort("ftp://h:80/x"))
+    }
 }

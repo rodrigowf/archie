@@ -129,8 +129,9 @@ screen work packages do not need to edit it.
   graph. A screen with its own Back (viewer history, an open text field) registers a `BackHandler`,
   which wins over the shell's.
 - **Accelerator keys** (`KeyRouter`, fed by `MainActivity.dispatchKeyEvent`): Menu, Play/Pause
-  (also Play / Pause), Rewind, Fast-forward and long-press OK go to the options sheet when it is
-  open, then to the top screen's handler, then to the global default — Menu and long-press OK open
+  (also Play / Pause), Rewind, Fast-forward and long-press OK go to the options sheet or the top
+  screen overlay (`TvOverlay` layer) when one shows — then never to the screen behind it — else to
+  the top screen's handler, then to the global default — Menu and long-press OK open
   the options sheet, Play/Pause calls `TvAppGraph.liveVoice` (T4). A handled key also swallows its
   key-up; an unhandled one reaches Compose unchanged (Rewind/FF can reach a WebView). Long-press OK
   on a `FocusCard` / `TvButton` is delivered by tv-material (`onLongClick`), which routes it through
@@ -168,7 +169,9 @@ What a screen gets and gives:
 - **Components** (`theme/TvComponents.kt`): `FocusCard` (focus = 1.05 scale + 3 dp primary border +
   raised surface), `TvButton` (Primary / Secondary), `RowHeader`, `TvEmptyState`, `TvBadge`,
   `CardMeta`, `rememberInitialFocus()` (request first focus after layout — every screen must leave
-  exactly one element focused). Rows and lists use `Modifier.focusRestorer()`. Text and icons inside
+  exactly one element focused). Rows and lists use `Modifier.dpadFocusRestorer()` (theme/TvFocus.kt:
+  Compose's `focusRestorer` for D-pad entries only — Compose's own one also redirected a screen's
+  explicit focus restore to its saved child). Text and icons inside
   tv-material surfaces use `androidx.tv.material3.Text` / `Icon`; colors come from
   `TvTheme.colors` / `ArchieTheme.extended`, never literals; sizes from `TvTheme.type`.
 - **`LocalTvKeyActions`**: `openOptions()` for an on-screen "More" button, `longPress()`.
@@ -183,8 +186,14 @@ Application) connects `ws(s)://<server>/api/tv/ws` once the app has connected to
 keeps it up for the life of the process — also while another app is in front and the orchestrator
 socket is parked, because that is when agents push pages. Backoff 1 s × 2ⁿ capped at 15 s (reset on
 `ready`); the orchestrator reconnecting or the network coming back retries at once; a new server URL
-moves it. Close **4409** (replaced) never reconnects from that socket; **4401** stops and logs
-`TV control rejected: <reason>` (`TvControlClient.state` = `Rejected`). It uses the app's
+moves it. Only a close **4401** whose reason (the `{"type":"error","error":…}` frame the server sends
+first) is `unauthorized` stops for good and logs `TV control rejected: unauthorized`
+(`TvControlClient.state` = `Rejected`, until Settings → TV control → Connect again or a new token);
+any other 4401 (`hello_timeout`, `invalid_json`, `expected_hello`, no reason) retries with the backoff.
+A **4409** (replaced by a newer socket with this device id) retries too, with a backoff that keeps
+growing across consecutive replacements (two clients with one id never ping-pong faster than every
+15 s); the orchestrator reconnecting starts it fresh. Command results name URLs without the default
+port (`http://h/x`, as Chromium reports them in `state`). It uses the app's
 `HttpStack` (same OkHttp client, TOFU pins, ping interval). Logcat tag: `ArchieTv/control`.
 
 - Hello: `device_id` = a random UUID kept in `TvPrefs.controlDeviceId`; `device_name` =
@@ -219,12 +228,20 @@ touch tap, every move a hover. It switches on by itself when the page has nothin
 pointer mode on → turns it off; else the Viewer's own options sheet (Reload, Pointer mode, Zoom ±
 with Left/Right as CSS zoom, Find in Visuals, Hard reset = origin storage + cookies + HTTP cache,
 Close). Play/Pause → page media (`PageScripts.media`, autoplay allowed: the remote is the gesture);
-Rewind/FF scroll 0.8 of the page; Back = page history, then close. Pushed pages show "Opened by
-Archie · title" and ping KEEP_AWAKE every 60 s. Live reload (VZ-6) keeps the scroll position.
+Rewind/FF scroll 0.8 of the page; Back = page history, then close. The Viewer is edge to edge
+(`ScreenChrome.edgeToEdge`: no overscan padding, header or key-hint bar; pages are made for
+1920×1080); its toast, chips and the options sheet's rows keep to the overscan-safe box. The options
+sheet traps focus and closes on Back (`trapFocus` + `dismissOnBack`). Pushed pages show "Opened by
+Archie · title" and ping KEEP_AWAKE every 60 s while the Viewer is RESUMED (never from the
+background: `keepAwakeWhileForeground`). A dead renderer (`onRenderProcessGone`) rebuilds the pooled
+WebView (the `AndroidView` is keyed by the pool entry) and shows the error panel; the new WebView
+stays blank until Retry, which loads the page and gives it focus. Live reload (VZ-6) keeps the scroll
+position.
 
 **Visuals** (`visuals/`, mockup 10): own header (count, search, status), 4-column cards with a kind
 band (`VisualKind`, read from path/title: the backend has no kind), a dot when the page changed since
-it was last opened (`VisualsSeen`, per process), Menu → Open / Rename (IME) / Copy link (address +
+it was last opened (`VisualsSeen`, per process), Menu → Open / Rename (IME; shell overlay layers that
+close on Back, focus back on the card) / Copy link (address +
 QR code from the dependency-free `QrCode` encoder, also on the clipboard) / Refresh.
 
 **Memory** (`memory/`, mockups 13/13b): tree (MEMORY.md first, folder counts, OK expands; folders
@@ -241,12 +258,23 @@ Spec 15 §4. Everything starts from the remote's mic button, which never reaches
 - **`RemoteMicSource`** keeps one `AudioRecord(VOICE_RECOGNITION, 16 kHz)` armed while the app is
   started (process lifecycle). `read()` blocks while the button is up, so a watchdog (50 ms) ends a
   burst after 350 ms without frames; bursts under 250 ms are dropped ("Too short"), 60 s is the cap.
+  **Continuous-stream probe:** on devices where `read()` never blocks (phones, most Android TV
+  boxes) a burst that starts within 400 ms of arming is held back; if it pauses (a real press at arm
+  time) it is delivered then, if frames run on to 2.5 s after arming the source turns `UNSUPPORTED`
+  ("This device's microphone streams continuously; hold-to-talk needs a remote that streams only
+  while its button is held"), drops that audio and disarms — never a capped burst of room audio to
+  Archie. Probed again the next time the app comes to the front. A queued re-arm after a failure
+  never fires after `stop()` (`startIfWanted`).
   Fire OS shows its microphone indicator top-right while the app is open (the recorder is armed).
 - **Routing** (`TvVoiceRouter`, decided when the burst starts): live voice owned here → the call;
   an agent conversation on screen → dictation (`POST /api/transcribe` → chip with Send focused /
   Edit with the IME / Cancel; Send = `ConversationRepository.send`); a mic test page → the test
   meter; anything else → a voice message to Archie (`send_audio` WAV on the orchestrator socket, as
   the phone's push-to-talk; with no Archie conversation open it starts a new one first).
+- **Take over** (spec 12 §7): while another device owns live voice, Play/Pause does not take it
+  over: it shows "Live voice is on another device — Take over? Press ⏯ again" and only a second
+  Play/Pause within 6 s, or the explicit **Take over** button (hero, composer, Menu → "Take over live
+  voice") starts it here (`LiveVoiceToggle.takeOver`).
 - **Live voice** (Play/Pause, hero button): `AndroidVoiceHost.create` with `HostConfig.tv` — no wake
   word, the call on the media stream. The TV never opens a second recorder on the remote:
   `LiveMicBridge` turns its bursts into a continuous stream (voice while held, digital silence
@@ -256,7 +284,8 @@ Spec 15 §4. Everything starts from the remote's mic button, which never reaches
   panel shows, or 120 s with nobody talking (`TvVoicePrefs.liveIdleSeconds`).
 - **Status chip**: Idle · Listening (button held) · Thinking (sending / transcribing, live thinking)
   · Speaking · Live · On phone.
-- **Settings → Remote microphone** (`settings/RemoteMicPage.kt`): status (Ready / Alexa also listens
+- **Settings → Remote microphone** (`settings/RemoteMicPage.kt`): status (Ready / streams
+  continuously (unsupported) / Alexa also listens
   / no permission / busy), the test meter with Play back, "Listen while other apps are open" (Q2,
   not built: disabled), start / stop sounds. First run step 2 (`firstrun/MicCheckStep.kt`) is the
   same check after Connect.
@@ -299,7 +328,7 @@ T3 (Viewer, Visuals, Memory, control channel) and T4 (voice) are described in th
   content never moves) with an amber dot on Conversations while an open session waits for an
   approval (`TvShellState.needsApproval`). Back or Right from the drawer returns focus to the
   element the screen had focused: a screen registers `FocusRestoreEffect { memory.restore() }`
-  (else the content's `focusRestorer` decides). `TvOverlay { … }` (`shell/TvOverlayHost.kt`) draws a
+  (else the content's saved child). `TvOverlay { … }` (`shell/TvOverlayHost.kt`) draws a
   screen's sheet or dialog full screen above the shell; `TvSideSheet` / `TvDialog` use it.
   Overlays close on Back through `Modifier.dismissOnBack` and trap D-pad focus with
   `Modifier.trapFocus()` — a focus group whose `onExit` cancels *every* exit swallows Back,
@@ -323,7 +352,8 @@ T3 (Viewer, Visuals, Memory, control channel) and T4 (voice) are described in th
   conversations. Lists are sampled at 2 Hz. `FocusMemory` brings focus back to the card you left.
 - **Conversations** (`conversations/`): the apps' grouping (`HistoryList`), search with the IME
   (OK on the field opens the keyboard; D-pad focus alone never does), preview of the focused row
-  (`GET …/preview?max=12` + session config's working directory, cached), Menu with the session
+  (`GET …/preview?max=12` + session config's working directory; `PreviewCache` keys an entry by the
+  row's message count + state, an open row's for 30 s at most), Menu with the session
   actions and New agent / New Archie conversation.
 - **Conversation** (`conversation/`): `:feature:chat`'s `ConversationViewModel` per view key
   (state sampled at ≤ 10 Hz; markdown stays incremental in the ViewModel's `MarkdownStore`). The
@@ -338,6 +368,31 @@ T3 (Viewer, Visuals, Memory, control channel) and T4 (voice) are described in th
   or waits, as in the apps), Live voice (Archie), Stop, More. Agents chip → side sheet (Stop; OK
   opens the subagent's transcript read-only). Long-press OK on a message: copy to composer, fork,
   rewind (confirmed).
+
+## Focus and keys after the fix pass (review 2026-10-16)
+
+- **Overlays own the keys** (B6). `TvOverlay(keys)` layers register with the `KeyRouter`: while the
+  options sheet or a screen's dialog / sheet shows, Menu / Rewind / FF / long-press OK go to it (a
+  side sheet closes on Menu, a dialog ignores them) and never to the screen behind; what it does not
+  handle goes to the global defaults, so Play/Pause stays live voice over every overlay.
+- **Focus comes back after an overlay** (B3). When the focused element of an overlay goes away,
+  Compose parks focus on the nearest element of the screen behind (or nowhere, or the drawer). The
+  shell sets `FocusSettling.active` from the moment an overlay shows until it has put focus back, so
+  screens' trackers (`FocusMemory`, the transcript's last block, Visuals / Memory selection, the
+  Settings panes) ignore those moves; 2 frames after the last overlay closed it calls the screen's
+  `FocusRestoreEffect` (unless a text field is editing — Menu → Type). Restorers fall back to a
+  sensible element: Home → hero Open, Conversations → first row / search, Visuals and Memory → the
+  first item in view / search, Conversation → the block or composer button it left, else the newest
+  block, Settings → the pane row it left (`LocalPaneFocus`: every pane row reports to a per-page
+  `FocusMemory`) or the list row. Overlays keep focus inside (`rememberRefocusInside`): a Stop button
+  that disappears or the Fire TV keyboard closing over a field hands focus to the overlay's first
+  element (Rename: to Save), never to the drawer. A screen-root fallback refocuses Home,
+  Conversations, Conversation, Visuals, Memory and Settings when focus is lost with no overlay open.
+- **Approval cards** keep their buttons (disabled, still focusable) after an answer until the card
+  leaves; **history arriving** places focus on the newest block only while the user has not pressed
+  a D-pad / OK key, is not typing and has no overlay open (B5); a conversation that closes removes its
+  own back-stack entry once (`TvNavigator.remove`, B7). A close / delete this TV confirmed is quiet
+  only for that session's notice, once, within 8 s (`OwnCloseFilter`, B11).
 
 ## Settings (T5)
 

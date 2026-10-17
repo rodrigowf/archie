@@ -103,6 +103,30 @@ object TranscriptModel {
     fun followTo(focused: String?, previousNewest: String?, newest: String?): String? =
         if (focused != null && focused == previousNewest && newest != null && newest != previousNewest) newest else null
 
+    /**
+     * The newest block takes focus once the history arrives (spec 15 §3.5) only while the user has
+     * not done anything yet: no D-pad / OK press since the screen opened ([userMoved]), not typing
+     * and no overlay open ([busy]) — history arriving never takes focus from the user (B5).
+     */
+    fun shouldPlaceInitialFocus(placed: Boolean, userMoved: Boolean, busy: Boolean): Boolean = !placed && !userMoved && !busy
+
+    /**
+     * Where focus goes back on this screen (B3: an overlay closed, or the focused element left —
+     * an answered approval card): [last] when it is still there, else the newest block, else the
+     * composer. [Restore.COMPOSER] = the composer row's own focus restorer decides.
+     */
+    fun restoreTarget(last: String?, composed: Set<String>, newest: String?): Restore = when {
+        last == TranscriptController.COMPOSER -> Restore.Composer
+        last != null && last in composed -> Restore.Block(last)
+        newest != null && newest in composed -> Restore.Block(newest)
+        else -> Restore.Composer
+    }
+
+    sealed interface Restore {
+        data class Block(val key: String) : Restore
+        data object Composer : Restore
+    }
+
     /** A page is 0.8 of the viewport (spec 15 §3.3). */
     const val PAGE_STEP = 0.8f
 }

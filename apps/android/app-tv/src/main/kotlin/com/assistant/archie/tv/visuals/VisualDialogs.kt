@@ -7,7 +7,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -34,7 +33,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -47,22 +45,22 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.Text
+import com.assistant.archie.tv.shell.TvOverlay
 import com.assistant.archie.tv.theme.TvButton
 import com.assistant.archie.tv.theme.TvButtonStyle
 import com.assistant.archie.tv.theme.TvDimens
 import com.assistant.archie.tv.theme.TvTheme
+import com.assistant.archie.tv.theme.dismissOnBack
 import com.assistant.archie.tv.theme.rememberInitialFocus
+import com.assistant.archie.tv.theme.rememberRefocusInside
+import com.assistant.archie.tv.theme.trapFocus
 import com.assistant.core.design.icons.ArchieIcons
 
 /** Menu → Rename: the title in a text field with the Fire IME; "Done" saves, Back cancels. */
 @Composable
 fun RenameDialog(title: String, onRename: (String) -> Unit, onDismiss: () -> Unit) {
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        RenamePanel(title, onRename, onDismiss)
-    }
+    TvOverlay { RenamePanel(title, onRename, onDismiss) }
 }
 
 @Composable
@@ -77,8 +75,11 @@ internal fun RenamePanel(title: String, onRename: (String) -> Unit, onDismiss: (
         runCatching { focus.requestFocus() }
         keyboard?.show()
     }
+    val save = remember { FocusRequester() }
     BackHandler(onBack = onDismiss)
-    DialogPanel(Modifier.testTag("rename-dialog")) {
+    // The Fire TV keyboard closing takes focus out of the field: it comes back to Save, never the
+    // drawer (and not the field, which would open the keyboard again).
+    DialogPanel(onDismiss, Modifier.testTag("rename-dialog"), refocus = save) {
         Text("Rename", style = TvTheme.type.headlineSmall, color = c.onSurface)
         Text("The new title shows in every app.", style = TvTheme.type.bodyMedium, color = c.onSurfaceVariant)
         BasicTextField(
@@ -100,7 +101,7 @@ internal fun RenamePanel(title: String, onRename: (String) -> Unit, onDismiss: (
         )
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             TvButton("Cancel", onDismiss)
-            TvButton("Save", { onRename(value.text) }, style = TvButtonStyle.Primary, icon = ArchieIcons.Check)
+            TvButton("Save", { onRename(value.text) }, Modifier.focusRequester(save), style = TvButtonStyle.Primary, icon = ArchieIcons.Check)
         }
     }
 }
@@ -117,9 +118,7 @@ fun LinkDialog(title: String, url: String, onDismiss: () -> Unit) {
             (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText(title, url))
         }
     }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        LinkPanel(title, url, onDismiss)
-    }
+    TvOverlay { LinkPanel(title, url, onDismiss) }
 }
 
 @Composable
@@ -128,7 +127,7 @@ internal fun LinkPanel(title: String, url: String, onDismiss: () -> Unit) {
     val close = rememberInitialFocus(url)
     val qr = remember(url) { runCatching { QrCode.encode(url) }.getOrNull() }
     BackHandler(onBack = onDismiss)
-    DialogPanel(Modifier.testTag("link-dialog")) {
+    DialogPanel(onDismiss, Modifier.testTag("link-dialog")) {
         Text(title, style = TvTheme.type.headlineSmall, color = c.onSurface, maxLines = 2)
         Row(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
             if (qr != null) QrImage(qr, Modifier.size(180.dp).testTag("link-qr"))
@@ -155,18 +154,24 @@ fun QrImage(qr: QrCode, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * A centered panel over a scrim, drawn as a shell overlay layer ([TvOverlay]): focus stays inside,
+ * Back closes it (`trapFocus` + `dismissOnBack`; a trap that cancelled every exit swallowed Back,
+ * B1), and the shell gives focus back to the card when it closes.
+ */
 @Composable
-private fun DialogPanel(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+private fun DialogPanel(onDismiss: () -> Unit, modifier: Modifier = Modifier, refocus: FocusRequester? = null, content: @Composable () -> Unit) {
     val c = TvTheme.colors
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxSize().background(c.scrim.copy(alpha = 0.6f)), contentAlignment = Alignment.Center) {
         Column(
             modifier
                 .widthIn(max = 680.dp)
                 .fillMaxWidth()
                 .background(c.surfaceContainerHigh, RoundedCornerShape(28.dp))
                 .padding(horizontal = 32.dp, vertical = 28.dp)
-                .focusGroup()
-                .focusProperties { onExit = { cancelFocusChange() } },
+                .dismissOnBack(onDismiss)
+                .then(rememberRefocusInside(refocus))
+                .trapFocus(),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             content()

@@ -24,6 +24,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -120,6 +121,7 @@ class ViewerController(initialUrl: String) {
     // ── page actions ─────────────────────────────────────────────────────────────────────────────
 
     fun reload() {
+        if (rendererGone) return retry() // the rebuilt WebView has no page to reload
         val w = webView ?: return
         error = null
         w.reload()
@@ -128,8 +130,23 @@ class ViewerController(initialUrl: String) {
     /** Retry after an error: load the URL again (a failed first load has nothing to reload). */
     fun retry() {
         val w = webView ?: return
+        rendererGone = false
         error = null
         w.loadUrl(url)
+    }
+
+    /**
+     * The page's renderer died (`onRenderProcessGone`): the pooled WebView was evicted and a new one
+     * is being built. The new one stays blank behind the error panel until Retry — a page that
+     * crashes its renderer must not crash it again in a loop.
+     */
+    var rendererGone by mutableStateOf(false)
+        private set
+
+    internal fun onRendererGone() {
+        rendererGone = true
+        loading = false
+        error = RENDERER_GONE_MESSAGE
     }
 
     /** Back in the page's history; false = nothing to go back to. */
@@ -245,6 +262,7 @@ class ViewerController(initialUrl: String) {
     }
 
     internal fun onPageStarted(newUrl: String) {
+        if (rendererGone) return // the blank replacement WebView, before Retry
         loading = true
         error = null
         url = newUrl
@@ -287,6 +305,8 @@ class ViewerController(initialUrl: String) {
     companion object {
         /** Up/Down at the page's edge of focus scroll this much of the viewport. */
         const val KEY_SCROLL_FRACTION = 0.4
+
+        const val RENDERER_GONE_MESSAGE = "The page stopped working (its renderer crashed). Retry loads it again."
     }
 }
 
@@ -349,7 +369,7 @@ fun ViewerWebPage(
             e.webView.isFocusable = true
             e.webView.isFocusableInTouchMode = true
             e.liveVersion = live
-            e.webView.loadUrl(controller.url)
+            if (!controller.rendererGone) e.webView.loadUrl(controller.url)
         }
     }
     DisposableEffect(entry) {
@@ -370,9 +390,13 @@ fun ViewerWebPage(
                 controller.error = description
                 controller.loading = false
             }
-            override fun onRenderProcessGone() { generation++ }
+            override fun onRenderProcessGone() {
+                controller.onRendererGone()
+                generation++
+            }
         }
-        view.post { view.requestFocus() }
+        // The error panel (renderer crash) owns focus until Retry; otherwise the page takes it.
+        if (controller.error == null) view.post { view.requestFocus() }
         onDispose {
             view.removeOnLayoutChangeListener(layout)
             controller.detach(view)
@@ -390,15 +414,19 @@ fun ViewerWebPage(
             onLiveReload()
         }
     }
-    AndroidView(
-        factory = { ctx ->
-            KeyFrame(ctx) { ev -> controller.onKey(entry.webView, ev.keyCode, ev) }.apply {
-                (entry.webView.parent as? ViewGroup)?.removeView(entry.webView)
-                addView(entry.webView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-            }
-        },
-        modifier = modifier.fillMaxSize().testTag("viewer-webview"),
-    )
+    // Keyed by the pool entry: after a renderer crash the factory runs again and attaches the new
+    // WebView (an unkeyed AndroidView keeps its first KeyFrame, holding the destroyed one).
+    key(entry) {
+        AndroidView(
+            factory = { ctx ->
+                KeyFrame(ctx) { ev -> controller.onKey(entry.webView, ev.keyCode, ev) }.apply {
+                    (entry.webView.parent as? ViewGroup)?.removeView(entry.webView)
+                    addView(entry.webView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+                }
+            },
+            modifier = modifier.fillMaxSize().testTag("viewer-webview"),
+        )
+    }
 }
 
 /**

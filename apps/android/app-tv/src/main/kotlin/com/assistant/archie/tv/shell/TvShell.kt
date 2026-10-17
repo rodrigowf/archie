@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -41,6 +42,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.RectangleShape
@@ -61,6 +63,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.Text
 import com.assistant.archie.tv.theme.FocusCard
+import com.assistant.archie.tv.theme.FocusSettling
 import com.assistant.archie.tv.theme.KeyHintBar
 import com.assistant.archie.tv.theme.StatusCluster
 import com.assistant.archie.tv.theme.TvDimens
@@ -110,28 +113,57 @@ fun TvShell(
     val focus = LocalFocusManager.current
     LaunchedEffect(overlays.optionsOpen) { if (overlays.optionsOpen) controller.optionsOpen = true }
 
-    val overlayHost = remember { TvOverlayHost() }
-    // The options sheet closed (Back, Menu or an option): focus goes back to the element the screen
-    // had before it opened (the screen's FocusRestoreEffect, else the content's focusRestorer) —
-    // without this the focused row leaves with the sheet and Compose drops focus, or hands it to
-    // the drawer. An option that opened a dialog (an overlay layer) or another screen keeps its focus.
-    var sheetOpenedOn by remember { mutableStateOf<NavKey?>(null) }
-    LaunchedEffect(controller.optionsOpen) {
-        if (controller.optionsOpen) {
-            sheetOpenedOn = controller.nav.current
+    val overlayHost = controller.overlayHost
+    // An overlay closed (the options sheet, or a screen's dialog / sheet; Back, Menu or an action):
+    // focus goes back to the element the screen had before it opened (the screen's
+    // FocusRestoreEffect, else the content's saved child) — the focused row left with the overlay,
+    // so Compose dropped focus, or handed it to the drawer or the screen's first element. An action
+    // that opened a text field or another screen keeps its focus (B3).
+    var overlayOpenedOn by remember { mutableStateOf<NavKey?>(null) }
+    DisposableEffect(controller) { onDispose { FocusSettling.active = false } }
+    val overlayShowing = controller.overlayShowing
+    LaunchedEffect(overlayShowing) {
+        if (overlayShowing) {
+            FocusSettling.active = true
+            if (overlayOpenedOn == null) overlayOpenedOn = controller.nav.current
             return@LaunchedEffect
         }
-        val openedOn = sheetOpenedOn ?: return@LaunchedEffect
-        sheetOpenedOn = null
-        repeat(2) { withFrameNanos { } }
-        if (controller.nav.current == openedOn && overlayHost.layers.isEmpty()) controller.focusContent()
+        val openedOn = overlayOpenedOn
+        overlayOpenedOn = null
+        if (openedOn == null || controller.nav.current != openedOn) {
+            FocusSettling.active = false // nothing to put back (an option opened another screen)
+            return@LaunchedEffect
+        }
+        try {
+            repeat(2) { withFrameNanos { } }
+            // Not while a text field edits (an option such as Type put focus there on purpose).
+            // Compose has parked focus on the nearest element of the screen (or nowhere, or the
+            // drawer): the screen's restore puts it back where the user was.
+            if (controller.nav.current == openedOn && !controller.overlayShowing && controller.focusProbe.editingText.intValue == 0) {
+                controller.focusContent()
+            }
+        } finally {
+            if (!controller.overlayShowing) FocusSettling.active = false
+        }
+    }
+    // Screen-root fallback (B3): focus dropped on a screen that had it (the focused element left —
+    // an approval card's buttons, a row leaving a list) while no overlay shows → the screen's
+    // sensible element. Not after navigation: a new screen places its own first focus.
+    val lostOn = controller.nav.current
+    LaunchedEffect(controller.focusLost, overlayShowing, lostOn) {
+        if (!controller.focusLost || overlayShowing || controller.focusedOn != lostOn || !TvShellController.refocusesWhenLost(lostOn)) return@LaunchedEffect
+        repeat(3) { withFrameNanos { } }
+        if (controller.focusLost && !controller.overlayShowing && controller.nav.current == lostOn) controller.focusContent()
     }
     val top = controller.backStack.lastOrNull()
     val view = controller.registry.view(top) ?: ChromeView()
     val showDrawer = !view.fullScreen && TvDestination.of(controller.nav.root) != null
 
     Surface(
-        modifier.fillMaxSize().testTag("tv-shell"),
+        modifier
+            .fillMaxSize()
+            .onFocusChanged { f -> controller.shellFocused = f.hasFocus }
+            .testTag("tv-shell"),
         shape = RectangleShape,
         colors = SurfaceDefaults.colors(containerColor = c.surface, contentColor = c.onSurface),
     ) {
@@ -141,6 +173,7 @@ fun TvShell(
             LocalScreenChromeRegistry provides controller.registry,
             LocalTvKeyActions provides controller.keyActions,
             LocalTvOverlayHost provides overlayHost,
+            LocalTvShellFocus provides controller.focusProbe,
         ) {
             // Lowest-priority Back (stack root): Home / leave the app / leave the drawer. NavDisplay's
             // own handler pops; screens' and the options sheet's handlers come later and win.
@@ -148,27 +181,39 @@ fun TvShell(
             // Content, then (while the drawer has focus) a scrim, then the drawer on top: the drawer
             // overlays the content as in mockup 4 instead of pushing it (spec 15 §3.4).
             val contentFocus = remember { FocusRequester() }
+            // The content's own focus memory, used only when the screen has no FocusRestoreEffect
+            // (Viewer, MemoryDoc, Connect): a focusRestorer here would also fire on every explicit
+            // request for an element inside (a screen's restore after an overlay) and redirect it to
+            // its saved child — Settings' pane row became the list row that way (B3).
+            val restoreOnEnter = remember { booleanArrayOf(false) }
             SideEffect {
                 controller.focusContent = {
                     if (!controller.registry.restoreFocus(controller.nav.current)) {
+                        restoreOnEnter[0] = true
                         runCatching { contentFocus.requestFocus() }.onFailure { focus.moveFocus(FocusDirection.Right) }
+                        restoreOnEnter[0] = false
                     }
                 }
             }
             Box(
-                Modifier.fillMaxSize().padding(horizontal = TvDimens.OverscanHorizontal, vertical = TvDimens.OverscanVertical),
+                Modifier
+                    .fillMaxSize()
+                    .then(if (view.edgeToEdge) Modifier else Modifier.padding(horizontal = TvDimens.OverscanHorizontal, vertical = TvDimens.OverscanVertical)),
             ) {
                 Column(
                     Modifier
                         .fillMaxSize()
                         .padding(start = if (showDrawer) TvDimens.DrawerCollapsed + 20.dp else 0.dp)
-                        // Back from the drawer lands on the element that had focus here (focusRestorer).
+                        // Back from the drawer lands on the element that had focus here (focusContent).
                         .focusRequester(contentFocus)
-                        .focusRestorer()
+                        .focusProperties {
+                            onExit = { contentFocus.saveFocusedChild() }
+                            onEnter = { if (restoreOnEnter[0]) contentFocus.restoreFocusedChild() }
+                        }
                         .focusGroup()
                         .testTag("shell-content"),
                 ) {
-                    if (view.showHeader) ShellHeader(view.title, state)
+                    if (view.showHeader && !view.edgeToEdge) ShellHeader(view.title, state)
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         NavDisplay(
                             backStack = controller.backStack,
@@ -179,12 +224,15 @@ fun TvShell(
                             ),
                             entryProvider = { key ->
                                 NavEntry(key) { k ->
-                                    CompositionLocalProvider(LocalTvEntryKey provides k) { entry(k) }
+                                    // Which screen focus last entered (the focus fallback only acts on the screen that had it).
+                                    Box(Modifier.fillMaxSize().onFocusChanged { if (it.hasFocus) controller.focusedOn = k }) {
+                                        CompositionLocalProvider(LocalTvEntryKey provides k) { entry(k) }
+                                    }
                                 }
                             },
                         )
                     }
-                    if (state.showKeyHints) KeyHintBar(view.hints)
+                    if (state.showKeyHints && !view.edgeToEdge) KeyHintBar(view.hints)
                 }
             }
             val expanded = showDrawer && (controller.drawerFocused || overlays.drawerOpen)
