@@ -53,6 +53,20 @@
   Viewer not full-bleed yet (added to the fix pass).
 - Rodrigo: keep Alexa voice UI off; test conversations deleted (API, 204).
 
+- Android fix pass merged (16 review items + edge-to-edge Viewer; `:feature:visuals`
+  VisualWebView renderer-crash fix also helps the phone app). Final gate green on `feat/tv`:
+  `:app-tv:check :app-tv:assembleRelease :feature:visuals:testDebugUnitTest :app-main:assembleDebug
+  :app-lite:assembleDebug`; backend suite 2388 passed.
+- Fix-pass incidents, handled: stray keys had set the launcher's blank time to 20 min (restored
+  to the 15 min defaults); an old session "Reply with the word: ok" was reopened (closed through
+  the API after backing up its JSONL; history kept).
+- **Release installed on the TV with `tv_setup.sh`** (19.7 MB): all checks green. Final
+  acceptance on the release build: bring-to-front from the Fire TV home by `tv_cmd viz` and by
+  `POST /api/visualizations/cast` (`via: app`), notify, home; Viewer fills 1920×1080 with spatial
+  navigation; Home with live Jetson data.
+- Pending: Rodrigo's field test of the real remote mic (voice message, dictation, three
+  walkie-talkie live-voice turns; A9 echo ducking, A10 audio routing), Home GPU optimisation.
+
 ## WP → commit
 
 | WP | Branch | Commit | State |
@@ -69,7 +83,7 @@
 | S (setup) | feat/tv | 3355bf46 | done |
 | T5 | feat/tv-t5 | merged | done |
 | Backend fixes | feat/tv-fix-be | merged | done |
-| Android fixes | feat/tv-fix-android | — | running |
+| Android fixes | feat/tv-fix-android | merged | done |
 | Reviews | — | review-2026-10-16.md | triaged |
 
 ## Open issues

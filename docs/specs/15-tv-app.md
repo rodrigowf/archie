@@ -1,6 +1,6 @@
 # 15 — Archie TV (Android TV / Fire TV app) + TV control channel + launcher rework
 
-Status: **DRAFT v1** · 2026-10-16 · branch `feat/tv` · coordinator: Claude · owner: Rodrigo
+Status: **Built and deployed** 2026-10-16 (field test of the remote mic pending) · was DRAFT v1 · branch `feat/tv` · coordinator: Claude · owner: Rodrigo
 
 This spec covers three deliverables that ship together:
 
