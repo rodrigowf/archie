@@ -31,7 +31,7 @@ ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""
 
 # Copy to remote (run once per direction)
 ssh-copy-id -i ~/.ssh/id_ed25519 rodrigo@192.168.0.200   # Desktop → Jetson
-ssh-copy-id -i ~/.ssh/id_ed25519 rodrigo@192.168.0.28    # Jetson → Desktop
+ssh-copy-id -i ~/.ssh/id_ed25519 rodrigo@192.168.0.230   # Jetson → Desktop
 ```
 
 ## Installation
