@@ -267,8 +267,10 @@ server URL):
 1. Splash (Archie mark) → **Connect**: auto-discovery (`ServerDiscovery`, existing LAN scan) shows
    found servers as cards; OK connects; "Enter address" opens the IME. TOFU certificate trust
    dialog for the Jetson's self-signed cert (existing flow).
-2. **Remote mic** check: asks for RECORD_AUDIO (system dialog works with the D-pad); explains
-   "Hold the mic button and say hello" with a live meter; detects Alexa state.
+2. **Remote mic** check: asks for RECORD_AUDIO; explains "Hold the mic button and say hello" with a
+   live meter; detects Alexa state. (The system dialog was assumed to work with the D-pad. It does
+   not appear at all on Fire TV — the request returns denied immediately — so since 2026-10-27 a
+   blocked mic opens Fire OS's app page instead; see [tv.md](../clients/tv.md).)
 3. Home.
 
 ## 4. Voice design

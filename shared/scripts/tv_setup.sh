@@ -93,6 +93,8 @@ check() {
   printf '%-34s %s\n' "Archie TV mic permission" "$(A dumpsys package $ARCHIE_PKG | grep -q 'android.permission.RECORD_AUDIO: granted=true' && echo granted || echo MISSING)"
   op() { A appops get "$1" "$2" | sed -n 's/^[^:]*: \([a-z]*\).*/\1/p' | head -1; }
   printf '%-34s %s\n' "Archie TV overlay app-op" "$(op $ARCHIE_PKG SYSTEM_ALERT_WINDOW | grep . || echo default)"
+  # Anything but `ignore` means Fire OS may reset the mic permission as "unused" (see the setup step).
+  printf '%-34s %s\n' "Archie TV keeps mic when unused" "$(case "$(op $ARCHIE_PKG AUTO_REVOKE_PERMISSIONS_IF_UNUSED)" in ignore) echo yes ;; *) echo "NO (mic may be auto-reset)" ;; esac)"
   printf '%-34s %s\n' "Launcher usage-stats app-op" "$(op $HUB_PKG GET_USAGE_STATS | grep . || echo default)"
   printf '%-34s %s\n' "Launcher overlay app-op" "$(op $HUB_PKG SYSTEM_ALERT_WINDOW | grep . || echo default)"
   printf '%-34s %s\n' "Launcher may re-enable watcher" "$(A dumpsys package $HUB_PKG | grep -q 'WRITE_SECURE_SETTINGS: granted=true' && echo yes || echo NO)"
@@ -136,6 +138,11 @@ if installed $ARCHIE_PKG; then
   say "Archie TV: microphone permission + overlay app-op (lets agent commands bring it to the front)"
   A pm grant $ARCHIE_PKG android.permission.RECORD_AUDIO
   A appops set $ARCHIE_PKG SYSTEM_ALERT_WINDOW allow
+  # Fire OS resets the runtime permissions of an app it considers unused, which silently takes the
+  # mic away: live voice and hold-to-talk then fail with "Archie needs the microphone to hear the
+  # remote" and the in-app request cannot fix it (Fire TV auto-denies it without showing a dialog,
+  # so the only way back is this script or Settings). `ignore` opts the app out of that reset.
+  A appops set $ARCHIE_PKG AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore
 fi
 if installed $HUB_PKG; then
   say "Launcher: usage access + overlay app-ops, key watcher"

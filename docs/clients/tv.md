@@ -3,7 +3,7 @@ name: tv
 category: archie/clients
 tags: [android-tv, fire-tv, tv-material, compose, navigation3, app-tv, d-pad, leanback, gradle]
 created: 2026-10-16
-modified: 2026-10-16
+modified: 2026-10-27
 summary: apps/android/app-tv — Archie TV (com.assistant.archie.tv), the 10-foot client for Fire TV / Android TV; module, build/install, shell architecture and the extension points the screen work packages fill.
 source: curated (spec 15 WP T0, 2026-10-16)
 references:
@@ -12,6 +12,7 @@ references:
   - ../specs/12-client-protocol.md
   - android.md
   - ../devices/devices.md
+  - ../operations/troubleshooting.md
 ---
 
 # Archie TV (`apps/android/app-tv`)
@@ -296,6 +297,23 @@ Shared-module additions (each default keeps the phones unchanged, each with a te
 `RtcMicFeed`; `:core:voice-host` `HostConfig.wakeWord / audio`, `HostConfig.tv`, `HostAudio`,
 `NotificationSpec.tv`, `MicPushToTalkRecorder(audioCore)`; the runtime never builds a wake engine
 when `wakeWord = false`.
+
+**The `RECORD_AUDIO` grant is provisioned, and the app recovers when it is lost.** First run and
+`TvVoice.requestPermission` do launch the system dialog, but on Fire TV the request comes back
+denied *immediately, without any dialog being shown*, leaving `shouldShowRequestPermissionRationale`
+false — the same signal the platform gives for "Don't ask again". `MicPermission.of` reads that as
+`BLOCKED`, and `TvVoice.openAppSettings` opens Fire OS's app page, which lands on Permissions →
+Microphone and is grantable with the D-pad alone. The explanation is a *platform* toast, because the
+in-app `TvToasts` overlay would be hidden behind Settings. Until 2026-10-27 that branch only showed
+the red "Archie needs the microphone to hear the remote" toast, so Live voice and hold-to-talk
+stayed dead until someone ran `adb … pm grant`.
+
+The grant itself still comes from `shared/scripts/tv_setup.sh` (`pm grant … RECORD_AUDIO`), which
+also sets the `AUTO_REVOKE_PERMISSIONS_IF_UNUSED` app-op to `ignore`: without it Fire OS resets the
+permissions of an app it considers unused and silently takes the mic away (seen 2026-10-27, 10 days
+after provisioning — moving the stick to another TV re-runs enough of setup to do the same, and it
+re-enables Alexa's voice UI too). `tv_setup.sh --no-install` re-applies the whole set and
+`--check` reports every row; symptom → fix in [troubleshooting.md](../operations/troubleshooting.md).
 
 **Testing without a human** (debug builds only, `src/debug`): `DebugMicReceiver`, guarded by the DUMP
 permission so only `adb shell` can call it:

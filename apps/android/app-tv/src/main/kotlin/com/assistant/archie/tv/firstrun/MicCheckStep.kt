@@ -33,9 +33,10 @@ import com.assistant.archie.tv.voice.rememberMicCheck
 import com.assistant.core.design.icons.ArchieIcons
 
 /*
- * First run, step 2 (spec 15 §3.6; T4): the remote-mic check. Asks for RECORD_AUDIO (the system
- * dialog works with the D-pad), explains "hold the mic button and say hello" with a live meter, and
- * shows Alexa's state. Continue (or Skip) finishes setup.
+ * First run, step 2 (spec 15 §3.6; T4): the remote-mic check. Asks for RECORD_AUDIO — on Fire TV the
+ * system dialog never appears and `TvVoice` falls back to Fire OS's app page (see `MicPermission`) —
+ * explains "hold the mic button and say hello" with a live meter, and shows Alexa's state.
+ * Continue (or Skip) finishes setup.
  */
 
 class MicCheckActions(

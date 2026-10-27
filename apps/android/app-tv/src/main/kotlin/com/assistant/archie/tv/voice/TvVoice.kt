@@ -2,8 +2,14 @@ package com.assistant.archie.tv.voice
 
 import android.Manifest
 import android.app.Application
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
 import android.util.Log
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -39,6 +45,32 @@ import kotlinx.coroutines.launch
 /** Reached as `(application as TvVoiceOwner).tvVoice` (null in JVM tests: no voice). */
 interface TvVoiceOwner {
     val tvVoice: TvVoice?
+}
+
+/** What a finished RECORD_AUDIO request leaves the app able to do. */
+enum class MicPermission {
+    GRANTED,
+
+    /** Denied, but the platform will ask again — the next press can still succeed. */
+    RETRY,
+
+    /**
+     * Denied with no way to ask again, so only app settings can grant it. "Don't ask again" gets
+     * here, and so does **every** request on Fire TV: it answers denied without ever showing the
+     * dialog, which is why the mic is provisioned by `tv_setup.sh` rather than asked for (spec 15
+     * §4). Before this existed the app just toasted and the user was stuck needing adb.
+     */
+    BLOCKED,
+
+    ;
+
+    companion object {
+        fun of(granted: Boolean, canAskAgain: Boolean): MicPermission = when {
+            granted -> GRANTED
+            canAskAgain -> RETRY
+            else -> BLOCKED
+        }
+    }
 }
 
 /**
@@ -107,15 +139,43 @@ class TvVoice(private val app: Application, private val graph: TvAppGraph, val b
         })
     }
 
-    /** The system dialog answered. */
-    fun onPermissionResult(granted: Boolean) {
+    /**
+     * The system dialog answered. [canAskAgain] is the Activity's
+     * `shouldShowRequestPermissionRationale` *after* the result: false means the platform will not
+     * put that dialog up again, so repeating the request can only fail — see [MicPermission].
+     */
+    fun onPermissionResult(granted: Boolean, canAskAgain: Boolean) {
         _permission.value = granted
-        if (granted) mic.start() else graph.toasts.show("Archie needs the microphone to hear the remote", error = true)
+        when (MicPermission.of(granted, canAskAgain)) {
+            MicPermission.GRANTED -> mic.start()
+            MicPermission.RETRY -> graph.toasts.show("Archie needs the microphone to hear the remote", error = true)
+            MicPermission.BLOCKED -> openAppSettings()
+        }
     }
 
     fun requestPermission() {
         val r = permissionRequester
-        if (r != null) r() else graph.toasts.show("Allow the microphone in Settings → Remote microphone", error = true)
+        if (r != null) r() else openAppSettings()
+    }
+
+    /**
+     * The one screen that can still grant the mic: Fire OS's app page, which opens on "Permissions"
+     * with Microphone first. The in-app [TvToasts] would be hidden behind it, so the explanation is
+     * a platform toast, which outlives the switch (as `:app-main`'s SystemOverlays does).
+     */
+    fun openAppSettings() {
+        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", app.packageName, null))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val opened = runCatching { app.startActivity(intent) }.isSuccess
+        if (opened) {
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(app, "Archie needs the microphone: choose Permissions → Microphone", Toast.LENGTH_LONG).show()
+            }
+        } else {
+            // No app-details screen (not a Fire TV): the path still names where to look.
+            graph.toasts.show("Allow the microphone for Archie in Settings → Applications", error = true)
+        }
+        Log.i(TAG, "mic permission blocked — app settings opened=$opened")
     }
 
     private fun granted(): Boolean =

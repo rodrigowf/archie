@@ -3,7 +3,7 @@ name: troubleshooting
 category: archie/operations
 tags: [troubleshooting, incidents, symptoms, fixes, jetson, deploy, context-sync, ssh, voice, android, search]
 created: 2026-04-20
-modified: 2026-10-14
+modified: 2026-10-27
 summary: Symptom → cause → fix table for every known Archie incident, each linked to the doc with the detail.
 source: curated (consolidated from all feedback_* and reference_* auto-memory notes, project_jetson_crash_2026_04_20.md, project_context_sync_delete_gating.md, project_indexer_full_reembed_fix_2026_06_17.md, project_voice_ghost_state_fix_2026_06_30.md (index line), project_qwen_voice_gate_no_staleness_clear.md (index line), assistant/infrastructure/server_hub_project.md, assistant/utilities/*.md, projects/video-editing/large_assets_outside_context.md; verified against code 2026-10-06)
 references:
@@ -23,6 +23,7 @@ references:
   - ../voice/gemini-live.md
   - ../voice/wake-word.md
   - ../clients/android.md
+  - ../clients/tv.md
   - ../integrations/skills.md
 ---
 
@@ -93,6 +94,7 @@ matches, start from [debugging.md](debugging.md) and capture real logs first.
 
 | Symptom | Cause | Fix | Detail |
 |---|---|---|---|
+| Archie TV: Live voice (⏯ / the composer's "Live voice") or hold-to-talk fails with "Archie needs the microphone to hear the remote", and **no permission dialog ever appears** | `RECORD_AUDIO` is not granted to `com.assistant.archie.tv`, and Fire TV auto-denies the in-app request without showing a dialog. Fire OS resets the permissions of an app it considers unused; moving the stick to another TV does the same and re-enables Alexa's voice UI (2026-10-27: granted at provisioning, gone 10 days later with a real 247 ms mic use in between) | Since 2026-10-27 the app opens Fire OS's app page itself → **Permissions → Microphone → Allow**, with the remote only. Otherwise `shared/scripts/tv_setup.sh --no-install` re-applies the grant, the `AUTO_REVOKE_PERMISSIONS_IF_UNUSED=ignore` guard and the Alexa disable in one go; `--check` shows the "mic permission" / "keeps mic when unused" / "Alexa voice UI" rows. `dumpsys package com.assistant.archie.tv` → an empty `runtime permissions:` block means not granted | [tv.md](../clients/tv.md) |
 | No Android notification when an agent session finishes | Switch off (Settings → This device → Notifications, off by default), permission/channel blocked, you were looking at that session, or Archie wasn't running when a turn started elsewhere | `adb logcat -s ArchieNotify` says `posted`/`suppressed … reason=…`; turn the switch on; for turns started elsewhere enable "Stay connected in background" | [android.md](../clients/android.md#agent-notifications-main-app) |
 | Accounts: a CLI sign-in was started and the existing login is gone | Older build: `codex login` / `claude auth login` clear credentials when they start | Fixed (temp home + snapshot/restore). Sign in again; backups of credential files are kept next to them | [authentication.md](../harnesses/authentication.md) |
 | A page or tool gets **403 "Cross-site request rejected"** (WebSocket: handshake refused / close 1008); backend log `Rejected POST /api/… (origin=… host=…)` | The browser-origin guard: the request came from a page served by another origin (other port or machine), with `Origin: null`, or reached the server under a `Host` it does not trust | Open the page from the server itself, or add its origin (`scheme://host[:port]`) to `ARCHIE_TRUSTED_ORIGINS` (a public DNS name for the server: `ARCHIE_TRUSTED_HOSTS`) — via Settings → Accounts it applies at once, in `context/.env` after a restart | [backend.md](../architecture/backend.md#auth-and-the-browser-origin-guard) |

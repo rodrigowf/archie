@@ -1,6 +1,9 @@
 package com.assistant.archie.tv.voice
 
 import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -22,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
@@ -48,12 +52,20 @@ sealed interface OverlayUi {
  * meter, "Sending…", the live-voice panel and the agent dictation chip. Never takes focus except the
  * dictation chip (the user just spoke). Back closes the chip, or ends live voice.
  *
- * It also hosts the RECORD_AUDIO request (the system dialog works with the D-pad).
+ * It also hosts the RECORD_AUDIO request. Fire TV never puts the system dialog up — it answers
+ * denied at once — so the result is classified by [MicPermission] and a blocked mic sends the user
+ * to Fire OS's app page instead of a toast that cannot be acted on.
  */
 @Composable
 fun VoiceOverlayHost(graph: TvAppGraph) {
     val voice = (graph.application as? TvVoiceOwner)?.tvVoice ?: return
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { voice.onPermissionResult(it) }
+    val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        // Read *after* the result: false means the platform will not show that dialog again (on
+        // Fire TV it never showed one at all), so the request cannot be retried — see MicPermission.
+        val canAskAgain = context.findActivity()?.shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO) ?: true
+        voice.onPermissionResult(granted, canAskAgain)
+    }
     DisposableEffect(voice) {
         voice.permissionRequester = { launcher.launch(Manifest.permission.RECORD_AUDIO) }
         onDispose { voice.permissionRequester = null }
@@ -181,6 +193,13 @@ fun VoiceOverlayLayer(
             OverlayUi.None -> Unit
         }
     }
+}
+
+/** The Activity behind a Compose context (`:feature:settings` keeps its own copy, internal to it). */
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 /** The panel's status line. */
