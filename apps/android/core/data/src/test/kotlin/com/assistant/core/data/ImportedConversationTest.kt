@@ -84,6 +84,22 @@ class ImportedConversationTest {
         assertTrue("the view should not be in a turn", convs.current(key)?.inTurn != true)
     }
 
+    @Test fun theTabNeverSitsOnConnecting() {
+        // It never dials, so the default CONNECTING status would otherwise stick forever and read
+        // as "something is pending" (spotted on the phone, 2026-10-28).
+        val ref = SessionRef("CG1", "SDK-CG1", SessionKind.AGENT, null, readOnly = true)
+        val st = com.assistant.core.conversation.ConversationState(ref = ref)
+        assertEquals(TabStatus.IDLE, OpenSessionsRepository.statusOf(st))
+        assertEquals("Imported from ChatGPT · read-only", OpenSessionsRepository.detailOf(st, null))
+
+        // A live view is untouched: it still reports connecting until it subscribes.
+        val live = com.assistant.core.conversation.ConversationState(
+            ref = SessionRef("AG1", "SDK-AG1", SessionKind.AGENT, null),
+        )
+        assertEquals(TabStatus.CONNECTING, OpenSessionsRepository.statusOf(live))
+        assertEquals("Connecting…", OpenSessionsRepository.detailOf(live, null))
+    }
+
     @Test fun aNormalRefStillOpensItsSocket() {
         val b = FakeBackend().start().also { backends += it }
         val convs = conversations(b)

@@ -393,6 +393,9 @@ class OpenSessionsRepository(
         /** ST-3: connecting, subscribed-idle, busy, needs-you, stopped/terminated, disconnected/failed. */
         fun statusOf(st: ConversationState?): TabStatus = when {
             st == null -> TabStatus.NONE
+            // An imported conversation never connects (no socket, by design), so it must not sit
+            // on "Connecting…" forever (docs/harnesses/chatgpt-import.md).
+            st.ref.readOnly -> TabStatus.IDLE
             st.newestPendingPermission() != null || st.agentApprovals.isNotEmpty() -> TabStatus.NEEDS_YOU
             st.status == SessionStatus.STOPPED || st.status == SessionStatus.TERMINATED -> TabStatus.STOPPED
             st.connection == com.assistant.core.model.ConnectionState.FAILED -> TabStatus.DISCONNECTED
@@ -406,6 +409,7 @@ class OpenSessionsRepository(
         fun detailOf(st: ConversationState?, prefix: String?): String {
             val text = when {
                 st == null -> "Not connected"
+                st.ref.readOnly -> "Imported from ChatGPT · read-only"
                 st.newestPendingPermission() != null || st.agentApprovals.isNotEmpty() -> "Waiting for your approval"
                 st.status == SessionStatus.TERMINATED -> "Session ended"
                 st.status == SessionStatus.STOPPED -> "Stopped"
