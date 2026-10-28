@@ -244,6 +244,12 @@ band (`VisualKind`, read from path/title: the backend has no kind), a dot when t
 it was last opened (`VisualsSeen`, per process), Menu → Open / Rename (IME; shell overlay layers that
 close on Back, focus back on the card) / Copy link (address +
 QR code from the dependency-free `QrCode` encoder, also on the clipboard) / Refresh.
+Starred pages (`VisualInfo.favorite`) sort to the top — `VisualsModel.ordered`, applied after the
+search filter — under a full-width **Starred** heading, the rest under **All visuals**, and each
+starred card shows a star. The headings are grid items, so they shift every index after them:
+`VisualsGrid.itemIndex` / `cardIndex` keep `scrollToItem` and the focus restore pointing at the
+right card (with nothing starred there are no headings and the mapping is the identity). The TV
+only *shows* stars; starring is done from the phone or the web app.
 
 **Memory** (`memory/`, mockups 13/13b): tree (MEMORY.md first, folder counts, OK expands; folders
 start collapsed on the TV, a search opens every match) + preview (a folder previews its INDEX.md),
@@ -363,9 +369,10 @@ T3 (Viewer, Visuals, Memory, control channel) and T4 (voice) are described in th
   **reattach** to, or "not open" with an Open button (user action). A view that closes leaves the
   screen. Rename / Duplicate / Close / Delete use the controller's dialogs (rename with the Fire TV
   keyboard).
-- **Home** (`home/`): hero = the Archie view (title, state, the end of the latest reply), Open now
-  (pool agents; status, last reply line from the view or `GET …/preview`), Visuals (newest first;
-  dot = changed this session), Memory (notes changed this session via `memory_changed`, then
+- **Home** (`home/`): hero = the Archie view (title, state, the end of the latest reply), Starred
+  (the starred visuals, hidden when there are none), Open now
+  (pool agents; status, last reply line from the view or `GET …/preview`), Visuals (newest first,
+  minus the starred ones, so no page is in two rows; dot = changed this session), Memory (notes changed this session via `memory_changed`, then
   `MEMORY.md`, the folders' `INDEX.md` and the other root files — the tree has no dates), Recent
   conversations. Lists are sampled at 2 Hz. `FocusMemory` brings focus back to the card you left.
 - **Conversations** (`conversations/`): the apps' grouping (`HistoryList`), search with the IME

@@ -69,6 +69,8 @@ data class RecentCardUi(val key: String, val ref: ConvRef, val archie: Boolean, 
 data class HomeUiState(
     val hero: HeroUi = HeroUi(),
     val openNow: List<AgentCardUi> = emptyList(),
+    /** Starred visuals, the user's own shortcuts — their own row above the rest. */
+    val starred: List<VisualCardUi> = emptyList(),
     val visuals: List<VisualCardUi> = emptyList(),
     val memory: List<MemoryCardUi> = emptyList(),
     val recent: List<RecentCardUi> = emptyList(),
@@ -95,6 +97,24 @@ object HomeModel {
         val list = sessions.value.orEmpty()
         val archieItem = items.firstOrNull { it.kind == ItemKind.ARCHIE }
         val metas = metaBySdk(list, now, zone, locale)
+        // Starred visuals get their own row, so the "Visuals" row below holds the rest — no page is
+        // in both (the split the phone's list makes).
+        val (starredVisuals, otherVisuals) = visuals.value.orEmpty()
+            .sortedByDescending { TvFormat.parse(it.modified) ?: Instant.MIN }
+            .partition { it.favorite }
+        fun visualCard(v: VisualInfo): VisualCardUi {
+            val stamp = changedVisuals[v.path]
+            val title = v.title.ifBlank { TvFormat.titleOf(v.path).capitalized() }
+            return VisualCardUi(
+                key = "viz:${v.path}",
+                title = title,
+                file = fileOf(v.path),
+                updated = TvFormat.ago(v.modified, now)?.let { "updated $it" },
+                changed = stamp != null && !stamp.deleted,
+                target = Viewer(v.path, v.title.ifBlank { null }),
+                kind = VisualKind.of(v.path, title),
+            )
+        }
         return HomeUiState(
             hero = hero(archie, archieItem, metas),
             openNow = items.filter { it.kind == ItemKind.AGENT }.take(ROW_LIMIT).map { w ->
@@ -107,22 +127,8 @@ object HomeModel {
                     lastLine = lastLine(w)?.takeIf { it.isNotBlank() } ?: w.detail,
                 )
             },
-            visuals = visuals.value.orEmpty()
-                .sortedByDescending { TvFormat.parse(it.modified) ?: Instant.MIN }
-                .take(ROW_LIMIT)
-                .map { v ->
-                    val stamp = changedVisuals[v.path]
-                    val title = v.title.ifBlank { TvFormat.titleOf(v.path).capitalized() }
-                    VisualCardUi(
-                        key = "viz:${v.path}",
-                        title = title,
-                        file = fileOf(v.path),
-                        updated = TvFormat.ago(v.modified, now)?.let { "updated $it" },
-                        changed = stamp != null && !stamp.deleted,
-                        target = Viewer(v.path, v.title.ifBlank { null }),
-                        kind = VisualKind.of(v.path, title),
-                    )
-                },
+            starred = starredVisuals.take(ROW_LIMIT).map { visualCard(it) },
+            visuals = otherVisuals.take(ROW_LIMIT).map { visualCard(it) },
             memory = memoryCards(tree.value.orEmpty(), changedMemory),
             recent = list
                 .sortedByDescending { TvFormat.parse(it.lastActivity ?: it.startedAt) ?: Instant.MIN }

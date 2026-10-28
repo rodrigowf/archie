@@ -136,7 +136,7 @@ fun HomeRoute(ctx: TvRouteContext) {
 }
 
 /** The rows of the LazyColumn, in order (the hero is first). */
-enum class HomeRow { HERO, OPEN_NOW, VISUALS, MEMORY, RECENT }
+enum class HomeRow { HERO, STARRED, OPEN_NOW, VISUALS, MEMORY, RECENT }
 
 @Composable
 fun HomeScreen(
@@ -152,6 +152,8 @@ fun HomeScreen(
     val rows = HomeRow.entries.filter { r ->
         when (r) {
             HomeRow.HERO, HomeRow.RECENT -> true
+            // No row until something is starred: nothing to explain, nothing to skip past.
+            HomeRow.STARRED -> state.starred.isNotEmpty()
             HomeRow.OPEN_NOW -> state.openNow.isNotEmpty()
             HomeRow.VISUALS -> state.visuals.isNotEmpty() || state.loading
             HomeRow.MEMORY -> state.memory.isNotEmpty() || state.loading
@@ -218,6 +220,15 @@ fun HomeScreen(
         item(key = "hero", contentType = "hero") {
             Hero(state.hero, actions, heroOpen, memory, Modifier.trackRow(HomeRow.HERO).onFocusChanged { if (it.hasFocus) focusedConv = null })
         }
+        if (HomeRow.STARRED in rows) {
+            item(key = "starred", contentType = "row") {
+                RowSection("Starred", trailing = starredLabel(state.starred.size)) {
+                    CardRow(state.starred, { it.key }, rowRequesters.getValue(HomeRow.STARRED), Modifier.trackRow(HomeRow.STARRED)) { c ->
+                        VisualCard(c, memory, { actions.push(c.target) }, { focusedConv = null })
+                    }
+                }
+            }
+        }
         if (HomeRow.OPEN_NOW in rows) {
             item(key = "open-now", contentType = "row") {
                 RowSection("Open now", trailing = agentsLabel(state.openNow.size)) {
@@ -265,6 +276,8 @@ fun HomeScreen(
 }
 
 private fun agentsLabel(n: Int) = if (n == 1) "1 agent" else "$n agents"
+
+private fun starredLabel(n: Int) = if (n == 1) "1 page" else "$n pages"
 
 @Composable
 private fun RowSection(title: String, trailing: String?, content: @Composable () -> Unit) {

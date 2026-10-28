@@ -174,12 +174,14 @@ Navigation 3 back stack keys (mirroring `:app-main`'s `Routes.kt`): `Home`, `Con
 1. **Hero: Archie** — the current Archie (orchestrator) conversation: title, state, last two lines
    of the latest reply. Buttons: **Open** (default focus), **Live voice**, **New conversation**.
    Hint: "Hold 🎤 anywhere to talk to Archie".
-2. **Open now** — agent sessions in the pool (`GET /api/sessions/pool/live`): card = provider icon,
+2. **Starred** — the visualizations the user starred (`favorite`), same card as the Visuals row.
+   Hidden when nothing is starred; a starred page is not repeated in the Visuals row below.
+3. **Open now** — agent sessions in the pool (`GET /api/sessions/pool/live`): card = provider icon,
    title, status (working spinner / idle / needs approval badge), last line. OK opens.
-3. **Visuals** — most recently updated visualizations: typographic card (kind color band, title,
+4. **Visuals** — most recently updated visualizations: typographic card (kind color band, title,
    path, "updated 5 min ago"; a live-reload dot if changed since last open).
-4. **Memory** — recently modified notes (title, folder, summary line).
-5. **Recent conversations** — history (`GET /api/sessions`), newest first.
+5. **Memory** — recently modified notes (title, folder, summary line).
+6. **Recent conversations** — history (`GET /api/sessions`), newest first.
 
 **Conversations** — two panes. Left (360 dp): search field (IME) + sections **Open now**, **Today**,
 **Yesterday**, **Previous 7 days**, **Earlier** (same grouping as the apps), Archie conversations and
@@ -227,7 +229,10 @@ New agent (provider picker), New Archie conversation.
 - Load older: reaching the top block loads the previous page (`before=`).
 
 **Visuals** — grid (4 columns) of visualization cards with search; OK opens the **Viewer**. Menu →
-Open, Rename, Copy link (shows a QR code of the URL so a phone can open it).
+Open, Rename, Copy link (shows a QR code of the URL so a phone can open it). Starred pages come
+first under a **Starred** heading, the rest under **All visuals** (as the phone's list), each card
+carrying a star; with nothing starred there are no headings and the grid is one flat run. Starring
+itself is done from the phone or the web app.
 
 **Viewer** — full-screen WebView (no chrome). A 3 s top toast shows the title and source ("Opened
 by Archie" when pushed). D-pad moves through links/controls (Chromium spatial navigation, on

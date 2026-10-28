@@ -96,6 +96,18 @@ class T1T2ModelsTest {
         assertEquals(listOf("Today 21:14", "Today 16:20", "Yesterday", "Tue"), s.recent.map { it.time })
     }
 
+    @Test fun starredVisualsGetTheirOwnHomeRow() {
+        val visuals = listOf(
+            VisualInfo("visualizations/old.html", "u", "Old", null, "2026-10-10T10:00:00Z", 1),
+            VisualInfo("visualizations/pinned.html", "u", "Pinned", null, "2026-10-12T10:00:00Z", 1, favorite = true),
+            VisualInfo("visualizations/tv-app/index.html", "u", "", null, "2026-10-16T21:00:00Z", 1),
+        )
+        val s = HomeModel.state(null, emptyList(), { null }, LoadState(visuals), emptyMap(), LoadState(), emptyMap(), LoadState(), now, zone)
+        assertEquals(listOf("Pinned"), s.starred.map { it.title })
+        // A starred page is not repeated in the Visuals row, which keeps its newest-first order.
+        assertEquals(listOf("tv-app/", "old.html"), s.visuals.map { it.file })
+    }
+
     @Test fun heroWithoutArchie() {
         val s = HomeModel.state(null, emptyList(), { null }, LoadState(), emptyMap(), LoadState(), emptyMap(), LoadState(), now, zone)
         assertFalse(s.hero.hasConversation)

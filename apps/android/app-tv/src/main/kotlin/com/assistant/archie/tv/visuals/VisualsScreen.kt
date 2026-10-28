@@ -13,8 +13,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -38,6 +41,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.tv.material3.Icon
 import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.Text
 import com.assistant.archie.feature.visuals.VisualUrls
@@ -75,6 +79,8 @@ data class VisualCardUi(
     val file: String,
     val updated: String?,
     val changed: Boolean = false,
+    /** Starred by the user (`PUT /api/visualizations/favorite`); these sort to the top. */
+    val favorite: Boolean = false,
 )
 
 @Immutable
@@ -84,7 +90,10 @@ data class VisualsUi(
     val loading: Boolean = false,
     val query: String = "",
     val status: StatusView = StatusView(),
-)
+) {
+    /** How many of [cards] are starred. [cards] is always starred-first (`VisualsModel.ordered`). */
+    val starred: Int get() = cards.count { it.favorite }
+}
 
 class VisualsActions(
     val onOpen: (VisualCardUi) -> Unit = {},
@@ -105,6 +114,7 @@ object VisualsModel {
             file = VisualKind.fileLabel(v.path),
             updated = TvFormat.ago(v.modified)?.let { "updated $it" },
             changed = changed,
+            favorite = v.favorite,
         )
     }
 
@@ -116,6 +126,40 @@ object VisualsModel {
             val hay = (c.title + " " + c.path).lowercase()
             words.all { it in hay }
         }
+    }
+
+    /**
+     * Starred first, then the rest, each keeping the server's order (`modified` desc) — the same
+     * split the phone's list makes (`visualSections`). Stable, so it can be applied after [filter].
+     */
+    fun ordered(cards: List<VisualCardUi>): List<VisualCardUi> {
+        val (starred, others) = cards.partition { it.favorite }
+        return if (starred.isEmpty()) cards else starred + others
+    }
+}
+
+/**
+ * Where a card sits among the grid's lazy items. With something starred the grid gains a full-width
+ * "Starred" header above the starred cards and an "All visuals" header above the rest, so an item
+ * index no longer equals the card's index in [VisualsUi.cards] — which the scroll and the focus
+ * restore both rely on. [starred] is the starred count *after* the search filter.
+ */
+object VisualsGrid {
+    fun hasHeaders(starred: Int): Boolean = starred > 0
+
+    /** The grid item index of the card at [cardIndex]. */
+    fun itemIndex(cardIndex: Int, starred: Int): Int = when {
+        !hasHeaders(starred) -> cardIndex
+        cardIndex < starred -> cardIndex + 1   // after the "Starred" header
+        else -> cardIndex + 2                  // also after the "All visuals" header
+    }
+
+    /** The card nearest to grid item [itemIndex] (a header maps to the first card below it). */
+    fun cardIndex(itemIndex: Int, starred: Int): Int = when {
+        !hasHeaders(starred) -> itemIndex
+        itemIndex <= starred -> (itemIndex - 1).coerceAtLeast(0)
+        // itemIndex == starred + 1 is the "All visuals" header: the first unstarred card.
+        else -> (itemIndex - 2).coerceAtLeast(starred)
     }
 }
 
@@ -132,7 +176,13 @@ fun VisualsRoute(ctx: TvRouteContext) {
     val all = list.value.orEmpty().map { VisualsModel.card(it, VisualsSeen.changed(it.path, stamps, seen)) }
     val focus = remember { control.visualsSeen.consumeFocus() }
     VisualsScreen(
-        state = VisualsUi(VisualsModel.filter(all, query), total = all.size, loading = list.loading, query = query, status = rememberStatus(g)),
+        state = VisualsUi(
+            VisualsModel.ordered(VisualsModel.filter(all, query)),
+            total = all.size,
+            loading = list.loading,
+            query = query,
+            status = rememberStatus(g),
+        ),
         actions = VisualsActions(
             onOpen = { ctx.nav.push(Viewer(it.path, it.title)) },
             onQuery = { query = it },
@@ -188,8 +238,9 @@ fun VisualsScreen(
     // else the first card in view, else the search box (B3).
     FocusRestoreEffect {
         fun tryFocus(r: FocusRequester?) = r != null && runCatching { r.requestFocus() }.getOrDefault(false)
+        val inView = VisualsGrid.cardIndex(grid.firstVisibleItemIndex, state.starred)
         tryFocus(focusedPath?.let { requesters[it] }) ||
-            tryFocus(state.cards.getOrNull(grid.firstVisibleItemIndex)?.path?.let { requesters[it] }) ||
+            tryFocus(state.cards.getOrNull(inView)?.path?.let { requesters[it] }) ||
             tryFocus(search)
     }
     // Initial focus (spec 15 §3.1-3): the remembered / requested card, else the first one, else the search box.
@@ -197,7 +248,7 @@ fun VisualsScreen(
         withFrameNanos { }
         if (state.cards.isNotEmpty()) {
             val target = state.cards.indexOfFirst { it.path == focusedPath }.takeIf { it >= 0 } ?: 0
-            grid.scrollToItem(target)
+            grid.scrollToItem(VisualsGrid.itemIndex(target, state.starred))
             withFrameNanos { }
             runCatching { requesters[state.cards[target].path]?.requestFocus() }
         } else {
@@ -239,20 +290,37 @@ fun VisualsScreen(
                 verticalArrangement = Arrangement.spacedBy(18.dp),
                 horizontalArrangement = Arrangement.spacedBy(18.dp),
             ) {
-                items(state.cards, key = { it.path }) { v ->
-                    val req = remember { FocusRequester() }
-                    DisposableEffect(req) {
-                        requesters[v.path] = req
-                        onDispose { if (requesters[v.path] === req) requesters.remove(v.path) }
+                val cardItems: LazyGridScope.(List<VisualCardUi>) -> Unit = { cards ->
+                    items(cards, key = { it.path }) { v ->
+                        val req = remember { FocusRequester() }
+                        DisposableEffect(req) {
+                            requesters[v.path] = req
+                            onDispose { if (requesters[v.path] === req) requesters.remove(v.path) }
+                        }
+                        VisualCard(
+                            v,
+                            onClick = { actions.onOpen(v) },
+                            modifier = Modifier
+                                .focusRequester(req)
+                                .onFocusChanged { if (it.isFocused && !FocusSettling.active) focusedPath = v.path }
+                                .testTag("visual-${v.path}"),
+                        )
                     }
-                    VisualCard(
-                        v,
-                        onClick = { actions.onOpen(v) },
-                        modifier = Modifier
-                            .focusRequester(req)
-                            .onFocusChanged { if (it.isFocused && !FocusSettling.active) focusedPath = v.path }
-                            .testTag("visual-${v.path}"),
-                    )
+                }
+                // Starred first under their own heading, the rest under "All visuals" (as the phone
+                // list). With nothing starred there are no headings and the grid is one flat run —
+                // VisualsGrid keeps the scroll/focus indices in step either way.
+                if (VisualsGrid.hasHeaders(state.starred)) {
+                    val starred = state.cards.take(state.starred)
+                    val others = state.cards.drop(state.starred)
+                    sectionHeader("h-starred", "Starred")
+                    cardItems(starred)
+                    if (others.isNotEmpty()) {
+                        sectionHeader("h-all", "All visuals")
+                        cardItems(others)
+                    }
+                } else {
+                    cardItems(state.cards)
                 }
             }
         }
@@ -271,6 +339,18 @@ fun VisualsScreen(
     }
 }
 
+/** A full-width heading between the grid's sections. Not focusable, so the D-pad steps past it. */
+private fun LazyGridScope.sectionHeader(key: String, text: String) {
+    item(key = key, span = { GridItemSpan(maxLineSpan) }, contentType = "header") {
+        Text(
+            text,
+            style = TvTheme.type.titleMedium,
+            color = TvTheme.colors.onSurfaceVariant,
+            modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp).testTag(key),
+        )
+    }
+}
+
 @Composable
 fun VisualCard(v: VisualCardUi, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val kindColor = v.kind.color
@@ -279,6 +359,15 @@ fun VisualCard(v: VisualCardUi, onClick: () -> Unit, modifier: Modifier = Modifi
         Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(v.kind.label.uppercase(), style = TvTheme.type.labelMedium, color = kindColor, maxLines = 1, modifier = Modifier.weight(1f))
+                if (v.favorite) {
+                    Icon(
+                        ArchieIcons.StarFilled,
+                        contentDescription = "Starred",
+                        tint = TvTheme.colors.primary,
+                        modifier = Modifier.size(16.dp).testTag("visual-star"),
+                    )
+                    if (v.changed) Spacer(Modifier.width(6.dp))
+                }
                 if (v.changed) Dot(TvTheme.colors.primary, Modifier.testTag("changed-dot"))
             }
             Spacer(Modifier.height(2.dp))
