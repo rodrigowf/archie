@@ -44,6 +44,12 @@ export interface SessionRuntimeOptions {
   reconnectPolicy?: ReconnectPolicy;
 }
 
+/**
+ * Providers whose conversations are imported artifacts: readable, but with no process behind them,
+ * so they are never live and never resumable (docs/harnesses/chatgpt-import.md).
+ */
+export const IMPORTED_PROVIDERS: ReadonlySet<string> = new Set(['chatgpt']);
+
 /** SA-5: materialised subagent transcripts kept per session (the visible one + 2 recent). */
 export const SUBAGENT_TRANSCRIPTS_KEPT = 3;
 export const TRUNCATE_RETRIES = 3;
@@ -69,7 +75,14 @@ export class SessionRuntime extends ConversationRuntime {
       live: opts.reattach === true || opts.liveStatus != null,
       reattach: opts.reattach,
     });
-    const handle = createSessionStore({ localId: opts.localId, conv, readOnly: opts.readOnly, hidden: opts.hidden });
+    const handle = createSessionStore({
+      localId: opts.localId,
+      conv,
+      readOnly: opts.readOnly,
+      // An imported conversation has no process to resume (docs/harnesses/chatgpt-import.md).
+      resumable: !IMPORTED_PROVIDERS.has(opts.provider ?? ''),
+      hidden: opts.hidden,
+    });
     super(conv, handle, hooks);
     this.readOnly = opts.readOnly === true;
     this.socket = new ArchieSocket(CHAT_WS_PATH, {

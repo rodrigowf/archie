@@ -53,6 +53,32 @@ describe('history cards', () => {
     expect(screen.getByText('mostly about searching')).toBeTruthy();
   });
 
+  it('badges an imported ChatGPT conversation and marks it read-only', () => {
+    const out = JSON.stringify({
+      query: 'gradients',
+      sessions: [
+        {
+          session_id: '11111111-2222-3333-4444-555555555555',
+          title: 'Imported conversation',
+          started_at: '2023-11-14T22:13:20Z',
+          relevance: 'strong',
+          kind: 'chatgpt',
+          copies: [],
+          hits: [{ turn: 1, role: 'user', text: 'how do gradients flow?' }],
+        },
+      ],
+    });
+    render(<ToolCard block={tool('search_history', { query: 'gradients' }, { output: out })} sessionKind="orchestrator" autoOpen />);
+    expect(screen.getByLabelText('ChatGPT conversation')).toBeTruthy();
+    expect(screen.getByText('2023-11-14 · strong · 11111111 · read-only')).toBeTruthy();
+  });
+
+  it('leaves non-imported conversations unbadged', () => {
+    render(<ToolCard block={tool('search_history', { query: 'turin' }, { output: SEARCH })} sessionKind="orchestrator" autoOpen />);
+    expect(screen.queryByLabelText('ChatGPT conversation')).toBeNull();
+    expect(screen.queryByText(/read-only/)).toBeNull();
+  });
+
   it('search_history falls back to the raw text for unknown output', () => {
     render(<ToolCard block={tool('search_history', { query: 'x' }, { output: 'legacy text' })} sessionKind="orchestrator" autoOpen />);
     expect(screen.getByText('legacy text')).toBeTruthy();

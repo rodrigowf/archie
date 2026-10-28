@@ -181,6 +181,8 @@ class OpenSessionsRepository(
             provider = summary.provider,
             live = live != null,
             liveStatus = live?.status,
+            // An imported conversation (a ChatGPT export) opens read-only: REST history, no socket.
+            readOnly = summary.readOnly,
         )
         focus(ItemKey.Agent(conversations.openAgent(ref, userStart = true)))
     }

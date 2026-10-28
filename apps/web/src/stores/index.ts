@@ -44,6 +44,7 @@ const placeholderSession = createStore<SessionState>(() => ({
   loadingOlder: false,
   historyError: null,
   readOnly: true,
+  resumable: false, // placeholder: read-only, nothing to resume
   modelInfo: null,
   models: null,
   hidden: true,

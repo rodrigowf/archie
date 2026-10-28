@@ -327,6 +327,21 @@ async def _handle_start(
         }))
         return None, None
 
+    # An imported ChatGPT conversation has no process behind it: it is read through REST
+    # (spec 12 H-3) and must never be spawned, resumed or steered. Refusing here covers every
+    # client at once — the web app opens it read-only and never sends `start`, but a stale tab or
+    # an older client would otherwise create an empty live session under its id.
+    if resume_sdk_id:
+        from utils.history_index import is_read_only_session
+
+        if is_read_only_session(resume_sdk_id):
+            await ws.send_bytes(orjson.dumps({
+                "type": "error", "error": "read_only_session",
+                "detail": "This conversation was imported from a ChatGPT export: it can be read, "
+                          "but it cannot be opened live or resumed.",
+            }))
+            return None, None
+
     # Check if this session already exists in the pool (re-subscribing)
     if local_id and pool.has(local_id):
         sm = pool.get(local_id)

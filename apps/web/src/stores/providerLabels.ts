@@ -15,6 +15,8 @@ export const SHORT_PROVIDER_LABELS: Readonly<Record<string, string>> = {
   gemini: 'Gemini',
   codex: 'Codex',
   modelstudio: 'Model Studio',
+  // Not a harness: conversations imported from a ChatGPT export (read-only).
+  chatgpt: 'ChatGPT',
 };
 
 /** The label of a harness id: short tag → registry label → the id ("" / null → null). */

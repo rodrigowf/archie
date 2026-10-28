@@ -42,6 +42,18 @@ class RestDtoTest {
         }
         assertNull(decode<SessionInfoDto>("""{"session_id":"x","title":"t","message_count":1,"is_orchestrator":false,"provider":null}""").toModel().provider)
 
+        // An imported ChatGPT conversation: read-only, labelled "ChatGPT" (not a harness).
+        val imported = decode<SessionInfoDto>(
+            """{"session_id":"cg","title":"Desabafo","message_count":9,"is_orchestrator":false,"provider":"chatgpt","read_only":true}""",
+        ).toModel()
+        assertTrue(imported.readOnly)
+        assertEquals("ChatGPT", imported.provider?.label)
+        // Absent on older servers → false, never null.
+        assertFalse(
+            decode<SessionInfoDto>("""{"session_id":"x","title":"t","message_count":1,"is_orchestrator":false,"provider":"claude"}""")
+                .toModel().readOnly,
+        )
+
         val pool = decode<List<PoolSessionDto>>(
             """[{"local_id":"3540ff69","sdk_session_id":"528dbf6f","status":"idle","cost":0.0,"turns":0,"title":"lamp presets test","is_orchestrator":false},{"local_id":"x","sdk_session_id":null,"status":"weird","cost":1,"turns":2,"title":null,"is_orchestrator":false}]""",
         ).map { it.toModel() }

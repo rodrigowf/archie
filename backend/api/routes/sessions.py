@@ -77,6 +77,7 @@ def list_sessions(
             is_orchestrator=s.is_orchestrator,
             provider=s.provider,
             local_id=sdk_to_local.get(s.session_id),
+            read_only=s.read_only,
         )
         for s in store_sessions
     ]

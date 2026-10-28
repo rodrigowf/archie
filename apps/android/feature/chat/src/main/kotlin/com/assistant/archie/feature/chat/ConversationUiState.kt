@@ -139,6 +139,8 @@ object ConversationUiMapper {
         val archie = s.kind == SessionKind.ORCHESTRATOR
         val working = s.inTurn || s.status.busy
         val ended = s.status == SessionStatus.TERMINATED
+        // An imported conversation (a ChatGPT export): readable, with nothing to send to.
+        val readOnly = s.ref.readOnly
         val primary = when {
             !draftEmpty -> ComposerPrimary.Send
             working -> ComposerPrimary.Stop
@@ -150,10 +152,14 @@ object ConversationUiMapper {
         val ctx = if (c.contextTokens != null && window != null && window > 0) (c.contextTokens!!.toFloat() / window) else null
         val connected = s.connection == ConnectionState.SUBSCRIBED || s.connection == ConnectionState.OPEN
         return ComposerUi(
-            primary = if (ended && draftEmpty) ComposerPrimary.SendDisabled else primary,
+            primary = if (readOnly || (ended && draftEmpty)) ComposerPrimary.SendDisabled else primary,
             working = working,
-            enabled = !ended,
-            disabledReason = if (ended) "This session has ended" else null,
+            enabled = !ended && !readOnly,
+            disabledReason = when {
+                readOnly -> "Imported from ChatGPT — read-only"
+                ended -> "This session has ended"
+                else -> null
+            },
             placeholder = when {
                 archie -> "Message Archie…"
                 title != null -> "Message $title…"

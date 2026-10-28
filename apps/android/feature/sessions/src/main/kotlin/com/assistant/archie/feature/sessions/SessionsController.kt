@@ -121,6 +121,8 @@ class SessionsController(
     }
 
     fun openFromHistory(s: SessionSummary) {
+        // An imported conversation (a ChatGPT export) opens read-only — the ref carries `readOnly`,
+        // so no socket is opened and the composer is disabled (docs/harnesses/chatgpt-import.md).
         if (s.isOrchestrator) requestResumeArchie(s.sdkId) else backend.openAgent(s)
     }
 

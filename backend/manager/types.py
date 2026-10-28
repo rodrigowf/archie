@@ -303,6 +303,9 @@ class SessionInfo:
     message_count: int
     is_orchestrator: bool = False
     provider: str = "claude"  # registered harness id — detected or from marker
+    # An imported artifact (a ChatGPT export): listable and readable, but there is no process
+    # behind it, so it can never be opened live, resumed or steered.
+    read_only: bool = False
 
 
 @dataclass(slots=True)

@@ -33,6 +33,7 @@ fun SessionInfoDto.toModel() = SessionSummary(
     isOrchestrator = isOrchestrator,
     provider = HarnessProvider.fromWire(provider),
     localId = localId,
+    readOnly = readOnly,
 )
 
 fun PoolSessionDto.toModel() = PoolSession(

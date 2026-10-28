@@ -25,6 +25,12 @@ export interface SessionState {
   readonly historyError: string | null;
   /** H-3: REST only, no WebSocket. */
   readonly readOnly: boolean;
+  /**
+   * A read-only conversation that can be resumed (the usual case: it has a process behind it in
+   * history). False for an imported artifact — a ChatGPT export — where there is nothing to
+   * resume, so the read-only bar offers no Resume.
+   */
+  readonly resumable: boolean;
   /** Orchestrator: the model info of the running session (session_started / model_info / model_changed). */
   readonly modelInfo: OrchestratorModelInfo | null;
   /** Orchestrator: `models_list` answer. */
@@ -68,6 +74,8 @@ export interface CreateSessionStoreOptions {
   localId: string;
   conv: Conversation;
   readOnly?: boolean;
+  /** Default true; false for an imported conversation that has nothing to resume. */
+  resumable?: boolean;
   hidden?: boolean;
   scheduler?: FrameScheduler;
 }
@@ -82,6 +90,7 @@ export function createSessionStore(o: CreateSessionStoreOptions): SessionStoreHa
     loadingOlder: false,
     historyError: null,
     readOnly: o.readOnly === true,
+    resumable: o.resumable !== false,
     modelInfo: null,
     models: null,
     hidden: o.hidden === true,

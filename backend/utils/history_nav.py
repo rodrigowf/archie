@@ -165,7 +165,7 @@ def grep_conversation(
             hits.append({"turn": i, "role": t.role, "date": t.ts, "snippet": snippet})
     return {
         "session_id": session_id,
-        "title": hi._load_titles(context_dir).get(session_id),
+        "title": hi._load_titles(context_dir).get(session_id) or doc.title,
         "pattern": pattern,
         "total_matches": total,
         "hits": hits,
@@ -232,7 +232,7 @@ def read_conversation(
         turns.append(item)
     result = {
         "session_id": session_id,
-        "title": hi._load_titles(context_dir).get(session_id),
+        "title": hi._load_titles(context_dir).get(session_id) or doc.title,
         "kind": doc.harness,
         "total_turns": total,
         "range": [a, b],

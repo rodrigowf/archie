@@ -1,7 +1,7 @@
 /**
  * Entry point of `@/ui/primitives` (W-02, spec 13 §3.5, §3.9): layout primitives, ScrollArea,
- * Icon, StateLayer, FocusRing, VisuallyHidden, Spinner. Global CSS for the class-based parts is in
- * src/styles/primitives.css (loaded by `@/styles`).
+ * Icon, ChatGptMark, StateLayer, FocusRing, VisuallyHidden, Spinner. Global CSS for the
+ * class-based parts is in src/styles/primitives.css (loaded by `@/styles`).
  */
 export { Box, Center, Cluster, Inline, Split, Stack } from './layout/Layout';
 export type { BoxProps, CenterProps, ClusterProps, InlineProps, SplitProps, StackProps } from './layout/Layout';
@@ -17,6 +17,9 @@ export type { AnchorRef, PreserveAnchorOptions, ScrollEnv } from './ScrollArea/s
 export { Icon } from './Icon/Icon';
 export type { IconProps } from './Icon/Icon';
 export type { FilledIconName, IconName } from '@/ui/icons';
+
+/** Brand mark for imported ChatGPT conversations — a standalone asset, not a Material glyph. */
+export { ChatGptMark } from './ChatGptMark/ChatGptMark';
 
 export { StateLayer, stateHostClass, stateLayerClass } from './StateLayer/StateLayer';
 export type { ForcedState } from './StateLayer/StateLayer';

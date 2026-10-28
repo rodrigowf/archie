@@ -31,6 +31,8 @@ data class SessionInfoDto(
     @SerialName("is_orchestrator") val isOrchestrator: Boolean = false,
     val provider: String? = null,
     @SerialName("local_id") val localId: String? = null,
+    /** An imported artifact (a ChatGPT export): readable, never live or resumable (spec 12 H-3). */
+    @SerialName("read_only") val readOnly: Boolean = false,
 )
 
 @Serializable

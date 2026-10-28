@@ -43,6 +43,7 @@ function derive(root: SessionState, toolUseId: string, prev: SessionState | null
     loadingOlder: false,
     historyError: null,
     readOnly: true,
+    resumable: false, // a subagent transcript is read-only and has nothing to resume
     modelInfo: null,
     models: null,
     hidden: root.hidden,

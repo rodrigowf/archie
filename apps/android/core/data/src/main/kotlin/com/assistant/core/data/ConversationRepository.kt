@@ -709,6 +709,14 @@ class ConversationRepository(
         fun subscribedBefore(t: Long) = subscribedAt in 1 until t
 
         override fun begin() {
+            // Read-only (an imported ChatGPT conversation): the REST history is the whole view, so
+            // no socket is ever acquired. `socket` stays uninitialised, which is what every method
+            // below tests to stay inert — nothing can dial, send or reconnect.
+            if (state.value.ref.readOnly) {
+                super.begin()
+                coldOpen()
+                return
+            }
             socket = agentSockets.acquire(key)
             super.begin()
             jobs += scope.launch {
@@ -754,10 +762,16 @@ class ConversationRepository(
             if (dropSocket && ::socket.isInitialized) agentSockets.release(key)
         }
 
-        override fun sendFrame(frame: ClientFrame): SendResult = socket.send(frame)
-        override fun reconnectNow() = socket.reconnectNow()
+        /** No socket = a read-only view: every socket operation below is a no-op. */
+        private val live get() = ::socket.isInitialized
+
+        override fun sendFrame(frame: ClientFrame): SendResult =
+            if (live) socket.send(frame) else SendResult.NOT_CONNECTED
+
+        override fun reconnectNow() { if (live) socket.reconnectNow() }
 
         fun onForeground() {
+            if (!live) return
             socket.setReconnectAllowed(true)
             if (state.value.connection == ConnectionState.OPEN || state.value.connection == ConnectionState.SUBSCRIBED) {
                 post(ConversationInput.Resync)
@@ -766,12 +780,12 @@ class ConversationRepository(
             }
         }
 
-        fun onBackground() = socket.setReconnectAllowed(false)
+        fun onBackground() { if (live) socket.setReconnectAllowed(false) }
 
         /** LRU park: the WebSocket closes (no app frame); the reducer sees `SocketClosed`. */
-        fun park() = socket.disconnect()
+        fun park() { if (live) socket.disconnect() }
 
-        fun unpark() = connect()
+        fun unpark() { if (live) connect() }
     }
 
     companion object {

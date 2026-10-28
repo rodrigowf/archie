@@ -485,4 +485,13 @@ describe('read-only view (spec 12 H-3)', () => {
     expect((screen.getByRole('region', { name: 'Read-only conversation' })).textContent).toContain('A past conversation, read only.');
     expect(screen.getByRole('button', { name: 'Resume' })).toBeTruthy();
   });
+
+  it('an imported ChatGPT conversation says so and offers no Resume (nothing to resume)', async () => {
+    h.fetch.on('GET', /\/api\/sessions\/CG\/messages/, () => jsonResponse(EMPTY));
+    const rt = openSession({ kind: 'agent', sdkId: 'CG', focus: true, readOnly: true, provider: 'chatgpt' });
+    render(<Composer localId={rt.localId} />);
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect((screen.getByRole('region', { name: 'Read-only conversation' })).textContent).toContain('Imported from ChatGPT, read only.');
+    expect(screen.queryByRole('button', { name: 'Resume' })).toBeNull();
+  });
 });

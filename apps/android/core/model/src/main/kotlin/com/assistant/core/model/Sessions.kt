@@ -54,6 +54,8 @@ object HarnessLabels {
         "gemini" to "Gemini",
         "codex" to "Codex",
         "modelstudio" to "Model Studio",
+        // Not a harness: conversations imported from a ChatGPT export (read-only).
+        "chatgpt" to "ChatGPT",
     )
 
     /** id → label from the last registry the app loaded (empty until then). */
@@ -122,6 +124,12 @@ data class SessionRef(
     val provider: HarnessProvider?,
     val live: Boolean = false,
     val liveStatus: LiveStatus? = null,
+    /**
+     * An imported conversation (a ChatGPT export): shown from REST history only — never a socket,
+     * never a `start`, no composer. There is no process to resume
+     * (docs/harnesses/chatgpt-import.md).
+     */
+    val readOnly: Boolean = false,
 ) {
     /** Only Claude agent sessions carry `seq`/`stream_id` (spec 12 §2.2). */
     val seqCapable: Boolean
@@ -149,6 +157,11 @@ data class SessionSummary(
     val isOrchestrator: Boolean,
     val provider: HarnessProvider?,
     val localId: String?,
+    /**
+     * An imported conversation (a ChatGPT export): readable, but with no process behind it, so it
+     * is never live and can never be resumed (docs/harnesses/chatgpt-import.md).
+     */
+    val readOnly: Boolean = false,
 )
 
 /** Result of `POST /api/sessions/{id}/truncate|fork|duplicate` and similar id-returning calls. */

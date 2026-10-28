@@ -323,7 +323,9 @@ def _iso_bound(value: Any) -> str | None:
     return None
 
 
-_KINDS = ("orchestrator", "agent", "claude", "qwen", "gemini")
+# "agent" = anything resumable; "chatgpt" = conversations imported from a ChatGPT export
+# (read-only, so deliberately excluded from "agent" — see history_index.READ_ONLY_HARNESSES).
+_KINDS = ("orchestrator", "agent", "claude", "qwen", "gemini", "chatgpt")
 
 
 def _time_window(query: str, when: str | None) -> tuple[dict | None, str]:
@@ -379,8 +381,8 @@ def _time_window(query: str, when: str | None) -> tuple[dict | None, str]:
             },
             "kind": {
                 "type": "string",
-                "enum": ["all", "orchestrator", "agent"],
-                "description": "Only when the user clearly said which: 'orchestrator' (our voice/text chats) or 'agent' (Claude/Qwen/Gemini coding sessions). A preference — the other kind still shows if it matches better. Default all.",
+                "enum": ["all", "orchestrator", "agent", "chatgpt"],
+                "description": "Only when the user clearly said which: 'orchestrator' (our voice/text chats), 'agent' (Claude/Qwen/Gemini coding sessions) or 'chatgpt' (his imported ChatGPT history, read-only). A preference — the other kind still shows if it matches better. Default all.",
             },
             "session_id": {
                 "type": "string",
@@ -470,7 +472,7 @@ async def search_history(
         "type": "object",
         "properties": {
             "when": {"type": "string", "description": "Time window in plain words or a date ('yesterday', 'last week', '2026-08')."},
-            "kind": {"type": "string", "enum": ["all", "orchestrator", "agent"], "description": "Default all."},
+            "kind": {"type": "string", "enum": ["all", "orchestrator", "agent", "chatgpt"], "description": "Default all ('chatgpt' = imported ChatGPT history, read-only)."},
             "text": {"type": "string", "description": "Words that must appear in the title or first message."},
             "limit": {"type": "integer", "description": "How many (default 10, max 30)."},
             "offset": {"type": "integer", "description": "Skip this many (paging)."},

@@ -4,7 +4,8 @@ Usage: context/scripts/index-memory.py [options]
 Description: Index memory and conversation history for search.
 
   - context/memory/**/*.md                          -> index/memory.sqlite3  (utils/memory_index.py)
-  - context/*.jsonl + context/chats/*.jsonl (every harness) -> index/history.sqlite3 (utils/history_index.py)
+  - context/*.jsonl + context/chats/*.jsonl + context/chatgpt-history/jsonl/*.jsonl (every
+    harness, plus imported ChatGPT conversations) -> index/history.sqlite3 (utils/history_index.py)
     preceded by session summaries for new/grown sessions -> index/session_summaries.sqlite3
     (utils/session_summaries.py; needs OPENAI_API_KEY, skipped without it)
 

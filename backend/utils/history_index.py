@@ -118,11 +118,14 @@ class Turn:
 class SessionDoc:
     session_id: str
     path: Path
-    harness: str  # "claude" | "orchestrator" | "qwen" | "gemini"
+    harness: str  # "claude" | "orchestrator" | "qwen" | "gemini" | "codex" | "chatgpt"
     turns: list[Turn] = field(default_factory=list)
     tool_calls: int = 0
     history_tool_calls: int = 0
     cwd: str | None = None
+    # A title the conversation carries in its own file (imported ChatGPT exports keep the title
+    # the user saw in ChatGPT). Archie's own sessions are titled in `.titles.json` instead.
+    title: str | None = None
 
     @property
     def first_prompt(self) -> str | None:
@@ -198,6 +201,10 @@ def _blocks_text(content, *, text_key: str = "text", skip_thoughts: bool = False
 def _detect_harness(first: dict) -> str:
     if first.get("type") == "orchestrator_meta" or first.get("orchestrator") is True:
         return "orchestrator"
+    # Imported ChatGPT export (shared/scripts/chatgpt_import.py): a chatgpt_meta header line.
+    # Checked before the Claude fallback — the turn lines look Claude-shaped on purpose.
+    if first.get("type") == "chatgpt_meta" or first.get("harness") == "chatgpt":
+        return "chatgpt"
     if "projectHash" in first and "kind" in first:
         return "gemini"
     msg = first.get("message")
@@ -369,6 +376,18 @@ def extract_session(path: Path) -> SessionDoc:
                 add("user", _blocks_text(obj.get("content")), ts)
             elif typ == "gemini":
                 add("assistant", _blocks_text(obj.get("content")), ts)
+
+        elif harness == "chatgpt":
+            # Imported export: one chatgpt_meta header, then one line per turn of the canonical
+            # thread. Content blocks are Claude-shaped, so _blocks_text parses them unchanged;
+            # voice turns already carry their transcription as text.
+            if typ == "chatgpt_meta":
+                if isinstance(obj.get("title"), str) and obj["title"].strip():
+                    doc.title = obj["title"].strip()  # the title the user saw in ChatGPT
+                continue
+            if typ not in ("user", "assistant"):
+                continue
+            add(typ, _blocks_text((obj.get("message") or {}).get("content")), ts)
 
     return doc
 
@@ -603,7 +622,10 @@ def index_session(conn: sqlite3.Connection, path: Path, encode: Encoder, summary
                 doc.session_id, str(path), doc.harness, doc.started_at, doc.ended_at,
                 st.st_size, st.st_mtime_ns, CHUNKER_VERSION, len(doc.turns), len(chunks), now,
                 int(doc.about_history), doc.cwd, doc.first_prompt,
-                (summary or {}).get("title"), (summary or {}).get("summary"), _summary_hash(summary),
+                # A title the file carries (an imported ChatGPT conversation keeps the title the
+                # user saw) beats the LLM auto-title, the way a `.titles.json` rename does.
+                doc.title or (summary or {}).get("title"),
+                (summary or {}).get("summary"), _summary_hash(summary),
             ),
         )
         _bump_generation(conn)
@@ -617,6 +639,25 @@ def _summary_hash(summary: dict | None) -> str:
     return summary_hash(summary)
 
 
+# Harnesses whose conversations are imported artifacts: searchable and readable, but there is no
+# process behind them, so nothing can be resumed or continued. See READ-ONLY-1 in
+# docs/harnesses/chatgpt-import.md.
+READ_ONLY_HARNESSES = frozenset({"chatgpt"})
+
+
+def imported_chatgpt_dir(context_dir: Path | None = None) -> Path:
+    """Where ``shared/scripts/chatgpt_import.py`` writes its per-conversation JSONL."""
+    return Path(context_dir or get_context_dir()) / "chatgpt-history" / "jsonl"
+
+
+def is_read_only_session(session_id: str, context_dir: Path | None = None) -> bool:
+    """True when *session_id* is an imported, read-only conversation (no process to resume)."""
+    sid = (session_id or "").strip()
+    if not sid or "/" in sid or "\\" in sid:
+        return False
+    return (imported_chatgpt_dir(context_dir) / f"{sid}.jsonl").is_file()
+
+
 def session_sources(context_dir: Path | None = None, chats_dir: Path | None = None) -> list[Path]:
     """Every conversation JSONL from every harness, newest first (so a long first build makes
     recent conversations searchable before old ones)."""
@@ -625,6 +666,9 @@ def session_sources(context_dir: Path | None = None, chats_dir: Path | None = No
     paths = list(context_dir.glob("*.jsonl"))
     if chats_dir.is_dir():
         paths.extend(chats_dir.glob("*.jsonl"))
+    imported = imported_chatgpt_dir(context_dir)
+    if imported.is_dir():
+        paths.extend(imported.glob("*.jsonl"))
     paths.extend(_codex_sources(context_dir.parent))
 
     def mtime(p: Path) -> float:
@@ -892,7 +936,8 @@ def is_strong(sim: float, share: float, model: str = MODEL_NAME) -> bool:
 
 def _kind_matches(kind: str, harness: str | None) -> bool:
     if kind == "agent":
-        return harness != "orchestrator"
+        # "agent" means "anything resumable": never an imported, read-only conversation.
+        return harness != "orchestrator" and harness not in READ_ONLY_HARNESSES
     return harness == kind
 
 
@@ -1010,13 +1055,8 @@ class HistorySearcher:
                 def allowed(sid: str, ts: str) -> bool:
                     if sid in exclude or (session_id and sid != session_id):
                         return False
-                    if kind and kind_mode == "filter":
-                        h = self._harness.get(sid)
-                        if kind == "agent":
-                            if h == "orchestrator":
-                                return False
-                        elif h != kind:
-                            return False
+                    if kind and kind_mode == "filter" and not _kind_matches(kind, self._harness.get(sid)):
+                        return False
                     if after and ts and ts < after:
                         return False
                     if before and ts and ts >= before:
@@ -1167,7 +1207,12 @@ class HistorySearcher:
 
 def find_session_file(session_id: str, context_dir: Path | None = None) -> Path | None:
     context_dir = Path(context_dir or get_context_dir())
-    for p in (context_dir / f"{session_id}.jsonl", context_dir / "chats" / f"{session_id}.jsonl"):
+    for p in (
+        context_dir / f"{session_id}.jsonl",
+        context_dir / "chats" / f"{session_id}.jsonl",
+        # Imported ChatGPT conversations: read-only, but read_conversation/grep_conversation work.
+        imported_chatgpt_dir(context_dir) / f"{session_id}.jsonl",
+    ):
         if p.is_file():
             return p
     try:
