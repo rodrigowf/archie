@@ -73,6 +73,21 @@ class TestPrepare:
 
         assert lamps.prepare(dict(DEVICE)).bulb_type == "B"
 
+    def test_a_rotated_local_key_is_named_as_such(self, lamps, monkeypatch):
+        # The scan still sees this device id at this very address, so the address is right and it
+        # is the key that is stale - what re-pairing a lamp does.
+        b = fake_bulb({"Error": "Unexpected Payload from Device", "Err": "904"})
+        monkeypatch.setattr(lamps, "reachable", lambda ip: True)
+        monkeypatch.setattr(lamps, "lan_scan",
+                            lambda: {DEVICE["id"]: {"ip": DEVICE["ip"], "version": "3.3"}})
+        monkeypatch.setattr(lamps, "connect", lambda d: b)
+
+        with pytest.raises(SystemExit) as e:
+            lamps.prepare(dict(DEVICE))
+
+        assert "local key is wrong" in str(e.value)
+        assert "pull" in str(e.value)
+
     def test_unreachable_lamp_exits_with_a_clear_message(self, lamps, monkeypatch):
         b = fake_bulb({"Error": "Network Error: Unable to Connect", "Err": "901"})
         monkeypatch.setattr(lamps, "resolve", lambda d, devs=None, force=False: d)
@@ -104,6 +119,86 @@ class TestBrightness:
         lamps.prepare(dict(DEVICE)).set_brightness_percentage(100)
 
         assert b.sent[-1]["22"] == 1000
+
+
+OTHER = {"name": "Escritorio 1", "id": "eb9c93e1dc4a66815czniv",
+         "key": "fedcba9876543210", "ip": "192.168.0.16", "version": 3.3}
+
+
+class TestActiveLamp:
+    """Since the October 2026 move there is one lamp; devices.json still lists the old eight."""
+
+    @pytest.mark.parametrize("name", [None, "all", "*", "Sala_Luminaria", "escritorio", "nonsense"])
+    def test_every_target_resolves_to_the_active_lamp(self, lamps, monkeypatch, name):
+        monkeypatch.setattr(lamps, "ACTIVE_LAMP_ID", DEVICE["id"])
+
+        assert lamps.targets([dict(DEVICE), dict(OTHER)], name) == [DEVICE]
+
+    def test_a_name_that_is_not_the_active_lamp_is_reported(self, lamps, monkeypatch, capsys):
+        monkeypatch.setattr(lamps, "ACTIVE_LAMP_ID", DEVICE["id"])
+
+        lamps.targets([dict(DEVICE), dict(OTHER)], "Escritorio 1")
+
+        err = capsys.readouterr().err
+        assert "not the active lamp" in err and "Sala_Luminaria" in err
+
+    def test_the_lamps_own_name_passes_without_a_warning(self, lamps, monkeypatch, capsys):
+        monkeypatch.setattr(lamps, "ACTIVE_LAMP_ID", DEVICE["id"])
+
+        lamps.targets([dict(DEVICE)], "luminaria")
+
+        assert capsys.readouterr().err == ""
+
+    def test_exits_when_the_active_lamp_is_missing_from_devices_json(self, lamps, monkeypatch):
+        monkeypatch.setattr(lamps, "ACTIVE_LAMP_ID", "ebdeadbeefdeadbeefdead")
+
+        with pytest.raises(SystemExit) as e:
+            lamps.targets([dict(DEVICE)], None)
+
+        assert "is not in" in str(e.value)
+
+    def test_none_restores_matching_by_name(self, lamps, monkeypatch):
+        monkeypatch.setattr(lamps, "ACTIVE_LAMP_ID", None)
+        devs = [dict(DEVICE), dict(OTHER)]
+
+        assert lamps.targets(devs, "escritorio") == [OTHER]
+        assert lamps.targets(devs, "all") == devs
+
+    @pytest.mark.parametrize("rest,expected", [
+        (["30"], (None, "30")),
+        (["abajur", "30"], ("abajur", "30")),
+        (["#FF8800"], (None, "#FF8800")),
+    ])
+    def test_the_name_is_optional_before_a_value(self, lamps, rest, expected):
+        assert lamps.split_target_value(rest, "bright") == expected
+
+    def test_too_many_arguments_exit(self, lamps):
+        with pytest.raises(SystemExit):
+            lamps.split_target_value(["a", "b", "c"], "bright")
+
+
+class TestPull:
+    def test_an_empty_cloud_reply_does_not_wipe_the_local_keys(self, lamps, tmp_path, monkeypatch):
+        """An expired IoT Core subscription returns [] rather than an error (2026-10-28)."""
+        json.dump([dict(DEVICE)], open(lamps.DEVICES, "w"))
+        monkeypatch.setattr(lamps, "CLOUD", str(tmp_path / "cloud.json"))
+        json.dump({"apiRegion": "us", "apiKey": "k", "apiSecret": "s"}, open(lamps.CLOUD, "w"))
+
+        class FakeCloud:
+            def __init__(self, **kw): pass
+            def getdevices(self, verbose=False): return []
+            def cloudrequest(self, ep):
+                return {"code": 28841002, "msg": "IoT Core service subscription has expired."}
+
+        monkeypatch.setattr(lamps.tinytuya, "Cloud", FakeCloud)
+        monkeypatch.setattr(lamps.tinytuya, "deviceScan",
+                            lambda *a, **kw: pytest.fail("should not scan"))
+
+        with pytest.raises(SystemExit) as e:
+            lamps.cmd_pull([dict(DEVICE)], None)
+
+        assert "28841002" in str(e.value)
+        assert json.load(open(lamps.DEVICES))[0]["key"] == DEVICE["key"]
 
 
 class TestResolve:
