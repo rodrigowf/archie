@@ -26,6 +26,13 @@ data class HarnessProvider(val wire: String) {
     val label: String
         get() = HarnessLabels.label(wire) ?: wire
 
+    /**
+     * This conversation is an imported artifact rather than one Archie ran: readable, but with no
+     * process behind it, so never live and never resumable (docs/harnesses/chatgpt-import.md).
+     */
+    val imported: Boolean
+        get() = wire in IMPORTED
+
     override fun toString(): String = wire
 
     companion object {
@@ -34,6 +41,11 @@ data class HarnessProvider(val wire: String) {
         val GEMINI = HarnessProvider("gemini")
         val CODEX = HarnessProvider("codex")
         val MODELSTUDIO = HarnessProvider("modelstudio")
+
+        /** Not a harness: conversations imported from a ChatGPT export (read-only). */
+        val CHATGPT = HarnessProvider("chatgpt")
+
+        private val IMPORTED = setOf(CHATGPT.wire)
 
         /** Any non-blank id is a provider (unknown ids included); null / blank → null. */
         fun fromWire(value: String?): HarnessProvider? = value?.trim()?.takeIf { it.isNotEmpty() }?.let(::HarnessProvider)

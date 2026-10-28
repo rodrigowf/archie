@@ -162,6 +162,15 @@ explicitly rather than relying on adapter registration order.
   one of those paths is unchanged.
 - The composer reuses the existing disabled-with-reason mechanism (`ComposerUi.enabled = false`,
   `disabledReason = "Imported from ChatGPT — read-only"`), so there is no second screen to maintain.
+- `statusOf` / `detailOf` answer for a read-only ref **first** — `IDLE` and "Imported from ChatGPT ·
+  read-only". Without that the tab sat on "Connecting…" forever, since it never dials.
+- History rows, open items and the switcher show the ChatGPT mark instead of the terminal glyph:
+  `ChatGptMark` (`core/design`, from `res/drawable/ic_chatgpt_mark.xml` — the same single path as
+  the web asset, tinted by `Icon`). Unlike the decorative icons beside it the mark carries a
+  content description, because a one-line row has no supporting text to name the provider.
+
+`HarnessProvider.imported` is the one place that knows which providers are imports — the Kotlin
+counterpart of the web's `IMPORTED_PROVIDERS`.
 
 `SessionsController.openFromHistory` needs no special case — an imported row opens like any other.
 

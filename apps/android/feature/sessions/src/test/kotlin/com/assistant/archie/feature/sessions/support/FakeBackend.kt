@@ -129,8 +129,17 @@ class FakeBackend {
         fun orchRow(localId: String, sdkId: String, title: String = "Living-room TV") =
             """[{"local_id":"$localId","sdk_session_id":"$sdkId","status":"idle","cost":0.0,"turns":0,"title":"$title","is_orchestrator":true}]"""
 
-        fun session(id: String, title: String, last: String, orch: Boolean, count: Int = 6, provider: String = "claude", localId: String? = null) =
-            """{"session_id":"$id","started_at":"$last","last_activity":"$last","title":"$title","message_count":$count,"is_orchestrator":$orch,"provider":"$provider","local_id":${localId?.let { "\"$it\"" } ?: "null"}}"""
+        fun session(
+            id: String,
+            title: String,
+            last: String,
+            orch: Boolean,
+            count: Int = 6,
+            provider: String = "claude",
+            localId: String? = null,
+            readOnly: Boolean = false,
+        ) =
+            """{"session_id":"$id","started_at":"$last","last_activity":"$last","title":"$title","message_count":$count,"is_orchestrator":$orch,"provider":"$provider","local_id":${localId?.let { "\"$it\"" } ?: "null"},"read_only":$readOnly}"""
     }
 }
 

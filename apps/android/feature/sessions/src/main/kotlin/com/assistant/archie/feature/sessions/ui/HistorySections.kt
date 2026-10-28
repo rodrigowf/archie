@@ -54,7 +54,7 @@ fun LazyListScope.openNowSection(
             modifier = Modifier.testTag("open-row"),
             twoLine = twoLine,
             selected = item.key == active,
-            leading = { KindLeading(item.kind) },
+            leading = { KindLeading(item.kind, imported = item.provider?.imported == true) },
             supporting = if (twoLine) ({
                 item.provider?.let { ProviderChip(it.label) }
                 val detail = item.detail.removePrefix("Archie · ").replaceFirstChar { c -> c.uppercase() }
@@ -91,7 +91,7 @@ fun LazyListScope.historySection(
                 onClick = { onIntent(SessionsIntent.OpenHistory(s)) },
                 modifier = Modifier.testTag("history-row"),
                 twoLine = twoLine,
-                leading = { HistoryLeading(s.isOrchestrator) },
+                leading = { HistoryLeading(s.isOrchestrator, imported = s.provider?.imported == true) },
                 supporting = if (twoLine) ({ Text(historySupporting(s), maxLines = 1) }) else null,
                 trailing = { if (row.meta.isNotEmpty()) ListMeta(row.meta) },
                 actions = historyActions(s, onIntent),
