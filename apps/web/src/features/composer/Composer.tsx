@@ -77,6 +77,7 @@ function ComposerImpl({ localId }: ComposerProps) {
     useShallow((x) => ({
       kind: x.conv.ref.kind,
       readOnly: x.readOnly,
+      resumable: x.resumable,
       draft: x.draft,
       working: isBusy(x.conv) || x.conv.inTurn,
       steers: steersMidTurn(x.conv.ref),
@@ -277,7 +278,7 @@ function ComposerImpl({ localId }: ComposerProps) {
   if (s.readOnly) {
     return (
       <div className={styles.wrap}>
-        <ReadOnlyBar archie={archie} onResume={() => void resumeReadOnly(localId)} />
+        <ReadOnlyBar archie={archie} onResume={s.resumable ? () => void resumeReadOnly(localId) : undefined} />
       </div>
     );
   }

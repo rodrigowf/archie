@@ -108,11 +108,17 @@ export function newAgent(): void {
  * one, the conflict dialog when another one runs, else `start{local_id: uuid(), resume_sdk_id}`.
  * Agent sessions reopen live (`start{resume_sdk_id}`, §5.2).
  */
-export function openFromHistory(sdkId: string, isArchie: boolean): void {
+export function openFromHistory(sdkId: string, isArchie: boolean, opts?: { readOnly?: boolean; provider?: string | null }): void {
   closeShellOverlays();
   navigate({ name: 'workspace' });
   if (isArchie) {
     void requestOpenArchie({ mode: 'resume', sdkId });
+    return;
+  }
+  // An imported conversation (a ChatGPT export) opens read-only: REST only, no `start`, no
+  // composer, no Resume (spec 12 H-3; docs/harnesses/chatgpt-import.md).
+  if (opts?.readOnly) {
+    openSession({ kind: 'agent', sdkId, focus: true, readOnly: true, provider: opts.provider ?? null });
     return;
   }
   openSession({ kind: 'agent', sdkId, focus: true });

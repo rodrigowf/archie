@@ -99,7 +99,10 @@ data class MemoryNode(
     val children: List<MemoryNode>?,
 )
 
-/** One item of `GET /api/visualizations`. `url` is NOT percent-encoded (G-38, VZ-1). */
+/**
+ * One item of `GET /api/visualizations`. `url` is NOT percent-encoded (G-38, VZ-1). [favorite]:
+ * starred (`PUT /api/visualizations/favorite`); false on backends without favorites.
+ */
 data class VisualInfo(
     val path: String,
     val url: String,
@@ -107,6 +110,7 @@ data class VisualInfo(
     val created: String?,
     val modified: String?,
     val size: Long,
+    val favorite: Boolean = false,
 )
 
 /** `POST /api/uploads` response. */

@@ -34,11 +34,11 @@ detail for the two computers is in [topology.md](../infrastructure/topology.md) 
 | Device | Role | OS | LAN address | Runs | Reached by | Skill |
 |---|---|---|---|---|---|---|
 | **Jetson Nano** | 24/7 server hub: backend, orchestrator, web app, search | Linux for Tegra (aarch64), 4 GB RAM | `192.168.0.200` (static) | `agentic-backend.service` (uvicorn on 127.0.0.1:8765) behind nginx on 80/443 | `ssh rodrigo@192.168.0.200`; `https://192.168.0.200/` | `/server-management` |
-| **Laptop** | Development, builds (web dists, APKs), heavier workloads; Chrome host for browser control | Linux | `192.168.0.28` | Same repo at `~/assistant`; local backend on 8765 when needed; `browser_daemon.py` on 127.0.0.1:8766 | local; `ssh rodrigo@192.168.0.28` | `/debug-app`, `/android-dev`, `/browser-control` |
+| **Laptop** | Development, builds (web dists, APKs), heavier workloads; Chrome host for browser control | Linux | `192.168.0.230` (static) | Same repo at `~/assistant`; local backend on 8765 when needed; `browser_daemon.py` on 127.0.0.1:8766 | local; `ssh rodrigo@192.168.0.230` | `/debug-app`, `/android-dev`, `/browser-control` |
 | **Samsung Galaxy A300M** (SM-A300M) | Dedicated always-on voice terminal ("Archie lite") in the living room | Android 5.0.2 (API 21), 888 MB RAM | `192.168.0.225` (static) | Lite app `com.assistant.peripheral` ([android.md](../clients/android.md)) + companion `com.assistant.device` ([android-device.md](../clients/android-device.md)) | adb USB serial `06e4f224` or WiFi `192.168.0.225:5555` | `/android-dev` |
 | **POCO X7 Pro** | Rodrigo's personal phone: Archie on the go | Android 15 / HyperOS 2 | DHCP | Main app `com.assistant.archie`; the old `com.assistant.peripheral` v1.0.9 still installed (wake word off) | adb USB serial `HAOF4P8XLJ9DQCPJ` | `/android-dev` |
 | **iPad mini 2** | Stationary visual peripheral: watch sessions and the orchestrator, chat | iOS 12 / Safari 12 | DHCP | Web compat build ([web.md](../clients/web.md)) | browser at `http://192.168.0.200/compat/`; console via `logs/remote_console.log` | — |
-| **Fire TV Stick** (AFTKM) | Large-screen display: visualizations, web pages, media apps | Fire OS (Android 11) | `192.168.0.16` (DHCP, may change; found by MAC) | TvServerHub launcher `com.example.tvserverhub` ([fire-tv.md](fire-tv.md)) | adb `192.168.0.16:5555` | `/connect-tv`, `/tv-remote`, `/tv-dev`, `/create-viz` |
+| **Fire TV Stick** (AFTKM) | Large-screen display: visualizations, web pages, media apps | Fire OS (Android 11) | `192.168.0.192` (DHCP, may change; found by MAC — was `.16` before 2026-10-27) | TvServerHub launcher `com.example.tvserverhub` ([fire-tv.md](fire-tv.md)) | adb `192.168.0.192:5555` | `/connect-tv`, `/tv-remote`, `/tv-dev`, `/create-viz` |
 | **iPhone 11** | Media capture; photo library served over the LAN | iOS (latest) | DHCP (last seen `192.168.0.34`) | Pythonista 3 photo server on port 3691 ([photo-servers.md](photo-servers.md)) | `http://<iphone-ip>:3691` | `/iphone-photos` |
 
 The skills are agent runbooks in `context/skills/<name>/SKILL.md` (private repo).
@@ -120,3 +120,9 @@ on the iPad, and develops on the laptop.
 - 2026-10-05: the two phones started running different apps — the A300M the lite app (installed
   in place, same package), the POCO the new main app — and the iPad's `/compat/` URL started
   serving the new web app's compat build ([legacy-apps.md](../clients/legacy-apps.md)).
+- 2026-10-27: after the move to a new network, the laptop went from DHCP to the **static IP
+  `192.168.0.230`** (it had drifted `.28` → `.38`, which broke Jetson→laptop `context-sync`,
+  `BROWSER_HOST_SSH` and the `Laptop (Desktop)` SSH working directory — all repointed). The Fire TV
+  moved `.16` → `.192` (still found by MAC `90:39:5f:bd:1f:13`). The A300M was offline: its static
+  `.225` is still reserved for it, but it holds credentials for the **old** WiFi SSID and cannot
+  rejoin unaided.

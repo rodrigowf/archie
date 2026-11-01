@@ -39,9 +39,14 @@ class ClaudeAdapter(ProviderAdapter):
 
     def detect_provider(self, jsonl_path: Path) -> bool:
         """Detect Claude format by looking for Claude-specific event types
-        or the ``message.content`` shape (vs Qwen's ``message.parts``)."""
+        or the ``message.content`` shape (vs Qwen's ``message.parts``).
+
+        An imported ChatGPT conversation writes Claude-shaped content blocks on purpose, so it
+        would otherwise match here. Its ``chatgpt_meta`` header is rejected explicitly, which
+        keeps detection correct regardless of adapter registration order."""
         try:
             with open(jsonl_path) as f:
+                first = True
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -50,6 +55,11 @@ class ClaudeAdapter(ProviderAdapter):
                         obj = json.loads(line)
                     except json.JSONDecodeError:
                         continue
+
+                    if first:
+                        first = False
+                        if obj.get("type") == "chatgpt_meta":
+                            return False
 
                     if obj.get("type") in _CLAUDE_INTERNAL_TYPES:
                         return True

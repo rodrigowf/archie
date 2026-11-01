@@ -170,4 +170,17 @@ describe('history click (openFromHistory)', () => {
     });
     expect(ws.messages()[0]).toEqual({ type: 'start', local_id: tabsStore.getState().activeId, resume_sdk_id: 'AGENT-SDK' });
   });
+
+  it('an imported ChatGPT conversation opens read-only and never starts a session', async () => {
+    setCatalogItems('sessions', [
+      row({ session_id: 'CG-1', title: 'Desabafo sobre mudança', provider: 'chatgpt', read_only: true }),
+    ]);
+    const { getByRole } = renderUi(<App services={false} />);
+    fireEvent.click(getByRole('button', { name: /Desabafo sobre mudança/ }));
+    await waitFor(() => {
+      expect(tabsStore.getState().tabs.map((t) => [t.kind, t.sdkId, t.readOnly])).toEqual([['agent', 'CG-1', true]]);
+    });
+    // H-3: REST only — no chat socket is opened for a read-only view.
+    expect(FakeWebSocket.all(CHAT)).toHaveLength(0);
+  });
 });

@@ -21,7 +21,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-const viz = (path: string, modified: string) => ({ path, url: `/${path}`, title: path, created: modified, modified, size: 1 });
+const viz = (path: string, modified: string) => ({ path, url: `/${path}`, title: path, created: modified, modified, size: 1, favorite: false });
 
 function openWatcher(): FakeWebSocket {
   startServices({ skipInitialSync: true });
@@ -54,6 +54,15 @@ describe('visualization_changed', () => {
     ws.emit({ type: 'session_started', session_id: 'O1' });
     ws.emit({ type: 'visualization_changed', visualizations: [{ path: 'a.html', kind: 'created' }] });
     expect(contentChangesStore.getState().visuals['a.html']?.version).toBe(1);
+  });
+
+  it('a star change (empty lists) refreshes the list but bumps no open viewer (VZ-8)', async () => {
+    const ws = openWatcher();
+    ws.emit({ type: 'visualization_changed', visualizations: [], files: [] });
+    expect(contentChangesStore.getState().visuals).toEqual({});
+    vi.advanceTimersByTime(500);
+    await flushPromises();
+    expect(h.fetch.calls('GET', '/api/visualizations')).toHaveLength(1);
   });
 
   it('ignores malformed entries', () => {

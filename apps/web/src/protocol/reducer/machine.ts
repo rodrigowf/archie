@@ -301,7 +301,10 @@ class Machine extends Draft {
       case 'pool_status':
         return this.onPoolStatus(x.status);
       case 'sdk_id':
-        if (!this.s.ref.sdkId && x.sdkId) this.s.ref = { ...this.s.ref, sdkId: x.sdkId };
+        if (!this.s.ref.sdkId && x.sdkId) {
+          this.s.ref = { ...this.s.ref, sdkId: x.sdkId };
+          this.reloadIfAttachedWithoutHistory();
+        }
         return;
       case 'dismiss_banner':
         this.s.connectionBanner = null;
@@ -381,6 +384,7 @@ class Machine extends Draft {
     this.s.stoppingRetried = false;
     this.s.reattach = true; // in the server's open set now: later starts only reattach (OPEN-2)
     this.applySessionStartedFields(f);
+    if (this.s.ref.kind === 'agent' && this.s.ref.live && !this.s.ref.sdkId) this.effects.push({ type: 'learn_sdk_id' }); // H-2a
     this.reduce(f);
     const sr = this.s.startRequest;
     const rf = sr && sr.type === 'start' ? sr.resume_from : undefined;
@@ -419,6 +423,15 @@ class Machine extends Draft {
   }
 
   /** §5.6 canonical reload: hold frames until the `history_page{replace}`. */
+  /**
+   * H-2a: a view attached to a session that started elsewhere (`ref.live`) before its sdk id was known
+   * had nothing to cold-open, and a fresh subscriber gets no replay: reload once the id is known.
+   * A session created here keeps H-2 (it holds everything since its first prompt).
+   */
+  private reloadIfAttachedWithoutHistory(): void {
+    if (this.s.ref.kind === 'agent' && this.s.ref.live && !this.s.reloading) this.startReload();
+  }
+
   private startReload(): void {
     this.s.reloading = true;
     this.effects.push({ type: 'reload', needsSdkId: this.s.ref.sdkId === null });
@@ -1015,11 +1028,13 @@ class Machine extends Draft {
             contextTokens: typeof it === 'number' && it > 0 ? it : c.contextTokens,
             contextWindow: c.contextWindow,
           };
-          if (f.session_id && !ref.sdkId) this.s.ref = { ...ref, sdkId: f.session_id };
+          const learned = !!f.session_id && !ref.sdkId;
+          if (learned) this.s.ref = { ...ref, sdkId: f.session_id as string };
           else if (!f.session_id && !ref.sdkId) this.effects.push({ type: 'learn_sdk_id' }); // ID-2
           if (f.is_error === true && typeof f.result === 'string' && f.result !== '')
             this.appendEntry(this.noticeEntry('error', f.result, { code: 'turn_error' }));
           this.endTurn();
+          if (learned) this.reloadIfAttachedWithoutHistory(); // H-2a
         } else if (typeof f.input_tokens === 'number' && f.input_tokens > 0 && f.input_tokens !== this.s.counters.contextTokens) {
           this.s.counters = { ...this.s.counters, contextTokens: f.input_tokens };
         } // the orchestrator turn ends at status:idle

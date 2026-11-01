@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Window theme behind Compose (dark only). No action bar, no system bars on a TV. -->
+    <style name="Theme.ArchieTv" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/archie_tv_window_background</item>
+        <item name="android:colorBackground">@color/archie_tv_window_background</item>
+        <item name="android:windowFullscreen">true</item>
+    </style>
+</resources>

@@ -18,6 +18,9 @@ from api.routes.browser import (
 )
 
 TOKEN = "test-token-abc123"
+# The command channel is loopback-only, and TestClient's default peer
+# ("testclient") is not an address, so endpoint tests connect as 127.0.0.1.
+LOCAL = ("127.0.0.1", 50000)
 
 
 # ---------------------------------------------------------------------------
@@ -115,35 +118,35 @@ def test_empty_token_treated_as_unconfigured(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_valid_token_is_accepted(token):
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         with client.websocket_connect("/api/browser/ws") as ws:
             ws.send_text(_hello())
             assert ws.receive_json() == {"type": "ready"}
 
 
 def test_wrong_token_is_rejected(token):
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         with client.websocket_connect("/api/browser/ws") as ws:
             ws.send_text(_hello("wrong-token"))
             assert ws.receive_json() == {"type": "error", "error": "unauthorized"}
 
 
 def test_missing_token_field_is_rejected(token):
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         with client.websocket_connect("/api/browser/ws") as ws:
             ws.send_text(orjson.dumps({"type": "hello"}).decode())
             assert ws.receive_json() == {"type": "error", "error": "unauthorized"}
 
 
 def test_non_hello_first_frame_is_rejected(token):
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         with client.websocket_connect("/api/browser/ws") as ws:
             ws.send_text(orjson.dumps({"type": "result", "id": "x"}).decode())
             assert ws.receive_json() == {"type": "error", "error": "expected_hello"}
 
 
 def test_malformed_hello_is_rejected(token):
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         with client.websocket_connect("/api/browser/ws") as ws:
             ws.send_text("not json at all")
             assert ws.receive_json() == {"type": "error", "error": "invalid_json"}
@@ -151,7 +154,7 @@ def test_malformed_hello_is_rejected(token):
 
 def test_connection_refused_when_no_token_configured(no_token):
     """Auth fails closed — an unconfigured backend accepts nobody."""
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         with client.websocket_connect("/api/browser/ws") as ws:
             assert ws.receive_json() == {
                 "type": "error", "error": "auth_not_configured",
@@ -159,7 +162,7 @@ def test_connection_refused_when_no_token_configured(no_token):
 
 
 def test_ping_gets_pong(token):
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         with client.websocket_connect("/api/browser/ws") as ws:
             ws.send_text(_hello())
             ws.receive_json()  # ready
@@ -168,7 +171,7 @@ def test_ping_gets_pong(token):
 
 
 def test_junk_frame_does_not_drop_connection(token):
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         with client.websocket_connect("/api/browser/ws") as ws:
             ws.send_text(_hello())
             ws.receive_json()  # ready
@@ -182,7 +185,7 @@ def test_junk_frame_does_not_drop_connection(token):
 # ---------------------------------------------------------------------------
 
 def test_status_reports_disconnected(token):
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         body = client.get("/api/browser/status").json()
 
     assert body["connected"] is False
@@ -191,7 +194,7 @@ def test_status_reports_disconnected(token):
 
 
 def test_status_reports_connected_client(token):
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         with client.websocket_connect("/api/browser/ws") as ws:
             ws.send_text(_hello())
             ws.receive_json()  # ready
@@ -203,7 +206,7 @@ def test_status_reports_connected_client(token):
 
 
 def test_status_reports_token_not_configured(no_token):
-    with TestClient(_make_app()) as client:
+    with TestClient(_make_app(), client=LOCAL) as client:
         assert client.get("/api/browser/status").json()["token_configured"] is False
 
 
@@ -410,7 +413,7 @@ def _post(client, body, token=TOKEN, headers=None):
 
 def test_command_relays_to_hub_and_returns_result(token):
     hub = _StubHub(result={"tabId": 5})
-    with TestClient(_app_with(hub)) as client:
+    with TestClient(_app_with(hub), client=LOCAL) as client:
         r = _post(client, {"command": "navigate", "params": {"url": "https://x"}})
 
     assert r.status_code == 200
@@ -421,7 +424,7 @@ def test_command_relays_to_hub_and_returns_result(token):
 
 def test_command_requires_token(token):
     hub = _StubHub()
-    with TestClient(_app_with(hub)) as client:
+    with TestClient(_app_with(hub), client=LOCAL) as client:
         r = _post(client, {"command": "ping"}, token=None)
 
     assert r.status_code == 401
@@ -430,7 +433,7 @@ def test_command_requires_token(token):
 
 def test_command_rejects_wrong_token(token):
     hub = _StubHub()
-    with TestClient(_app_with(hub)) as client:
+    with TestClient(_app_with(hub), client=LOCAL) as client:
         r = _post(client, {"command": "ping"}, token="nope")
 
     assert r.status_code == 401
@@ -438,7 +441,7 @@ def test_command_rejects_wrong_token(token):
 
 
 def test_command_refused_when_token_unconfigured(no_token):
-    with TestClient(_app_with(_StubHub())) as client:
+    with TestClient(_app_with(_StubHub()), client=LOCAL) as client:
         assert _post(client, {"command": "ping"}).status_code == 503
 
 
@@ -447,7 +450,7 @@ def test_command_refuses_lan_requests_through_the_proxy(token, header):
     """nginx sets X-Real-IP, so a LAN caller is distinguishable from a local
     one even though both appear as 127.0.0.1 to the app."""
     hub = _StubHub()
-    with TestClient(_app_with(hub)) as client:
+    with TestClient(_app_with(hub), client=LOCAL) as client:
         r = _post(client, {"command": "ping"}, headers={header: "192.168.0.55"})
 
     assert r.status_code == 403
@@ -458,26 +461,70 @@ def test_command_refuses_lan_requests_through_the_proxy(token, header):
 @pytest.mark.parametrize("value", ["127.0.0.1", "::1"])
 def test_command_allows_loopback_forwarded_values(token, value):
     hub = _StubHub()
-    with TestClient(_app_with(hub)) as client:
+    with TestClient(_app_with(hub), client=LOCAL) as client:
         r = _post(client, {"command": "ping"}, headers={"X-Real-IP": value})
 
     assert r.status_code == 200
 
 
+def test_command_refuses_a_direct_lan_client(token):
+    """A backend listening on 0.0.0.0 (the laptop's dev backend) sees the LAN
+    peer directly, with no proxy headers."""
+    hub = _StubHub()
+    with TestClient(_app_with(hub), client=("192.168.0.55", 50000)) as client:
+        r = _post(client, {"command": "ping"})
+
+    assert r.status_code == 403
+    assert "192.168.0.55" in r.json()["detail"]
+    assert hub.calls == []
+
+
+def test_command_refuses_spoofed_forwarded_for_from_the_lan(token):
+    hub = _StubHub()
+    with TestClient(_app_with(hub), client=("192.168.0.55", 50000)) as client:
+        r = _post(client, {"command": "ping"},
+                  headers={"X-Forwarded-For": "127.0.0.1", "X-Real-IP": "127.0.0.1"})
+
+    assert r.status_code == 403
+    assert hub.calls == []
+
+
+def test_command_refuses_forwarded_for_loopback_without_real_ip(token):
+    """X-Forwarded-For's first hop is client-written; nginx always adds
+    X-Real-IP, so XFF alone never makes a request local."""
+    hub = _StubHub()
+    with TestClient(_app_with(hub), client=LOCAL) as client:
+        r = _post(client, {"command": "ping"},
+                  headers={"X-Forwarded-For": "127.0.0.1, 192.168.0.55"})
+
+    assert r.status_code == 403
+    assert hub.calls == []
+
+
+def test_command_allows_nginx_proxied_loopback_caller(token):
+    hub = _StubHub()
+    with TestClient(_app_with(hub), client=LOCAL) as client:
+        r = _post(client, {"command": "ping"},
+                  headers={"X-Real-IP": "127.0.0.1",
+                           "X-Forwarded-For": "127.0.0.1"})
+
+    assert r.status_code == 200
+
+
 def test_command_requires_a_command_field(token):
-    with TestClient(_app_with(_StubHub())) as client:
+    with TestClient(_app_with(_StubHub()), client=LOCAL) as client:
         assert _post(client, {"params": {}}).status_code == 400
 
 
 def test_command_rejects_non_object_params(token):
-    with TestClient(_app_with(_StubHub())) as client:
+    with TestClient(_app_with(_StubHub()), client=LOCAL) as client:
         assert _post(client, {"command": "ping", "params": [1]}).status_code == 400
 
 
 def test_disconnected_browser_is_503_not_500(token):
     """The backend is healthy; only the browser is absent."""
     hub = _StubHub(raises=BrowserNotConnected("no extension"), connected=False)
-    with TestClient(_app_with(hub)) as client:
+    with TestClient(_app_with(hub), client=LOCAL) as client:
         r = _post(client, {"command": "ping"})
 
     assert r.status_code == 503
@@ -486,14 +533,14 @@ def test_disconnected_browser_is_503_not_500(token):
 
 def test_command_timeout_is_504(token):
     hub = _StubHub(raises=BrowserCommandTimeout("timed out after 30s"))
-    with TestClient(_app_with(hub)) as client:
+    with TestClient(_app_with(hub), client=LOCAL) as client:
         assert _post(client, {"command": "ping"}).status_code == 504
 
 
 def test_failed_command_is_422_not_500(token):
     """A bad selector is a client error, distinct from a broken transport."""
     hub = _StubHub(raises=BrowserCommandError("no_match: #nope"))
-    with TestClient(_app_with(hub)) as client:
+    with TestClient(_app_with(hub), client=LOCAL) as client:
         r = _post(client, {"command": "click"})
 
     assert r.status_code == 422

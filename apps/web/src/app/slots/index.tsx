@@ -116,7 +116,7 @@ export function HistoryPane({ variant = 'pane' }: { variant?: HistoryVariant }) 
       activeId={activeId}
       onFocusOpen={focusTab}
       onOpenSession={(s) => {
-        openFromHistory(s.session_id, s.is_orchestrator);
+        openFromHistory(s.session_id, s.is_orchestrator, { readOnly: s.read_only, provider: s.provider });
       }}
       archieMark={<ArchieMark size={20} />}
     />

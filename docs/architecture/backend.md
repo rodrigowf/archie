@@ -3,7 +3,7 @@ name: backend
 category: archie/architecture
 tags: [backend, fastapi, routes, static-serving, spa, config, paths, startup, testing]
 created: 2026-02-23
-modified: 2026-10-12
+modified: 2026-10-16
 summary: The FastAPI backend — app factory, startup tasks, every route module, static/SPA serving, config files, how to run and test.
 source: curated (consolidated from memory notes assistant/architecture/project-overview.md, assistant/infrastructure/repo_layout_cutover_2026_10.md, assistant/infrastructure/features_and_integrations_summary.md, docs/projects/frontend-refactor/inventory/01-backend-api.md; verified against code 2026-10-06)
 references:
@@ -15,6 +15,7 @@ references:
   - ../harnesses/registry.md
   - ../clients/web.md
   - ../clients/browser-extension.md
+  - ../devices/fire-tv.md
   - ../integrations/visualizations-and-sharing.md
   - ../infrastructure/deployment.md
   - ../infrastructure/jetson-server.md
@@ -51,6 +52,7 @@ search in [memory-and-search.md](memory-and-search.md).
 | `backend/api/serializers.py` | `serialize_event()` — typed manager events → wire JSON |
 | `backend/api/models.py` | Pydantic response models |
 | `backend/api/guard.py` | Browser-origin guard: `RequestGuardMiddleware`, `TrustedCORSMiddleware`, `require_trusted_origin` ([below](#auth-and-the-browser-origin-guard)) |
+| `backend/api/net.py` | `is_proxied_from_lan()` — local only when the TCP peer is loopback and there is no proxy header or nginx's `X-Real-IP` is loopback (a lone `X-Forwarded-For` never counts); the gate of the loopback-only `browser` and `tv` command endpoints and of the full `GET /api/tv/status` view. `is_from_home_network()` (loopback, private LAN, Tailscale) gates `/api/transcribe` |
 | `backend/api/connections.py`, `deps.py` | `ConnectionManager`; FastAPI dependencies (`get_pool`, `get_store`) |
 | `backend/manager/` | Session managers wrapping the harness CLIs, `SessionStore`, `ManagerConfig`, `AuthManager`, loop watchdog |
 | `backend/orchestrator/` | The orchestrator agent, model and voice providers, tools |
@@ -88,7 +90,7 @@ browser-origin guard and a CORS policy that echoes only trusted origins (no cred
 
 | Module (`backend/api/routes/`) | Prefix / paths | Purpose |
 |---|---|---|
-| `sessions.py` | `/api/sessions` | History list (`GET ""`), the open set (`GET /pool/live`: live and restored sessions, spec 12 OPEN-1), detail, paginated `/messages`, `/preview`, `PATCH /rename`, `DELETE` (soft delete to `context/trash/`), `/duplicate`, `/truncate`, `/fork`, `POST /inject` (push a user message into a live session), `POST /{local_id}/close`, `POST /{local_id}/permission` (REST twin of `permission_response`), `GET/PUT /{session_id}/config`, `GET /{sdk_id}/subagents` and `GET /{sdk_id}/subagents/{tool_use_id}/messages` (spec 12 SA-8), `GET /{sdk_id}/tool-images/{tool_use_id}/{n}` (a picture a tool returned — a `Read` of an image, an MCP screenshot — decoded from the session JSONL or a subagent transcript, the only copy; `backend/utils/tool_images.py` keeps a per-file `tool_use_id → offset` index grown as the file grows and a 32 MB in-memory LRU that live results also fill; spec 12 R-10) |
+| `sessions.py` | `/api/sessions` | History list (`GET ""`), the open set (`GET /pool/live`: live and restored sessions, spec 12 OPEN-1), detail, paginated `/messages`, `/preview`, `PATCH /rename`, `DELETE` (soft delete to `context/trash/`), `/duplicate`, `/truncate`, `/fork`, `POST /inject` (push a user message into an open session; `open: true` reopens a closed one from history), `POST /{local_id}/close`, `POST /{local_id}/permission` (REST twin of `permission_response`), `GET/PUT /{session_id}/config`, `GET /{sdk_id}/subagents` and `GET /{sdk_id}/subagents/{tool_use_id}/messages` (spec 12 SA-8), `GET /{sdk_id}/tool-images/{tool_use_id}/{n}` (a picture a tool returned — a `Read` of an image, an MCP screenshot — decoded from the session JSONL or a subagent transcript, the only copy; `backend/utils/tool_images.py` keeps a per-file `tool_use_id → offset` index grown as the file grows and a 32 MB in-memory LRU that live results also fill; spec 12 R-10) |
 | `chat.py` | `WS /api/sessions/chat` | Agent-session socket: `start`, `send`, `command`, `interrupt`, `compact`, `permission_response`, `stop_subagent`, `stop` |
 | `orchestrator.py` | `WS /api/orchestrator/chat` | Orchestrator socket: text turns, voice signaling/relay, wake callback ([orchestrator.md](orchestrator.md)) |
 | `voice.py` | `/api/orchestrator/voice/session`, `/voice/models`, `/audio`, `/models`, `/models/audio` | Ephemeral voice credentials / connection info, voice model list, audio upload for voice messages, orchestrator model lists ([voice architecture](../voice/architecture.md)) |
@@ -98,10 +100,13 @@ browser-origin guard and a CORS policy that echoes only trusted origins (no cred
 | `mcp.py` | `/api/mcp` | `/servers`, `/servers/{name}` — MCP servers from `.claude_config/.claude.json` and `.mcp.json` (`backend/utils/mcp_config.py`) |
 | `skills.py`, `agents.py` | `/api/skills`, `/api/agents` | Discovery lists for the config UI |
 | `memory.py` | `/api/memory/tree` | Markdown tree of `context/memory/` for the memory browser (file content comes from `/memory/<path>`) |
-| `visualizations.py` | `/api/visualizations` | List HTML files under `context/public/` with titles, `PATCH /rename`, `GET/POST /cast` (show on the Fire TV) ([visualizations](../integrations/visualizations-and-sharing.md)) |
+| `visualizations.py` | `/api/visualizations` | List HTML files under `context/public/` with titles and `favorite`, `PATCH /rename`, `PUT /favorite` (star, `context/.visual_favorites.json`), `GET/POST /cast` (show on the TV: the Archie TV app first, adb fallback; `via`) |
+| `scripts.py` | `/api/scripts` | Run allowlisted scripts for visualizations: `GET ""` (the list), `POST /run` (wait, or `background: true` → a job), `GET /jobs`, `GET/DELETE /jobs/{id}`; allowlists `context/scripts/allowed_scripts.json` + `ORCHESTRATOR_SCRIPTS.md`, re-read per call; runner `backend/utils/script_runner.py` (shared with the orchestrator's `run_script`) ([visualizations](../integrations/visualizations-and-sharing.md)) |
 | `uploads.py` | `/api/uploads` | `POST` a file (≤ 200 MB) into `context/uploads/`, returns its `/uploads/...` link |
 | `debug.py` | `/api/debug/log` | Remote console: clients POST log lines, appended to `logs/remote_console.log` ([debugging](../operations/debugging.md)) |
 | `browser.py` | `/api/browser/status`, `POST /api/browser/command`, `WS /api/browser/ws` | Hub for the Chrome extension ([browser-extension](../clients/browser-extension.md)); the WS needs the `BROWSER_CONTROL_TOKEN`, `command` is loopback-only |
+| `tv.py` | `/api/tv/status`, `POST /api/tv/command`, `WS /api/tv/ws` | TV control channel (`TvHub`, one connection per `device_id`) for the Archie TV app ([fire-tv](../devices/fire-tv.md), spec 12 §9.5); optional `TV_CONTROL_TOKEN` for the hello, `command` is loopback-only; driven by `shared/scripts/tv_cmd.py` |
+| `transcribe.py` | `POST /api/transcribe` | Dictation: multipart `audio` (WAV ≤ 2 MB, optional `language`) → `{text}` via OpenAI `whisper-1` with the server's key, 25 s timeout (503 no key, 502 upstream error, 504 timeout); home network only (loopback, private LAN, Tailscale; `X-Real-IP` behind nginx, else 403) and the body is capped before it is parsed (413) |
 
 The wire protocol of the two main sockets (frames, `session_started`, seq/replay, permissions,
 voice signaling) is specified in `docs/specs/12-client-protocol.md`; the as-is
@@ -132,7 +137,7 @@ Registered after the API, in this order (earlier wins):
 ## Auth and the browser-origin guard
 
 There is **no client authentication** on any REST or WebSocket endpoint except the browser-extension
-channel. The trust model is "anyone on the LAN / tailnet" — anyone who can reach the API can already
+channel (and the TV control channel's hello when `TV_CONTROL_TOKEN` is set). The trust model is "anyone on the LAN / tailnet" — anyone who can reach the API can already
 run commands through an agent session. TLS (self-signed) is terminated by nginx on the Jetson, which
 proxies to `127.0.0.1:8765` with `Host $host` ([jetson-server](../infrastructure/jetson-server.md)).
 `/api/auth/*` is only about the backend's own Claude CLI credentials in `.claude_config/`.

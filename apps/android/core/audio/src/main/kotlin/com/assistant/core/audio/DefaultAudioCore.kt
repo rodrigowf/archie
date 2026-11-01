@@ -33,10 +33,16 @@ import kotlin.coroutines.CoroutineContext
  * graph may construct it directly). Pure: no Android type is touched here, the Android adapters
  * live in `com.assistant.core.audio.platform`.
  */
-class DefaultAudioCore : AudioCore {
+class DefaultAudioCore(
+    /**
+     * Additive (spec 15 TV-9): Archie TV passes a [com.assistant.core.audio.policy.FixedMicSourcePolicy].
+     * The default (and the no-arg constructor `ServiceLoader` uses) keeps [DefaultMicSourcePolicy].
+     */
+    private val micSource: MicSourcePolicy = DefaultMicSourcePolicy,
+) : AudioCore {
     override val pcm: PcmMath get() = Pcm
     override val routeDecider: RouteDecider get() = DefaultRouteDecider
-    override val micSourcePolicy: MicSourcePolicy get() = DefaultMicSourcePolicy
+    override val micSourcePolicy: MicSourcePolicy get() = micSource
     override val playbackPolicy: PlaybackPolicy get() = DefaultPlaybackPolicy
     override val audioFocusPolicy: AudioFocusPolicy get() = DefaultAudioFocusPolicy
     override val bufferSizing: BufferSizing get() = DefaultBufferSizing

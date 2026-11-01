@@ -1,10 +1,13 @@
 package com.assistant.core.voicehost
 
 import android.app.Activity
+import com.assistant.core.audio.ports.MicSourceFactory
+import com.assistant.core.audio.ports.MicSourceType
 import com.assistant.core.audio.ports.OutputChoice
 import com.assistant.core.model.AudioOutput
 import com.assistant.core.model.DeviceSettings
 import com.assistant.core.voice.ports.VoiceLevels
+import com.assistant.core.voice.ports.RtcMicFeed
 import com.assistant.core.voice.ports.VoiceSessionState
 import com.assistant.core.voice.session.VoiceLinkState
 import com.assistant.core.voicehost.cue.CueKind
@@ -187,6 +190,13 @@ data class HostConfig(
     val serviceRunsAlways: Boolean,
     /** Lite: also run the raw `/dev/input/event2` recents monitor (decision E-7, pending Q8 evidence). */
     val rawRecentsMonitor: Boolean = false,
+    /**
+     * Additive (spec 15 TV-8): false = this app has no wake word and no talk word. The runtime never
+     * builds a wake engine (the TV APK ships no Vosk model / `libvosk`), whatever the settings say.
+     */
+    val wakeWord: Boolean = true,
+    /** Additive (spec 15 §4.2): Archie TV's microphone / speaker overrides; `null` (phones) = unchanged. */
+    val audio: HostAudio? = null,
 ) {
     companion object {
         /** The A300M lite app (old notification texts, channel and id). */
@@ -210,8 +220,46 @@ data class HostConfig(
             bringToFrontOnTrigger = false,
             serviceRunsAlways = false,
         )
+
+        /**
+         * Archie TV (`com.assistant.archie.tv`, spec 15 §4.2): no wake word or talk word, the remote's
+         * microphone through [audio], the call on the media stream over HDMI.
+         */
+        fun tv(
+            launchActivity: Class<out Activity>,
+            audio: HostAudio,
+            smallIcon: Int = android.R.drawable.ic_btn_speak_now,
+        ) = HostConfig(
+            launchActivity = launchActivity,
+            notification = NotificationSpec.tv(smallIcon),
+            bringToFrontOnTrigger = false,
+            serviceRunsAlways = false,
+            wakeWord = false,
+            audio = audio,
+        )
     }
 }
+
+/**
+ * Archie TV's audio overrides (spec 15 §2, §4.2). The remote's microphone only reaches
+ * `AudioRecord(VOICE_RECOGNITION)` and only streams while its button is held, so the TV owns ONE
+ * recorder itself and hands the live call a continuous stream (the remote's audio while held,
+ * digital silence otherwise):
+ *
+ * @property micSource the source of every recorder the host opens itself (push-to-talk, the WS mic).
+ * @property wsMics the WS relay's microphone (Qwen / Gemini); `null` = a real AudioRecord.
+ * @property rtcSource the WebRTC ADM's own `setAudioSource` — with [rtcFeed] the ADM's recorder only
+ *   paces the call, so it must be a source that does not block (`null` = [micSource]).
+ * @property rtcFeed replaces every ADM buffer (OpenAI WebRTC); `null` = the ADM's own recording.
+ * @property mediaPlayback play the call on the media stream (`USAGE_MEDIA`) instead of voice-call.
+ */
+class HostAudio(
+    val micSource: MicSourceType,
+    val wsMics: MicSourceFactory? = null,
+    val rtcSource: MicSourceType? = null,
+    val rtcFeed: RtcMicFeed? = null,
+    val mediaPlayback: Boolean = false,
+)
 
 /**
  * Notification texts, channels and icon (spec 14 §2.7; lite = the old `AssistantService` strings).
@@ -273,6 +321,23 @@ data class NotificationSpec(
             appName = "Archie",
             fullActions = true,
             mediaControls = true,
+        )
+
+        /** Archie TV: shown only while live voice runs (no wake word); End is the one action. */
+        fun tv(smallIcon: Int) = NotificationSpec(
+            smallIcon = smallIcon,
+            hostChannelId = "host",
+            hostChannelName = "Connection",
+            hostChannelDescription = "Archie TV background connection",
+            voiceChannelId = "voice",
+            voiceChannelName = "Live voice",
+            title = "Archie",
+            armedText = "Connected",
+            idleText = "Connected",
+            pausedText = "Connected",
+            needsForegroundText = "Open Archie to continue",
+            appName = "Archie",
+            fullActions = false,
         )
     }
 }

@@ -66,6 +66,25 @@ class SessionsControllerTest {
 
     private val agent = WorkspaceItem(ItemKey.Agent(ConversationKey.agent("A")), ItemKind.AGENT, "Agent", HarnessProvider.CLAUDE, TabStatus.IDLE, localId = "A", sdkId = "S")
 
+    @Test fun anImportedChatGptConversationOpensLikeAnyOtherRow() = runTest(UnconfinedTestDispatcher()) {
+        // It opens read-only: the ref carries `readOnly`, so the data layer never dials a socket
+        // (docs/harnesses/chatgpt-import.md). The controller itself needs no special case.
+        val f = Fake()
+        val c = controller(f)
+        c.openFromHistory(
+            SessionSummary("cg", null, null, "Desabafo", 9, false, HarnessProvider.fromWire("chatgpt"), null, readOnly = true),
+        )
+        assertEquals(listOf("openAgent:cg"), f.calls)
+        assertNull(c.state.value.snack)
+    }
+
+    @Test fun anOrdinaryHistoryRowStillOpensLive() = runTest(UnconfinedTestDispatcher()) {
+        val f = Fake()
+        val c = controller(f)
+        c.openFromHistory(SessionSummary("S1", null, null, "Weather script", 4, false, HarnessProvider.CLAUDE, null))
+        assertEquals(listOf("openAgent:S1"), f.calls)
+    }
+
     @Test fun aServerCloseOfTheActiveViewIsTheSnackbar_OPEN3() = runTest(UnconfinedTestDispatcher()) {
         val f = Fake()
         val c = controller(f)

@@ -297,7 +297,7 @@ describe('tabs', () => {
     expect(tabTitle({ ...a, id: 'L2', localId: 'L2', sdkId: null })).toBe('By local');
     expect(tabTitle({ ...a, kind: 'archie', sdkId: null, localId: 'zz' })).toBe('Archie');
     expect(tabTitle({ ...a, kind: 'memory', path: 'notes/recipes.md' })).toBe('recipes');
-    setCatalogItems('visuals', [{ path: 'solar/index.html', title: 'Solar', url: '', created: '', modified: '', size: 0 }]);
+    setCatalogItems('visuals', [{ path: 'solar/index.html', title: 'Solar', url: '', created: '', modified: '', size: 0, favorite: false }]);
     expect(tabTitle({ ...a, kind: 'visual', path: 'solar/index.html' })).toBe('Solar');
     expect(tabTitle({ ...a, kind: 'visual', path: 'other/index.html' })).toBe('other');
   });

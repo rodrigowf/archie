@@ -198,3 +198,21 @@
   white-space: nowrap !important;
   border: 0 !important;
 }
+
+/* ---------- ChatGPT mark ---------- */
+
+/*
+ * Brand badge for a conversation imported from a ChatGPT export (read-only). The glyph is the
+ * static asset `chatgpt-mark.svg` (shipped in both publicDirs) pulled in as a CSS mask, NOT inlined
+ * in JS: its single path is ~1.6 kB and the initial-JS budget (spec 13 §5.4) has no room for a
+ * badge used on two non-critical surfaces. Masking keeps `currentColor` tinting, so one asset works
+ * in both schemes. Autoprefixer adds `-webkit-mask` for the compat build (cssTarget safari12/ios12),
+ * and Vite rewrites the url() per base, so the compat build points at `/compat/chatgpt-mark.svg`.
+ */
+.chatgpt-mark {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  background-color: currentcolor;
+  mask: url("/chatgpt-mark.svg") no-repeat center / contain;
+}

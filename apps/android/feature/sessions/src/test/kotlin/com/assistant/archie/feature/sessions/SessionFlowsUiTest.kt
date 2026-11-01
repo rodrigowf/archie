@@ -6,6 +6,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
@@ -52,6 +53,10 @@ abstract class FlowTestBase {
         FakeBackend.session("H3", "Morning briefing", "2026-10-02T08:12:00+00:00", orch = true),
         FakeBackend.session("S1", "Refactor voice module", "2026-10-01T09:00:00+00:00", orch = false, count = 14),
         FakeBackend.session("S2", "Fix context-sync delete race", "2026-09-30T11:05:00+00:00", orch = false, provider = "qwen"),
+        FakeBackend.session(
+            "CG1", "Desabafo sobre mudança", "2026-09-20T18:00:00+00:00",
+            orch = false, provider = "chatgpt", readOnly = true,
+        ),
     )
 
     protected fun start(surface: Surface, archieRunning: Boolean): Harness {
@@ -89,6 +94,25 @@ abstract class FlowTestBase {
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36], qualifiers = "w443dp-h986dp-xxhdpi", application = Application::class)
 class SessionFlowsUiTest : FlowTestBase() {
+    // ───────────────────────── imported ChatGPT history ─────────────────────────
+
+    /**
+     * An imported conversation is marked with the ChatGPT glyph rather than the generic terminal
+     * icon, so it is distinguishable in a one-line row where nothing else names the provider
+     * (docs/harnesses/chatgpt-import.md).
+     */
+    @Test fun importedConversation_isMarkedWithTheChatGptGlyph() {
+        start(Surface.History, archieRunning = false)
+        compose.onNode(row("Desabafo sobre mudança")).assertIsDisplayed()
+        // The mark is described, and it belongs to that row and no other.
+        // Exactly one row is marked: the import. The other fixtures (Archie, Claude, Qwen) keep
+        // their own leading icons. SessionRow merges child semantics, hence the unmerged tree.
+        assertEquals(
+            1,
+            compose.onAllNodes(hasContentDescription("ChatGPT"), useUnmergedTree = true).fetchSemanticsNodes().size,
+        )
+    }
+
     // ───────────────────────── new Archie / new agent ─────────────────────────
 
     @Test fun newArchie_nothingRunning_startsFresh() {

@@ -268,3 +268,65 @@ def test_rename_session_still_guards_on_missing_jsonl(store: SessionStore) -> No
 def test_set_title_is_unguarded(store: SessionStore, tmp_path: Path) -> None:
     store.set_title("viz:anything.html", "Works")
     assert store.get_titles()["viz:anything.html"] == "Works"
+
+
+# ---------------------------------------------------------------------------
+# Favorites (stars)
+# ---------------------------------------------------------------------------
+
+def _favorites(tmp_path: Path) -> dict[str, str]:
+    return json.loads((tmp_path / "context" / ".visual_favorites.json").read_text())["paths"]
+
+
+def test_entries_are_not_favorites_by_default(client: TestClient, public_dir: Path) -> None:
+    _write(public_dir / "a.html", "<title>A</title>")
+    assert client.get("/api/visualizations").json()[0]["favorite"] is False
+
+
+def test_star_and_unstar_round_trip(client: TestClient, public_dir: Path, tmp_path: Path) -> None:
+    _write(public_dir / "proj" / "index.html", "<title>P</title>")
+    _write(public_dir / "b.html", "<title>B</title>")
+
+    assert client.put("/api/visualizations/favorite", json={"path": "/proj/index.html", "favorite": True}).status_code == 204
+    assert list(_favorites(tmp_path)) == ["proj/index.html"]
+    rows = {r["path"]: r["favorite"] for r in client.get("/api/visualizations").json()}
+    assert rows == {"proj/index.html": True, "b.html": False}
+
+    # Idempotent both ways.
+    assert client.put("/api/visualizations/favorite", json={"path": "proj/index.html", "favorite": True}).status_code == 204
+    assert client.put("/api/visualizations/favorite", json={"path": "proj/index.html", "favorite": False}).status_code == 204
+    assert client.put("/api/visualizations/favorite", json={"path": "proj/index.html", "favorite": False}).status_code == 204
+    assert _favorites(tmp_path) == {}
+
+
+def test_star_rejects_unknown_and_traversal(client: TestClient, public_dir: Path, tmp_path: Path) -> None:
+    (tmp_path / "secret.html").write_text("x")
+    for path in ("nope.html", "../secret.html", "a/../../secret.html"):
+        assert client.put("/api/visualizations/favorite", json={"path": path, "favorite": True}).status_code == 404
+
+
+def test_star_requires_a_boolean(client: TestClient, public_dir: Path) -> None:
+    _write(public_dir / "a.html", "x")
+    assert client.put("/api/visualizations/favorite", json={"path": "a.html"}).status_code == 400
+    assert client.put("/api/visualizations/favorite", json={"path": "a.html", "favorite": "yes"}).status_code == 400
+
+
+def test_unstar_a_deleted_page_clears_it(client: TestClient, public_dir: Path, tmp_path: Path) -> None:
+    page = _write(public_dir / "gone.html", "x")
+    client.put("/api/visualizations/favorite", json={"path": "gone.html", "favorite": True})
+    page.unlink()
+    assert client.put("/api/visualizations/favorite", json={"path": "gone.html", "favorite": False}).status_code == 204
+    assert _favorites(tmp_path) == {}
+
+
+def test_star_notifies_every_device_without_reloading_pages(store: SessionStore, public_dir: Path) -> None:
+    from unittest.mock import AsyncMock, MagicMock
+
+    _write(public_dir / "a.html", "x")
+    app = create_app()
+    app.dependency_overrides[get_store] = lambda: store
+    app.state.pool = MagicMock(notify_watchers=AsyncMock())
+    TestClient(app).put("/api/visualizations/favorite", json={"path": "a.html", "favorite": True})
+    app.state.pool.notify_watchers.assert_awaited_once_with(
+        {"type": "visualization_changed", "visualizations": [], "files": []}
+    )

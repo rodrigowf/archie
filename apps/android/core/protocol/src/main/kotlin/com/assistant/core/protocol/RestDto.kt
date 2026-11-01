@@ -31,6 +31,8 @@ data class SessionInfoDto(
     @SerialName("is_orchestrator") val isOrchestrator: Boolean = false,
     val provider: String? = null,
     @SerialName("local_id") val localId: String? = null,
+    /** An imported artifact (a ChatGPT export): readable, never live or resumable (spec 12 H-3). */
+    @SerialName("read_only") val readOnly: Boolean = false,
 )
 
 @Serializable
@@ -149,10 +151,16 @@ data class VisualizationInfoDto(
     val created: String? = null,
     val modified: String? = null,
     val size: Long = 0,
+    /** Absent on backends without favorites. */
+    val favorite: Boolean = false,
 )
 
 @Serializable
 data class VisualizationRenameRequest(val path: String, val title: String)
+
+/** `PUT /api/visualizations/favorite` → 204 (idempotent; 404 = not a visualization). */
+@Serializable
+data class VisualizationFavoriteRequest(val path: String, val favorite: Boolean)
 
 /** `GET /api/visualizations/cast`. */
 @Serializable

@@ -14,6 +14,11 @@ export interface SessionInfo {
   is_orchestrator: boolean;
   provider: Provider | string;
   local_id: string | null;
+  /**
+   * An imported artifact (a ChatGPT export): openable for reading only — never live, never
+   * resumable (spec 12 H-3). Absent on older servers, so treat `undefined` as false.
+   */
+  read_only?: boolean;
 }
 
 /** `PoolSessionResponse` (api/models.py:82-90). The orchestrator row always says `idle` (G-15). */
@@ -239,6 +244,8 @@ export interface VisualizationInfo {
   created: string;
   modified: string;
   size: number;
+  /** Starred (spec 12 §9.1). Older backends omit it: decoded as false. */
+  favorite: boolean;
 }
 
 export interface AuthStatus {

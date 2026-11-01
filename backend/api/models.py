@@ -20,6 +20,9 @@ class SessionInfoResponse(BaseModel):
     provider: str = "claude"
     # Set when this session is currently live in the pool (local_id is the stable tab key)
     local_id: str | None = None
+    # An imported artifact (a ChatGPT export): openable for reading only — never live, never
+    # resumable (spec 12 H-3; docs/harnesses/chatgpt-import.md).
+    read_only: bool = False
 
 
 class VisualizationInfoResponse(BaseModel):
@@ -33,6 +36,8 @@ class VisualizationInfoResponse(BaseModel):
     created: str
     modified: str
     size: int
+    # Starred by the user (PUT /api/visualizations/favorite); clients list these first.
+    favorite: bool = False
 
 
 class MemoryNodeResponse(BaseModel):

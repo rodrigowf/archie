@@ -135,16 +135,26 @@ export function RecordingStrip({ startedAt, processing, onCancel }: { readonly s
 
 /* ───────────────────────── read-only bar (spec 12 H-3) ───────────────────────── */
 
-export function ReadOnlyBar({ archie, onResume }: { readonly archie: boolean; readonly onResume: () => void }) {
+/**
+ * `onResume` absent = nothing to resume: an imported conversation (a ChatGPT export) is a
+ * read-only artifact with no process behind it, so the bar says so and offers no Resume.
+ */
+export function ReadOnlyBar({ archie, onResume }: { readonly archie: boolean; readonly onResume?: () => void }) {
   return (
     <div className={styles.readOnly} role="region" aria-label="Read-only conversation">
       <Icon name="visibility" size={20} />
       <span className={styles.readOnlyText}>
-        {archie ? 'A past Archie conversation, read only.' : 'A past conversation, read only.'}
+        {!onResume
+          ? 'Imported from ChatGPT, read only.'
+          : archie
+            ? 'A past Archie conversation, read only.'
+            : 'A past conversation, read only.'}
       </span>
-      <Button variant="tonal" icon="play_arrow" onClick={onResume}>
-        Resume
-      </Button>
+      {onResume ? (
+        <Button variant="tonal" icon="play_arrow" onClick={onResume}>
+          Resume
+        </Button>
+      ) : null}
     </div>
   );
 }

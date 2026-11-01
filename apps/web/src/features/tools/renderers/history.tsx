@@ -4,7 +4,7 @@
  * `block.output` (the output region's text is capped at 20 KB, which would cut the JSON) and fall
  * back to the plain text when they don't parse (older result shapes, errors).
  */
-import { cx } from '@/ui/primitives';
+import { ChatGptMark, cx } from '@/ui/primitives';
 import { isRecord, num, shortId, str } from '../format';
 import { OutputView } from '../OutputView';
 import styles from '../ToolCard.module.css';
@@ -25,8 +25,13 @@ export interface HistorySession {
   readonly relevance: string | null;
   readonly note: string | null;
   readonly copies: number;
+  /** Harness the conversation came from (`history_nav.py` `"kind"`): claude / orchestrator / chatgpt / … */
+  readonly kind: string | null;
   readonly hits: readonly HistoryTurn[];
 }
+
+/** Harnesses that are imported, read-only artifacts rather than conversations Archie can continue. */
+const READ_ONLY_KINDS = new Set(['chatgpt']);
 
 const s = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
 const day = (iso: string | null): string => (iso ? iso.slice(0, 10) : '');
@@ -62,6 +67,7 @@ export function parseHistorySearch(text: string | null): { sessions: HistorySess
     relevance: s(x.relevance),
     note: s(x.note),
     copies: Array.isArray(x.copies) ? x.copies.length : 0,
+    kind: s(x.kind),
     hits: turnsOf(x.hits),
   }));
   return { sessions, error: s(v.error), note: s(v.note) };
@@ -99,9 +105,18 @@ function renderSearch(full: string | null) {
         {r.sessions.map((x) => (
           <div key={x.sessionId} className={cx(styles.histSession, x.relevance === 'weak' && styles.histWeak)}>
             <div className={styles.histHead}>
-              <span className={styles.histTitle}>{x.title ?? 'Untitled conversation'}</span>
+              <span className={styles.histTitle}>
+                {x.kind === 'chatgpt' ? <ChatGptMark className={styles.histMark} title="ChatGPT conversation" /> : null}
+                {x.title ?? 'Untitled conversation'}
+              </span>
               <span className={styles.histMeta}>
-                {[day(x.startedAt), x.relevance, shortId(x.sessionId), x.copies ? `+${x.copies} ${x.copies === 1 ? 'copy' : 'copies'}` : '']
+                {[
+                  day(x.startedAt),
+                  x.relevance,
+                  shortId(x.sessionId),
+                  x.copies ? `+${x.copies} ${x.copies === 1 ? 'copy' : 'copies'}` : '',
+                  x.kind && READ_ONLY_KINDS.has(x.kind) ? 'read-only' : '',
+                ]
                   .filter(Boolean)
                   .join(' · ')}
               </span>

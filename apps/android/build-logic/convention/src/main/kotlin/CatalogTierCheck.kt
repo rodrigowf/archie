@@ -66,7 +66,7 @@ abstract class CatalogTierCheckTask : DefaultTask() {
         }
         for (entry in projectDependencies.get()) {
             val (conf, path, tier) = entry.split('|')
-            if (path == ":app-main" || path == ":app-lite") {
+            if (path == ":app-main" || path == ":app-lite" || path == ":app-tv") {
                 errors += "$conf $path: nothing may depend on an app module"
             } else if (me == "LEGACY" && tier == "MODERN") {
                 errors += "$conf $path is a minSdk-26 module; a legacy-tier module may not depend on it"

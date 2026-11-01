@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
@@ -120,15 +121,19 @@ fun VisualWebView(
         }
     }
     Box(modifier.fillMaxSize().testTag("visual-webview:$key")) {
-        AndroidView(
-            factory = { ctx ->
-                FrameLayout(ctx).apply {
-                    (entry.webView.parent as? android.view.ViewGroup)?.removeView(entry.webView)
-                    addView(entry.webView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-                }
-            },
-            modifier = Modifier.fillMaxSize(),
-        )
+        // Keyed by the pool entry: after a renderer crash the factory runs again and attaches the new
+        // WebView (an unkeyed AndroidView keeps its first FrameLayout, holding the destroyed one).
+        key(entry) {
+            AndroidView(
+                factory = { ctx ->
+                    FrameLayout(ctx).apply {
+                        (entry.webView.parent as? android.view.ViewGroup)?.removeView(entry.webView)
+                        addView(entry.webView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
         if (page.loading && page.progress in 1..99) {
             LinearProgressIndicator(
                 progress = { page.progress / 100f },

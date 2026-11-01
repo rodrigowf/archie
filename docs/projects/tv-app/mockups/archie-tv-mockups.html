@@ -1,0 +1,1238 @@
+<title>Archie TV Mockups</title>
+<style>
+@import url("https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,300..700&family=JetBrains+Mono:wght@400;500&display=swap");
+/* Archie TV mockups (spec 15 §3, §7). Each screen is a 1920×1080 frame = 960×540 dp × 2, scaled to fit
+   the column by a tiny script (--s). All colors are the dark tokens from apps/design-tokens/dist/tokens.css. */
+:root {
+  color-scheme: dark;
+  /* dark palette (tokens.css) */
+  --md-sys-color-primary: #b1c7f5;
+  --md-sys-color-on-primary: #183056;
+  --md-sys-color-primary-container: #31476e;
+  --md-sys-color-on-primary-container: #d7e3ff;
+  --md-sys-color-secondary: #bec6dc;
+  --md-sys-color-secondary-container: #3e4759;
+  --md-sys-color-on-secondary-container: #dae2f9;
+  --md-sys-color-tertiary: #ddbce0;
+  --md-sys-color-on-tertiary: #3f2844;
+  --md-sys-color-tertiary-container: #573e5c;
+  --md-sys-color-on-tertiary-container: #fad8fd;
+  --md-sys-color-error: #ffb3b0;
+  --md-sys-color-on-error: #640a14;
+  --md-sys-color-error-container: #842327;
+  --md-sys-color-on-error-container: #ffdad8;
+  --md-sys-color-surface: #0d0e10;
+  --md-sys-color-on-surface: #e4e2e4;
+  --md-sys-color-on-surface-variant: #c6c6cd;
+  --md-sys-color-surface-container-lowest: #070709;
+  --md-sys-color-surface-container-low: #131315;
+  --md-sys-color-surface-container: #17171a;
+  --md-sys-color-surface-container-high: #1d1d20;
+  --md-sys-color-surface-container-highest: #252628;
+  --md-sys-color-surface-bright: #303032;
+  --md-sys-color-outline: #8f9097;
+  --md-sys-color-outline-variant: #33353a;
+  --md-sys-color-scrim: #000000;
+  --md-ext-color-success: #a3d48c;
+  --md-ext-color-on-success: #103803;
+  --md-ext-color-success-container: #275018;
+  --md-ext-color-on-success-container: #bff0a6;
+  --md-ext-color-warning: #f5bd61;
+  --md-ext-color-on-warning: #432c00;
+  --md-ext-color-warning-container: #604100;
+  --md-ext-color-on-warning-container: #ffdead;
+  --md-ext-color-info: #a9c7ff;
+  --md-ext-color-tool-read: #97ccf9;
+  --md-ext-color-tool-read-container: #014b71;
+  --md-ext-color-on-tool-read-container: #cbe6ff;
+  --md-ext-color-tool-write: #95d5a8;
+  --md-ext-color-tool-write-container: #0f512f;
+  --md-ext-color-on-tool-write-container: #b0f1c3;
+  --md-ext-color-tool-execute: #fdb976;
+  --md-ext-color-tool-execute-container: #693c01;
+  --md-ext-color-on-tool-execute-container: #ffdcbe;
+  --md-ext-color-tool-navigate: #fdb0d5;
+  --md-ext-color-tool-navigate-container: #6d3353;
+  --md-ext-color-on-tool-navigate-container: #ffd8e8;
+  --md-ext-color-tool-capture: #85d2e7;
+  --md-ext-color-tool-capture-container: #004e5d;
+  --md-ext-color-on-tool-capture-container: #adecff;
+  --md-ext-color-tool-agent: #80d5cc;
+  --md-ext-color-tool-agent-container: #00504b;
+  --md-ext-color-on-tool-agent-container: #9cf2e8;
+  --md-ext-color-tool-search: #d5bbfb;
+  --md-ext-color-tool-search-container: #513c73;
+  --md-ext-color-on-tool-search-container: #ecdcff;
+
+  /* short aliases used by the component rules */
+  --pri: var(--md-sys-color-primary);
+  --onpri: var(--md-sys-color-on-primary);
+  --pc: var(--md-sys-color-primary-container);
+  --onpc: var(--md-sys-color-on-primary-container);
+  --sc: var(--md-sys-color-secondary-container);
+  --onsc: var(--md-sys-color-on-secondary-container);
+  --tc: var(--md-sys-color-tertiary-container);
+  --ontc: var(--md-sys-color-on-tertiary-container);
+  --s0: var(--md-sys-color-surface);
+  --s00: var(--md-sys-color-surface-container-lowest);
+  --s1: var(--md-sys-color-surface-container-low);
+  --s2: var(--md-sys-color-surface-container);
+  --s3: var(--md-sys-color-surface-container-high);
+  --s4: var(--md-sys-color-surface-container-highest);
+  --s5: var(--md-sys-color-surface-bright);
+  --on: var(--md-sys-color-on-surface);
+  --onv: var(--md-sys-color-on-surface-variant);
+  --ol: var(--md-sys-color-outline);
+  --olv: var(--md-sys-color-outline-variant);
+  --ok: var(--md-ext-color-success);
+  --okc: var(--md-ext-color-success-container);
+  --onokc: var(--md-ext-color-on-success-container);
+  --wa: var(--md-ext-color-warning);
+  --onwa: var(--md-ext-color-on-warning);
+  --wac: var(--md-ext-color-warning-container);
+  --onwac: var(--md-ext-color-on-warning-container);
+  --er: var(--md-sys-color-error);
+  --black: var(--md-sys-color-scrim);
+
+  /* translucent tones (from the token rgb channels) */
+  --clear: rgba(13, 14, 16, 0);
+  --mask-on: #000000;
+  --scrim-50: rgba(0, 0, 0, 0.55);
+  --scrim-70: rgba(0, 0, 0, 0.7);
+  --pc-55: rgba(49, 71, 110, 0.55);
+  --tc-45: rgba(87, 62, 92, 0.45);
+  --sc-40: rgba(62, 71, 89, 0.4);
+  --onpc-14: rgba(215, 227, 255, 0.14);
+  --pri-14: rgba(177, 199, 245, 0.14);
+  --pri-28: rgba(177, 199, 245, 0.28);
+  --ter-14: rgba(221, 188, 224, 0.14);
+  --ter-28: rgba(221, 188, 224, 0.28);
+  --ter: var(--md-sys-color-tertiary);
+  --onter: var(--md-sys-color-on-tertiary);
+  --guide: rgba(245, 189, 97, 0.85);
+  --guide-bg: rgba(245, 189, 97, 0.06);
+
+  /* example web page inside the Viewer (a user visualization, not Archie UI) */
+  --viz-bg: #0f1722;
+  --viz-panel: #162130;
+  --viz-line: #23324a;
+  --viz-text: #e6ecf5;
+  --viz-mute: #8fa1ba;
+  --viz-sun: var(--md-ext-color-warning);
+  --viz-bat: var(--md-ext-color-success);
+  --viz-grid: var(--md-ext-color-info);
+  --viz-cursor: #ffffff;
+  --viz-cursor-edge: #000000;
+
+  --font: "Roboto Flex", Roboto, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --page-bg: var(--md-sys-color-surface-container-lowest);
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--page-bg); color: var(--on); font-family: var(--font); font-size: 16px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+p { margin: 0; }
+button { font: inherit; color: inherit; }
+a { color: var(--pri); }
+:focus-visible { outline: 2px solid var(--pri); outline-offset: 2px; }
+
+/* ---------- page chrome ---------- */
+.pg { max-width: 1360px; margin: 0 auto; padding: 32px 16px 120px; }
+.ph { display: flex; gap: 18px; align-items: center; }
+.ph .mk { width: 56px; height: 56px; }
+.eyebrow { font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--onv); }
+h1 { margin: 4px 0 0; font-size: clamp(28px, 4.5vw, 44px); line-height: 1.1; font-weight: 500; letter-spacing: -0.01em; }
+.lede { margin-top: 18px; max-width: 72ch; color: var(--onv); font-size: 16px; line-height: 1.6; }
+.lede b { color: var(--on); font-weight: 500; }
+.bar { position: sticky; top: 0; z-index: 20; margin: 24px -16px 0; padding: 10px 16px; background: var(--page-bg); display: flex; gap: 12px; align-items: center; box-shadow: 0 1px 0 var(--olv); }
+.idx { flex: 1; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.idx::-webkit-scrollbar { display: none; }
+.idx a { flex: none; text-decoration: none; height: 32px; display: inline-flex; align-items: center; padding: 0 12px; border-radius: 16px; background: var(--s3); color: var(--on); font-size: 13px; font-weight: 500; white-space: nowrap; }
+.idx a:hover { background: var(--s4); }
+.idx a span { color: var(--onv); margin-right: 6px; font-variant-numeric: tabular-nums; }
+.tgl { flex: none; height: 36px; padding: 0 14px; border-radius: 18px; border: 0; background: var(--sc); color: var(--onsc); font-size: 13px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+.tgl[aria-pressed="true"] { background: var(--wa); color: var(--onwa); }
+.tgl i { width: 14px; height: 10px; border: 2px dashed currentColor; border-radius: 2px; }
+.sec { margin-top: 64px; scroll-margin-top: 72px; display: grid; gap: 16px; }
+.cap { display: grid; grid-template-columns: auto 1fr; gap: 2px 14px; align-items: start; }
+.no { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: var(--pc); color: var(--onpc); font-weight: 600; font-size: 15px; font-variant-numeric: tabular-nums; }
+.cap h2 { margin: 6px 0 4px; font-size: clamp(19px, 2.6vw, 24px); line-height: 1.25; font-weight: 500; }
+.cap p { color: var(--onv); font-size: 15px; line-height: 1.55; max-width: 80ch; }
+.cap p b { color: var(--on); font-weight: 500; }
+.sub { margin-top: 28px; }
+.sm { max-width: 760px; }
+.xs { max-width: 420px; }
+
+/* ---------- TV frame ---------- */
+.bez { padding: 10px; border-radius: 16px; background: var(--s2); box-shadow: inset 0 0 0 1px var(--olv); }
+.fit { --s: 0.3; position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 6px; background: var(--black); }
+.tv { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform: scale(var(--s)); transform-origin: 0 0; overflow: hidden;
+  background: var(--s0); color: var(--on); font-family: var(--font); font-size: 32px; line-height: 48px; }
+.tv::after { content: "Overscan-safe area · 48 × 27 dp"; display: none; position: absolute; inset: 54px 96px; z-index: 90; pointer-events: none;
+  border: 4px dashed var(--guide); background: var(--guide-bg); color: var(--guide); font: 500 26px/34px var(--font); padding: 8px 16px; }
+html.safe .tv::after { display: flex; align-items: flex-end; justify-content: flex-end; }
+
+/* icons + mark */
+svg.i { width: 40px; height: 40px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+svg.i.fl { fill: currentColor; }
+.mk { display: block; flex: none; --mk-bg: var(--pc); --mk-fg: var(--onpc); }
+
+/* TV type scale (spec §3.2, sp × 2) */
+.t-ds { font-size: 72px; line-height: 88px; font-weight: 400; }
+.t-hs { font-size: 52px; line-height: 68px; font-weight: 500; }
+.t-tl { font-size: 44px; line-height: 56px; font-weight: 500; }
+.t-tm { font-size: 36px; line-height: 48px; font-weight: 500; }
+.t-bl { font-size: 40px; line-height: 60px; }
+.t-bm { font-size: 32px; line-height: 48px; }
+.t-ll { font-size: 32px; line-height: 40px; font-weight: 500; }
+.t-lm { font-size: 28px; line-height: 36px; font-weight: 500; }
+.code { font-family: var(--mono); font-size: 32px; line-height: 48px; }
+.mu { color: var(--onv); }
+.ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cl2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* focus (spec §3.2): 1.05 scale, 3 dp → 6 px primary border, raised surface */
+.fx { transform: scale(1.05); background: var(--s4) !important; box-shadow: 0 0 0 6px var(--pri); position: relative; z-index: 3; }
+.fx.lr { transform: scale(1.02); }
+.fx.nb { transform: none; }
+
+/* ---------- shell ---------- */
+.drw { position: absolute; left: 0; top: 0; bottom: 0; width: 240px; padding: 54px 0 54px 96px; display: flex; flex-direction: column; align-items: center; gap: 16px; z-index: 30; }
+.drw > .mk { width: 80px; height: 80px; margin: 4px 0 44px; }
+.ni { position: relative; width: 96px; height: 96px; border-radius: 48px; display: flex; align-items: center; justify-content: center; gap: 28px; color: var(--onv); }
+.ni svg.i { width: 44px; height: 44px; }
+.ni b { display: none; font: 500 36px/48px var(--font); }
+.ni.sel { background: var(--sc); color: var(--onsc); }
+.ni .bd { position: absolute; left: 62px; top: 18px; width: 20px; height: 20px; border-radius: 50%; background: var(--wa); box-shadow: 0 0 0 4px var(--s0); }
+.drw.open { width: 600px; padding-right: 40px; align-items: stretch; background: var(--s1); box-shadow: 1px 0 0 var(--olv); }
+.drw.open > .mk { margin-left: 8px; }
+.drw.open .ni { width: auto; justify-content: flex-start; padding: 0 32px; }
+.drw.open .ni b { display: inline; }
+.drw.open .ni .bd { left: auto; right: 36px; top: 38px; box-shadow: none; }
+.drw.open .ni.fx { color: var(--on); }
+.scrim { position: absolute; inset: 0; background: var(--scrim-50); z-index: 25; }
+
+.main { position: absolute; left: 288px; right: 96px; top: 54px; bottom: 142px; }
+.main.full { left: 96px; }
+.hd { height: 88px; display: flex; align-items: center; gap: 28px; margin-bottom: 28px; }
+.stc { position: absolute; right: 96px; top: 54px; height: 88px; display: flex; align-items: center; gap: 28px; z-index: 28; }
+.cn { display: flex; align-items: center; gap: 14px; font: 500 32px/40px var(--font); color: var(--onv); }
+.dot { width: 18px; height: 18px; border-radius: 50%; background: var(--ok); flex: none; display: inline-block; }
+.dot.off { background: none; box-shadow: inset 0 0 0 4px var(--ol); }
+.dot.wa { background: var(--wa); }
+.vc { height: 60px; padding: 0 26px 0 20px; border-radius: 30px; background: var(--s3); display: flex; align-items: center; gap: 12px; font: 500 32px/40px var(--font); color: var(--on); }
+.vc svg.i { width: 34px; height: 34px; }
+.vc.lis { background: var(--pc); color: var(--onpc); }
+.vc.live { background: var(--tc); color: var(--ontc); }
+.vc.live .dot { background: var(--ter); animation: blink 1.4s ease-in-out infinite; }
+
+.hints { position: absolute; left: 288px; right: 96px; bottom: 54px; height: 64px; display: flex; align-items: center; gap: 48px; z-index: 28; }
+.hints.full { left: 96px; }
+.h { display: flex; align-items: center; gap: 16px; font: 500 32px/40px var(--font); color: var(--onv); white-space: nowrap; }
+.kc { width: 56px; height: 56px; border-radius: 50%; background: var(--s4); color: var(--on); display: grid; place-items: center; flex: none; }
+.kc svg.i { width: 30px; height: 30px; }
+.kc.w { width: auto; padding: 0 18px; border-radius: 28px; font: 600 26px/1 var(--font); gap: 8px; display: flex; align-items: center; }
+.h.wa { color: var(--wa); margin-left: auto; }
+.h.wa .kc { background: var(--wac); color: var(--onwac); }
+.fadeb { position: absolute; left: 0; right: 0; bottom: 0; height: 260px; background: linear-gradient(var(--clear), var(--s0) 62%); z-index: 20; pointer-events: none; }
+
+.toast { position: absolute; top: 54px; left: 50%; transform: translateX(-50%); z-index: 40; display: flex; align-items: center; gap: 24px; padding: 20px 40px 20px 22px; border-radius: 48px; background: var(--s4); color: var(--on); box-shadow: 0 0 0 2px var(--olv); white-space: nowrap; }
+.toast .mk { width: 64px; height: 64px; }
+.toast small { display: block; font: 500 26px/34px var(--font); color: var(--onv); }
+
+/* ---------- controls ---------- */
+.btn { height: 80px; padding: 0 40px; border-radius: 40px; display: inline-flex; align-items: center; gap: 16px; background: var(--sc); color: var(--onsc); font: 500 32px/40px var(--font); white-space: nowrap; flex: none; }
+.btn svg.i { width: 36px; height: 36px; }
+.btn.ic { padding-left: 30px; }
+.btn.fx { background: var(--pri) !important; color: var(--onpri); box-shadow: none; }
+.btn.ghost { background: var(--onpc-14); color: var(--onpc); }
+.btn.out { background: none; box-shadow: inset 0 0 0 3px var(--ol); color: var(--on); }
+.chip { height: 56px; padding: 0 22px; border-radius: 16px; display: inline-flex; align-items: center; gap: 12px; background: var(--s3); color: var(--on); font: 500 28px/36px var(--font); white-space: nowrap; flex: none; }
+.chip svg.i { width: 32px; height: 32px; }
+.pv { height: 44px; padding: 0 14px; border-radius: 12px; display: inline-flex; align-items: center; background: var(--sc); color: var(--onsc); font: 500 26px/32px var(--font); flex: none; }
+.bdg { height: 48px; padding: 0 18px 0 12px; border-radius: 24px; display: inline-flex; align-items: center; gap: 10px; font: 600 26px/32px var(--font); background: var(--wa); color: var(--onwa); flex: none; }
+.bdg svg.i { width: 30px; height: 30px; }
+.spn { width: 32px; height: 32px; border-radius: 50%; border: 5px solid var(--pri); border-right-color: var(--clear); flex: none; display: inline-block; animation: spin 1s linear infinite; }
+.sw { width: 104px; height: 64px; border-radius: 32px; position: relative; flex: none; background: var(--s4); box-shadow: inset 0 0 0 4px var(--ol); }
+.sw::after { content: ""; position: absolute; left: 16px; top: 16px; width: 32px; height: 32px; border-radius: 50%; background: var(--ol); }
+.sw.on { background: var(--pri); box-shadow: none; }
+.sw.on::after { left: 48px; top: 8px; width: 48px; height: 48px; background: var(--onpri); }
+.fld { height: 80px; border-radius: 40px; background: var(--s3); display: flex; align-items: center; gap: 18px; padding: 0 32px; color: var(--onv); font: 400 32px/40px var(--font); }
+.fld svg.i { width: 36px; height: 36px; }
+
+/* ---------- cards ---------- */
+.cd { background: var(--s2); border-radius: 24px; flex: none; }
+.row h3 { margin: 0 0 18px; font: 500 36px/48px var(--font); color: var(--on); display: flex; align-items: baseline; gap: 20px; }
+.row h3 small { font: 500 28px/36px var(--font); color: var(--onv); }
+.rl { display: flex; gap: 40px; }
+.ag { width: 500px; padding: 26px 32px 24px; display: grid; gap: 6px; }
+.ag .top { display: flex; align-items: center; gap: 16px; height: 48px; font: 500 28px/36px var(--font); color: var(--onv); }
+.ag .top .st { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.hero { position: relative; padding: 36px 48px 40px; border-radius: 32px; background: linear-gradient(100deg, var(--pc-55), var(--s2) 62%); display: grid; grid-template-columns: auto 1fr; gap: 8px 36px; }
+.hero > .mk { width: 112px; height: 112px; grid-row: span 2; }
+.eyb { font: 500 28px/36px var(--font); color: var(--onv); display: flex; align-items: center; gap: 14px; }
+.hero .acts { grid-column: 2; display: flex; align-items: center; gap: 28px; margin-top: 20px; }
+.hero .acts .hint { white-space: nowrap; margin-left: auto; display: flex; align-items: center; gap: 12px; font: 500 28px/36px var(--font); color: var(--onv); }
+.hero .acts .hint svg.i { width: 32px; height: 32px; }
+
+/* visualization cards */
+.vz { overflow: hidden; display: flex; flex-direction: column; }
+.vz .band { height: 16px; background: var(--k); flex: none; }
+.vz .in { padding: 22px 28px 26px; display: grid; gap: 4px; }
+.vz .kd { font: 600 26px/34px var(--font); color: var(--k); letter-spacing: 0.04em; text-transform: uppercase; display: flex; align-items: center; gap: 12px; }
+.vz .kd .chg { margin-left: auto; width: 20px; height: 20px; border-radius: 50%; background: var(--pri); }
+.vz .pth { font: 400 26px/36px var(--mono); color: var(--onv); }
+.vz .t-tl.cl2 { min-height: 112px; }
+.kd-dash { --k: var(--md-ext-color-tool-capture); }
+.kd-proj { --k: var(--md-ext-color-tool-write); }
+.kd-expl { --k: var(--md-ext-color-tool-search); }
+.kd-rev { --k: var(--md-ext-color-tool-execute); }
+.kd-model { --k: var(--md-ext-color-tool-navigate); }
+
+/* list rows */
+.li { display: flex; align-items: center; gap: 24px; min-height: 104px; padding: 12px 24px; border-radius: 24px; }
+.li .tx { flex: 1; min-width: 0; }
+.li .gl { width: 64px; height: 64px; border-radius: 20px; display: grid; place-items: center; background: var(--s3); color: var(--onv); flex: none; }
+.li .gl svg.i { width: 36px; height: 36px; }
+.li .gl.mk { background: none; }
+.li.sel { background: var(--sc); color: var(--onsc); }
+.sh { font: 500 28px/36px var(--font); color: var(--onv); padding: 20px 24px 8px; }
+
+/* ---------- conversation ---------- */
+.chd { position: absolute; left: 96px; right: 640px; top: 54px; height: 88px; display: flex; align-items: center; gap: 22px; }
+.chd .bk { color: var(--onv); }
+.chd .ttl { min-width: 0; }
+.chd .rt { margin-left: auto; display: flex; align-items: center; gap: 28px; flex: none; }
+.ring { display: flex; align-items: center; gap: 12px; font: 500 28px/36px var(--font); color: var(--onv); font-variant-numeric: tabular-nums; }
+.ring svg { width: 44px; height: 44px; transform: rotate(-90deg); }
+.ring .rt0 { fill: none; stroke: var(--olv); stroke-width: 5; }
+.ring .rv { fill: none; stroke: var(--pri); stroke-width: 5; stroke-linecap: round; }
+.wk { display: flex; align-items: center; gap: 14px; font: 500 30px/40px var(--font); color: var(--pri); }
+.tr { position: absolute; left: 160px; right: 160px; top: 142px; bottom: 234px; padding: 0 40px 8px; display: flex; flex-direction: column; justify-content: flex-end; gap: 14px;
+  -webkit-mask-image: linear-gradient(var(--clear), var(--mask-on) 64px); mask-image: linear-gradient(var(--clear), var(--mask-on) 64px); }
+.tr.tall { bottom: 142px; }
+.blk { padding: 12px 28px; margin: 0 -28px; border-radius: 24px; font: 400 40px/60px var(--font); flex: none; }
+.blk.fx { transform: none; }
+.ub { align-self: flex-end; max-width: 1180px; background: var(--s3); padding: 16px 36px; border-radius: 44px 44px 14px 44px; font: 400 40px/60px var(--font); flex: none; }
+.ub .vt { display: flex; align-items: center; gap: 10px; font: 500 26px/34px var(--font); color: var(--onv); }
+.ub .vt svg.i { width: 28px; height: 28px; }
+.icode { font-family: var(--mono); font-size: 0.8em; padding: 2px 10px; border-radius: 10px; background: var(--s3); }
+.tg { display: inline-flex; align-items: center; gap: 18px; height: 64px; color: var(--onv); font: 500 32px/40px var(--font); }
+.tg b { color: var(--on); font-weight: 500; }
+.tg .sum { font-weight: 400; }
+.tis { display: flex; padding-left: 10px; }
+.ti { width: 48px; height: 48px; border-radius: 16px; display: grid; place-items: center; background: var(--cc); color: var(--oc); flex: none; }
+.ti svg.i { width: 30px; height: 30px; }
+.tis .ti { margin-left: -12px; box-shadow: 0 0 0 4px var(--s0); }
+.k-read { --c: var(--md-ext-color-tool-read); --cc: var(--md-ext-color-tool-read-container); --oc: var(--md-ext-color-on-tool-read-container); }
+.k-exec { --c: var(--md-ext-color-tool-execute); --cc: var(--md-ext-color-tool-execute-container); --oc: var(--md-ext-color-on-tool-execute-container); }
+.k-nav { --c: var(--md-ext-color-tool-navigate); --cc: var(--md-ext-color-tool-navigate-container); --oc: var(--md-ext-color-on-tool-navigate-container); }
+.k-agent { --c: var(--md-ext-color-tool-agent); --cc: var(--md-ext-color-tool-agent-container); --oc: var(--md-ext-color-on-tool-agent-container); }
+.tc { background: var(--s2); border-radius: 24px; padding: 14px 20px 18px; flex: none; }
+.tc-h { display: flex; align-items: center; gap: 20px; height: 56px; }
+.tc-n { color: var(--c); font: 500 32px/40px var(--font); flex: none; }
+.tc-s { flex: 1; min-width: 0; font: 400 28px/36px var(--mono); color: var(--onv); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tc-st { display: flex; align-items: center; gap: 10px; color: var(--onv); font: 500 26px/32px var(--font); flex: none; }
+.tc-st svg.i { width: 32px; height: 32px; color: var(--ok); }
+.tc-o { margin-top: 12px; padding: 14px 24px; border-radius: 16px; background: var(--s00); font: 400 28px/40px var(--mono); color: var(--onv); white-space: pre; overflow: hidden; }
+.tc-o .hi { color: var(--on); }
+.tc-o .okt { color: var(--ok); }
+.tc-o .ert { color: var(--er); }
+.pc { flex: none; background: var(--pc); color: var(--onpc); border-radius: 32px; padding: 20px 28px 20px 36px; display: flex; align-items: center; gap: 28px; }
+.pc > svg.i { width: 48px; height: 48px; }
+.pc .tx { flex: 1; min-width: 0; }
+.pc .tx b { display: block; font: 600 32px/40px var(--font); }
+.pc .tx span { font: 400 30px/44px var(--font); }
+.cr { position: absolute; left: 0; right: 0; bottom: 142px; display: flex; justify-content: center; gap: 24px; }
+.cbtn { background: var(--s3); color: var(--on); }
+
+/* voice overlay */
+.vo { position: absolute; left: 50%; bottom: 136px; transform: translateX(-50%); z-index: 35; display: flex; align-items: center; gap: 40px; padding: 30px 48px 30px 32px; border-radius: 56px; background: var(--s3); box-shadow: 0 0 0 3px var(--olv); }
+.vo .mic { width: 112px; height: 112px; border-radius: 50%; display: grid; place-items: center; background: var(--pri); color: var(--onpri); flex: none; }
+.vo .mic svg.i { width: 56px; height: 56px; }
+.lvl { display: flex; align-items: center; gap: 8px; height: 112px; }
+.lvl i { display: block; width: 10px; height: var(--h); border-radius: 5px; background: var(--pri); animation: lv 0.9s ease-in-out infinite alternate; }
+.lvl i:nth-child(3n) { animation-delay: 0.15s; } .lvl i:nth-child(3n+1) { animation-delay: 0.32s; } .lvl i:nth-child(4n) { animation-delay: 0.5s; }
+.vo .txt { display: grid; gap: 6px; }
+.dst { display: inline-flex; align-items: center; gap: 12px; height: 52px; padding: 0 20px 0 10px; border-radius: 26px; background: var(--pc); color: var(--onpc); font: 500 28px/36px var(--font); width: max-content; }
+.dst .mk { width: 36px; height: 36px; }
+.tmr { font: 500 36px/48px var(--font); color: var(--onv); font-variant-numeric: tabular-nums; }
+.lv { position: absolute; left: 50%; bottom: 250px; transform: translateX(-50%); width: 1500px; z-index: 35; display: grid; grid-template-columns: auto 1fr; gap: 0 44px; align-items: center; padding: 36px 56px 36px 36px; border-radius: 56px; background: var(--s3); box-shadow: 0 0 0 3px var(--olv); }
+.lv .lines { display: grid; gap: 8px; }
+.lv .who2 { font: 500 28px/36px var(--font); color: var(--onv); }
+.lv .you { color: var(--onv); }
+.lv .foot { grid-column: 1 / 3; margin-top: 22px; padding-top: 22px; box-shadow: 0 -2px 0 var(--olv); display: flex; align-items: center; gap: 18px; font: 500 30px/40px var(--font); color: var(--onv); }
+.lv .foot svg.i { width: 34px; height: 34px; color: var(--on); }
+.caret { display: inline-block; width: 4px; height: 44px; vertical-align: -8px; margin-left: 6px; background: var(--ter); animation: blink 1s steps(2, start) infinite; }
+.orb { flex: none; display: block; overflow: visible; }
+.orb .o1 { fill: var(--ter-14); transform-box: fill-box; transform-origin: center; animation: pulse 2.6s ease-in-out infinite; }
+.orb .o2 { fill: var(--ter-28); transform-box: fill-box; transform-origin: center; animation: pulse 2.6s ease-in-out 0.3s infinite; }
+.orb .o3 { fill: var(--ter); }
+.orb .bar { fill: var(--onter); transform-box: fill-box; transform-origin: center; animation: lv 1.1s ease-in-out infinite alternate; }
+.orb .bar:nth-of-type(2) { animation-delay: 0.15s; } .orb .bar:nth-of-type(3) { animation-delay: 0.3s; } .orb .bar:nth-of-type(4) { animation-delay: 0.45s; }
+
+/* dictation chip */
+.dict { position: absolute; left: 200px; right: 200px; bottom: 142px; z-index: 30; padding: 28px 32px 28px 40px; border-radius: 40px; background: var(--s4); box-shadow: 0 0 0 3px var(--olv); display: grid; grid-template-columns: 1fr auto; gap: 6px 32px; align-items: center; }
+.dict .lab { display: flex; align-items: center; gap: 12px; font: 500 28px/36px var(--font); color: var(--onv); }
+.dict .lab svg.i { width: 32px; height: 32px; }
+.dict q { font: 400 44px/60px var(--font); color: var(--on); quotes: "\201C" "\201D"; }
+.dict .bts { grid-row: 1 / 3; grid-column: 2; display: flex; gap: 20px; }
+.cb { margin: 0 -28px; padding: 18px 28px; border-radius: 20px; background: var(--s00); font: 400 30px/44px var(--mono); color: var(--onv); flex: none; white-space: pre; }
+.cb .ert { color: var(--er); }
+
+/* ---------- launcher (TvServerHub) ---------- */
+.hub { background: radial-gradient(1100px 760px at 18% 22%, var(--pc), var(--clear) 70%), radial-gradient(1000px 800px at 86% 82%, var(--tc), var(--clear) 70%), radial-gradient(900px 600px at 70% 10%, var(--sc-40), var(--clear) 70%), var(--s00); }
+.hub .cards { position: absolute; left: 0; right: 0; top: 270px; display: flex; justify-content: center; gap: 96px; }
+.lc { width: 560px; height: 480px; border-radius: 40px; background: var(--s2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 40px; }
+.lc .mk { width: 200px; height: 200px; }
+.lc .yt { width: 200px; height: 200px; border-radius: 60px; background: var(--s5); color: var(--on); display: grid; place-items: center; }
+.lc .yt svg.i { width: 120px; height: 120px; }
+.lc .nm { font: 500 52px/68px var(--font); }
+.gear { position: absolute; right: 96px; top: 54px; width: 88px; height: 88px; border-radius: 50%; display: grid; place-items: center; background: var(--s3); color: var(--onv); }
+.gear svg.i { width: 44px; height: 44px; }
+.hub .foot { position: absolute; left: 0; right: 0; bottom: 70px; text-align: center; font: 500 30px/40px var(--font); color: var(--onv); display: flex; justify-content: center; gap: 48px; }
+.hub .foot span { display: inline-flex; align-items: center; gap: 14px; }
+.hs { position: absolute; left: 50%; top: 54px; bottom: 142px; width: 1360px; margin-left: -680px; display: flex; flex-direction: column; }
+.sr { display: flex; align-items: center; gap: 28px; min-height: 92px; padding: 12px 36px; border-radius: 24px; }
+.sr .tx { flex: 1; min-width: 0; }
+.sr .val { display: flex; align-items: center; gap: 18px; font: 500 34px/44px var(--font); color: var(--onv); }
+.sr .val svg.i { width: 36px; height: 36px; }
+.sr.fx .val { color: var(--pri); }
+.warnl { display: flex; gap: 16px; align-items: flex-start; margin: 0 36px 8px; padding: 14px 24px; border-radius: 20px; background: var(--wac); color: var(--onwac); font: 400 28px/40px var(--font); }
+.warnl svg.i { width: 36px; height: 36px; margin-top: 2px; }
+.grp { font: 500 28px/36px var(--font); color: var(--onv); padding: 24px 36px 6px; }
+.stx { display: flex; align-items: center; gap: 14px; font: 500 30px/40px var(--font); }
+.stx svg.i { width: 34px; height: 34px; }
+.okc { color: var(--ok); }
+
+/* ---------- viewer page (example visualization) ---------- */
+.web { position: absolute; inset: 0; background: var(--viz-bg); color: var(--viz-text); padding: 64px 112px; display: grid; grid-template-rows: auto auto 1fr; gap: 36px; font-family: var(--font); }
+.wtop { display: flex; align-items: flex-end; gap: 28px; }
+.wtop h4 { margin: 0; font: 600 56px/68px var(--font); display: flex; align-items: center; gap: 18px; }
+.wtop h4 svg.i { width: 56px; height: 56px; color: var(--viz-sun); }
+.wtop p { font: 400 28px/36px var(--font); color: var(--viz-mute); }
+.seg { margin-left: auto; display: flex; gap: 6px; padding: 6px; border-radius: 22px; background: var(--viz-panel); }
+.seg span { height: 64px; padding: 0 30px; border-radius: 16px; display: grid; place-items: center; font: 500 28px/36px var(--font); color: var(--viz-mute); }
+.seg .on { background: var(--viz-line); color: var(--viz-text); }
+.seg .ring2 { box-shadow: 0 0 0 5px var(--pri); color: var(--viz-text); }
+.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 28px; }
+.kp { background: var(--viz-panel); border-radius: 24px; padding: 26px 32px; display: grid; gap: 4px; }
+.kp .l { font: 500 26px/34px var(--font); color: var(--viz-mute); }
+.kp .v { font: 600 72px/84px var(--font); letter-spacing: -1px; }
+.kp .v small { font-size: 36px; font-weight: 500; color: var(--viz-mute); margin-left: 6px; }
+.kp .d { font: 500 26px/34px var(--font); color: var(--viz-bat); }
+.kp .d.m { color: var(--viz-mute); }
+.batt { height: 16px; border-radius: 8px; background: var(--viz-line); margin-top: 10px; overflow: hidden; }
+.batt i { display: block; height: 100%; width: 76%; background: var(--viz-bat); border-radius: 8px; }
+.wbot { display: grid; grid-template-columns: 2fr 1fr; gap: 28px; min-height: 0; }
+.pnl { background: var(--viz-panel); border-radius: 24px; padding: 26px 32px; display: flex; flex-direction: column; min-height: 0; position: relative; }
+.pnl h5 { margin: 0 0 12px; font: 600 30px/40px var(--font); display: flex; justify-content: space-between; }
+.pnl h5 span { font-weight: 500; color: var(--viz-mute); font-size: 26px; }
+.bars { flex: 1; display: flex; align-items: flex-end; gap: 18px; padding-top: 12px; border-bottom: 2px solid var(--viz-line); }
+.bars i { flex: 1; height: var(--h); border-radius: 10px 10px 2px 2px; background: var(--viz-sun); position: relative; }
+.bars i.hl { box-shadow: 0 0 0 4px var(--viz-text); }
+.hrs { display: flex; gap: 18px; padding-top: 10px; }
+.hrs span { flex: 1; text-align: center; font: 500 22px/28px var(--font); color: var(--viz-mute); }
+.days { display: grid; gap: 6px; }
+.days div { display: grid; grid-template-columns: 70px 1fr 120px; gap: 18px; align-items: center; font: 500 26px/40px var(--font); color: var(--viz-mute); }
+.days b { font-weight: 600; color: var(--viz-text); text-align: right; font-variant-numeric: tabular-nums; }
+.days i { display: block; height: 14px; border-radius: 7px; background: var(--viz-grid); width: var(--w); }
+.tip { position: absolute; z-index: 4; padding: 12px 20px; border-radius: 14px; background: var(--viz-text); color: var(--viz-bg); font: 600 26px/32px var(--font); white-space: nowrap; }
+.cur { position: absolute; z-index: 5; width: 88px; height: 88px; color: var(--viz-cursor); }
+.cur svg.i { width: 88px; height: 88px; fill: var(--viz-cursor); stroke: var(--viz-cursor-edge); stroke-width: 1.4; }
+.pm { position: absolute; left: 50%; bottom: 54px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 28px; padding: 16px 36px 16px 20px; border-radius: 40px; background: var(--s2); color: var(--on); font: 500 30px/40px var(--font); box-shadow: 0 0 0 2px var(--olv); white-space: nowrap; }
+.pm .h { font-size: 28px; }
+
+/* side sheet */
+.sheet { position: absolute; right: 0; top: 0; bottom: 0; width: 760px; z-index: 35; background: var(--s3); padding: 54px 96px 54px 48px; display: flex; flex-direction: column; gap: 10px; box-shadow: -2px 0 0 var(--olv); }
+.sheet .t-tl { padding: 0 28px; }
+.sheet .url { padding: 0 28px 24px; font: 400 26px/36px var(--mono); color: var(--onv); }
+.sheet .sr { padding: 0 28px; min-height: 96px; }
+.sheet .sr > svg.i { width: 44px; height: 44px; color: var(--onv); }
+.zm { display: flex; align-items: center; gap: 14px; }
+.zm span { width: 56px; height: 56px; border-radius: 50%; background: var(--s4); display: grid; place-items: center; }
+.zm svg.i { width: 30px; height: 30px; }
+
+/* memory */
+.split { display: flex; gap: 48px; height: calc(100% - 116px); }
+.lp { width: 748px; flex: none; display: flex; flex-direction: column; gap: 4px; padding: 0 14px; margin: 0 -14px; }
+.lp .fld { margin-bottom: 14px; flex: none; }
+.rp { flex: 1; min-width: 0; background: var(--s1); border-radius: 32px; padding: 40px 52px; overflow: hidden; display: flex; flex-direction: column; gap: 14px; }
+.rp.md { -webkit-mask-image: linear-gradient(var(--mask-on) 86%, var(--clear)); mask-image: linear-gradient(var(--mask-on) 86%, var(--clear)); }
+.tn { display: flex; align-items: center; gap: 18px; height: 76px; padding: 0 24px 0 calc(24px + var(--d, 0) * 52px); border-radius: 20px; font: 400 34px/44px var(--font); color: var(--on); flex: none; }
+.tn svg.i { width: 36px; height: 36px; color: var(--onv); }
+.tn .chv { width: 30px; height: 30px; }
+.tn.f svg.i:not(.chv) { color: var(--pri); }
+.tn .n { margin-left: auto; font: 500 26px/32px var(--font); color: var(--onv); }
+.meta { display: flex; flex-wrap: wrap; gap: 14px; }
+.md h1, .md h2 { margin: 0; font-weight: 500; }
+.md h1 { font-size: 56px; line-height: 72px; }
+.md h2 { font-size: 40px; line-height: 56px; margin-top: 12px; }
+.md p, .md li { font: 400 32px/48px var(--font); }
+.md ul { margin: 0; padding-left: 40px; }
+.lk { color: var(--pri); text-decoration: underline; text-decoration-thickness: 3px; text-underline-offset: 8px; border-radius: 10px; padding: 0 6px; margin: 0 -6px; }
+.lk.fx { transform: none; display: inline-block; margin: 0 10px; padding: 0 8px; line-height: 52px; box-shadow: 0 0 0 6px var(--pri); background: var(--s4); }
+.doc { position: absolute; left: 200px; right: 200px; top: 160px; bottom: 142px; display: flex; flex-direction: column; gap: 22px; overflow: hidden;
+  -webkit-mask-image: linear-gradient(var(--mask-on) 80%, var(--clear)); mask-image: linear-gradient(var(--mask-on) 80%, var(--clear)); }
+.doc p, .doc li { font: 400 40px/60px var(--font); }
+.doc ul { margin: 0; padding-left: 48px; display: grid; gap: 6px; }
+.doc h1 { font-size: 64px; line-height: 80px; }
+.doc h2 { font-size: 44px; line-height: 60px; margin-top: 6px; }
+
+/* settings */
+.dp { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+.dp > * { flex: none; }
+.stbox { display: flex; align-items: flex-start; gap: 28px; padding: 30px 36px; border-radius: 28px; background: var(--okc); color: var(--onokc); flex: none; }
+.stbox > svg.i { width: 56px; height: 56px; }
+.stbox p { font: 400 30px/44px var(--font); }
+.meter { display: flex; align-items: center; gap: 24px; padding: 26px 36px; border-radius: 28px; background: var(--s2); flex: none; }
+.meter .mt { flex: 1; height: 24px; border-radius: 12px; background: var(--s4); position: relative; }
+.meter .mt i { position: absolute; left: 0; top: 0; bottom: 0; width: 8%; border-radius: 12px; background: var(--ok); }
+.meter .mt b { position: absolute; left: 64%; top: -10px; width: 6px; height: 44px; border-radius: 3px; background: var(--onv); }
+.infob { display: flex; gap: 24px; padding: 26px 36px; border-radius: 28px; box-shadow: inset 0 0 0 3px var(--olv); flex: none; }
+.infob > svg.i { width: 44px; height: 44px; color: var(--onv); margin-top: 4px; }
+.infob p { font: 400 30px/44px var(--font); color: var(--onv); }
+.infob p b { color: var(--on); font-weight: 500; }
+
+/* first run */
+.fr { position: absolute; left: 96px; right: 96px; top: 54px; bottom: 142px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+.fr > .mk { width: 128px; height: 128px; margin-top: 40px; }
+.steps { margin-top: 24px; display: flex; gap: 20px; font: 500 28px/36px var(--font); color: var(--onv); }
+.steps .on { color: var(--pri); }
+.srv { margin-top: 64px; display: flex; gap: 48px; }
+.sv { width: 520px; padding: 36px 40px; text-align: left; display: grid; gap: 10px; align-content: start; }
+.sv .gl { width: 80px; height: 80px; border-radius: 24px; display: grid; place-items: center; background: var(--s4); color: var(--pri); margin-bottom: 10px; }
+.sv .gl svg.i { width: 46px; height: 46px; }
+.sv .u { font: 400 28px/40px var(--mono); color: var(--onv); }
+.scan { margin-top: 56px; display: flex; align-items: center; gap: 18px; font: 500 30px/40px var(--font); color: var(--onv); }
+
+.blackv { background: var(--black); }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes blink { 50% { opacity: 0.25; } }
+@keyframes lv { from { transform: scaleY(0.45); } to { transform: scaleY(1); } }
+@keyframes pulse { 0%, 100% { transform: scale(0.86); } 50% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+@media (max-width: 600px) {
+  .cap { grid-template-columns: 1fr; }
+  .no { width: 32px; height: 32px; font-size: 13px; }
+  .bez { padding: 5px; border-radius: 10px; }
+}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="mark" viewBox="0 0 48 48"><rect width="48" height="48" rx="15" style="fill: var(--mk-bg)"/><path d="M14.5 35.5V23.5a9.5 9.5 0 0 1 19 0v12" style="fill: none; stroke: var(--mk-fg); stroke-width: 4.6; stroke-linecap: round"/><circle cx="24" cy="27" r="3.4" style="fill: var(--mk-fg)"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M5 4.5h14a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5H9l-4.5 3.5V6A1.5 1.5 0 0 1 5 4.5z"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M5 5.5A2 2 0 0 1 7 3.5h12v14H7a2 2 0 0 0-2 2zM5 19.5a2 2 0 0 0 2 2h12M9 8h6"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></symbol>
+  <symbol id="i-pp" viewBox="0 0 24 24"><path d="M3.5 6v12l7.5-6z"/><path d="M15 6.5v11M20 6.5v11"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></symbol>
+  <symbol id="i-arrl" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
+  <symbol id="i-rw" viewBox="0 0 24 24"><path d="M11 6 3.5 12l7.5 6zM20.5 6 13 12l7.5 6z"/></symbol>
+  <symbol id="i-ff" viewBox="0 0 24 24"><path d="M13 6l7.5 6-7.5 6zM3.5 6 11 12l-7.5 6z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7A1.5 1.5 0 0 1 5 5.5h4.5l2 2.5H19A1.5 1.5 0 0 1 20.5 9.5V17A1.5 1.5 0 0 1 19 18.5H5A1.5 1.5 0 0 1 3.5 17z"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M6.5 3h7.5l4 4v13.5a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-17A.5.5 0 0 1 6.5 3z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></symbol>
+  <symbol id="i-chr" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-chd" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-chl" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-ok" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12.3 2.7 2.7L16 9.6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+  <symbol id="i-kbd" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M7.5 14h9"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v4.5h-4.5"/></symbol>
+  <symbol id="i-cursor" viewBox="0 0 24 24"><path d="M5 3v16l4.2-4.1 3 6.6 2.7-1.2-3-6.5H18z"/></symbol>
+  <symbol id="i-pointer" viewBox="0 0 24 24"><path d="M6 4v13l3.5-3.4 2.5 5.4 2.2-1-2.5-5.4H16z"/></symbol>
+  <symbol id="i-zoom" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5M8.5 11h5M11 8.5v5"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M6 12h12"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.34-5.66M4 4v4.5h4.5"/><path d="M12 8.5V12l2.5 2"/></symbol>
+  <symbol id="i-exit" viewBox="0 0 24 24"><path d="M14 4h4.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H14M10 16l-4-4 4-4M6 12h10"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="4"/><path d="M10 9v6l5-3z"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="7" rx="1.5"/><rect x="3.5" y="13" width="17" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/></symbol>
+  <symbol id="i-laptop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="10" rx="1.5"/><path d="M3 19h18"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M10.3 4.6 2.8 18a2 2 0 0 0 1.7 3h15a2 2 0 0 0 1.7-3L13.7 4.6a2 2 0 0 0-3.4 0z"/><path d="M12 10v4M12 17.5h.01"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.5h.01"/></symbol>
+  <symbol id="i-term" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="m7 9.5 3 2.5-3 2.5M12.5 15h4.5"/></symbol>
+  <symbol id="i-bot" viewBox="0 0 24 24"><rect x="4.5" y="8" width="15" height="11" rx="3"/><path d="M12 4.5V8M9.5 13h.01M14.5 13h.01M2 13v2M22 13v2"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M4.5 12 20 4.5 15.5 20l-3.5-6.5z"/><path d="m12 13.5 8-9"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></symbol>
+  <symbol id="i-open" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></symbol>
+  <symbol id="i-speaker" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.66 0l3-3A4 4 0 0 0 13 5.34l-1 1M14 10a4 4 0 0 0-5.66 0l-3 3A4 4 0 0 0 11 18.66l1-1"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></symbol>
+  <symbol id="i-tv" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+  <symbol id="i-hand" viewBox="0 0 24 24"><path d="M8 13V6.5a1.5 1.5 0 0 1 3 0V12M11 11.5V4.5a1.5 1.5 0 0 1 3 0v7M14 11.5V6a1.5 1.5 0 0 1 3 0v8a7 7 0 0 1-7 7h-.5a6 6 0 0 1-4.6-2.2L2.8 15.6a1.6 1.6 0 0 1 2.4-2.1L8 15.5"/></symbol>
+</svg>
+
+<div class="pg">
+
+<header>
+  <div class="ph">
+    <svg class="mk" role="img" aria-label="Archie mark"><use href="#mark"/></svg>
+    <div>
+      <p class="eyebrow">Spec 15 · work package M · design review · 16 Oct 2026</p>
+      <h1>Archie TV mockups</h1>
+    </div>
+  </div>
+  <p class="lede">The Android TV / Fire TV app and the reworked launcher, drawn at real size: every frame is the 1920 × 1080 screen of the living-room stick (960 × 540 dp × 2), scaled down to fit. Dark tokens from <b>apps/design-tokens</b>, the TV type scale from spec §3.2 (body text 20 sp → 40 px). In every frame <b>one element has focus</b>: cards and buttons grow to 1.05 with a 3 dp primary border on the raised surface; buttons fill with primary; text blocks get the border without growing. Status cluster top right, key hints bottom left.</p>
+</header>
+<nav class="bar" aria-label="Screens">
+    <div class="idx">
+      <a href="#s1"><span>1</span>Launcher</a>
+      <a href="#s2"><span>2</span>Launcher settings</a>
+      <a href="#s3"><span>3</span>Home</a>
+      <a href="#s4"><span>4</span>Drawer</a>
+      <a href="#s5"><span>5</span>Conversations</a>
+      <a href="#s6"><span>6</span>Conversation</a>
+      <a href="#s7"><span>7</span>Holding the mic</a>
+      <a href="#s8"><span>8</span>Live voice</a>
+      <a href="#s9"><span>9</span>Dictation</a>
+      <a href="#s10"><span>10</span>Visuals</a>
+      <a href="#s11"><span>11</span>Viewer</a>
+      <a href="#s12"><span>12</span>Viewer options</a>
+      <a href="#s13"><span>13</span>Memory</a>
+      <a href="#s14"><span>14</span>Remote mic</a>
+      <a href="#s15"><span>15</span>First run</a>
+      <a href="#s16"><span>16</span>Black screen</a>
+    </div>
+    <button class="tgl" id="safe" type="button" aria-pressed="false"><i></i>Show safe area</button>
+</nav>
+
+<!-- ============ 1. LAUNCHER ============ -->
+<section class="sec" id="s1">
+  <div class="cap"><span class="no">1</span><div><h2>Launcher (TvServerHub)</h2><p>The stick's home screen after the rework: exactly two cards on the gradient backdrop, <b>Archie</b> focused. Left/Right moves between the cards and OK launches. Up from YouTube reaches the gear; Menu ≡ (or the remote's Settings key) opens Settings from anywhere on this screen.</p></div></div>
+  <div class="bez"><div class="fit"><div class="tv hub">
+    <span class="gear"><svg class="i"><use href="#i-gear"/></svg></span>
+    <div class="cards">
+      <div class="lc fx"><svg class="mk"><use href="#mark"/></svg><span class="nm">Archie</span></div>
+      <div class="lc"><span class="yt"><svg class="i"><use href="#i-play"/></svg></span><span class="nm">YouTube</span></div>
+    </div>
+    <div class="foot"><span><span class="kc"><svg class="i"><use href="#i-menu"/></svg></span>Settings</span></div>
+  </div></div></div>
+</section>
+
+<!-- ============ 2. LAUNCHER SETTINGS ============ -->
+<section class="sec" id="s2">
+  <div class="cap"><span class="no">2</span><div><h2>Launcher settings</h2><p>D-pad only, no text fields. Up/Down picks a row, Left/Right (or OK) steps its value, Back saves and closes. The amber line warns that "Turn display off" is untested and may leave the stick asleep (open question Q1). The status rows below show whether the idle engine can see key presses.</p></div></div>
+  <div class="bez"><div class="fit"><div class="tv">
+    <div class="hs">
+      <div class="hd" style="margin-bottom:12px"><div><div class="t-ds">Settings</div></div><span class="t-lm mu" style="margin-left:auto">TvServerHub · launcher and screensaver</span></div>
+      <div class="sr"><div class="tx t-tm">When idle</div><span class="val">Black screen</span></div>
+      <div class="warnl"><svg class="i"><use href="#i-warn"/></svg><span>"Turn display off (sleep)" is not field-tested: the stick may not wake up for agents. Black screen is the safe choice.</span></div>
+      <div class="sr fx lr"><div class="tx t-tm">Idle time before blanking</div><span class="val"><svg class="i"><use href="#i-chl"/></svg>15 min<svg class="i"><use href="#i-chr"/></svg></span></div>
+      <div class="sr"><div class="tx t-tm">Never blank while media plays</div><span class="sw on"></span></div>
+      <div class="sr"><div class="tx t-tm">Return to launcher when idle</div><span class="val">After 80 s</span></div>
+      <div class="sr"><div class="tx t-tm">Test: blank now</div><span class="val"><svg class="i"><use href="#i-moon"/></svg></span></div>
+      <div class="grp">Status</div>
+      <div class="sr" style="min-height:72px;gap:40px;flex-wrap:wrap"><span class="stx okc"><svg class="i"><use href="#i-ok"/></svg>Key watcher on</span><span class="stx okc"><svg class="i"><use href="#i-ok"/></svg>Usage access</span><span class="stx okc"><svg class="i"><use href="#i-ok"/></svg>Overlay permission</span><span class="stx okc"><svg class="i"><use href="#i-ok"/></svg>Service running · idle 2 min</span></div>
+    </div>
+    <div class="hints" style="left:280px">
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-chl"/></svg></span><span class="kc" style="margin-left:-8px"><svg class="i"><use href="#i-chr"/></svg></span>Change value</span>
+      <span class="h"><span class="kc w">OK</span>Next value</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-back"/></svg></span>Save and close</span>
+    </div>
+  </div></div></div>
+</section>
+
+<!-- ============ 3. HOME ============ -->
+<section class="sec" id="s3">
+  <div class="cap"><span class="no">3</span><div><h2>Archie TV · Home</h2><p>Drawer collapsed to icons on the left. The hero holds the current Archie conversation; <b>Open</b> has focus on arrival. Below, rows scroll vertically and each row scrolls sideways (cards peek past the right edge). Down walks the rows, Rewind/FF jump a row. Hold the mic anywhere to talk to Archie; Play/Pause starts live voice.</p></div></div>
+  <div class="bez"><div class="fit"><div class="tv">
+    <nav class="drw"><svg class="mk"><use href="#mark"/></svg>
+      <span class="ni sel"><svg class="i"><use href="#i-home"/></svg><b>Home</b></span>
+      <span class="ni"><svg class="i"><use href="#i-chat"/></svg><b>Conversations</b><i class="bd"></i></span>
+      <span class="ni"><svg class="i"><use href="#i-grid"/></svg><b>Visuals</b></span>
+      <span class="ni"><svg class="i"><use href="#i-book"/></svg><b>Memory</b></span>
+      <span class="ni"><svg class="i"><use href="#i-gear"/></svg><b>Settings</b></span>
+    </nav>
+    <div class="main" id="home-main" style="top:150px;bottom:54px">
+      <div class="hero">
+        <svg class="mk"><use href="#mark"/></svg>
+        <div>
+          <div class="eyb">Archie · current conversation · <span class="dot off"></span>Idle · 21:14</div>
+          <div class="t-hs">Plan the TV app</div>
+          <p class="t-bm mu cl2" style="max-width:1080px;margin-top:6px">The spec draft is in docs/specs/15-tv-app.md. Next I'll split it into work packages and start the backend hub with the tests.</p>
+        </div>
+        <div class="acts">
+          <span class="btn ic fx"><svg class="i"><use href="#i-open"/></svg>Open</span>
+          <span class="btn ic"><svg class="i"><use href="#i-wave"/></svg>Live voice</span>
+          <span class="btn ic"><svg class="i"><use href="#i-plus"/></svg>New conversation</span>
+          <span class="hint"><svg class="i"><use href="#i-mic"/></svg>Hold anywhere to talk to Archie</span>
+        </div>
+      </div>
+      <div class="row" style="margin-top:40px">
+        <h3>Open now <small>4 agents</small></h3>
+        <div class="rl">
+          <div class="cd ag"><div class="top"><span class="pv">Claude</span><span class="st" style="color:var(--pri)"><span class="spn"></span>Working</span></div><div class="t-tl ell">Fix wake word drift</div><div class="t-bm mu ell">Running :core:wakeword:test…</div></div>
+          <div class="cd ag"><div class="top"><span class="pv">Codex</span><span class="st"><span class="bdg"><svg class="i"><use href="#i-hand"/></svg>Needs approval</span></span></div><div class="t-tl ell">Solar dashboard</div><div class="t-bm mu ell">Wants to run npm run build</div></div>
+          <div class="cd ag"><div class="top"><span class="pv">Claude</span><span class="st"><span class="dot off"></span>Idle</span></div><div class="t-tl ell">TV control channel</div><div class="t-bm mu ell">Done. 14 tests pass.</div></div>
+          <div class="cd ag"><div class="top"><span class="pv">Qwen</span><span class="st"><span class="dot off"></span>Idle</span></div><div class="t-tl ell">Biography, chapter 3</div><div class="t-bm mu ell">Draft saved.</div></div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:40px">
+        <h3>Visuals</h3>
+        <div class="rl">
+          <div class="cd vz kd-dash" style="width:440px"><i class="band"></i><div class="in"><span class="kd">Dashboard<i class="chg"></i></span><div class="t-tl ell">Solar dashboard</div><span class="pth ell">solar-dashboard.html</span><span class="t-lm mu">updated 5 min ago</span></div></div>
+          <div class="cd vz kd-proj" style="width:440px"><i class="band"></i><div class="in"><span class="kd">Project page</span><div class="t-tl ell">Archie TV plan</div><span class="pth ell">tv-app/</span><span class="t-lm mu">updated 1 h ago</span></div></div>
+          <div class="cd vz kd-expl" style="width:440px"><i class="band"></i><div class="in"><span class="kd">Explainer</span><div class="t-tl ell">Wake word timeline</div><span class="pth ell">wakeword-timeline.html</span><span class="t-lm mu">updated yesterday</span></div></div>
+          <div class="cd vz kd-rev" style="width:440px"><i class="band"></i><div class="in"><span class="kd">Review</span><div class="t-tl ell">Tarot app screens</div><span class="pth ell">tarot-review/</span><span class="t-lm mu">updated 2 days ago</span></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="fadeb"></div>
+    <div class="stc"><span class="cn"><span class="dot"></span>Connected</span><span class="vc"><svg class="i"><use href="#i-mic"/></svg>Idle</span></div>
+    <div class="hints">
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-mic"/></svg></span>Hold to talk</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-pp"/></svg></span>Live voice</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-menu"/></svg></span>Options</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-back"/></svg></span>Exit</span>
+    </div>
+  </div></div></div>
+
+  <div class="cap sub"><span class="no">3b</span><div><h2>Home, scrolled to the last rows</h2><p>The hero has scrolled away; Memory and Recent conversations come into view. Focus is on the first recent conversation. Each row remembers where you left it, so Up returns to the same card.</p></div></div>
+  <div class="bez"><div class="fit"><div class="tv">
+    <nav class="drw"><svg class="mk"><use href="#mark"/></svg>
+      <span class="ni sel"><svg class="i"><use href="#i-home"/></svg></span>
+      <span class="ni"><svg class="i"><use href="#i-chat"/></svg><i class="bd"></i></span>
+      <span class="ni"><svg class="i"><use href="#i-grid"/></svg></span>
+      <span class="ni"><svg class="i"><use href="#i-book"/></svg></span>
+      <span class="ni"><svg class="i"><use href="#i-gear"/></svg></span>
+    </nav>
+    <div class="main" style="top:150px">
+      <div class="row">
+        <h3>Memory <small>recently changed</small></h3>
+        <div class="rl">
+          <div class="cd ag" style="width:560px"><div class="top"><svg class="i" style="width:32px;height:32px"><use href="#i-folder"/></svg>archie/devices</div><div class="t-tl ell">Fire TV</div><div class="t-bm mu ell">Remote keys, mic probe, setup script</div></div>
+          <div class="cd ag" style="width:560px"><div class="top"><svg class="i" style="width:32px;height:32px"><use href="#i-folder"/></svg>people/rodrigo</div><div class="t-tl ell">Personal context</div><div class="t-bm mu ell">Work, routines and preferences</div></div>
+          <div class="cd ag" style="width:560px"><div class="top"><svg class="i" style="width:32px;height:32px"><use href="#i-folder"/></svg>projects</div><div class="t-tl ell">Home automation</div><div class="t-bm mu ell">Lights, sensors, the solar inverter</div></div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:40px">
+        <h3>Recent conversations</h3>
+        <div class="rl">
+          <div class="cd ag fx" style="width:580px"><div class="top"><svg class="mk" style="width:44px;height:44px"><use href="#mark"/></svg>Archie<span class="st">Today 21:14</span></div><div class="t-tl ell">Plan the TV app</div><div class="t-bm mu ell">Next: split it into work packages</div></div>
+          <div class="cd ag" style="width:580px"><div class="top"><span class="pv">Claude</span><span class="st">Today 16:20</span></div><div class="t-tl ell">Remote mic probe results</div><div class="t-bm mu ell">Alexa stayed quiet with vizzini off</div></div>
+          <div class="cd ag" style="width:580px"><div class="top"><svg class="mk" style="width:44px;height:44px"><use href="#mark"/></svg>Archie<span class="st">Yesterday</span></div><div class="t-tl ell">Voice on the A300M cut off</div><div class="t-bm mu ell">Fixed and deployed in lite 2.5.1</div></div>
+          <div class="cd ag" style="width:580px"><div class="top"><span class="pv">Gemini</span><span class="st">Tue</span></div><div class="t-tl ell">History search eval</div><div class="t-bm mu ell">Recall@5 went from 0.71 to 0.86</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="stc"><span class="cn"><span class="dot"></span>Connected</span><span class="vc"><svg class="i"><use href="#i-mic"/></svg>Idle</span></div>
+    <div class="hints">
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-mic"/></svg></span>Hold to talk</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-rw"/></svg></span><span class="kc" style="margin-left:-8px"><svg class="i"><use href="#i-ff"/></svg></span>Jump a row</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-menu"/></svg></span>Options</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-back"/></svg></span>Back</span>
+    </div>
+  </div></div></div>
+</section>
+
+<!-- ============ 4. DRAWER ============ -->
+<section class="sec" id="s4">
+  <div class="cap"><span class="no">4</span><div><h2>Drawer expanded</h2><p>Left from the left edge of any content opens the drawer: icons gain labels and the screen behind dims. Up/Down picks a destination (focus is on <b>Conversations</b>), OK or Right goes there, Back closes the drawer. The amber dot says an agent is waiting for approval.</p></div></div>
+  <div class="bez"><div class="fit"><div class="tv">
+    <div data-clone="home-main" data-unfocus></div>
+    <div class="fadeb"></div>
+    <div class="stc" style="z-index:20"><span class="cn"><span class="dot"></span>Connected</span><span class="vc"><svg class="i"><use href="#i-mic"/></svg>Idle</span></div>
+    <div class="scrim"></div>
+    <nav class="drw open"><svg class="mk"><use href="#mark"/></svg>
+      <span class="ni sel"><svg class="i"><use href="#i-home"/></svg><b>Home</b></span>
+      <span class="ni fx lr"><svg class="i"><use href="#i-chat"/></svg><b>Conversations</b><i class="bd"></i></span>
+      <span class="ni"><svg class="i"><use href="#i-grid"/></svg><b>Visuals</b></span>
+      <span class="ni"><svg class="i"><use href="#i-book"/></svg><b>Memory</b></span>
+      <span class="ni"><svg class="i"><use href="#i-gear"/></svg><b>Settings</b></span>
+    </nav>
+    <div class="hints" style="left:648px">
+      <span class="h"><span class="kc w">OK</span>Go</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-mic"/></svg></span>Hold to talk</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-back"/></svg></span>Close</span>
+    </div>
+  </div></div></div>
+</section>
+
+<!-- ============ 5. CONVERSATIONS ============ -->
+<section class="sec" id="s5">
+  <div class="cap"><span class="no">5</span><div><h2>Conversations</h2><p>Two panes. The list on the left is grouped like the apps (Open now, Today, Yesterday, Previous 7 days, Earlier); Archie conversations carry the mark, agents their provider. The right pane previews whatever has focus and follows it as you move. OK opens; Menu ≡ offers Open, Rename, Duplicate, Close, Delete, New agent and New Archie conversation.</p></div></div>
+  <div class="bez"><div class="fit"><div class="tv">
+    <nav class="drw"><svg class="mk"><use href="#mark"/></svg>
+      <span class="ni"><svg class="i"><use href="#i-home"/></svg></span>
+      <span class="ni sel"><svg class="i"><use href="#i-chat"/></svg><i class="bd"></i></span>
+      <span class="ni"><svg class="i"><use href="#i-grid"/></svg></span>
+      <span class="ni"><svg class="i"><use href="#i-book"/></svg></span>
+      <span class="ni"><svg class="i"><use href="#i-gear"/></svg></span>
+    </nav>
+    <div class="main">
+      <div class="hd"><span class="t-ds">Conversations</span></div>
+      <div class="split">
+        <div class="lp" style="-webkit-mask-image:linear-gradient(var(--mask-on) 82%,var(--clear));mask-image:linear-gradient(var(--mask-on) 82%,var(--clear))">
+          <div class="fld"><svg class="i"><use href="#i-search"/></svg>Search conversations</div>
+          <div class="sh" style="padding-top:4px">Open now</div>
+          <div class="li"><svg class="gl mk"><use href="#mark"/></svg><div class="tx"><div class="t-tm ell">Plan the TV app</div><div class="t-lm mu">Archie · idle</div></div></div>
+          <div class="li"><span class="gl"><svg class="i"><use href="#i-term"/></svg></span><div class="tx"><div class="t-tm ell">Fix wake word drift</div><div class="t-lm mu" style="display:flex;gap:12px;align-items:center">Claude · <span class="spn" style="width:24px;height:24px;border-width:4px"></span>working</div></div></div>
+          <div class="li"><span class="gl"><svg class="i"><use href="#i-term"/></svg></span><div class="tx"><div class="t-tm ell">Solar dashboard</div><div class="t-lm" style="color:var(--wa)">Codex · needs approval</div></div></div>
+          <div class="sh">Today</div>
+          <div class="li fx lr"><span class="gl"><svg class="i"><use href="#i-term"/></svg></span><div class="tx"><div class="t-tm ell">Remote mic probe results</div><div class="t-lm mu">Claude · 16:20</div></div></div>
+          <div class="li"><svg class="gl mk"><use href="#mark"/></svg><div class="tx"><div class="t-tm ell">What's on the calendar tomorrow</div><div class="t-lm mu">Archie · 08:05</div></div></div>
+          <div class="sh">Yesterday</div>
+          <div class="li"><svg class="gl mk"><use href="#mark"/></svg><div class="tx"><div class="t-tm ell">Voice on the A300M cut off</div><div class="t-lm mu">Archie · 22:40</div></div></div>
+        </div>
+        <div class="rp">
+          <div class="t-tl">Remote mic probe results</div>
+          <div class="meta"><span class="pv">Claude</span><span class="chip" style="height:44px;font-size:26px">~/assistant-wt/tv</span><span class="t-lm mu" style="align-self:center">Today 16:20 · 48 messages</span></div>
+          <div style="display:flex;flex-direction:column;gap:14px;margin-top:14px;font:400 28px/40px var(--font)">
+            <div class="ub" style="font-size:28px;line-height:40px;padding:12px 26px;max-width:900px">Record a WAV while I hold the mic and run it through Whisper.</div>
+            <p>Armed. Frames arrive only while the button is held: 3.0 s at −9 to −20 dBFS.</p>
+            <span class="tg" style="height:44px;font-size:26px"><svg class="i" style="width:30px;height:30px"><use href="#i-chr"/></svg><b>2 steps</b><span class="sum">adb pull, whisper</span></span>
+            <p>Whisper heard: “Archie, what time is it in Rio?” Alexa answered too.</p>
+            <div class="ub" style="font-size:28px;line-height:40px;padding:12px 26px;max-width:900px">Try again with Alexa's voice UI disabled.</div>
+            <p>Done. With com.amazon.vizzini disabled the screen stayed quiet and the recording is clean.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="stc"><span class="cn"><span class="dot"></span>Connected</span><span class="vc"><svg class="i"><use href="#i-mic"/></svg>Idle</span></div>
+    <div class="hints">
+      <span class="h"><span class="kc w">OK</span>Open</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-menu"/></svg></span>Options</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-mic"/></svg></span>Hold to talk</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-back"/></svg></span>Back</span>
+    </div>
+  </div></div></div>
+</section>
+
+<!-- ============ 6. CONVERSATION ============ -->
+<section class="sec" id="s6">
+  <div class="cap"><span class="no">6</span><div><h2>Conversation (reading)</h2><p>Full screen, drawer hidden. Up/Down walks block by block (the focused paragraph is outlined); Rewind/FF page. OK on "3 steps" expands the group, OK on a tool card shows its output. The approval card has real buttons but does not take focus when it arrives: the hint bar says <b>▼ Approval needed</b>. "Agents 2" opens the agents this turn started.</p></div></div>
+  <div class="bez"><div class="fit"><div class="tv">
+    <div id="conv6" style="position:absolute;inset:0">
+      <div class="chd">
+        <svg class="i bk"><use href="#i-arrl"/></svg>
+        <svg class="mk" style="width:56px;height:56px"><use href="#mark"/></svg>
+        <span class="t-tl ttl ell">Plan the TV app</span>
+        <div class="rt">
+          <span class="ring"><svg viewBox="0 0 44 44"><circle class="rt0" cx="22" cy="22" r="18"/><circle class="rv" cx="22" cy="22" r="18" stroke-dasharray="47.5 113.1"/></svg>42%</span>
+          <span class="wk"><span class="spn"></span>Working…</span>
+          <span class="chip"><svg class="i"><use href="#i-bot"/></svg>Agents 2</span>
+        </div>
+      </div>
+      <div class="tr">
+        <div class="ub"><span class="vt"><svg class="i"><use href="#i-mic"/></svg>Voice message · 0:04</span>Open the solar dashboard on the TV.</div>
+        <div class="blk" style="padding-top:0;padding-bottom:0"><span class="tg"><svg class="i" style="width:34px;height:34px"><use href="#i-chr"/></svg><span class="tis"><span class="ti k-nav"><svg class="i"><use href="#i-tv"/></svg></span><span class="ti k-read"><svg class="i"><use href="#i-doc"/></svg></span><span class="ti k-exec"><svg class="i"><use href="#i-term"/></svg></span></span><b>3 steps</b><span class="sum">open_visualization, read_file, run_script</span></span></div>
+        <p class="blk fx">Done, it's on screen. The battery is at 76% and you've exported 2.1 kWh today; production peaked at 2.9 kWh around noon.</p>
+        <div class="blk" style="padding-top:0;padding-bottom:0"><div class="tc k-agent">
+          <div class="tc-h"><span class="ti"><svg class="i"><use href="#i-bot"/></svg></span><span class="tc-n">send_to_agent_session</span><span class="tc-s">Fix wake word drift · "Plan the drift fix first"</span><span class="tc-st"><svg class="i"><use href="#i-check"/></svg>0.4 s</span></div>
+          <div class="tc-o"><span class="hi">status: running</span> · turn 7f3a91 · <span class="okt">plan mode on</span></div>
+        </div></div>
+        <div class="pc"><svg class="i"><use href="#i-hand"/></svg><div class="tx"><b>Fix wake word drift (Claude) wants to exit plan mode</b><span>Plan: add a 30-minute drift test, then retune the confirm window.</span></div><span class="btn ghost">Approve</span><span class="btn ghost">Reject</span></div>
+      </div>
+      <div class="cr">
+        <span class="btn ic cbtn"><svg class="i"><use href="#i-mic"/></svg>Hold to talk</span>
+        <span class="btn ic cbtn"><svg class="i"><use href="#i-kbd"/></svg>Type</span>
+        <span class="btn ic cbtn"><svg class="i"><use href="#i-wave"/></svg>Live voice</span>
+        <span class="btn ic cbtn"><svg class="i fl"><use href="#i-stop"/></svg>Stop</span>
+        <span class="btn ic cbtn"><svg class="i"><use href="#i-menu"/></svg>More</span>
+      </div>
+    </div>
+    <div class="stc"><span class="cn"><span class="dot"></span>Connected</span><span class="vc"><svg class="i"><use href="#i-mic"/></svg>Idle</span></div>
+    <div class="hints full">
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-mic"/></svg></span>Hold to talk</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-pp"/></svg></span>Live voice</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-rw"/></svg></span><span class="kc" style="margin-left:-8px"><svg class="i"><use href="#i-ff"/></svg></span>Page</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-menu"/></svg></span>Options</span>
+      <span class="h wa"><span class="kc"><svg class="i"><use href="#i-chd"/></svg></span>Approval needed</span>
+    </div>
+  </div></div></div>
+</section>
+
+<!-- ============ 7. HOLDING THE MIC ============ -->
+<section class="sec" id="s7">
+  <div class="cap"><span class="no">7</span><div><h2>Holding the mic</h2><p>The same conversation while the remote's mic button is held. The overlay appears within 150 ms of the first audio frame with the live level, "Release to send" and where the message goes. Focus stays on the paragraph. On release it shows "Sending…", then the voice message appears in the conversation on every device.</p></div></div>
+  <div class="bez"><div class="fit"><div class="tv">
+    <div data-clone="conv6"></div>
+    <div class="vo">
+      <span class="mic"><svg class="i"><use href="#i-mic"/></svg></span>
+      <div class="lvl" aria-hidden="true"><i style="--h:20px"></i><i style="--h:44px"></i><i style="--h:70px"></i><i style="--h:96px"></i><i style="--h:60px"></i><i style="--h:84px"></i><i style="--h:104px"></i><i style="--h:72px"></i><i style="--h:40px"></i><i style="--h:88px"></i><i style="--h:100px"></i><i style="--h:64px"></i><i style="--h:30px"></i><i style="--h:56px"></i><i style="--h:80px"></i><i style="--h:46px"></i><i style="--h:24px"></i><i style="--h:16px"></i></div>
+      <div class="txt"><span class="t-tl">Release to send</span><span class="dst"><svg class="mk"><use href="#mark"/></svg>To Archie · Plan the TV app</span></div>
+      <span class="tmr">0:03</span>
+    </div>
+    <div class="stc"><span class="cn"><span class="dot"></span>Connected</span><span class="vc lis"><svg class="i"><use href="#i-mic"/></svg>Listening</span></div>
+    <div class="hints full">
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-mic"/></svg></span>Release to send</span>
+    </div>
+  </div></div></div>
+</section>
+
+<!-- ============ 8. LIVE VOICE ============ -->
+<section class="sec" id="s8">
+  <div class="cap"><span class="no">8</span><div><h2>Live voice (walkie-talkie)</h2><p>Play/Pause, the hero's Live voice button or Menu starts a realtime conversation through the remote. Hold the mic to speak; release and Archie answers out loud through the TV. The overlay shows the orb and the running transcript. The composer's Live voice button became <b>End</b> and keeps focus; Play/Pause or Back also end it. Status chip: Live.</p></div></div>
+  <div class="bez"><div class="fit"><div class="tv">
+    <div class="chd">
+      <svg class="i bk"><use href="#i-arrl"/></svg>
+      <svg class="mk" style="width:56px;height:56px"><use href="#mark"/></svg>
+      <span class="t-tl ttl ell">Plan the TV app</span>
+      <div class="rt"><span class="ring"><svg viewBox="0 0 44 44"><circle class="rt0" cx="22" cy="22" r="18"/><circle class="rv" cx="22" cy="22" r="18" stroke-dasharray="49.8 113.1"/></svg>44%</span></div>
+    </div>
+    <div class="tr" style="bottom:640px">
+      <p class="blk">Done, it's on screen. The battery is at 76% and you've exported 2.1 kWh today.</p>
+      <div class="ub"><span class="vt"><svg class="i"><use href="#i-wave"/></svg>Live</span>Will it be full before sunset?</div>
+      <p class="blk">Yes. At the current rate it reaches 100% around 16:40, well before sunset at 17:51.</p>
+    </div>
+    <div class="lv">
+      <svg class="orb" viewBox="0 0 120 120" width="200" height="200" aria-hidden="true"><circle class="o1" cx="60" cy="60" r="58"/><circle class="o2" cx="60" cy="60" r="46"/><circle class="o3" cx="60" cy="60" r="34"/><rect class="bar" x="43" y="50" width="6" height="20" rx="3"/><rect class="bar" x="52" y="42" width="6" height="36" rx="3"/><rect class="bar" x="61" y="46" width="6" height="28" rx="3"/><rect class="bar" x="70" y="52" width="6" height="16" rx="3"/></svg>
+      <div class="lines">
+        <span class="who2">Archie is speaking</span>
+        <p class="t-bl you">You: And how much did we export yesterday?</p>
+        <p class="t-bl">Yesterday you exported 1.6 kWh, so today is already a bit better<span class="caret"></span></p>
+      </div>
+      <div class="foot"><svg class="i"><use href="#i-mic"/></svg>Hold the mic to speak · Release to let Archie answer</div>
+    </div>
+    <div class="cr">
+      <span class="btn ic cbtn"><svg class="i"><use href="#i-kbd"/></svg>Type</span>
+      <span class="btn ic fx"><svg class="i"><use href="#i-x"/></svg>End live voice</span>
+      <span class="btn ic cbtn"><svg class="i"><use href="#i-menu"/></svg>More</span>
+    </div>
+    <div class="stc"><span class="cn"><span class="dot"></span>Connected</span><span class="vc live"><span class="dot"></span>Live</span></div>
+    <div class="hints full">
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-mic"/></svg></span>Hold to speak</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-pp"/></svg></span>End live voice</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-menu"/></svg></span>Options</span>
+    </div>
+  </div></div></div>
+</section>
+
+<!-- ============ 9. DICTATION ============ -->
+<section class="sec" id="s9">
+  <div class="cap"><span class="no">9</span><div><h2>Agent dictation, confirm</h2><p>In an agent conversation the mic dictates instead of sending audio: the server transcribes the burst and the text lands in a chip with <b>Send</b> focused (moving focus here is fine, the user just spoke). OK sends to the agent; Edit opens the keyboard with the text; Cancel or Back drops it.</p></div></div>
+  <div class="bez"><div class="fit"><div class="tv">
+    <div class="chd">
+      <svg class="i bk"><use href="#i-arrl"/></svg>
+      <span class="pv" style="height:52px;font-size:28px">Claude</span>
+      <span class="t-tl ttl ell">Fix wake word drift</span>
+      <div class="rt">
+        <span class="ring"><svg viewBox="0 0 44 44"><circle class="rt0" cx="22" cy="22" r="18"/><circle class="rv" cx="22" cy="22" r="18" stroke-dasharray="69 113.1"/></svg>61%</span>
+        <span class="cn" style="font-size:30px"><span class="dot off"></span>Idle</span>
+      </div>
+    </div>
+    <div class="tr" style="bottom:400px">
+      <div class="ub">Run the wake-word tests.</div>
+      <p class="blk" style="padding-bottom:0">Ran them: 43 passed, 2 failed.</p>
+      <div class="cb"><span class="ert">FAILED</span> WakeWordDetectorTest &gt; driftAfter30Minutes
+<span class="ert">FAILED</span> VoskGateTest &gt; confirmWindowShrinks</div>
+      <p class="blk">Both fail on the timing assertions after the threshold change. Want me to look at the drift test first?</p>
+    </div>
+    <div class="dict">
+      <span class="lab"><svg class="i"><use href="#i-mic"/></svg>Dictated · check before sending to the agent</span>
+      <q>run the tests again and show me the failures</q>
+      <div class="bts">
+        <span class="btn ic fx"><svg class="i"><use href="#i-send"/></svg>Send</span>
+        <span class="btn ic"><svg class="i"><use href="#i-edit"/></svg>Edit</span>
+        <span class="btn ic"><svg class="i"><use href="#i-x"/></svg>Cancel</span>
+      </div>
+    </div>
+    <div class="stc"><span class="cn"><span class="dot"></span>Connected</span><span class="vc"><svg class="i"><use href="#i-mic"/></svg>Idle</span></div>
+    <div class="hints full">
+      <span class="h"><span class="kc w">OK</span>Send</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-mic"/></svg></span>Dictate again</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-back"/></svg></span>Cancel</span>
+    </div>
+  </div></div></div>
+</section>
+
+<!-- ============ 10. VISUALS ============ -->
+<section class="sec" id="s10">
+  <div class="cap"><span class="no">10</span><div><h2>Visuals</h2><p>Four columns of typographic cards. The color band and label name the kind (dashboard, project page, explainer, review, model); the dot on Solar dashboard means it changed since you last opened it. OK opens the Viewer; Menu ≡ offers Open, Rename and Copy link (a QR code so a phone can open it).</p></div></div>
+  <div class="bez"><div class="fit"><div class="tv">
+    <nav class="drw"><svg class="mk"><use href="#mark"/></svg>
+      <span class="ni"><svg class="i"><use href="#i-home"/></svg></span>
+      <span class="ni"><svg class="i"><use href="#i-chat"/></svg><i class="bd"></i></span>
+      <span class="ni sel"><svg class="i"><use href="#i-grid"/></svg></span>
+      <span class="ni"><svg class="i"><use href="#i-book"/></svg></span>
+      <span class="ni"><svg class="i"><use href="#i-gear"/></svg></span>
+    </nav>
+    <div class="main" style="bottom:54px">
+      <div class="hd"><span class="t-ds">Visuals</span><span class="t-lm mu" style="align-self:flex-end;margin-bottom:14px">24 pages</span></div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:40px">
+        <div class="cd vz kd-dash fx"><i class="band"></i><div class="in"><span class="kd">Dashboard<i class="chg"></i></span><div class="t-tl cl2">Solar dashboard</div><span class="pth ell">solar-dashboard.html</span><span class="t-lm mu">updated 5 min ago</span></div></div>
+        <div class="cd vz kd-proj"><i class="band"></i><div class="in"><span class="kd">Project page</span><div class="t-tl cl2">Archie TV plan</div><span class="pth ell">tv-app/</span><span class="t-lm mu">updated 1 h ago</span></div></div>
+        <div class="cd vz kd-expl"><i class="band"></i><div class="in"><span class="kd">Explainer</span><div class="t-tl cl2">Wake word timeline</div><span class="pth ell">wakeword-timeline.html</span><span class="t-lm mu">updated yesterday</span></div></div>
+        <div class="cd vz kd-model"><i class="band"></i><div class="in"><span class="kd">Model</span><div class="t-tl cl2">QVCM simulation</div><span class="pth ell">qvcm-sim.html</span><span class="t-lm mu">updated 2 days ago</span></div></div>
+        <div class="cd vz kd-dash"><i class="band"></i><div class="in"><span class="kd">Dashboard</span><div class="t-tl cl2">Jetson thermals</div><span class="pth ell">jetson-thermals.html</span><span class="t-lm mu">updated 3 days ago</span></div></div>
+        <div class="cd vz kd-rev"><i class="band"></i><div class="in"><span class="kd">Review</span><div class="t-tl cl2">Tarot app screens</div><span class="pth ell">tarot-review/</span><span class="t-lm mu">updated 4 days ago</span></div></div>
+        <div class="cd vz kd-expl"><i class="band"></i><div class="in"><span class="kd">Explainer</span><div class="t-tl cl2">Fire TV remote keys</div><span class="pth ell">firetv-keys.html</span><span class="t-lm mu">updated 5 days ago</span></div></div>
+        <div class="cd vz kd-proj"><i class="band"></i><div class="in"><span class="kd">Project page</span><div class="t-tl cl2">Home automation</div><span class="pth ell">home-automation/</span><span class="t-lm mu">updated last week</span></div></div>
+        <div class="cd vz kd-dash"><i class="band"></i><div class="in"><span class="kd">Dashboard</span><div class="t-tl cl2">History search eval</div><span class="pth ell">history-eval.html</span><span class="t-lm mu">updated last week</span></div></div>
+        <div class="cd vz kd-rev"><i class="band"></i><div class="in"><span class="kd">Review</span><div class="t-tl cl2">Music video cuts</div><span class="pth ell">music1-review/</span><span class="t-lm mu">updated 2 weeks ago</span></div></div>
+        <div class="cd vz kd-proj"><i class="band"></i><div class="in"><span class="kd">Project page</span><div class="t-tl cl2">Biography outline</div><span class="pth ell">biography/</span><span class="t-lm mu">updated 2 weeks ago</span></div></div>
+        <div class="cd vz kd-model"><i class="band"></i><div class="in"><span class="kd">Model</span><div class="t-tl cl2">Election model, Rio</div><span class="pth ell">rio-model.html</span><span class="t-lm mu">updated last month</span></div></div>
+      </div>
+    </div>
+    <div class="fadeb"></div>
+    <div class="stc"><span class="fld" style="height:72px;width:520px;font-size:30px"><svg class="i"><use href="#i-search"/></svg>Search visuals</span><span class="cn"><span class="dot"></span>Connected</span><span class="vc"><svg class="i"><use href="#i-mic"/></svg>Idle</span></div>
+    <div class="hints">
+      <span class="h"><span class="kc w">OK</span>Open</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-menu"/></svg></span>Options</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-mic"/></svg></span>Hold to talk</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-back"/></svg></span>Back</span>
+    </div>
+  </div></div></div>
+</section>
+
+<!-- ============ 11. VIEWER ============ -->
+<section class="sec" id="s11">
+  <div class="cap"><span class="no">11</span><div><h2>Viewer</h2><p>A visualization pushed by an agent (<span style="font-family:var(--mono)">tv_cmd.py viz</span>): the page fills the screen with no app chrome, and a 3 s toast names it and its source. The D-pad moves through the page's links and controls (Chromium spatial navigation; <b>Week</b> has focus); when nothing lies further, Up/Down scroll. Play/Pause drives page media; Back goes back in history, then closes.</p></div></div>
+  <div class="bez"><div class="fit"><div class="tv">
+    <div class="web" id="dash">
+      <div class="wtop">
+        <div><h4><svg class="i"><use href="#i-sun"/></svg>Solar</h4><p>Rooftop array · Fri 16 Oct · 21:12</p></div>
+        <div class="seg"><span class="on">Today</span><span class="ring2">Week</span><span>Month</span></div>
+      </div>
+      <div class="kpis">
+        <div class="kp"><span class="l">Producing now</span><span class="v">0.0<small>kW</small></span><span class="d m">Sunset 17:51</span></div>
+        <div class="kp"><span class="l">Produced today</span><span class="v">18.4<small>kWh</small></span><span class="d">▲ 12% vs yesterday</span></div>
+        <div class="kp"><span class="l">Battery</span><span class="v">76<small>%</small></span><div class="batt"><i></i></div></div>
+        <div class="kp"><span class="l">Exported to grid</span><span class="v">2.1<small>kWh</small></span><span class="d">▲ 0.5 vs yesterday</span></div>
+      </div>
+      <div class="wbot">
+        <div class="pnl">
+          <h5>Production by hour <span>kWh</span></h5>
+          <div class="bars"><i style="--h:3%"></i><i style="--h:14%"></i><i style="--h:31%"></i><i style="--h:55%"></i><i style="--h:76%"></i><i style="--h:90%"></i><i style="--h:100%"></i><i style="--h:97%"></i><i style="--h:86%"></i><i style="--h:69%"></i><i style="--h:48%"></i><i style="--h:24%"></i><i style="--h:7%"></i></div>
+          <div class="hrs"><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span><span>16</span><span>17</span><span>18</span></div>
+        </div>
+        <div class="pnl">
+          <h5>Last 7 days <span>kWh</span></h5>
+          <div class="days">
+            <div>Fri<i style="--w:91%"></i><b>18.4</b></div>
+            <div>Thu<i style="--w:81%"></i><b>16.4</b></div>
+            <div>Wed<i style="--w:94%"></i><b>19.1</b></div>
+            <div>Tue<i style="--w:63%"></i><b>12.7</b></div>
+            <div>Mon<i style="--w:88%"></i><b>17.9</b></div>
+            <div>Sun<i style="--w:100%"></i><b>20.3</b></div>
+            <div>Sat<i style="--w:75%"></i><b>15.2</b></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="toast"><svg class="mk"><use href="#mark"/></svg><div><span class="t-ll">Opened by Archie · Solar dashboard</span><small>≡ Options · Back closes</small></div></div>
+  </div></div></div>
+
+  <div class="cap sub"><span class="no">11b</span><div><h2>Viewer · Pointer mode</h2><p>For pages with nothing focusable (it switches on by itself) or via Menu → Pointer mode: a cursor moved by the D-pad, OK clicks, pushing against an edge scrolls. The chip at the bottom stays while the mode is on.</p></div></div>
+  <div class="sm"><div class="bez"><div class="fit"><div class="tv">
+    <div data-clone="dash" data-unfocus></div>
+    <div class="tip" style="left:560px;top:500px">12:00 · 2.9 kWh</div>
+    <span class="cur" style="left:640px;top:640px"><svg class="i"><use href="#i-pointer"/></svg></span>
+    <div class="pm"><svg class="i" style="width:40px;height:40px"><use href="#i-pointer"/></svg>Pointer mode<span class="h"><span class="kc w">OK</span>Click</span><span class="h"><span class="kc"><svg class="i"><use href="#i-menu"/></svg></span>Turn off</span></div>
+  </div></div></div></div>
+</section>
+
+<!-- ============ 12. VIEWER OPTIONS ============ -->
+<section class="sec" id="s12">
+  <div class="cap"><span class="no">12</span><div><h2>Viewer options (Menu pressed)</h2><p>Menu ≡ in the Viewer opens a side sheet over the dimmed page. Up/Down picks, OK acts; Left/Right on Zoom steps it. Back closes the sheet and returns focus to the page where it was.</p></div></div>
+  <div class="bez"><div class="fit"><div class="tv">
+    <div data-clone="dash" data-unfocus></div>
+    <div class="scrim" style="background:var(--scrim-70)"></div>
+    <div class="sheet">
+      <div class="t-tl">Solar dashboard</div>
+      <div class="url ell">192.168.0.200/visualizations/solar-dashboard.html</div>
+      <div class="sr"><svg class="i"><use href="#i-refresh"/></svg><div class="tx t-tm">Reload</div></div>
+      <div class="sr fx lr"><svg class="i"><use href="#i-pointer"/></svg><div class="tx t-tm">Pointer mode</div><span class="sw"></span></div>
+      <div class="sr"><svg class="i"><use href="#i-zoom"/></svg><div class="tx t-tm">Zoom</div><span class="zm"><span><svg class="i"><use href="#i-minus"/></svg></span><b class="t-ll">100%</b><span><svg class="i"><use href="#i-plus"/></svg></span></span></div>
+      <div class="sr"><svg class="i"><use href="#i-grid"/></svg><div class="tx t-tm">Find in Visuals</div></div>
+      <div class="sr"><svg class="i"><use href="#i-reset"/></svg><div class="tx"><div class="t-tm">Hard reset</div><div class="t-lm mu">Clear the page's cache and reload</div></div></div>
+      <div class="sr"><svg class="i"><use href="#i-exit"/></svg><div class="tx t-tm">Close</div></div>
+      <div style="margin-top:auto;display:flex;gap:40px;padding:0 28px">
+        <span class="h"><span class="kc"><svg class="i"><use href="#i-back"/></svg></span>Close menu</span>
+      </div>
+    </div>
+  </div></div></div>
+</section>
+
+<!-- ============ 13. MEMORY ============ -->
+<section class="sec" id="s13">
+  <div class="cap"><span class="no">13</span><div><h2>Memory</h2><p>Tree on the left: OK expands or collapses a folder, or opens a note full screen. The right pane previews the focused note. An "Updated" chip appears when a note changes while you look at it.</p></div></div>
+  <div class="bez"><div class="fit"><div class="tv">
+    <nav class="drw"><svg class="mk"><use href="#mark"/></svg>
+      <span class="ni"><svg class="i"><use href="#i-home"/></svg></span>
+      <span class="ni"><svg class="i"><use href="#i-chat"/></svg><i class="bd"></i></span>
+      <span class="ni"><svg class="i"><use href="#i-grid"/></svg></span>
+      <span class="ni sel"><svg class="i"><use href="#i-book"/></svg></span>
+      <span class="ni"><svg class="i"><use href="#i-gear"/></svg></span>
+    </nav>
+    <div class="main">
+      <div class="hd"><span class="t-ds">Memory</span></div>
+      <div class="split">
+        <div class="lp" style="-webkit-mask-image:linear-gradient(var(--mask-on) 84%,var(--clear));mask-image:linear-gradient(var(--mask-on) 84%,var(--clear))">
+          <div class="fld"><svg class="i"><use href="#i-search"/></svg>Search memory</div>
+          <div class="tn"><svg class="i chv"><use href="#i-chr"/></svg><svg class="i"><use href="#i-folder"/></svg>archie<span class="n">94</span></div>
+          <div class="tn"><svg class="i chv"><use href="#i-chr"/></svg><svg class="i"><use href="#i-folder"/></svg>deployment<span class="n">7</span></div>
+          <div class="tn"><svg class="i chv"><use href="#i-chr"/></svg><svg class="i"><use href="#i-folder"/></svg>identity<span class="n">5</span></div>
+          <div class="tn"><svg class="i chv"><use href="#i-chd"/></svg><svg class="i"><use href="#i-folder"/></svg>people<span class="n">12</span></div>
+          <div class="tn" style="--d:1"><svg class="i chv"><use href="#i-chr"/></svg><svg class="i"><use href="#i-folder"/></svg>alice</div>
+          <div class="tn" style="--d:1"><svg class="i chv"><use href="#i-chd"/></svg><svg class="i"><use href="#i-folder"/></svg>rodrigo</div>
+          <div class="tn f fx lr" style="--d:2"><svg class="i"><use href="#i-doc"/></svg>rodrigo_personal_context.md</div>
+          <div class="tn f" style="--d:2"><svg class="i"><use href="#i-doc"/></svg>routines.md</div>
+          <div class="tn"><svg class="i chv"><use href="#i-chr"/></svg><svg class="i"><use href="#i-folder"/></svg>projects<span class="n">31</span></div>
+        </div>
+        <div class="rp md">
+          <div class="t-lm mu" style="font-family:var(--mono);font-weight:400">people/rodrigo/rodrigo_personal_context.md</div>
+          <h1>Rodrigo · personal context</h1>
+          <div class="meta"><span class="chip" style="height:48px">people</span><span class="chip" style="height:48px">modified 14 Oct 2026</span><span class="chip" style="height:48px;background:var(--pc);color:var(--onpc)">Updated</span></div>
+          <h2>Work</h2>
+          <p>Senior full-stack developer and AI researcher in Rio de Janeiro. Works remotely for a U.S. SaaS company; Archie is his own project, built as a partner rather than a product.</p>
+          <h2>How he likes to work</h2>
+          <ul><li>Stays in control: direct the model to an exact result.</li><li>Runs several projects in parallel; expects state to be kept in files.</li><li>Plain answers, no filler.</li></ul>
+        </div>
+      </div>
+    </div>
+    <div class="stc"><span class="cn"><span class="dot"></span>Connected</span><span class="vc"><svg class="i"><use href="#i-mic"/></svg>Idle</span></div>
+    <div class="hints">
+      <span class="h"><span class="kc w">OK</span>Open</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-menu"/></svg></span>Options</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-mic"/></svg></span>Hold to talk</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-back"/></svg></span>Back</span>
+    </div>
+  </div></div></div>
+
+  <div class="cap sub"><span class="no">13b</span><div><h2>Memory doc, full screen</h2><p>The same reading model as a conversation: Up/Down walks blocks, Rewind/FF page. Internal links are focusable on their own; OK on <b>devices.md</b> opens that note, a link to a visualization opens the Viewer.</p></div></div>
+  <div class="bez"><div class="fit"><div class="tv">
+    <div class="chd" style="right:640px">
+      <svg class="i bk"><use href="#i-arrl"/></svg>
+      <svg class="i" style="color:var(--onv)"><use href="#i-doc"/></svg>
+      <span class="t-tl ttl ell">Fire TV</span>
+      <span class="t-lm mu ell" style="font-family:var(--mono);font-weight:400">archie/devices/fire-tv.md</span>
+    </div>
+    <div class="doc md">
+      <h1>Fire TV Stick 4K</h1>
+      <p>The living-room stick (AFTKM, Fire OS 8) runs the launcher and Archie TV. Its address comes from DHCP, so scripts find it by MAC; see <span class="lk fx">devices.md</span> for the full device list.</p>
+      <h2>How Archie reaches it</h2>
+      <ul>
+        <li>Agents open pages through the TV app's control socket: <span class="icode">tv_cmd.py viz &lt;path&gt;</span>.</li>
+        <li>adb stays as the fallback for launching other apps and screenshots; see <span class="lk">connect-tv</span>.</li>
+        <li>The mic button belongs to Archie once <span class="icode">tv_setup.sh</span> has turned off Alexa's voice UI; <span class="lk">Remote mic probe</span> has the numbers.</li>
+      </ul>
+      <h2>Display</h2>
+      <p>1920 × 1080 at 320 dpi, so 960 × 540 dp. Keep everything inside 48 dp left and right, 27 dp top and bottom.</p>
+    </div>
+    <div class="stc"><span class="cn"><span class="dot"></span>Connected</span><span class="vc"><svg class="i"><use href="#i-mic"/></svg>Idle</span></div>
+    <div class="hints full">
+      <span class="h"><span class="kc w">OK</span>Open link</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-rw"/></svg></span><span class="kc" style="margin-left:-8px"><svg class="i"><use href="#i-ff"/></svg></span>Page</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-menu"/></svg></span>Options</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-back"/></svg></span>Back</span>
+    </div>
+  </div></div></div>
+</section>
+
+<!-- ============ 14. SETTINGS · REMOTE MIC ============ -->
+<section class="sec" id="s14">
+  <div class="cap"><span class="no">14</span><div><h2>Settings → Remote microphone</h2><p>Settings is a list with a detail pane. Here the status says the mic is Archie's; the test meter shows the last level (hold the mic to test, release to hear it back). Focus is on <b>Listen while other apps are open</b>, off by default until field-tested (Q2). The note explains why Alexa stays quiet and how to undo it.</p></div></div>
+  <div class="bez"><div class="fit"><div class="tv">
+    <nav class="drw"><svg class="mk"><use href="#mark"/></svg>
+      <span class="ni"><svg class="i"><use href="#i-home"/></svg></span>
+      <span class="ni"><svg class="i"><use href="#i-chat"/></svg><i class="bd"></i></span>
+      <span class="ni"><svg class="i"><use href="#i-grid"/></svg></span>
+      <span class="ni"><svg class="i"><use href="#i-book"/></svg></span>
+      <span class="ni sel"><svg class="i"><use href="#i-gear"/></svg></span>
+    </nav>
+    <div class="main">
+      <div class="hd"><span class="t-ds">Settings</span></div>
+      <div class="split" style="gap:56px">
+        <div class="lp" style="width:540px">
+          <div class="li"><span class="gl"><svg class="i"><use href="#i-server"/></svg></span><div class="tx t-tm">Connection</div></div>
+          <div class="li sel"><span class="gl" style="background:var(--pc);color:var(--onpc)"><svg class="i"><use href="#i-mic"/></svg></span><div class="tx t-tm">Remote microphone</div></div>
+          <div class="li"><span class="gl"><svg class="i"><use href="#i-wave"/></svg></span><div class="tx t-tm">Voice</div></div>
+          <div class="li"><span class="gl"><svg class="i"><use href="#i-eye"/></svg></span><div class="tx t-tm">Display</div></div>
+          <div class="li"><span class="gl"><svg class="i"><use href="#i-tv"/></svg></span><div class="tx t-tm">TV control</div></div>
+          <div class="li"><span class="gl"><svg class="i"><use href="#i-server"/></svg></span><div class="tx t-tm">Server</div></div>
+          <div class="li"><span class="gl"><svg class="i"><use href="#i-info"/></svg></span><div class="tx t-tm">About</div></div>
+        </div>
+        <div class="dp">
+          <div class="stbox"><svg class="i"><use href="#i-ok"/></svg><div><div class="t-tm">Ready — the mic button talks to Archie</div><p>Hold it anywhere in the app. Alexa stays quiet.</p></div></div>
+          <div class="meter"><svg class="i" style="color:var(--onv)"><use href="#i-mic"/></svg><div style="flex:none"><div class="t-tm">Test</div><div class="t-lm mu">Hold the mic and say hello</div></div><div class="mt"><i></i><b></b></div><span class="btn ic" style="height:72px"><svg class="i"><use href="#i-speaker"/></svg>Play back</span></div>
+          <div class="sr fx lr" style="padding:18px 36px;background:var(--s2)"><div class="tx"><div class="t-tm">Listen while other apps are open</div><div class="t-lm mu">Archie hears you over YouTube too. Experimental.</div></div><span class="sw"></span></div>
+          <div class="sr" style="padding:8px 36px"><div class="tx"><div class="t-tm">Start and stop sounds</div></div><span class="sw on"></span></div>
+          <div class="infob"><svg class="i"><use href="#i-info"/></svg><p><b>Why Alexa doesn't answer.</b> The setup script turned off Alexa's voice UI (com.amazon.vizzini), so the mic button belongs to Archie. To give it back, run <span class="icode">tv_setup.sh --restore-alexa</span> on the laptop.</p></div>
+        </div>
+      </div>
+    </div>
+    <div class="stc"><span class="cn"><span class="dot"></span>Connected</span><span class="vc"><svg class="i"><use href="#i-mic"/></svg>Idle</span></div>
+    <div class="hints">
+      <span class="h"><span class="kc w">OK</span>Turn on</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-mic"/></svg></span>Hold to test</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-back"/></svg></span>Back</span>
+    </div>
+  </div></div></div>
+</section>
+
+<!-- ============ 15. FIRST RUN ============ -->
+<section class="sec" id="s15">
+  <div class="cap"><span class="no">15</span><div><h2>First run → Connect</h2><p>After the splash, the app scans the LAN and shows each Archie server it finds as a card; OK connects (the Jetson's self-signed certificate is confirmed on the next screen). "Enter address" opens the Fire TV keyboard. Step 2 checks the remote mic.</p></div></div>
+  <div class="bez"><div class="fit"><div class="tv">
+    <div class="fr">
+      <svg class="mk"><use href="#mark"/></svg>
+      <div class="steps"><span class="on">1 · Connect</span><span>·</span><span>2 · Remote mic</span></div>
+      <div class="t-ds" style="margin-top:12px">Connect to your Archie server</div>
+      <p class="t-bm mu">Found on this network</p>
+      <div class="srv">
+        <div class="cd sv fx"><span class="gl"><svg class="i"><use href="#i-server"/></svg></span><span class="t-tl">Jetson</span><span class="u">https://192.168.0.200</span><span class="t-lm mu">Archie server · always on</span></div>
+        <div class="cd sv"><span class="gl"><svg class="i"><use href="#i-laptop"/></svg></span><span class="t-tl">Laptop</span><span class="u">http://192.168.0.28:8765</span><span class="t-lm mu">Archie server · not encrypted</span></div>
+        <div class="cd sv"><span class="gl" style="color:var(--onv)"><svg class="i"><use href="#i-kbd"/></svg></span><span class="t-tl">Enter address</span><span class="t-lm mu">Type a server URL with the keyboard</span></div>
+      </div>
+      <div class="scan"><span class="spn"></span>Still scanning 192.168.0.0/24…</div>
+    </div>
+    <div class="hints full">
+      <span class="h"><span class="kc w">OK</span>Connect</span>
+      <span class="h"><span class="kc"><svg class="i"><use href="#i-back"/></svg></span>Exit</span>
+    </div>
+  </div></div></div>
+</section>
+
+<!-- ============ 16. BLACK SCREEN ============ -->
+<section class="sec" id="s16">
+  <div class="cap"><span class="no">16</span><div><h2>Black screen</h2><p>After 15 min idle; any key → launcher. Never while media plays. Archie keeps it awake while it shows pushed content or live voice runs, and an agent opening a page wakes it.</p></div></div>
+  <div class="xs"><div class="bez"><div class="fit"><div class="tv blackv"></div></div></div></div>
+</section>
+
+</div>
+
+<script>
+(function () {
+  var d = document;
+  // Copy shared screen parts (Home behind the drawer, the conversation behind the mic overlay, the dashboard page).
+  [].slice.call(d.querySelectorAll('[data-clone]')).forEach(function (el) {
+    var src = d.getElementById(el.getAttribute('data-clone'));
+    if (!src) return;
+    var c = src.cloneNode(true);
+    c.removeAttribute('id');
+    [].slice.call(c.querySelectorAll('[id]')).forEach(function (n) { n.removeAttribute('id'); });
+    if (el.hasAttribute('data-unfocus')) {
+      [].slice.call(c.querySelectorAll('.fx')).forEach(function (n) { n.classList.remove('fx'); });
+      [].slice.call(c.querySelectorAll('.ring2')).forEach(function (n) { n.classList.remove('ring2'); });
+    }
+    el.parentNode.replaceChild(c, el);
+  });
+  // Scale each 1920×1080 frame to its column.
+  var fits = [].slice.call(d.querySelectorAll('.fit'));
+  function fit() { fits.forEach(function (f) { f.style.setProperty('--s', (f.clientWidth / 1920).toFixed(5)); }); }
+  fit();
+  if (window.ResizeObserver) { var ro = new ResizeObserver(fit); fits.forEach(function (f) { ro.observe(f); }); }
+  else window.addEventListener('resize', fit);
+  // Safe-area guide toggle.
+  var b = d.getElementById('safe');
+  b.addEventListener('click', function () {
+    var on = d.documentElement.classList.toggle('safe');
+    b.setAttribute('aria-pressed', String(on));
+  });
+})();
+</script>

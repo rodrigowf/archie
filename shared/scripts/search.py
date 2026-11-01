@@ -14,7 +14,8 @@ Options:
     --window A B         Preferred window as ISO dates
     --after DATE         Hard bound: only messages on/after YYYY-MM-DD
     --before DATE        Hard bound: only messages before YYYY-MM-DD
-    --kind KIND          Prefer orchestrator | agent | claude | qwen | gemini sessions
+    --kind KIND          Prefer orchestrator | agent | claude | qwen | gemini | chatgpt sessions
+                         ("chatgpt" = imported ChatGPT history, read-only)
     --exclude ID         Leave out a session (repeatable)
     --session ID         Search inside one session only
     --rerank             LLM re-rank of the top candidates (needs OPENAI_API_KEY)
@@ -133,7 +134,8 @@ def main():
     parser.add_argument("--window", nargs=2, default=None, metavar=("AFTER", "BEFORE"))
     parser.add_argument("--after", default=None)
     parser.add_argument("--before", default=None)
-    parser.add_argument("--kind", default=None, choices=["orchestrator", "agent", "claude", "qwen", "gemini"])
+    parser.add_argument("--kind", default=None,
+                        choices=["orchestrator", "agent", "claude", "qwen", "gemini", "chatgpt"])
     parser.add_argument("--exclude", action="append", default=[])
     parser.add_argument("--session", default=None)
     parser.add_argument("--rerank", action="store_true")

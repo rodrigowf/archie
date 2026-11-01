@@ -139,6 +139,15 @@ async def open_agent_session(
 
     # Validate that the session actually exists before trying to resume.
     if sdk_id:
+        from utils.history_index import is_read_only_session
+
+        if is_read_only_session(sdk_id):
+            # Imported artifact: searchable and readable, but there is no process behind it.
+            return json.dumps({
+                "error": f"Session {sdk_id!r} is a conversation imported from a ChatGPT export: "
+                "read-only, it cannot be resumed.",
+                "hint": "read_conversation(session_id=…) to read it.",
+            })
         session_info = store.get_session_info(sdk_id)
         if session_info is None:
             return json.dumps({
@@ -241,6 +250,14 @@ async def resume_conversation(context: dict[str, Any], session_id: str = "") -> 
     sid = (session_id or "").strip()
     if not sid:
         return json.dumps({"error": "session_id is required: take it from a search_history or list_conversations result."})
+    from utils.history_index import is_read_only_session
+
+    if is_read_only_session(sid):
+        return json.dumps({
+            "error": "That is a conversation imported from a ChatGPT export: read-only, there is no "
+                     "session to resume.",
+            "hint": f"read_conversation(session_id='{sid}') to read it, or quote it into a new session.",
+        })
     out = json.loads(await open_agent_session(context, resume_sdk_id=sid))
     if "error" in out:
         if "orchestrator session" in out["error"]:

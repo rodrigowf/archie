@@ -39,7 +39,7 @@ changes to the other. Code is not synced this way — see [topology.md](topology
 | Variable | Meaning |
 |---|---|
 | `LOCAL_DIR` | Local `context/` (absolute, no trailing slash) |
-| `REMOTE_HOST`, `REMOTE_USER` | The other machine (laptop config → `192.168.0.200`; Jetson config → `192.168.0.28`) |
+| `REMOTE_HOST`, `REMOTE_USER` | The other machine (laptop config → `192.168.0.200`; Jetson config → `192.168.0.230`) |
 | `REMOTE_DIR` | Remote `context/` — same path on both machines |
 | `SSH_KEY` | Passphrase-less private key authorized on the other side |
 | `DEBOUNCE_SECONDS` | Default `2` |

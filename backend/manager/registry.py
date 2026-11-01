@@ -231,7 +231,8 @@ def ensure_all_registered() -> None:
         importlib.import_module(mod)
 
 
-# Modules that, on import, register both a HarnessSpec and a ProviderAdapter.
+# Modules that, on import, register a ProviderAdapter and (for every runnable harness) a
+# HarnessSpec.
 # Listed here (not derived from _registry) because we don't know what's
 # registered until after the imports run — chicken-and-egg.  Adding a new
 # harness lands by writing the adapter module and adding it here.
@@ -243,4 +244,7 @@ _ADAPTER_MODULES: tuple[str, ...] = (
     # Claude Code against Alibaba Model Studio; shares Claude's JSONL and
     # must come after manager.claude.adapter (detection order, reaper).
     "manager.modelstudio.adapter",
+    # Read-only: imported ChatGPT exports. Registers a ProviderAdapter only — there is no
+    # HarnessSpec because there is no CLI to run (docs/harnesses/chatgpt-import.md).
+    "manager.chatgpt.adapter",
 )

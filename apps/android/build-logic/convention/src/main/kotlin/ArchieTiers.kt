@@ -7,7 +7,7 @@ import org.gradle.api.Project
  * because :app-lite consumes them. A LEGACY module may only use legacy/pinned/shared/test
  * catalog aliases and may only depend on LEGACY modules.
  *
- * MODERN: minSdk 26 (main app only). May depend on anything except :app-lite and may not use
+ * MODERN: minSdk 26 (main app and TV app). May depend on anything except :app-lite and may not use
  * a legacy-tier alias (it must take the modern AndroidX line).
  */
 enum class ArchieTier { LEGACY, MODERN }
@@ -25,6 +25,7 @@ object ArchieTiers {
         ":feature:visuals",
         ":feature:settings",
         ":app-main",
+        ":app-tv",
     )
 
     fun tierOf(path: String): ArchieTier =

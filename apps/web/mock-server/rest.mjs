@@ -108,6 +108,7 @@ export function createRest(engine, opts = {}) {
   let config = readJson(path.join(dataDir, 'config.json'));
   const sessionConfigs = new Map();
   const titles = new Map();
+  const favorites = new Set(); // VZ-8 stars (the real backend keeps context/.visual_favorites.json)
   const uploads = new Map();
   const debugLog = [];
   const accounts = createAccounts();
@@ -417,6 +418,7 @@ export function createRest(engine, opts = {}) {
           created: st.birthtime.toISOString().replace('Z', '+00:00'),
           modified: st.mtime.toISOString().replace('Z', '+00:00'),
           size: st.size,
+          favorite: favorites.has(rel),
         };
       });
       list.sort((a, b) => (a.modified < b.modified ? 1 : -1));
@@ -428,6 +430,16 @@ export function createRest(engine, opts = {}) {
       if (!body?.title?.trim()) return json(res, 400, { detail: 'title is required' });
       if (!walkHtml(publicRoot).includes(body.path)) return notFound(res);
       titles.set(`viz:${body.path}`, body.title.trim());
+      return send(res, 204);
+    }
+    if (p === '/api/visualizations/favorite' && m === 'PUT') {
+      const body = await readJsonBody(req);
+      if (!body?.path) return json(res, 400, { detail: 'path is required' });
+      if (typeof body.favorite !== 'boolean') return json(res, 400, { detail: 'favorite must be a boolean' });
+      if (body.favorite) {
+        if (!walkHtml(publicRoot).includes(body.path)) return notFound(res);
+        favorites.add(body.path);
+      } else favorites.delete(body.path);
       return send(res, 204);
     }
     if (p === '/api/visualizations/cast') {

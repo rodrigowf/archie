@@ -130,6 +130,22 @@ describe('<HistoryPane>', () => {
     expect(screen.getByRole('button', { name: /Unknown job/ }).getAttribute('title')).toContain('· mystery ·');
   });
 
+  it('badges an imported ChatGPT conversation and marks the row read-only', () => {
+    setCatalogItems('sessions', [
+      session('cg-1', 'Desabafo sobre mudança', '2026-10-02T12:00:00+00:00', { provider: 'chatgpt', read_only: true }),
+      session('cl-1', 'Normal agent job', '2026-10-02T11:00:00+00:00', { provider: 'claude' }),
+    ]);
+    render(<HistoryPane now={NOW} />);
+    const imported = screen.getByRole('button', { name: /Desabafo sobre mudança/ });
+    expect(imported.getAttribute('title')).toContain('· ChatGPT · read-only ·');
+    // The mark is the masked brand asset, not a Material glyph (keeps it out of the JS budget).
+    expect(imported.querySelector('.chatgpt-mark')).toBeTruthy();
+    // A normal session is untouched: no ChatGPT label, no read-only marker.
+    const normal = screen.getByRole('button', { name: /Normal agent job/ });
+    expect(normal.getAttribute('title')).not.toContain('ChatGPT');
+    expect(normal.getAttribute('title')).not.toContain('read-only');
+  });
+
   it('search filters titles (open and past) and says when nothing matches', () => {
     render(<HistoryPane openNow={openNow} now={NOW} />);
     const field = screen.getByRole('searchbox', { name: 'Search conversations' });

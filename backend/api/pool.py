@@ -287,6 +287,17 @@ class SessionPool:
                 return lid
         return None
 
+    def find_open_by_sdk_id(self, sdk_session_id: str) -> str | None:
+        """Like :meth:`find_by_sdk_id`, but also finds a session restored after a restart and
+        not spawned yet (open, so :meth:`ensure_live` brings it up)."""
+        live = self.find_by_sdk_id(sdk_session_id)
+        if live:
+            return live
+        for lid, sdk in self._open_agents.items():
+            if sdk == sdk_session_id:
+                return lid
+        return None
+
     async def create(
         self,
         config: ManagerConfig,

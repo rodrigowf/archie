@@ -649,6 +649,14 @@
   overflow-wrap: break-word;
 }
 
+/* Brand mark for an imported conversation (ChatGPT), inline before the title. Inherits
+   currentColor, dimmed so it reads as a provenance badge and not as an action. */
+.histMark {
+  margin-right: 5px;
+  vertical-align: -2px;
+  opacity: 0.75;
+}
+
 .histMeta {
   font-family: var(--md-sys-typescale-code-font);
   font-size: 11px;

@@ -88,6 +88,7 @@ export {
   saveServerConfig,
   scheduleListRefresh,
   scheduleVisualsRefresh,
+  setVisualFavorite,
 } from './catalogService';
 export { uploadFile, sharedFileText, sharedTextText, type UploadOptions, type UploadProgress } from './uploads';
 export { castVisualization, probeAudioModels, probeBackendCapabilities, probeCast } from './capabilitiesProbe';

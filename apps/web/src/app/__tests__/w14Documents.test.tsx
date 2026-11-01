@@ -25,7 +25,7 @@ const TREE: MemoryNode[] = [
   },
 ];
 const VOICE = '---\ncategory: architecture\n---\n# Voice\n\nSee [wake word](wake%20word.md).\n';
-const VIZ = [{ path: 'charts/weekly.html', url: '/charts/weekly.html', title: 'Weekly energy usage', created: '2026-10-04T10:00:00+00:00', modified: '2026-10-04T11:00:00+00:00', size: 1 }];
+const VIZ = [{ path: 'charts/weekly.html', url: '/charts/weekly.html', title: 'Weekly energy usage', created: '2026-10-04T10:00:00+00:00', modified: '2026-10-04T11:00:00+00:00', size: 1, favorite: false }];
 
 let h: Harness;
 beforeEach(() => {

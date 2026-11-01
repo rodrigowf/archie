@@ -9,14 +9,14 @@ import { probeCast, type VisualizationInfo } from '@/services';
 import { bumpContent, capabilitiesStore, patchCapabilities, resetContentChanges, setCatalogItems, snackbarStore } from '@/stores';
 import { expectNoAxeViolations } from '@/test/axe';
 import { jsonResponse, setupServices, teardownServices, type Harness } from '../../../services/__tests__/fakes';
-import { VisualCard, VisualsPane, vizFolder, vizHref } from '..';
+import { partitionVisuals, VisualCard, VisualsPane, vizFolder, vizHref } from '..';
 import { LIVE_RELOAD_DEBOUNCE_MS, UPDATED_CUE_MS, VisualViewer, VIZ_SANDBOX } from '../VisualViewer';
 
 const NOW = Date.UTC(2026, 9, 4, 13, 0, 0);
 const VIZ: VisualizationInfo[] = [
-  { path: 'charts/weekly energy#1.html', url: '/charts/weekly energy#1.html', title: 'Weekly energy usage', created: '2026-10-04T10:00:00+00:00', modified: '2026-10-04T11:00:00+00:00', size: 1200 },
-  { path: 'solar-system/index.html', url: '/solar-system/index.html', title: 'Solar system', created: '2026-09-01T10:00:00+00:00', modified: '2026-09-20T10:00:00+00:00', size: 900 },
-  { path: 'root.html', url: '/root.html', title: 'Root page', created: '2026-09-01T10:00:00+00:00', modified: '2026-09-01T10:00:00+00:00', size: 10 },
+  { path: 'charts/weekly energy#1.html', url: '/charts/weekly energy#1.html', title: 'Weekly energy usage', created: '2026-10-04T10:00:00+00:00', modified: '2026-10-04T11:00:00+00:00', size: 1200, favorite: false },
+  { path: 'solar-system/index.html', url: '/solar-system/index.html', title: 'Solar system', created: '2026-09-01T10:00:00+00:00', modified: '2026-09-20T10:00:00+00:00', size: 900, favorite: false },
+  { path: 'root.html', url: '/root.html', title: 'Root page', created: '2026-09-01T10:00:00+00:00', modified: '2026-09-01T10:00:00+00:00', size: 10, favorite: false },
 ];
 
 const W = VIZ[0] as VisualizationInfo;
@@ -39,6 +39,14 @@ describe('helpers', () => {
     expect(vizHref('a/b.html')).toBe('http://backend.test/a/b.html');
     expect(vizFolder('charts/weekly.html')).toBe('charts');
     expect(vizFolder('root.html')).toBe('public');
+  });
+
+  it('splits starred from the rest, each in server order, no duplicates (VZ-8)', () => {
+    const items = VIZ.map((v, i) => ({ ...v, favorite: i !== 1 }));
+    const { starred, rest } = partitionVisuals(items);
+    expect(starred.map((v) => v.path)).toEqual(['charts/weekly energy#1.html', 'root.html']);
+    expect(rest.map((v) => v.path)).toEqual(['solar-system/index.html']);
+    expect(partitionVisuals(VIZ).starred).toEqual([]);
   });
 });
 
@@ -220,6 +228,82 @@ describe('<VisualsPane>', () => {
       expect(h.fetch.calls('PATCH', '/api/visualizations/rename')[0]?.body).toEqual({ path: 'solar-system/index.html', title: 'Planets' });
     });
     await expectNoAxeViolations(container);
+  });
+});
+
+describe('<VisualsPane> favorites (VZ-8)', () => {
+  const starredViz = (paths: string[]): VisualizationInfo[] => VIZ.map((v) => ({ ...v, favorite: paths.includes(v.path) }));
+  const lists = (c: HTMLElement) => Array.from(c.querySelectorAll('[role="list"]')).map((l) => [l.getAttribute('aria-label'), Array.from(l.querySelectorAll('[data-row]')).map((r) => r.getAttribute('data-row'))]);
+
+  it('nothing starred: one list, no headers', () => {
+    const { container } = render(<VisualsPane now={NOW} />);
+    expect(lists(container)).toEqual([['Visuals', VIZ.map((v) => v.path)]]);
+    expect(screen.queryByText('Starred')).toBeNull();
+    expect(screen.queryByText('All visuals')).toBeNull();
+  });
+
+  it('Starred on top, the rest below, search filters both and hides an empty section', async () => {
+    const items = starredViz(['root.html']);
+    h.fetch.on('GET', '/api/visualizations', items);
+    setCatalogItems('visuals', items);
+    const { container } = render(<VisualsPane now={NOW} />);
+    expect(lists(container)).toEqual([
+      ['Starred', ['root.html']],
+      ['All visuals', ['charts/weekly energy#1.html', 'solar-system/index.html']],
+    ]);
+    expect(screen.getByText('Starred')).toBeTruthy();
+    expect(screen.getByText('All visuals')).toBeTruthy();
+    // the set star is a pressed toggle; an unset one is a plain "Star" toggle
+    const root = container.querySelector('[data-row="root.html"]') as HTMLElement;
+    expect(within(root).getByRole('button', { name: 'Unstar' }).getAttribute('aria-pressed')).toBe('true');
+    const solar = container.querySelector('[data-row="solar-system/index.html"]') as HTMLElement;
+    expect(within(solar).getByRole('button', { name: 'Star' }).getAttribute('aria-pressed')).toBe('false');
+    await expectNoAxeViolations(container);
+
+    const search = screen.getByRole('searchbox', { name: 'Search visuals' });
+    fireEvent.change(search, { target: { value: 'solar' } });
+    expect(lists(container)).toEqual([['Visuals', ['solar-system/index.html']]]);
+    expect(screen.queryByText('Starred')).toBeNull();
+    fireEvent.change(search, { target: { value: 'root' } });
+    expect(lists(container)).toEqual([['Starred', ['root.html']]]);
+    expect(screen.queryByText('All visuals')).toBeNull();
+  });
+
+  it('the row toggle stars optimistically and reverts on a server error', async () => {
+    h.fetch.on('PUT', '/api/visualizations/favorite', () => jsonResponse(undefined, 204));
+    const { container } = render(<VisualsPane now={NOW} />);
+    const row = (p: string) => container.querySelector(`[data-row="${p}"]`) as HTMLElement;
+    fireEvent.click(within(row('solar-system/index.html')).getByRole('button', { name: 'Star' }));
+    expect(lists(container)[0]).toEqual(['Starred', ['solar-system/index.html']]);
+    await waitFor(() => {
+      expect(h.fetch.calls('PUT', '/api/visualizations/favorite')[0]?.body).toEqual({ path: 'solar-system/index.html', favorite: true });
+    });
+
+    h.fetch.on('PUT', '/api/visualizations/favorite', () => jsonResponse({ detail: 'Unknown visualization' }, 404));
+    fireEvent.click(within(row('root.html')).getByRole('button', { name: 'Star' }));
+    expect(within(row('root.html')).getByRole('button', { name: 'Unstar' })).toBeTruthy();
+    await waitFor(() => {
+      expect(within(row('root.html')).getByRole('button', { name: 'Star' })).toBeTruthy();
+    });
+    expect(snackbarStore.getState().queue.map((q) => q.message)).toContain('Unknown visualization');
+  });
+});
+
+describe('<VisualViewer> star', () => {
+  it('toggles the open visual; hidden while it is not in the list', async () => {
+    resetContentChanges(); // an earlier test marked W deleted
+    h.fetch.on('PUT', '/api/visualizations/favorite', () => jsonResponse(undefined, 204));
+    render(<VisualViewer path={W.path} url={W.url} hidden={false} />);
+    const star = screen.getByRole('button', { name: 'Star' });
+    expect(star.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(star);
+    expect(screen.getByRole('button', { name: 'Unstar' }).getAttribute('aria-pressed')).toBe('true');
+    await waitFor(() => {
+      expect(h.fetch.calls('PUT', '/api/visualizations/favorite')[0]?.body).toEqual({ path: W.path, favorite: true });
+    });
+    const { unmount } = render(<VisualViewer path="gone.html" url={undefined} hidden={false} />);
+    expect(screen.getAllByRole('button', { name: /^(Star|Unstar)$/ })).toHaveLength(1);
+    unmount();
   });
 });
 

@@ -368,7 +368,7 @@ onStartError(conv, code, detail):                                  // SEQ-8; cal
 - **SEQ-3.** Unsequenced frames (`user_message`, `status`, `session_*`, `error`, `compact_complete` from `compact`, the receive-loop-exit `turn_complete`) are always applied.
 - **SEQ-4.** A frame with a *different* `stream_id` than the checkpoint MUST be applied and replaces the checkpoint (the CLI subprocess reconnected).
 - **SEQ-5.** Frames received after `start` was sent and before `session_started` MUST be held (`preStart`). If a replay was requested and granted, held seq-stamped frames MUST be discarded because the replay re-delivers them in order (`api/routes/chat.py:296-301`: the socket is subscribed before `session_started` is sent). *Rationale:* applying them first and the replay later would reorder blocks. **Exception:** an `error` frame received while `preStart` is active (a failed `start`) bypasses the hold and is applied immediately; otherwise a start failure would be held forever and never shown. A start error also ends the wait and releases the held frames (SEQ-8).
-- **SEQ-6.** `replay_overflow: true` ⇒ the client MUST perform a canonical reload from REST (§5.6). If the conversation has no `sdkId`, it MUST first try `pool/live`; if there is still none, it sets `gapPossible = true` and keeps its entries.
+- **SEQ-6.** `replay_overflow: true` ⇒ the client MUST perform a canonical reload from REST (§5.6). If the conversation has no `sdkId`, it MUST first try `pool/live` (as part of the reload, then fetch the page); if there is still none, it sets `gapPossible = true` and keeps its entries. A successful `history_page{replace}` clears `gapPossible`.
 - **SEQ-7.** Qwen/Gemini agent sessions and the orchestrator have no replay. After a reconnect during which such a conversation was `inTurn`, the client MUST set `gapPossible = true`. For Qwen/Gemini agent sessions it SHOULD then run a canonical reload at the next `endTurn`, or immediately if `pool/live` reports `idle`. For the orchestrator it MUST NOT reload automatically (§5.7, A-4.4.1): it only offers "Reload".
 - **SEQ-8.** A start error (`start_timeout`, `start_failed`, `orchestrator_active`, or `orchestrator_stopping` after its one retry) ends the wait for `session_started`: the client MUST clear `awaitingSessionStarted` and dispatch the held `preStart` frames in arrival order (`onStartError`). They MUST NOT be dropped (L-2). Any other `error` received while waiting is applied at once (SEQ-5 exception) but does not end the wait. *Rationale:* frames can already be flowing to a socket whose `start` then fails: every orchestrator socket is a pool watcher from connect (`api/routes/orchestrator.py:127-128`), and a chat socket keeps an earlier subscription across a second `start` (G-6). The start error is the last answer to that `start` (`api/routes/chat.py:362-373`; `api/routes/orchestrator.py:463,637,718`), so nothing else would release them. Fixture `start_failed_releases_held_frames`.
 
@@ -400,7 +400,7 @@ onWatcherEvent(e):               // only arrives on the orchestrator WS, even un
        onContentFrame(e)
 ```
 
-- **FOCUS-1.** No server-originated event (pool sync, `agent_session_opened`, `user_message`, a background turn, a voice transcript) may change which view is active or navigate the UI. Only a direct user action may change focus. Clients MAY open a **background** view for a session started elsewhere (web parity), shown with an unread/live badge, but it MUST NOT become active (fixes W-6.1 focus stealing, A-1.1 auto-navigation).
+- **FOCUS-1.** No server-originated event (pool sync, `agent_session_opened`, `user_message`, a background turn, a voice transcript) may change which view is active or navigate the UI. Only a direct user action may change focus. Clients MAY open a **background** view for a session started elsewhere (web parity), shown with an unread/live badge, but it MUST NOT become active (fixes W-6.1 focus stealing, A-1.1 auto-navigation). **Exemption:** a remote display command addressed to this device on the TV control channel (`/api/tv/ws`, §9.5) counts as a user action and MAY navigate; only that channel has the exemption.
 - **FOCUS-2.** `agent_session_closed` MUST check `is_orchestrator` before acting on a view (G-39).
 - **OPEN-1. The server owns the open set.** A conversation (Archie or agent) is open exactly when `GET /api/sessions/pool/live` has its row. "Open now" on every device **is** that list — the same conversations on every device, each with its live status, whether or not this device has a view of it (the order may be the user's, e.g. dragged tabs; membership is the pool's). A client MUST NOT list, keep or re-create a conversation that is not in the pool. The pool survives backend restarts: the server persists it and restores it at startup, a restored conversation listed as `idle` until something uses it (`backend/api/open_sessions.py`). So there is no "backend restarted" case for clients to guess at (it replaced RT-4 and the 2026-10-10 server-id heuristic).
 - **OPEN-2. Reattach, never re-create.** Every automatic `start` (socket open, reconnect, visible/foreground resync, `not_started` recovery; Android's voice-owner `voice_start` on reconnect) carries `reattach: true`. The server then subscribes the socket if the conversation is in its pool (spawning a restored one) and otherwise answers `error{session_closed}` without creating anything. Only a direct user action that **creates** or resumes a conversation sends `start` without `reattach`: a new conversation, opening one from History, fork / duplicate / continue / rewind, Save and Restart, the §6.11 take-over. (A voice start pressed on a view that is already subscribed may keep `reattach`: while the conversation is open the result is the same.) The server is the one place that decides, so a device that missed a close cannot revive the conversation, whatever its timing.
@@ -1310,6 +1310,7 @@ openConversation(ref):
 
 - **H-1.** Subscribe first, then fetch, then apply the frames that arrived meanwhile (01 §6.5.1). Frames are held raw and re-enter `onFrame` so `session_started`, `preStart` and seq dedupe behave exactly as in §3.6.
 - **H-2.** The history-init MUST NOT re-run when `sdkId` becomes known after the first turn (02 §7.4).
+- **H-2a.** Exception: a view **attached** to a session that started elsewhere (`ref.live`, opened from `pool/live`) without an `sdkId` had nothing to cold-open, and a fresh subscriber gets no replay (`resume_from` is absent, so the server sends `replay_overflow` never and replays nothing). Such a view MUST (1) ask `GET /api/sessions/pool/live` for the id during the cold open and on `session_started` while it still has none, and (2) run one canonical reload (§5.6) as soon as it learns the id (pool or the first `turn_complete`, ID-2). Before this rule the Android/TV view of a session opened during its first turn showed only the live tail, and the web view auto-opened from `agent_session_opened` (no sdk id yet) missed the prompt (2026-10-17). A session created by this client keeps H-2: it already holds everything since its first prompt.
 - **H-3.** A view for a session that is not live and that the user only wants to read (for example a past orchestrator conversation while another orchestrator is active) opens **read-only**: REST only, no WebSocket, with a "Resume" action (fixes W-11).
 
 ### 5.3 Pagination
@@ -1805,18 +1806,27 @@ These flows exist on the web today and are new on Android (charter goal 5). List
 ### 9.1 Visualizations
 
 ```
-list:    GET /api/visualizations → [{path, url, title, created, modified, size}]  (sorted by modified desc)
+list:    GET /api/visualizations → [{path, url, title, created, modified, size, favorite}]  (sorted by modified desc;
+         favorite absent on older backends = false)
 refresh: when the section opens; manual Refresh / pull-to-refresh; after any view's endTurn (debounced 2 s,
          compat included, 02 §5.2 regression); on agent_session_opened/closed; on visualization_changed
          (debounced 400 ms, §9.3)
 open:    view key "viz:<path>"; load <origin> + encodePath(url) in an iframe (web) / WebView (Android)
 rename:  optimistic title → PATCH /api/visualizations/rename {path, title} (204; 404 tolerated) → refresh
+star:    optimistic favorite → PUT /api/visualizations/favorite {path, favorite: bool} (204, idempotent; 404 for an
+         unknown page when starring; on error revert + snackbar) → refresh
 ```
 - **VZ-1.** `url` is not percent-encoded (G-38): encode each path segment with `encodeURIComponent`.
 - **VZ-2.** Unknown paths return `200` + the SPA `index.html` (G-38), except unknown `*.html` / `*.htm` paths, which return `404` since 2026-10-09 (the app routes on the URL hash, so no app route ends in `.html`; a stale link must not load the whole app inside the viewer). For other paths, a client that needs to know whether a file still exists MUST `GET` it and check `Content-Type` and that the body is not the app shell. `HEAD` is not supported (405).
 - **VZ-3.** Web iframe sandbox: `allow-scripts allow-same-origin allow-popups allow-forms allow-modals` (no top navigation, no downloads). Android WebView: JavaScript and DOM storage enabled, same origin as the backend, navigation outside the visualization opens the external browser, file access disabled, the self-signed certificate accepted only for the configured backend host.
 - **VZ-4.** A visualization view keeps its frame/WebView alive while hidden (state survives view switches). Reload = remount (web) / `reload()` (Android). "Open in browser" opens `<origin><url>`.
 - **VZ-5.** Item meta: relative `modified` time (parsed with its UTC offset, A-8.4), parent folder name or "public". Rename only; no delete.
+- **VZ-8.** Favorites (2026-10-16): the list shows a **Starred** section (favorites, server order) above the rest
+  (non-favorites, no duplicates); with nothing starred there are no section headers. Every row has a star toggle, always
+  visible on touch (filled when starred; on hover devices an unset star shows on hover), and the viewer has one
+  for the open visual. Stars are server state
+  (`context/.visual_favorites.json`), shared by every device; a change reaches the other devices as an empty
+  `visualization_changed` (§9.3).
 
 ### 9.2 Memory
 
@@ -1846,6 +1856,8 @@ visualization_changed {visualizations: [{path, kind}], files: [{path, kind}]}
 memory_changed {changes: [{path, kind}]}
     changes:        markdown paths as in GET /api/memory/tree (docs/x.md is reported as archie/x.md)
 kind: "created" | "modified" | "deleted"   (advisory: an atomic save or an rsync reads as a create)
+visualization_changed {visualizations: [], files: []}
+    list metadata only (a star changed): refresh the list, reload no view
 
 onContentFrame(f):                      // channel level, never the conversation reducer
   visualization_changed: for c in f.visualizations: stamp.visuals[c.path] = {version+1, deleted: c.kind == deleted}
@@ -1909,6 +1921,71 @@ server, in any browser: `[Avatar pipeline](/avatar-pipeline/index.html)`, `[Ener
 `[Voice notes](/memory/projects/voice.md)`, `[Client protocol](/memory/archie/specs/12-client-protocol.md)`.
 A full URL on the server (`https://<server>/avatar-pipeline/`) also opens in the app, for a link meant to be
 pasted elsewhere.
+
+### 9.5 Remote display commands (TV control channel)
+
+The Archie TV app (spec 15) holds a second socket next to its orchestrator WS: **`/api/tv/ws`**,
+a command channel through which agents and the orchestrator put content on that screen
+(`backend/api/routes/tv.py`, modelled on the browser-extension hub). It is **TV-only**: no other
+client opens it, and no other channel carries these commands.
+
+```
+tv → {"type":"hello","device_id":"<uuid>","device_name":"Living room TV","client":"archie-tv",
+      "version":"1.0.0","capabilities":["open_url",...],"token":"…"?}     // within 10 s
+be → {"type":"ready"}  |  {"type":"error","error":"<reason>"} + close 4401
+       reasons: hello_timeout, invalid_json, expected_hello, unauthorized, missing_device_id
+be → {"id":"<12 hex>","type":"command","command":"<name>","params":{...}}
+tv → {"id":"<same>","type":"result","ok":true,"result":{...}}  |  {"id":"…","type":"result","ok":false,"error":"…","code":"refused"?}
+tv → {"type":"state","screen":"viewer","url":"…","title":"…","conversation":"<local_id>"?,"voice":"idle"}
+tv ↔ {"type":"ping"} / {"type":"pong"}
+```
+
+- **RD-1. Identity.** One connection per `device_id` (stable per install). The same `device_id`
+  connecting again replaces the old socket, which is closed with **4409**; its pending commands
+  fail. `device_name` (Settings → TV control) is what agents target (`device`, case-insensitive)
+  and defaults to the id. When `TV_CONTROL_TOKEN` is configured on the server the hello MUST carry
+  it; otherwise any LAN client may register.
+- **RD-2. One result per command.** Every `command` gets exactly one `result` with its `id`;
+  results for unknown or expired ids are ignored. The server waits 15 s by default (callers may
+  pass up to 120 s); the TV SHOULD answer once the target view is shown, not when the page has
+  finished loading.
+- **RD-3. Commands (v1).**
+
+| Command | Params | TV behaviour | Result |
+|---|---|---|---|
+| `open_url` | `url` | Internal links resolve as in §9.4 (LNK-1..7) and open their in-app view; anything else opens in the Viewer | `{screen, url}` |
+| `open_visualization` | `path` — a `GET /api/visualizations` `path`, root-relative, **not** percent-encoded | Viewer on `<server>/<encodePath(path)>` (VZ-1) | `{screen, url, title}` |
+| `open_memory` | `path` — as in `GET /api/memory/tree` (`archie/…` for docs) | memory view | `{screen, path}` |
+| `open_conversation` | `local_id` \| `sdk_session_id` | conversation view, opened/resumed like History (OPEN-2 rules apply: a closed one is resumed by this user action) | `{screen, local_id}` |
+| `home`, `back`, `reload` | — | as named | `{screen}` |
+| `scroll` | `direction`: `up` \| `down` \| `top` \| `bottom` | Viewer / conversation / memory view | `{screen}` |
+| `media` | `action`: `play` \| `pause` \| `toggle` | page media in the Viewer | `{playing}` |
+| `notify` | `title`, `text`, `seconds?` | toast | `{}` |
+| `get_state` | — | — | the current `state` frame |
+
+  An unknown command, or one the current screen cannot honour, answers `ok:false` with an error
+  string; it never closes the socket. A command the TV declines **on purpose** — the user turned
+  off Settings → TV control → "Allow agents to open pages" — answers `ok:false` with
+  `"code":"refused"` as well; no other failure carries `code`. A refusal MUST NOT be routed
+  around (no adb fallback).
+- **RD-4. Focus.** A command is a user action (FOCUS-1 exemption): it brings the app to the front,
+  navigates, and wakes the launcher's blank screen. Live voice overlays stay up.
+- **RD-5. State.** The TV sends `state` whenever its screen, URL, title, conversation or voice
+  state changes (and after `ready`); the server caches the last one per device for
+  `GET /api/tv/status`.
+- **RD-6. Server endpoints.** `GET /api/tv/status` → `{devices:[{device_id, device_name, client,
+  version, capabilities, connected_at, state}], token_configured}` for callers on the server; a
+  LAN caller gets the same devices without `device_id` and no `token_configured`.
+  `POST /api/tv/command {command, params?, device?, timeout?}` is **loopback-only** — local means
+  the TCP peer is loopback and there is no proxy header or `X-Real-IP` is loopback; anything else
+  (through the reverse proxy, a direct LAN client, `X-Forwarded-For` without `X-Real-IP`) → 403:
+  `200 {ok, device:{device_id, device_name}, command, result}`; no TV / no such TV → 503; several
+  TVs and no `device` → 409; timeout → 504; `ok:false` with `code: "refused"` → 403; other
+  `ok:false` → 422; non-finite `timeout` → 400. Scripts use `shared/scripts/tv_cmd.py`. "Show on
+  TV" (`POST /api/visualizations/cast`) sends `open_visualization` to the TV app when one is
+  connected and falls back to adb when none is, or it times out, the send fails or it reports a
+  non-refusal error; a refusal settles as `{ok:false, via:"app"}`. Its response carries
+  `via: "app" | "adb"`.
 
 ---
 

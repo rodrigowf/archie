@@ -38,6 +38,7 @@ import com.assistant.core.data.TabStatus
 import com.assistant.core.design.components.ArchieDropdownMenu
 import com.assistant.core.design.components.ArchieIconButton
 import com.assistant.core.design.components.ArchieMark
+import com.assistant.core.design.components.ChatGptMark
 import com.assistant.core.design.components.ArchieMenuItem
 import com.assistant.core.design.components.ListLeadingIcon
 import com.assistant.core.design.components.LiveStatus
@@ -132,16 +133,34 @@ internal fun SessionRow(
     }
 }
 
-/** 24 dp leading slot: the Archie mark or the item's type icon. */
+/**
+ * Described, unlike the decorative terminal icon beside it: a one-line row (the drawer) has no
+ * supporting text, so the mark is the only thing saying this conversation is imported and cannot
+ * be replied to. Two-line rows also carry it in `historySupporting`.
+ */
+internal const val IMPORTED_DESC = "ChatGPT"
+
+/** 24 dp leading slot: the Archie mark, the ChatGPT mark for an import, or the type icon. */
 @Composable
-internal fun KindLeading(kind: ItemKind, markSize: androidx.compose.ui.unit.Dp = 24.dp) {
-    if (kind == ItemKind.ARCHIE) ArchieMark(size = markSize) else ListLeadingIcon(kind.icon())
+internal fun KindLeading(kind: ItemKind, imported: Boolean = false, markSize: androidx.compose.ui.unit.Dp = 24.dp) {
+    when {
+        kind == ItemKind.ARCHIE -> ArchieMark(size = markSize)
+        imported -> ChatGptMark(size = markSize, contentDescription = IMPORTED_DESC)
+        else -> ListLeadingIcon(kind.icon())
+    }
 }
 
-/** History rows: a 20 dp Archie mark (mockup (b)) or the terminal icon. */
+/**
+ * History rows: a 20 dp Archie mark (mockup (b)), the ChatGPT mark for a conversation imported
+ * from a ChatGPT export, or the terminal icon.
+ */
 @Composable
-internal fun HistoryLeading(isArchie: Boolean) {
-    if (isArchie) Box(Modifier.padding(2.dp)) { ArchieMark(size = 20.dp) } else ListLeadingIcon(ArchieIcons.Terminal)
+internal fun HistoryLeading(isArchie: Boolean, imported: Boolean = false) {
+    when {
+        isArchie -> Box(Modifier.padding(2.dp)) { ArchieMark(size = 20.dp) }
+        imported -> ChatGptMark(size = 20.dp, contentDescription = IMPORTED_DESC)
+        else -> ListLeadingIcon(ArchieIcons.Terminal)
+    }
 }
 
 internal fun TabStatus.toLive(): LiveStatus? = when (this) {

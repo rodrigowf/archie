@@ -57,12 +57,21 @@ class AndroidRtcPlatform(
         WebRtcAudioUtils.setWebRtcBasedAcousticEchoCanceler(audio.webRtcBasedAec)
         WebRtcAudioUtils.setWebRtcBasedNoiseSuppressor(audio.webRtcBasedNs)
         WebRtcAudioUtils.setWebRtcBasedAutomaticGainControl(audio.webRtcBasedAgc)
-        val adm = JavaAudioDeviceModule.builder(context.applicationContext)
+        val admBuilder = JavaAudioDeviceModule.builder(context.applicationContext)
             .setUseHardwareAcousticEchoCanceler(audio.useHardwareAec)
             .setUseHardwareNoiseSuppressor(audio.useHardwareNs)
             .setAudioRecordDataCallback(AudioRecordDataCallback { _, _, _, buffer -> micHook(buffer) })
             .setAudioSource(audio.micSource.androidValue)
-            .createAudioDeviceModule()
+        // Additive (spec 15 §4.2, Archie TV): the call on the media stream over HDMI. Phones: unchanged.
+        if (audio.mediaPlayback) {
+            admBuilder.setAudioAttributes(
+                android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build(),
+            )
+        }
+        val adm = admBuilder.createAudioDeviceModule()
         log.d(TAG, "Audio source: ${audio.micSource} (HW AEC=${audio.useHardwareAec}, HW NS=${audio.useHardwareNs})")
         val factory = PeerConnectionFactory.builder()
             .setOptions(PeerConnectionFactory.Options())

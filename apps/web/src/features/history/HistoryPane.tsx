@@ -20,7 +20,7 @@ import { showSnackbar, useCatalog, useProviderLabel } from '@/stores';
 import { SearchField, Tag } from '@/ui/controls';
 import { NavigationDrawerHeadline, NavigationDrawerItem } from '@/ui/navigation';
 import { ConfirmDialog } from '@/ui/overlays';
-import { Icon } from '@/ui/primitives';
+import { ChatGptMark, Icon } from '@/ui/primitives';
 import { ActionRow, type RowAction } from './ActionRow';
 import { groupSessions, matchesQuery, sessionTitleOf } from './grouping';
 import { RenameDialog } from './RenameDialog';
@@ -215,14 +215,20 @@ export function HistoryPane({
           <NavigationDrawerHeadline>{sec.group}</NavigationDrawerHeadline>
           {sec.items.map((s) => {
             const title = sessionTitleOf(s);
+            const imported = s.provider === 'chatgpt';
             const provider = s.is_orchestrator ? 'Archie' : (providerLabelOf(s.provider) ?? 'Agent');
+            const leading = s.is_orchestrator
+              ? (archieMark ?? <Icon name="forum" size={20} />)
+              : imported
+                ? <ChatGptMark size={20} />
+                : <Icon name="terminal" size={20} />;
             return (
               <ActionRow
                 key={s.session_id}
                 data-row={s.session_id}
-                leading={s.is_orchestrator ? (archieMark ?? <Icon name="forum" size={20} />) : <Icon name="terminal" size={20} />}
+                leading={leading}
                 label={title}
-                title={`${title} · ${provider} · ${s.message_count} ${s.message_count === 1 ? 'message' : 'messages'}`}
+                title={`${title} · ${provider}${s.read_only ? ' · read-only' : ''} · ${s.message_count} ${s.message_count === 1 ? 'message' : 'messages'}`}
                 trailing={historyStamp(parseServerTime(s.last_activity), now)}
                 onClick={() => onOpenSession?.(s)}
                 actions={rowActions(s)}

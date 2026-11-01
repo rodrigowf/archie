@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Window background behind Compose: the tokens' DARK surface (Archie TV is dark only, spec 15 §3.1),
+  so nothing white flashes before TvTheme paints. WindowColorsMatchTokensTest fails if it drifts
+  from Tokens.kt.
+-->
+<resources>
+    <color name="archie_tv_window_background">#FF0D0E10</color>
+</resources>

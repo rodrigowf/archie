@@ -392,6 +392,12 @@ context-sync never carries dists.
   `features/visuals/lazy.tsx`, preloaded by the Visuals pane) remounts its iframe
   once per burst (scroll restored for same-origin pages, "Updated" cue); `MemoryDocument.tsx`
   refetches in place. On a reopened socket the list's `modified` is compared instead (VZ-6).
+- Favorites (spec 12 VZ-8): `VisualsPane` lists a **Starred** section above **All visuals**
+  (headers only while a starred visual is listed); the star is a `pinned` + `pressed` `ActionRow`
+  action (always visible when set, a hover icon / ⋮ item when not) and an icon button in the viewer
+  bar. `setVisualFavorite` (`services/catalogService.ts`) is optimistic, reverts the row with a
+  snackbar on error, then refreshes; the backend's empty `visualization_changed` refreshes the
+  list on other devices without reloading any open viewer.
 - Links (spec 12 §9.4): `features/links/` holds the resolver (`internalLinks.ts`, shared corpus
   `apps/protocol-fixtures/links/internal-links.json`) and `InternalLinksProvider`; it is kept apart
   from `features/markdown` so the app root can import it without pulling the markdown renderer into

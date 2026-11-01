@@ -32,6 +32,7 @@ import com.assistant.core.design.components.ArchieButton
 import com.assistant.core.design.components.ArchieIconButton
 import com.assistant.core.design.components.ArchieListItem
 import com.assistant.core.design.components.ArchieMark
+import com.assistant.core.design.components.ChatGptMark
 import com.assistant.core.design.components.ButtonStyle
 import com.assistant.core.design.components.ListItemSize
 import com.assistant.core.design.components.ListLeadingTile
@@ -116,7 +117,11 @@ private fun SwipeToCloseRow(
             size = ListItemSize.Large,
             selected = selected,
             leading = {
-                if (item.kind == ItemKind.ARCHIE) ListLeadingTile { ArchieMark(size = 40.dp) } else ListLeadingTile(item.kind.icon())
+                when {
+                    item.kind == ItemKind.ARCHIE -> ListLeadingTile { ArchieMark(size = 40.dp) }
+                    item.provider?.imported == true -> ListLeadingTile { ChatGptMark(size = 28.dp) }
+                    else -> ListLeadingTile(item.kind.icon())
+                }
             },
             supporting = {
                 item.provider?.let { ProviderChip(it.label) }

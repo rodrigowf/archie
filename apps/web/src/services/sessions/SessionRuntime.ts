@@ -44,6 +44,12 @@ export interface SessionRuntimeOptions {
   reconnectPolicy?: ReconnectPolicy;
 }
 
+/**
+ * Providers whose conversations are imported artifacts: readable, but with no process behind them,
+ * so they are never live and never resumable (docs/harnesses/chatgpt-import.md).
+ */
+export const IMPORTED_PROVIDERS: ReadonlySet<string> = new Set(['chatgpt']);
+
 /** SA-5: materialised subagent transcripts kept per session (the visible one + 2 recent). */
 export const SUBAGENT_TRANSCRIPTS_KEPT = 3;
 export const TRUNCATE_RETRIES = 3;
@@ -65,9 +71,18 @@ export class SessionRuntime extends ConversationRuntime {
       sdkId: opts.sdkId ?? null,
       provider: opts.provider ?? 'claude',
       liveStatus: opts.liveStatus ?? null,
+      // a session that started elsewhere (pool row or agent_session_opened): H-2a applies
+      live: opts.reattach === true || opts.liveStatus != null,
       reattach: opts.reattach,
     });
-    const handle = createSessionStore({ localId: opts.localId, conv, readOnly: opts.readOnly, hidden: opts.hidden });
+    const handle = createSessionStore({
+      localId: opts.localId,
+      conv,
+      readOnly: opts.readOnly,
+      // An imported conversation has no process to resume (docs/harnesses/chatgpt-import.md).
+      resumable: !IMPORTED_PROVIDERS.has(opts.provider ?? ''),
+      hidden: opts.hidden,
+    });
     super(conv, handle, hooks);
     this.readOnly = opts.readOnly === true;
     this.socket = new ArchieSocket(CHAT_WS_PATH, {
@@ -104,6 +119,8 @@ export class SessionRuntime extends ConversationRuntime {
     } else {
       // a brand-new session has no history: the entries are built from this stream (T-10)
       this.step({ type: 'history_page', mode: 'replace', response: EMPTY_PAGE });
+      // H-2a: one started elsewhere may already have an id in pool/live → the reducer reloads it
+      if (this.conv.ref.live) void this.learnSdkId();
     }
     this.socket.connect();
   }

@@ -73,6 +73,12 @@
   text-overflow: ellipsis;
 }
 
+/* Star toggle (VZ-8): primary filled glyph while starred, no container. */
+.viewerBar .star[aria-pressed="true"] {
+  background: none;
+  color: var(--md-sys-color-primary);
+}
+
 /* Live reload cue (spec 12 VZ-6): a small pill that fades out. */
 .updatedCue {
   flex: none;

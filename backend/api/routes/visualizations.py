@@ -13,6 +13,10 @@ Titles resolve in three steps, first hit wins:
 2. The ``<title>`` tag inside the HTML.
 3. A prettified version of the filename.
 
+Favorites (stars) live in ``context/.visual_favorites.json`` (``{"paths": {<path>: <starred
+at>}}``), shared by every device and synced between machines with the rest of ``context/``.
+Each entry carries ``favorite``; the clients list starred pages first.
+
 There is no cache: clients refetch on load and when
 ``api/content_watcher.py`` pushes ``visualization_changed`` (spec 12 §9.3).
 """
@@ -20,6 +24,7 @@ There is no cache: clients refetch on load and when
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -31,12 +36,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from api.deps import get_store
 from api.models import VisualizationInfoResponse
+from api.routes.tv import (
+    TvAmbiguous,
+    TvCommandError,
+    TvCommandRefused,
+    TvCommandTimeout,
+    TvNotConnected,
+)
 from manager.store import SessionStore
-from utils.paths import get_public_dir
+from utils.paths import get_context_dir, get_public_dir
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +68,27 @@ _TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
 def title_key(rel_path: str) -> str:
     """The ``.titles.json`` key for a visualization's relative path."""
     return f"{TITLE_PREFIX}{rel_path}"
+
+
+def _favorites_path() -> Path:
+    return get_context_dir() / ".visual_favorites.json"
+
+
+def load_favorites() -> dict[str, str]:
+    """Starred visualization paths → when they were starred (ISO time)."""
+    try:
+        data = json.loads(_favorites_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    favs = data.get("paths") if isinstance(data, dict) else None
+    return {str(k): str(v) for k, v in favs.items()} if isinstance(favs, dict) else {}
+
+
+def _save_favorites(favs: dict[str, str]) -> None:
+    path = _favorites_path()
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps({"paths": favs}, indent=1, sort_keys=True), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def _extract_html_title(path: Path) -> str | None:
@@ -149,6 +182,7 @@ def scan_visualizations(store: SessionStore) -> list[VisualizationInfoResponse]:
         files.append(path)
 
     titles = store.get_titles()
+    favorites = load_favorites()
     births = _birth_times(files)
 
     entries: list[VisualizationInfoResponse] = []
@@ -171,6 +205,7 @@ def scan_visualizations(store: SessionStore) -> list[VisualizationInfoResponse]:
                 created=_iso(births.get(path, stat.st_mtime)),
                 modified=_iso(stat.st_mtime),
                 size=stat.st_size,
+                favorite=rel_path in favorites,
             )
         )
 
@@ -210,17 +245,56 @@ def rename_visualization(body: dict, store: SessionStore = Depends(get_store)):
     store.set_title(title_key(rel_path), title)
 
 
+@router.put("/favorite", status_code=204)
+async def set_favorite(body: dict, request: Request):
+    """Star or unstar a visualization: ``{path, favorite: bool}``. Every device's list refreshes
+    (a ``visualization_changed`` with no paths, which reloads no open page)."""
+    favorite = body.get("favorite")
+    if not isinstance(favorite, bool):
+        raise HTTPException(400, detail="favorite (true or false) is required")
+    raw = str(body.get("path") or "")
+    rel_path = _resolve_visualization(raw)
+    favs = load_favorites()
+    if favorite:
+        if rel_path is None:
+            raise HTTPException(404, detail=f"Visualization {raw!r} not found")
+        if rel_path in favs:
+            return
+        favs[rel_path] = datetime.now(timezone.utc).isoformat()
+    else:
+        # Unstarring a page that is gone still clears its star.
+        key = rel_path or raw.strip().lstrip("/")
+        if favs.pop(key, None) is None:
+            return
+    _save_favorites(favs)
+    pool = getattr(request.app.state, "pool", None)
+    if pool is not None:
+        await pool.notify_watchers({"type": "visualization_changed", "visualizations": [], "files": []})
+
+
 # ---------------------------------------------------------------------------
-# Show on TV (BX-2, IA §9.4)
+# Show on TV (BX-2, IA §9.4; spec 15 §5.3)
 #
-# Wraps the mechanism the /create-viz and /tv-remote skills use: open the
-# visualization's network URL in the TvServerHub WebView on the Fire TV via
-# ``adb shell am start -n com.example.tvserverhub/.WebPageViewActivity -e url``.
-# Never raises on TV problems — the result is always ``{ok, message}``.
+# Two routes, tried in order:
+#
+# 1. **The Archie TV app** (``api/routes/tv.py``): when a TV is attached to the
+#    hub, send it ``open_visualization {path}`` and it opens its own Viewer.
+# 2. **adb** (the fallback, and the only route before the TV app): open the
+#    visualization's network URL in the TvServerHub WebView on the Fire TV via
+#    ``adb shell am start -n com.example.tvserverhub/.WebPageViewActivity -e url``.
+#    Used when no TV app is connected, or it timed out, could not be sent to,
+#    or reported an error. Never when the app *refused* (``code: refused``:
+#    the user turned off "Allow agents to open pages") — routing around the
+#    user's choice through adb would defeat it.
+#
+# Never raises on TV problems — the result is always ``{ok, via, message}``.
 # ---------------------------------------------------------------------------
 
 _TV_ACTIVITY = "com.example.tvserverhub/.WebPageViewActivity"
 _ADB_TIMEOUT_S = 10.0
+# Short enough that a TV app that never answers still leaves time for the adb
+# fallback inside the clients' 20 s request timeout.
+_APP_CAST_TIMEOUT_S = 8.0
 
 
 def _cast_base_url() -> str:
@@ -334,24 +408,93 @@ async def _find_fire_tv() -> tuple[str | None, str]:
     return None, "No Fire TV connected over adb"
 
 
+def _tv_hub(request: Request):
+    """The TV app hub, or None where it isn't mounted (e.g. a test app)."""
+    return getattr(request.app.state, "tv_hub", None)
+
+
+async def _cast_via_app(request: Request, rel_path: str) -> tuple[dict | None, str]:
+    """Ask the Archie TV app to open *rel_path*.
+
+    Returns ``(response, "")`` when the app route settled the request (shown,
+    refused by the TV's user, or a failure adb cannot fix), or
+    ``(None, reason)`` to fall back to adb (transport problems only).
+    """
+    hub = _tv_hub(request)
+    if hub is None or not hub.connected:
+        return None, "no Archie TV app connected"
+    try:
+        conn, _ = await hub.send_command(
+            "open_visualization", {"path": rel_path}, timeout=_APP_CAST_TIMEOUT_S,
+        )
+    except TvAmbiguous as exc:
+        # Several TVs: adb would pick one at random, so don't guess.
+        return {"ok": False, "via": "app", "message": str(exc)}, ""
+    except TvNotConnected as exc:
+        return None, f"TV app: {exc}"
+    except TvCommandTimeout:
+        logger.warning("TV app did not answer open_visualization %s; trying adb", rel_path)
+        return None, "the TV app did not answer"
+    except TvCommandRefused as exc:
+        # A deliberate "no" from the TV's user: respect it, no adb.
+        logger.info("TV app refused open_visualization %s: %s", rel_path, exc)
+        return {"ok": False, "via": "app", "message": f"The TV refused: {exc}"}, ""
+    except TvCommandError as exc:
+        logger.warning("TV app failed open_visualization %s: %s; trying adb", rel_path, exc)
+        return None, f"the TV app reported: {exc}"
+    except Exception as exc:  # Never raise on TV problems.
+        logger.exception("TV app cast of %s failed", rel_path)
+        return None, f"TV app error: {exc}"
+    return {
+        "ok": True, "via": "app",
+        "message": f"Showing on {conn.device_name}: {rel_path}",
+    }, ""
+
+
 @router.get("/cast")
-async def cast_capability():
-    """Capability probe for "Show on TV": ``{available, reason}``."""
+async def cast_capability(request: Request):
+    """Capability probe for "Show on TV": ``{available, via, reason}``.
+
+    ``via`` is the route a cast would take now (``app``, ``adb`` or None);
+    ``reason`` names it when available, or says why not.
+    """
+    hub = _tv_hub(request)
+    if hub is not None and hub.connected:
+        names = ", ".join(c.device_name for c in hub.devices())
+        return {"available": True, "via": "app", "reason": f"Archie TV app: {names}"}
     serial, reason = await _find_fire_tv()
-    return {"available": serial is not None, "reason": reason}
+    if serial is None:
+        return {
+            "available": False, "via": None,
+            "reason": f"No Archie TV app connected; {reason}",
+        }
+    return {"available": True, "via": "adb", "reason": f"adb: Fire TV {serial}"}
 
 
 @router.post("/cast")
-async def cast_visualization(body: dict):
-    """Display a visualization on the Fire TV.  Body: ``{path}`` — the
-    ``path`` field of an entry from ``GET /api/visualizations``."""
+async def cast_visualization(body: dict, request: Request):
+    """Display a visualization on the TV.  Body: ``{path}`` — the ``path``
+    field of an entry from ``GET /api/visualizations``.  Response:
+    ``{ok, via: "app"|"adb", message}``."""
     rel_path = _resolve_visualization(str(body.get("path") or ""))
     if rel_path is None:
         raise HTTPException(404, detail="Visualization not found")
 
+    settled, app_reason = await _cast_via_app(request, rel_path)
+    if settled is not None:
+        return settled
+    result = await _cast_via_adb(rel_path)
+    # Say why the app was skipped when it was attached but failed; "no app
+    # connected" is the normal state where the TV app is not installed.
+    if app_reason and "no Archie TV app" not in app_reason:
+        result["message"] = f"{result['message']} ({app_reason})"
+    return result
+
+
+async def _cast_via_adb(rel_path: str) -> dict:
     serial, reason = await _find_fire_tv()
     if serial is None:
-        return {"ok": False, "message": reason}
+        return {"ok": False, "via": "adb", "message": reason}
 
     url = f"{_cast_base_url()}/{quote(rel_path, safe='/')}"
     try:
@@ -360,9 +503,9 @@ async def cast_visualization(body: dict):
             "-n", _TV_ACTIVITY, "-e", "url", shlex.quote(url),
         )
     except asyncio.TimeoutError:
-        return {"ok": False, "message": "The TV did not respond in time"}
+        return {"ok": False, "via": "adb", "message": "The TV did not respond in time"}
     except OSError as exc:
-        return {"ok": False, "message": f"adb failed: {exc}"}
+        return {"ok": False, "via": "adb", "message": f"adb failed: {exc}"}
     # ``am start`` exits 0 even when the activity is missing; it reports
     # failures as "Error: ..." on stdout/stderr instead.
     output = (out + err).strip()
@@ -370,5 +513,8 @@ async def cast_visualization(body: dict):
         line.lstrip().startswith("Error") for line in output.splitlines()
     ):
         logger.warning("TV cast of %s failed: %s", rel_path, output)
-        return {"ok": False, "message": output.splitlines()[-1] if output else "adb failed"}
-    return {"ok": True, "message": f"Showing on TV: {url}"}
+        return {
+            "ok": False, "via": "adb",
+            "message": output.splitlines()[-1] if output else "adb failed",
+        }
+    return {"ok": True, "via": "adb", "message": f"Showing on TV: {url}"}

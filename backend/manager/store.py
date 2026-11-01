@@ -67,6 +67,7 @@ class SessionStore:
         self._project_dir = Path(project_dir).resolve()
         self._sessions_dir = self._resolve_sessions_dir()
         self._chats_dir = self._resolve_chats_dir()
+        self._imported_dir = self._resolve_imported_dir()
         # Per-file cache: session_id → (mtime_ns, size, SessionInfo).
         self._info_cache: dict[str, tuple[int, int, SessionInfo]] = {}
         # Provider cache: session_id → ProviderAdapter
@@ -99,6 +100,16 @@ class SessionStore:
             return project_context / "chats"
         return get_chats_dir()
 
+    def _resolve_imported_dir(self) -> Path:
+        """Conversations imported from a ChatGPT export (read-only).
+
+        Written by ``shared/scripts/chatgpt_import.py`` as
+        ``context/chatgpt-history/jsonl/<conversation_id>.jsonl``.
+        """
+        project_context = self._project_dir / "context"
+        base = project_context if project_context.is_dir() else get_sessions_dir()
+        return base / "chatgpt-history" / "jsonl"
+
     def _locate_jsonl(self, session_id: str) -> Path | None:
         """Find the JSONL for *session_id* across all known storage layouts.
 
@@ -111,6 +122,9 @@ class SessionStore:
         if candidate.is_file():
             return candidate
         candidate = self._chats_dir / f"{session_id}.jsonl"
+        if candidate.is_file():
+            return candidate
+        candidate = self._imported_dir / f"{session_id}.jsonl"
         if candidate.is_file():
             return candidate
         cached = self._external_paths.get(session_id)
@@ -136,8 +150,9 @@ class SessionStore:
     def list_sessions(self) -> list[SessionInfo]:
         """List all sessions for this project, sorted by most recent first.
 
-        Scans both ``context/*.jsonl`` (Claude) and ``context/chats/*.jsonl``
-        (Qwen). JSONL files that can't be parsed are skipped.
+        Scans ``context/*.jsonl`` (Claude), ``context/chats/*.jsonl`` (Qwen) and
+        ``context/chatgpt-history/jsonl/*.jsonl`` (imported ChatGPT exports, read-only).
+        JSONL files that can't be parsed are skipped.
 
         Uses a per-file (mtime_ns, size) cache: files that haven't changed
         since the last call are not re-read.
@@ -204,6 +219,22 @@ class SessionStore:
                     # Discoverer-owned naming convention — skip.
                     continue
                 session_id = jsonl_path.stem
+                seen_ids.add(session_id)
+                info = self._scan_file(jsonl_path, session_id, titles)
+                if info is not None:
+                    sessions.append(info)
+
+        # Scan conversations imported from a ChatGPT export (read-only). Named
+        # ``<conversation_id>.jsonl``, so the stem is the session id, like Claude's.
+        if self._imported_dir.is_dir():
+            for jsonl_path in self._imported_dir.glob("*.jsonl"):
+                if ".sync-conflict-" in jsonl_path.name:
+                    continue
+                if jsonl_path in claimed_paths:
+                    continue
+                session_id = jsonl_path.stem
+                if session_id in seen_ids:
+                    continue
                 seen_ids.add(session_id)
                 info = self._scan_file(jsonl_path, session_id, titles)
                 if info is not None:

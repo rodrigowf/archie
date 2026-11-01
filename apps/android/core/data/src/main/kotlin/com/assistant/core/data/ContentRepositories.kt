@@ -76,6 +76,16 @@ class VisualsRepository(private val api: ArchieApi, private val scope: Coroutine
         return if (r is ApiResult.HttpError && r.code == 404) ApiResult.Ok(Unit) else r
     }
 
+    /** Optimistic star, `PUT /api/visualizations/favorite`; reverted on error; then a refresh. */
+    suspend fun setFavorite(path: String, favorite: Boolean): ApiResult<Unit> {
+        fun mark(on: Boolean) = _list.update { s -> s.copy(value = s.value?.map { if (it.path == path) it.copy(favorite = on) else it }) }
+        mark(favorite)
+        val r = api.setVisualizationFavorite(path, favorite)
+        if (!r.isOk) mark(!favorite)
+        refresh()
+        return r
+    }
+
     suspend fun castProbe(): ApiResult<CastProbeDto> = api.castProbe()
     suspend fun cast(path: String): ApiResult<CastResponse> = api.castVisualization(path)
 

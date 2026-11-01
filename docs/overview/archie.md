@@ -64,7 +64,7 @@ Fire TV, an iPhone) — see [devices](../devices/devices.md).
 | Talk to it | Realtime voice (OpenAI Realtime over WebRTC; Qwen-Omni and Gemini Live over a backend relay); wake word on Android | [voice](../voice/architecture.md), [wake word](../voice/wake-word.md) |
 | Remember | A markdown memory wiki plus searchable history of every conversation, across harnesses | [memory and search](../architecture/memory-and-search.md) |
 | Act on the world | Skills and scripts: TV, browser, lamps, YouTube, photos, visualizations, image/video generation | [skills](../integrations/skills.md) |
-| Run anywhere in the house | Web app (incl. a Safari 12 build), Android main + lite apps, Chrome extension, TV launcher | [web](../clients/web.md), [android](../clients/android.md) |
+| Run anywhere in the house | Web app (incl. a Safari 12 build), Android main + lite apps, Archie TV (Fire TV / Android TV, voice through the remote's mic), Chrome extension, TV launcher | [web](../clients/web.md), [android](../clients/android.md), [tv](../clients/tv.md) |
 | Evolve | Agents edit skills, scripts, memory and the app's own code | below |
 
 ## The two agent systems

@@ -579,9 +579,15 @@ class ConversationRepository(
 
         /** §5.2: hold frames, fetch the last page (404 = empty), apply, then flush. */
         fun coldOpen() {
-            val sdkId = state.value.ref.sdkId
+            val ref = state.value.ref
             post(ConversationInput.BeginReload)
             jobs += scope.launch {
+                // A pool session opened from a row that predates its sdk id: ask pool/live once, so the
+                // history shows now rather than when the first turn ends (reducer: reloadIfAttachedWithoutHistory).
+                val sdkId = ref.sdkId ?: if (ref.live && ref.kind == SessionKind.AGENT) {
+                    history.syncPool()?.firstOrNull { it.localId == ref.localId }?.sdkId
+                        ?.also { post(ConversationInput.SdkIdLearned(it)) }
+                } else null
                 val page = if (sdkId == null) ApiResult.Ok(PaginatedMessagesDto()) else fetchPage(sdkId)
                 post(page.getOrNull()?.let { ConversationInput.HistoryPage(PageMode.REPLACE, it) } ?: ConversationInput.ReloadFailed)
             }
@@ -639,12 +645,15 @@ class ConversationRepository(
         private fun onEffect(e: ConversationEffect) {
             when (e) {
                 is ConversationEffect.SendStart -> sendFrame(e.frame)
-                ConversationEffect.CanonicalReload -> {
-                    val sdkId = state.value.ref.sdkId
-                    if (sdkId == null) post(ConversationInput.ReloadFailed)
-                    else jobs += scope.launch {
-                        post(fetchPage(sdkId).getOrNull()?.let { ConversationInput.HistoryPage(PageMode.REPLACE, it) } ?: ConversationInput.ReloadFailed)
+                ConversationEffect.CanonicalReload -> jobs += scope.launch {
+                    // SEQ-6: no sdk id yet (a view opened during the session's first turn) → ask pool/live.
+                    val sdkId = state.value.ref.sdkId ?: run {
+                        val localId = state.value.ref.localId
+                        history.syncPool()?.firstOrNull { it.localId == localId }?.sdkId
+                            ?.also { post(ConversationInput.SdkIdLearned(it)) }
                     }
+                    if (sdkId == null) post(ConversationInput.ReloadFailed)
+                    else post(fetchPage(sdkId).getOrNull()?.let { ConversationInput.HistoryPage(PageMode.REPLACE, it) } ?: ConversationInput.ReloadFailed)
                 }
                 ConversationEffect.LookupSdkId -> jobs += scope.launch {
                     val localId = state.value.ref.localId
@@ -700,6 +709,14 @@ class ConversationRepository(
         fun subscribedBefore(t: Long) = subscribedAt in 1 until t
 
         override fun begin() {
+            // Read-only (an imported ChatGPT conversation): the REST history is the whole view, so
+            // no socket is ever acquired. `socket` stays uninitialised, which is what every method
+            // below tests to stay inert — nothing can dial, send or reconnect.
+            if (state.value.ref.readOnly) {
+                super.begin()
+                coldOpen()
+                return
+            }
             socket = agentSockets.acquire(key)
             super.begin()
             jobs += scope.launch {
@@ -745,10 +762,16 @@ class ConversationRepository(
             if (dropSocket && ::socket.isInitialized) agentSockets.release(key)
         }
 
-        override fun sendFrame(frame: ClientFrame): SendResult = socket.send(frame)
-        override fun reconnectNow() = socket.reconnectNow()
+        /** No socket = a read-only view: every socket operation below is a no-op. */
+        private val live get() = ::socket.isInitialized
+
+        override fun sendFrame(frame: ClientFrame): SendResult =
+            if (live) socket.send(frame) else SendResult.NOT_CONNECTED
+
+        override fun reconnectNow() { if (live) socket.reconnectNow() }
 
         fun onForeground() {
+            if (!live) return
             socket.setReconnectAllowed(true)
             if (state.value.connection == ConnectionState.OPEN || state.value.connection == ConnectionState.SUBSCRIBED) {
                 post(ConversationInput.Resync)
@@ -757,12 +780,12 @@ class ConversationRepository(
             }
         }
 
-        fun onBackground() = socket.setReconnectAllowed(false)
+        fun onBackground() { if (live) socket.setReconnectAllowed(false) }
 
         /** LRU park: the WebSocket closes (no app frame); the reducer sees `SocketClosed`. */
-        fun park() = socket.disconnect()
+        fun park() { if (live) socket.disconnect() }
 
-        fun unpark() = connect()
+        fun unpark() { if (live) connect() }
     }
 
     companion object {

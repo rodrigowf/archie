@@ -75,6 +75,40 @@ class AndroidAppLiteConventionPlugin : Plugin<Project> {
 }
 
 /**
+ * `archie.android.app.tv`: Archie TV, com.assistant.archie.tv, minSdk 26, Compose + tv-material
+ * (spec 15 §6.1, TV-1). Fire TV sticks run 32-bit userspace (AFTKM: armeabi-v7a), Google TV
+ * devices are mostly 64-bit. Signed with the `tv.*` keystore entry, or the SDK debug key for
+ * debug builds when there is none.
+ */
+class AndroidAppTvConventionPlugin : Plugin<Project> {
+    override fun apply(target: Project) = with(target) {
+        configureArchieApp(
+            minSdk = ArchieSdk.MIN_SDK_MODERN,
+            deviceAbis = listOf("armeabi-v7a", "arm64-v8a"),
+            emulatorAbis = listOf("x86", "x86_64"),
+            signingPrefix = "tv",
+        )
+        extensions.configure<ApplicationExtension> {
+            // TV-8: no wake word on a TV, so the 68 MB Vosk model that :core:wakeword ships as an
+            // asset (reached through :core:voice-host) stays out of the APK. Setting the list replaces
+            // aapt's default ignore patterns, so they are restated first.
+            androidResources.ignoreAssetsPatterns += AAPT_DEFAULT_IGNORED_ASSETS
+            androidResources.ignoreAssetsPatterns += "<dir>$VOSK_MODEL_ASSET"
+            // ...and its native engine (≈ 17 MB for the two ABIs): the TV voice host runs without a
+            // wake word, so nothing loads Vosk. JNA's libjnidispatch (small) stays.
+            packaging.jniLibs.excludes += listOf("lib/*/libvosk.so", "lib/*/libvosk-stderr-shim.so")
+        }
+    }
+
+    companion object {
+        const val VOSK_MODEL_ASSET = "vosk-model-small-en-us-0.15"
+        private val AAPT_DEFAULT_IGNORED_ASSETS = listOf(
+            "!.svn", "!.git", "!.ds_store", "!*.scc", ".*", "<dir>_*", "!CVS", "!thumbs.db", "!picasa.ini", "!*~",
+        )
+    }
+}
+
+/**
  * `archie.android.app.tool`: small standalone device tools (e.g. :app-mictest), minSdk 21 so they
  * run on the A300M. Signed with the SDK debug key unless keystore.properties has a `tool.*` entry.
  */
