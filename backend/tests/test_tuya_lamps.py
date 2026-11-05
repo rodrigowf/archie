@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 
 import pytest
-import tinytuya
+
+tinytuya = pytest.importorskip("tinytuya")
 
 SCRIPT = Path(__file__).resolve().parents[2] / "context" / "scripts" / "tuya_lamps.py"
 
