@@ -3,7 +3,7 @@ name: timeline
 category: archie/history
 tags: [timeline, changelog, history, milestones, incidents]
 created: 2026-10-07
-modified: 2026-10-10
+modified: 2026-11-05
 summary: Dated milestones and incidents in Archie's development, February–October 2026, with commits where known.
 source: curated (timeline entries collected from every memory note consolidated into docs/, 2026-10-07)
 references:
@@ -167,3 +167,12 @@ Commit hashes are in the public repo unless they refer to the private context re
   conversations → **the server owns the open set** (spec 12 OPEN-1..4): `pool/live` is "Open now"
   on every device, closed anywhere = closed everywhere at once, the pool survives restarts
   (`state/open_sessions.json`), automatic starts only `reattach` (`a4768aa`).
+
+- **11-05** — **(incident)** An agent's `ExitPlanMode` approval card never reached any device: the
+  session sat in `tool_use` for ~20 min with nothing on screen to answer, because
+  `permission_request` is a live-only frame (no JSONL line; the replay ring only serves a subscriber
+  that still holds a checkpoint) and the view had been opened *after* it was emitted. Fixed with
+  **spec 12 PM-6**: every `session_started` advertises what is still unanswered
+  (`permissions` on the chat WS, `agent_permissions` on the orchestrator's), the clients seed the
+  card from that snapshot and re-seed it after a canonical reload, and the snapshot is dropped on
+  the resolve and at turn end. Web + Android + two shared conformance fixtures.

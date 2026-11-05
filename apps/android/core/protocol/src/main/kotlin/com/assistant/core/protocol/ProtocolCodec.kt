@@ -61,6 +61,9 @@ object ProtocolCodec {
                     ?.let { decodeDto<ConnectionInfoDto>(it) }?.toModel(),
                 voiceConnectionError = o.str("voice_connection_error"),
                 subagents = o.arr("subagents")?.mapNotNull { (it as? JsonObject)?.let(::decodeSubagentSummary) },
+                permissions = o.arr("permissions")?.mapNotNull { (it as? JsonObject)?.let(::decodePendingPermission) },
+                agentPermissions = o.arr("agent_permissions")
+                    ?.mapNotNull { (it as? JsonObject)?.let(::decodeAgentPendingPermission) },
                 seq = seq, streamId = sid,
             )
             "status" -> ServerFrame.Status(o.str("status"), o.str("detail"), seq, sid)
@@ -199,6 +202,10 @@ object ProtocolCodec {
                     put("voice_connection_info", frame.voiceConnectionInfo?.toJson())
                     put("voice_connection_error", frame.voiceConnectionError)
                     frame.subagents?.let { l -> put("subagents", JsonArray(l.map(::encodeSubagentSummary))) }
+                    frame.permissions?.let { l -> put("permissions", JsonArray(l.map(::encodePendingPermission))) }
+                    frame.agentPermissions?.let { l ->
+                        put("agent_permissions", JsonArray(l.map(::encodeAgentPendingPermission)))
+                    }
                 }
                 is ServerFrame.Status -> { put("status", frame.status); put("detail", frame.detail) }
                 is ServerFrame.SessionStopped, is ServerFrame.Ping, is ServerFrame.VoiceStopped -> Unit

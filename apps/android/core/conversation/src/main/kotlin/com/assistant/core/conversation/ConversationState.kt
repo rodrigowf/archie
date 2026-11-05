@@ -7,6 +7,7 @@ import com.assistant.core.model.SessionRef
 import com.assistant.core.model.SessionStatus
 import com.assistant.core.protocol.ClientFrame
 import com.assistant.core.protocol.PaginatedMessagesDto
+import com.assistant.core.protocol.PendingPermission
 import com.assistant.core.protocol.ServerFrame
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.PersistentMap
@@ -74,6 +75,13 @@ data class ConversationState(
     val pendingInjects: PersistentList<String> = persistentListOf(),
     /** Orchestrator only: the "Agent approvals" list (PM-5). */
     val agentApprovals: PersistentList<AgentApproval> = persistentListOf(),
+    /**
+     * PM-6: the permissions the last `session_started` said are still waiting for an answer. Kept so a
+     * canonical reload (§5.6), which rebuilds every entry from history — and history has no
+     * `permission_request` — can re-seed the card it just wiped. Cleared when the request is answered
+     * or the turn ends.
+     */
+    val permissionSnapshot: PersistentList<PendingPermission> = persistentListOf(),
     val voiceActive: Boolean = false,
     val openVoiceUserId: String? = null,
     val speechAnchor: Int? = null,

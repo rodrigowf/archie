@@ -39,6 +39,7 @@ internal class Draft(s: ConversationState) {
     var compactPending = s.compactPending
     val pendingInjects = s.pendingInjects.builder()
     val agentApprovals = s.agentApprovals.builder()
+    val permissionSnapshot = s.permissionSnapshot.builder()   // PM-6
     var voiceActive = s.voiceActive
     var openVoiceUserId = s.openVoiceUserId
     var speechAnchor = s.speechAnchor
@@ -104,6 +105,7 @@ internal class Draft(s: ConversationState) {
         compactPending = compactPending,
         pendingInjects = pendingInjects.build(),
         agentApprovals = agentApprovals.build(),
+        permissionSnapshot = permissionSnapshot.build(),
         voiceActive = voiceActive,
         openVoiceUserId = openVoiceUserId,
         speechAnchor = speechAnchor,
@@ -488,10 +490,21 @@ internal class Draft(s: ConversationState) {
         perms[rid] = pushBlock(pb)
     }
 
+    /**
+     * PM-6: seed a card for every permission `session_started` says is still unanswered and that we
+     * do not already show. Idempotent — [onPermissionRequest] drops a known `request_id` (I-11) — so a
+     * replayed or re-sent frame never duplicates it.
+     */
+    fun applyPermissionSnapshot() {
+        for (p in permissionSnapshot.toList()) onPermissionRequest(p.requestId, p.toolName, p.toolInput)
+    }
+
     /** PM-2: updates the block in place; never appends an entry (fixes W-5). */
     fun onPermissionResolved(rid: String?, decision: String?, responder: String?, message: String?) {
         clearStall()
         if (rid == null) return
+        // PM-6: answered — a later reload must not resurrect it as pending.
+        permissionSnapshot.removeAll { it.requestId == rid }
         updatePermission(rid) {
             it.copy(
                 state = if (decision == "allow") PermissionState.ALLOWED else PermissionState.DENIED,
@@ -526,6 +539,9 @@ internal class Draft(s: ConversationState) {
             }
         }
         pendingSplit = null; stall = null
+        // PM-4/PM-6: the backend drains every pending permission when the stream ends, so the
+        // snapshot is spent — a reload after this must not bring the card back.
+        permissionSnapshot.clear()
         inTurn = false; turnDepth = 0; turnHasContent = false; turnIsLocal = false
         dispatchedFromTray.clear()
         if (status != SessionStatus.STOPPED && status != SessionStatus.TERMINATED) {

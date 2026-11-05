@@ -442,6 +442,24 @@ def _fit_live(live: dict[str, Any], room: int) -> dict[str, Any]:
     return live
 
 
+def _fit_tool_input(data: Any, room: int = 2000) -> dict[str, Any]:
+    """A pending permission's ``tool_input``, small enough for a ``live`` block.
+
+    Long string values (an ``ExitPlanMode`` plan is the usual one) are cut at
+    the end and marked — the orchestrator only needs enough to decide, and the
+    full text is in the session's own transcript.
+    """
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for key, value in data.items():
+        if isinstance(value, str) and len(value) > room:
+            out[key] = value[:room] + "… (truncated)"
+        else:
+            out[key] = value
+    return out
+
+
 def _message_entry(index: int, p: Any) -> dict[str, Any]:
     return {
         "index": index,
@@ -637,6 +655,22 @@ async def read_agent_session(
     ]
     if subagents:
         live["subagents"] = subagents
+    # Permissions still waiting for an answer (spec 12 PM-6). A session blocked
+    # on a gated tool looks like a long-running turn from the outside; without
+    # this the orchestrator cannot even name the `request_id` it would answer
+    # with `respond_to_agent_permission` (2026-11-05).
+    pending = getattr(sm, "pending_permissions", None) if sm is not None else None
+    rows_p = pending() if callable(pending) else None
+    if isinstance(rows_p, list) and rows_p:
+        live["pending_permissions"] = [
+            {
+                "request_id": r.get("request_id"),
+                "tool_name": r.get("tool_name"),
+                # The plan / command is what the answer hinges on; keep it short.
+                "tool_input": _fit_tool_input(r.get("tool_input")),
+            }
+            for r in rows_p if isinstance(r, dict)
+        ]
     live = _fit_live(live, int(budget * _LIVE_SHARE))
 
     if not previews and live["status"] == "idle":

@@ -445,6 +445,7 @@ async def _send_session_started(
           "type": "session_started",
           "session_id": "<local_id>",
           "context_window": <int | null>,
+          "permissions": [{"request_id": ..., "tool_name": ..., "tool_input": {}}],
           "resume_state": {"stream_id": "...", "next_seq": 17} | null,
           "replay_overflow": true                          // only if applicable
         }
@@ -459,6 +460,11 @@ async def _send_session_started(
     # batch from the envelope (frames broadcast in between would be neither
     # replayed nor kept by the client, SEQ-5).
     subagents = await _subagents_snapshot(ws, pool, sm, session_id)
+    # PM-6, same tolerance as `replay_after` above: a manager that predates the
+    # method (or a test double) simply advertises nothing pending.
+    _pending = getattr(sm, "pending_permissions", None)
+    _rows = _pending() if callable(_pending) else None
+    permissions = _rows if isinstance(_rows, list) else []
     resume_state = pool.resume_state_for(session_id)
     status, replay_payloads = pool.replay_for_subscriber(session_id, resume_from)
 
@@ -469,6 +475,12 @@ async def _send_session_started(
         # Spec 12 §4.8 / SA-3: every subagent known for this session (live
         # registry + history on disk), oldest first.
         "subagents": subagents,
+        # Spec 12 PM-6: the permission requests still waiting for an answer.
+        # `permission_request` is a live-only frame (never persisted, and
+        # replayed only to a subscriber that still holds a checkpoint), so
+        # without this snapshot a view opened after the request was emitted
+        # shows no card and the agent waits forever.
+        "permissions": permissions,
     }
     if resume_state is not None:
         envelope["resume_state"] = resume_state

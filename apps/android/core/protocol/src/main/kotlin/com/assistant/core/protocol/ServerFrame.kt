@@ -11,6 +11,23 @@ data class ResumeState(val streamId: String, val nextSeq: Long)
 data class ResumeCursor(val streamId: String, val seq: Long)
 
 /**
+ * One permission still waiting for an answer, from `session_started.permissions` (PM-6).
+ *
+ * `permission_request` is a live-only frame — never persisted to the JSONL, and replayed only to a
+ * subscriber that still holds a checkpoint — so a view that attaches after the request was emitted
+ * learns about it only from this snapshot.
+ */
+data class PendingPermission(val requestId: String, val toolName: String, val toolInput: JsonObject)
+
+/** The orchestrator twin of [PendingPermission]: `session_started.agent_permissions` (PM-6). */
+data class AgentPendingPermission(
+    val sessionId: String,
+    val requestId: String,
+    val toolName: String,
+    val toolInput: JsonObject,
+)
+
+/**
  * Every server→client frame of the chat WS (inv01 §4.2) and the orchestrator WS (inv01 §5.3, §7.4).
  *
  * Field names mirror the backend; optional/nullable fields are `null` when absent or of the wrong
@@ -49,6 +66,10 @@ sealed interface ServerFrame {
         val voiceConnectionError: String? = null,
         /** Chat only (spec 12 §4.8 SA-3): every subagent the backend knows for this session, oldest first. */
         val subagents: List<SubagentSummary>? = null,
+        /** Chat only (PM-6): this session's permission requests still waiting for an answer. */
+        val permissions: List<PendingPermission>? = null,
+        /** Orchestrator only (PM-6): agent permissions still waiting for an answer, any session. */
+        val agentPermissions: List<AgentPendingPermission>? = null,
         override val seq: Long? = null,
         override val streamId: String? = null,
     ) : ServerFrame { override val type get() = "session_started" }

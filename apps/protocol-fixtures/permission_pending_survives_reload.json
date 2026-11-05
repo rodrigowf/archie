@@ -1,0 +1,147 @@
+{
+  "name": "permission_pending_survives_reload",
+  "description": "PM-6 + SEQ-6. The reconnect overflows, so the client reloads from REST — and history has no permission_request. The card the reload wiped is re-seeded from session_started.permissions, once (no duplicate when the buffered live frame lands).",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1",
+    "live_status": "tool_use"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "text_complete",
+      "text": "Here is the plan.",
+      "seq": 3,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "permission_request",
+      "request_id": "r1",
+      "tool_name": "ExitPlanMode",
+      "tool_input": {
+        "plan": "1. Dictation\n2. Canvas"
+      },
+      "seq": 4,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "session_started",
+      "session_id": "L1",
+      "context_window": 200000,
+      "subagents": [],
+      "permissions": [
+        {
+          "request_id": "r1",
+          "tool_name": "ExitPlanMode",
+          "tool_input": {
+            "plan": "1. Dictation\n2. Canvas"
+          }
+        }
+      ],
+      "resume_state": {
+        "stream_id": "L1:1759503600000",
+        "next_seq": 1
+      },
+      "replay_overflow": true
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "send",
+      "text": "plan the audio work"
+    },
+    {
+      "at": 3,
+      "type": "ws_closed"
+    },
+    {
+      "at": 3,
+      "type": "ws_open"
+    },
+    {
+      "at": 4,
+      "type": "rest_page",
+      "mode": "replace",
+      "response": {
+        "messages": [
+          {
+            "role": "user",
+            "text": "plan the audio work",
+            "blocks": [
+              {
+                "type": "text",
+                "text": "plan the audio work",
+                "tool_use_id": null,
+                "tool_name": null,
+                "tool_input": null,
+                "output": null,
+                "is_error": false
+              }
+            ],
+            "timestamp": "2026-11-05T22:00:00+00:00"
+          },
+          {
+            "role": "assistant",
+            "text": "Here is the plan.",
+            "blocks": [
+              {
+                "type": "text",
+                "text": "Here is the plan.",
+                "tool_use_id": null,
+                "tool_name": null,
+                "tool_input": null,
+                "output": null,
+                "is_error": false
+              }
+            ],
+            "timestamp": "2026-11-05T22:07:00+00:00"
+          }
+        ],
+        "total_count": 2,
+        "has_more": false,
+        "start_index": 0
+      }
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "plan the audio work",
+        "origin": "history",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "Here is the plan.",
+            "streaming": false
+          },
+          {
+            "type": "permission",
+            "request_id": "r1",
+            "tool_name": "ExitPlanMode",
+            "state": "pending",
+            "responder": null,
+            "message": null
+          }
+        ]
+      }
+    ],
+    "state": {
+      "status": "streaming",
+      "in_turn": true,
+      "reloading": false
+    }
+  }
+}

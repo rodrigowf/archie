@@ -118,6 +118,7 @@ Conversation = {
   compactPending: boolean,
   pendingInjects: string[],               // orchestrator inject_text texts awaiting their echo
   agentApprovals: { localId, request_id, tool_name, tool_input }[],  // orchestrator: agent permissions seen via nested_session_event (PM-5)
+  permissionSnapshot: { request_id, tool_name, tool_input }[],      // what session_started says is still unanswered (PM-6)
   voiceActive: boolean,                   // orchestrator: voice live on ANY device (§7)
   openVoiceUser: UserEntry | null,        // Gemini transcript being coalesced (§4.7)
   speechAnchor: number | null,            // §4.7
@@ -346,6 +347,7 @@ onSessionStarted(conv, f):
                             ? { stream_id: rs.stream_id, seq: max(cp.seq, rs.next_seq - 1) }
                             : { stream_id: rs.stream_id, seq: rs.next_seq - 1 }
   conv.preStart = []
+  if not conv.reloading: applyPermissionSnapshot(conv)              // PM-6; after a reload: §5.6
   if not conv.inTurn and conv.status in (connecting, stopped, terminated): conv.status = idle
   conv.termination = null      // only if this start created/attached a live session
 ```
@@ -665,6 +667,11 @@ function onPermissionResolved(rid, decision, responder, message) {
   pb.state = decision == "allow" ? "allowed" : "denied"
   pb.responder = responder ?? null
   pb.message = message ?? null                                 // NO entry is appended (fixes W-5)
+  permissionSnapshot = permissionSnapshot.filter(p => p.request_id != rid)   // PM-6: answered
+}
+
+function applyPermissionSnapshot() {                           // PM-6
+  for (const p of permissionSnapshot) onPermissionRequest(p.request_id, p.tool_name, p.tool_input)
 }
 
 // ───────────────────────── turns ─────────────────────────
@@ -683,6 +690,7 @@ function endTurn(reason) {                                     // I-7, scope "tu
     }
   }
   pendingSplit = null; stall = null
+  permissionSnapshot = []                                      // PM-6: the backend drained them (G-17)
   inTurn = false; turnDepth = 0; turnHasContent = false; turnIsLocal = false
   if (status != "stopped" && status != "terminated") status = compactPending ? "compacting" : "idle"
 }
@@ -1010,6 +1018,12 @@ Rules:
 - **PM-3.** The approval bar shows the newest `pending` permission of the view. It closes when that block leaves `pending` (resolve by anyone, `endTurn`, stop, terminate), never on a different `request_id`.
 - **PM-4.** Pending permissions are expired as `denied / system / "stream ended"` at `endTurn` (the backend auto-denies but does not broadcast it, G-17).
 - **PM-5.** On an orchestrator conversation, `nested_session_event{event_type:"permission_request"}` MUST add `{localId: session_id, request_id, tool_name, tool_input}` to `agentApprovals` once per `(localId, request_id)`. `nested_session_event{event_type:"permission_resolved"}` MUST remove it, and so does `clear_agent_approvals{localId}` (the runtime sends it when that agent's view saw its turn end, §6.9). Neither adds a timeline entry. The `event_data` is also routed to the open agent view (`routeToAgentView`). *Rationale:* the pool mirrors exactly these two event types, keyed by the agent's `local_id`, to orchestrator subscribers (`api/pool.py:942-952`). It is the orchestrator device's only source for the "Agent approvals" list (§6.9). Fixture `orchestrator_agent_approvals_and_jsonl_id`.
+
+- **PM-6. Pending permissions are part of the attach state.** `permission_request` is a **live-only** frame: it is never written to the JSONL (so no history page carries it) and the pool replays it only to a subscriber that still holds a checkpoint on the same stream (a fresh subscriber gets no replay at all, H-2a). Every `session_started` therefore carries what is still unanswered, and the client seeds from it:
+  - **chat WS** — `permissions: [{request_id, tool_name, tool_input}]` (`BaseSessionManager.pending_permissions()`, `api/routes/chat.py` `_send_session_started`). The client keeps the snapshot (`permissionSnapshot`) and applies it by running PM-1 for every row it does not already show: at `session_started` when no reload is pending, and again right after a canonical reload's `history_page{replace}` (§5.6) — that page rebuilt every entry from history, which has no `permission_request`. Seeding is idempotent (I-11 drops a known `request_id`), so a replayed or re-sent frame never duplicates the card. The snapshot drops a `request_id` on its `permission_resolved` and is emptied at `endTurn`, so a later reload never resurrects an answered or expired request.
+  - **orchestrator WS** — `agent_permissions: [{session_id, request_id, tool_name, tool_input}]` (`SessionPool.pending_agent_permissions()`): the same rows for every live agent session, added to `agentApprovals` once per `(localId, request_id)` (PM-5 then removes them as usual).
+
+  *Rationale:* without this a view opened after the request was emitted — another device, a reopened conversation, a replay that overflowed — showed no approval card at all, and the agent waited on the gate forever (2026-11-05: an `ExitPlanMode` sat unanswered for ~20 min; the request was still in the session's replay ring, but nothing on the wire told the client). Fixtures `permission_pending_on_attach`, `permission_pending_survives_reload`.
 
 ### 4.7 Voice transcripts in the timeline
 
@@ -1368,7 +1382,7 @@ Reconcile never adds, removes or reorders entries. It only fills tool results. I
 
 ### 5.6 Canonical reload
 
-`canonicalReload(conv)` = set `reloading = true`, `GET …/messages?limit=50`, `reduce(history_page{replace})`, then flush `reloadBuffer` through `onFrame`. It is used for: `replay_overflow` (SEQ-6), the user's Reload action, a non-abutting page (§5.3), Qwen/Gemini agent gaps (SEQ-7), and every newly opened view (rewind, fork, termination recovery). It discards local-only entries (notices, pending injects); this is acceptable because every case above is either user-initiated or follows a gap.
+`canonicalReload(conv)` = set `reloading = true`, `GET …/messages?limit=50`, `reduce(history_page{replace})`, then `applyPermissionSnapshot()` (PM-6: the page rebuilt every entry and history has no `permission_request`), then flush `reloadBuffer` through `onFrame`. It is used for: `replay_overflow` (SEQ-6), the user's Reload action, a non-abutting page (§5.3), Qwen/Gemini agent gaps (SEQ-7), and every newly opened view (rewind, fork, termination recovery). It discards local-only entries (notices, pending injects); this is acceptable because every case above is either user-initiated or follows a gap.
 
 ### 5.7 Known history lossiness and how to present it
 
@@ -1503,6 +1517,9 @@ remove from SessionDirectory.list; refreshList(); syncPool()
 The pool close MUST come before `DELETE` so the CLI does not keep writing a file that moved to trash. Duplicate: `POST …/duplicate` ⇒ `{session_id}`, refresh, do not open (web parity).
 
 ### 6.9 Permissions: approve, deny, deny with feedback
+
+A request the view did not witness live still gets its card: every `session_started` advertises what is
+still unanswered (PM-6), so attaching, reopening or reloading always shows the pending approval.
 
 ```
 approve: WS→ {type:"permission_response", request_id, decision:"allow"}
@@ -2081,6 +2098,8 @@ IDs: **W-n** = item n of 02 §6.3; **W-6.1 / W-6.2** = the lists in 02 §6.1 / �
 | `orchestrator_error_no_turn_complete` | TL-4, §4.4.4 |
 | `web_bug5_permission_feedback_then_result` | W-5, PM-2, I-12, deny-with-feedback |
 | `permission_request_resolve` | PM-1…PM-3 |
+| `permission_pending_on_attach` | PM-6 (`session_started.permissions` seeds the card a late view never saw) |
+| `permission_pending_survives_reload` | PM-6 + SEQ-6 (re-seeded after the reload, exactly once) |
 | `stall_notice_repeated_seq` | SEQ-2 |
 | `replay_after_reconnect_overlap` | SEQ-1, SEQ-5, A-4.3 (b) |
 | `replay_overflow_rest_reload` | SEQ-6, §5.6 |

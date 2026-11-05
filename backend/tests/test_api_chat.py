@@ -46,6 +46,8 @@ def _mock_session_manager(session_id="test-123", events=None):
     # "no pending permissions" so the typical send path doesn't try to
     # resolve anything.
     sm.pending_permission_ids = MagicMock(return_value=[])
+    # Advertised in every `session_started` (spec 12 PM-6): nothing pending here.
+    sm.pending_permissions = MagicMock(return_value=[])
 
     return sm
 
@@ -453,6 +455,39 @@ class TestWebSocketResumeProtocol:
                 "stream_id": "test-123:170000", "next_seq": 0,
             }
             assert "replay_overflow" not in envelope
+
+    def test_session_started_carries_pending_permissions(self, pool_client):
+        """PM-6: a client attaching while the agent waits on a gated tool is told
+        about it. `permission_request` is live-only — it is never written to the
+        JSONL and is replayed only to a subscriber that still holds a checkpoint —
+        so without this snapshot the approval card never reaches a view opened
+        after the request (the agent then waits forever; 2026-11-05).
+        """
+        client, pool, sm = pool_client
+        sm.pending_permissions = MagicMock(return_value=[
+            {"request_id": "r1", "tool_name": "ExitPlanMode",
+             "tool_input": {"plan": "1. Do it"}},
+        ])
+
+        with client.websocket_connect("/api/sessions/chat") as ws:
+            ws.send_text(orjson.dumps({"type": "start", "local_id": "x"}).decode())
+            ws.receive_bytes()  # connecting
+            envelope = orjson.loads(ws.receive_bytes())
+
+            assert envelope["permissions"] == [
+                {"request_id": "r1", "tool_name": "ExitPlanMode",
+                 "tool_input": {"plan": "1. Do it"}},
+            ]
+
+    def test_session_started_permissions_empty_when_nothing_pending(self, pool_client):
+        client, _pool, _sm = pool_client
+
+        with client.websocket_connect("/api/sessions/chat") as ws:
+            ws.send_text(orjson.dumps({"type": "start", "local_id": "x"}).decode())
+            ws.receive_bytes()  # connecting
+            envelope = orjson.loads(ws.receive_bytes())
+
+            assert envelope["permissions"] == []
 
     def test_session_started_omits_resume_state_for_non_protocol_providers(self, pool_client):
         """Providers without the resume protocol (Qwen, Gemini, etc.) get

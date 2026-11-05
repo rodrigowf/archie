@@ -46,6 +46,17 @@ internal fun Draft.reduceFrame(f: ServerFrame) {
         is ServerFrame.SessionStarted -> {
             if (f.voice == true) voiceActive = true
             if (isAgent) f.subagents?.forEach { upsertSummary(it) }            // SA-3 snapshot, in array order
+            // PM-6: pending-permission snapshots. The agent view seeds its own card (onSessionStarted,
+            // and again after a reload); the orchestrator view seeds its "Agent approvals" list.
+            if (isAgent) {
+                permissionSnapshot.clear()
+                permissionSnapshot.addAll(f.permissions.orEmpty())
+            } else if (isOrchestrator) {
+                for (p in f.agentPermissions.orEmpty()) {
+                    if (agentApprovals.any { it.localId == p.sessionId && it.requestId == p.requestId }) continue
+                    agentApprovals.add(AgentApproval(p.sessionId, p.requestId, p.toolName, p.toolInput))
+                }
+            }
         }
         // SA-1: subagent frames only ever touch `subagents` (never entries, tools, status, turn, stall, counters).
         is ServerFrame.SubagentStarted -> onSubagentStarted(f)

@@ -154,6 +154,20 @@ async def _safe_send_bytes(ws: WebSocket, payload: bytes) -> bool:
         return False
 
 
+def _attach_agent_permissions(payload: dict, pool: SessionPool) -> dict:
+    """Add the agent permissions still waiting for an answer (spec 12 PM-6).
+
+    The orchestrator's "Agent approvals" list is otherwise fed only by live
+    ``nested_session_event`` frames, so a view that attaches after a request
+    was emitted never learns about it and the agent waits forever.  Every
+    ``session_started`` the orchestrator socket sends carries the snapshot.
+    """
+    getter = getattr(pool, "pending_agent_permissions", None)
+    rows = getter() if callable(getter) else None
+    payload["agent_permissions"] = rows if isinstance(rows, list) else []
+    return payload
+
+
 @router.websocket("/api/orchestrator/chat")
 async def orchestrator_ws(ws: WebSocket):
     await ws.accept()
@@ -628,7 +642,7 @@ async def _handle_start(
                 reconnect_payload, session,
                 initiator=True, initiator_ws=ws,
             )
-            await _safe_send_bytes(ws, orjson.dumps(reconnect_payload))
+            await _safe_send_bytes(ws, orjson.dumps(_attach_agent_permissions(reconnect_payload, pool)))
             logger.info(
                 "voice rearm complete session=%s — same orchestrator, fresh voice connection",
                 local_id,
@@ -663,7 +677,7 @@ async def _handle_start(
                     "plain start from the voice owner session=%s — ownership kept",
                     local_id,
                 )
-                await _safe_send_bytes(ws, orjson.dumps(reconnect_payload))
+                await _safe_send_bytes(ws, orjson.dumps(_attach_agent_permissions(reconnect_payload, pool)))
                 return session, True
             # Not the initiator: another client owns the live voice
             # connection. Carry voice metadata so this client's UI can
@@ -673,7 +687,7 @@ async def _handle_start(
                 reconnect_payload, session,
                 initiator=False, initiator_ws=None,
             )
-            await _safe_send_bytes(ws, orjson.dumps(reconnect_payload))
+            await _safe_send_bytes(ws, orjson.dumps(_attach_agent_permissions(reconnect_payload, pool)))
             return session, True
         else:
             # Same mode — check if the client is asking for a different
@@ -725,7 +739,7 @@ async def _handle_start(
                         reconnect_payload, session,
                         initiator=True, initiator_ws=ws,
                     )
-                    await _safe_send_bytes(ws, orjson.dumps(reconnect_payload))
+                    await _safe_send_bytes(ws, orjson.dumps(_attach_agent_permissions(reconnect_payload, pool)))
                     return session, True
             else:
                 pool.subscribe_orchestrator(local_id, ws)
@@ -738,7 +752,7 @@ async def _handle_start(
                     "voice": current_voice,
                     "model_info": session.get_model_info(),
                 }
-                await _safe_send_bytes(ws, orjson.dumps(reconnect_payload))
+                await _safe_send_bytes(ws, orjson.dumps(_attach_agent_permissions(reconnect_payload, pool)))
                 return session, True
 
     # --- A different orchestrator is already active ---
@@ -901,7 +915,7 @@ async def _handle_start(
         )
 
     _t_send = time.monotonic()
-    await _safe_send_bytes(ws, orjson.dumps(started_payload))
+    await _safe_send_bytes(ws, orjson.dumps(_attach_agent_permissions(started_payload, pool)))
     if voice:
         logger.info(
             "voice_start_timing local_id=%s step=ws.send_started dt_ms=%d payload_bytes=%d TOTAL_ms=%d",

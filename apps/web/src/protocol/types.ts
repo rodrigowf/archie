@@ -233,6 +233,17 @@ export interface AgentApproval {
   readonly tool_input: Readonly<Record<string, unknown>>;
 }
 
+/**
+ * PM-6: one permission `session_started.permissions` says is still waiting for an answer.
+ * `permission_request` is live-only (never persisted, replayed only to a subscriber that still holds
+ * a checkpoint), so this snapshot is the only way a view that attached later learns about it.
+ */
+export interface PendingPermission {
+  readonly request_id: string;
+  readonly tool_name: string;
+  readonly tool_input: Readonly<Record<string, unknown>>;
+}
+
 /** spec 12 §4.8: a subagent's lifecycle state. */
 export type SubagentStatus = 'running' | 'done' | 'failed' | 'stopped';
 
@@ -300,6 +311,13 @@ export interface Conversation {
   readonly connectionBanner: ConnectionBanner | null;
   readonly gapPossible: boolean;
   readonly agentApprovals: readonly AgentApproval[];
+  /**
+   * PM-6: what the last `session_started` said is still waiting for an answer. Kept in state so a
+   * canonical reload (§5.6), which rebuilds every entry from history — and history has no
+   * `permission_request` — can re-seed the card it just wiped. Emptied when the request is answered
+   * or the turn ends.
+   */
+  readonly permissionSnapshot: readonly PendingPermission[];
   /** spec 12 §4.8: every subagent known for this session, in first-sight order (never deleted). */
   readonly subagents: readonly Subagent[];
   /** SA-8: the subagent list was fetched once after a history page with placeholders. */

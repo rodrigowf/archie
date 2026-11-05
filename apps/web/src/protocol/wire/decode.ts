@@ -37,6 +37,8 @@ const SCHEMAS: Readonly<Record<ServerFrameType, Schema>> = {
     voice_connection_info: OPT_OBJ,
     voice_connection_error: OPT_STR,
     subagents: 'arr?',
+    permissions: 'arr?',
+    agent_permissions: 'arr?',
   },
   status: { status: STR, detail: OPT_STR },
   user_message: { text: STR, queued: OPT_BOOL, steered: OPT_BOOL, source: OPT_STR },

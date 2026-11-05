@@ -161,3 +161,37 @@ def test_live_block_keeps_newest_events_within_budget():
 def test_empty_idle_session_is_an_error():
     _, body = _read(_ctx([]))
     assert "No messages found" in body["error"]
+
+
+def test_live_block_names_pending_permissions():
+    """Spec 12 PM-6, orchestrator side. A session blocked on a gated tool looks
+    like a long-running turn from the outside; without the request_id here the
+    orchestrator cannot answer it with `respond_to_agent_permission`."""
+    class _Sm:
+        sdk_session_id = "sdk-1"
+
+        def pending_permissions(self):
+            return [{
+                "request_id": "r1",
+                "tool_name": "ExitPlanMode",
+                "tool_input": {"plan": "p" * 5000},
+            }]
+
+    ctx = _ctx([_msg("assistant", "Here is the plan.")])
+    ctx["pool"] = SimpleNamespace(
+        get=lambda _sid: _Sm(),
+        restored_sdk_id=lambda _sid: None,
+    )
+    _, body = _read(ctx)
+
+    pending = body["live"]["pending_permissions"]
+    assert [p["request_id"] for p in pending] == ["r1"]
+    assert pending[0]["tool_name"] == "ExitPlanMode"
+    # The plan is cut, not dropped: enough to decide on, no budget blow-up.
+    plan = pending[0]["tool_input"]["plan"]
+    assert plan.startswith("ppp") and plan.endswith("(truncated)") and len(plan) < 5000
+
+
+def test_live_block_omits_pending_permissions_when_there_are_none():
+    _, body = _read(_ctx([_msg("assistant", "hello")]))
+    assert "pending_permissions" not in body["live"]

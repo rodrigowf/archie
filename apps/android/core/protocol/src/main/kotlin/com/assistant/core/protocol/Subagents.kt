@@ -66,3 +66,35 @@ internal fun encodeSubagentSummary(s: SubagentSummary): JsonObject = jsonObject 
     put("started_at", s.startedAt)
     put("ended_at", s.endedAt)
 }
+
+// ───────────── pending permissions (PM-6) ─────────────
+// Same leniency as the subagent rows above: a row without a `request_id` is dropped (it could
+// never be answered). Lives here beside the other `session_started` snapshot codecs.
+
+private val EMPTY_JSON_OBJECT = JsonObject(emptyMap())
+
+/** One `session_started.permissions` row; `null` without a string `request_id`. */
+internal fun decodePendingPermission(o: JsonObject): PendingPermission? {
+    val rid = o.str("request_id")?.takeIf { it.isNotEmpty() } ?: return null
+    return PendingPermission(rid, o.str("tool_name") ?: "", o.obj("tool_input") ?: EMPTY_JSON_OBJECT)
+}
+
+internal fun encodePendingPermission(p: PendingPermission): JsonObject = jsonObject {
+    put("request_id", p.requestId)
+    put("tool_name", p.toolName)
+    put("tool_input", p.toolInput)
+}
+
+/** One `session_started.agent_permissions` row; `null` without a `session_id` and `request_id`. */
+internal fun decodeAgentPendingPermission(o: JsonObject): AgentPendingPermission? {
+    val sid = o.str("session_id")?.takeIf { it.isNotEmpty() } ?: return null
+    val rid = o.str("request_id")?.takeIf { it.isNotEmpty() } ?: return null
+    return AgentPendingPermission(sid, rid, o.str("tool_name") ?: "", o.obj("tool_input") ?: EMPTY_JSON_OBJECT)
+}
+
+internal fun encodeAgentPendingPermission(p: AgentPendingPermission): JsonObject = jsonObject {
+    put("session_id", p.sessionId)
+    put("request_id", p.requestId)
+    put("tool_name", p.toolName)
+    put("tool_input", p.toolInput)
+}

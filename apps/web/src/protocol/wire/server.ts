@@ -59,6 +59,10 @@ export interface SessionStartedFrame extends Sequenced {
   voice_connection_error?: string;
   /** spec 12 §4.8 SA-3: every subagent the backend knows for this session (chat WS). */
   subagents?: unknown[];
+  /** PM-6: permissions of this session still waiting for an answer (chat WS). */
+  permissions?: unknown[];
+  /** PM-6: agent permissions still waiting for an answer, any session (orchestrator WS). */
+  agent_permissions?: unknown[];
 }
 
 export interface StatusFrame extends Sequenced {

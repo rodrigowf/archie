@@ -3,7 +3,7 @@ name: orchestrator
 category: archie/architecture
 tags: [orchestrator, agent-loop, tools, providers, system-prompt, background-runner, notifications, run-script, persistence, jsonl]
 created: 2026-02-23
-modified: 2026-10-16
+modified: 2026-11-05
 summary: The orchestrator agent — session vs agent loop, model providers, system prompt, the 24 tools, background runner, persistence.
 source: curated (consolidated from memory notes assistant/architecture/orchestrator-vision.md, assistant/architecture/permissions_branch_architecture.md, assistant/architecture/project-overview.md, assistant/infrastructure/features_and_integrations_summary.md; verified against code 2026-10-06)
 references:
@@ -184,7 +184,7 @@ Tools can declare a `schema_builder` to inject live state (e.g. the MCP list) in
 | | `resume_conversation` | Reopen a past agent conversation (Claude/Qwen/Gemini) from a search result's `session_id` |
 | | `switch_conversation` | Leave this conversation and continue in one of the orchestrator's own past conversations: ends voice if active, stops this orchestrator, sends the client an `orchestrator_switch` frame (uncommitted on 2026-10-06; protocol §6.11a) |
 | | `close_agent_session` | Close a live session |
-| | `read_agent_session` | The last N messages that contain text (default 5; tool-only entries skipped), each with its transcript `index`, plus a `live` block: `running` (turn id, live event tail) or `idle`. Pages instead of cutting: the response is sized to a budget (voice: just under the 8,000-char realtime tool-output cap; text: 40,000, `max_chars` overrides), filled newest first, and carries cursors — `earlier: {before_index}` to page back, `continue: {message_index, char_offset}` to read the rest of a long message (`message_index` + `char_offset` read one message in chunks). A voice read therefore never reaches `truncate_voice_tool_output`, which would shorten every message and drop the newest (`backend/tests/test_read_agent_session.py`) |
+| | `read_agent_session` | The last N messages that contain text (default 5; tool-only entries skipped), each with its transcript `index`, plus a `live` block: `running` (turn id, live event tail) or `idle`, and `pending_permissions: [{request_id, tool_name, tool_input}]` when the session is waiting on a gated tool (spec 12 PM-6 — without the `request_id` the orchestrator cannot answer it with `respond_to_agent_permission`; a long plan is truncated). Pages instead of cutting: the response is sized to a budget (voice: just under the 8,000-char realtime tool-output cap; text: 40,000, `max_chars` overrides), filled newest first, and carries cursors — `earlier: {before_index}` to page back, `continue: {message_index, char_offset}` to read the rest of a long message (`message_index` + `char_offset` read one message in chunks). A voice read therefore never reaches `truncate_voice_tool_output`, which would shorten every message and drop the newest (`backend/tests/test_read_agent_session.py`) |
 | | `send_to_agent_session` | Fire-and-forget: returns `{turn_id, session_id, status: "running", started_at}` at once (below) |
 | | `interrupt_agent_session` | Cancel a running turn via `runner.cancel_session` (SDK interrupt while the agent works on it, stops the turn's running subagents); the runner reports it as `cancelled`. With no runner turn: a plain `pool.interrupt` |
 | | `respond_to_agent_permission` | Answer a pending `ExitPlanMode` request (`allow`/`deny`, optional message) |

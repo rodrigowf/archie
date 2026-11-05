@@ -617,6 +617,25 @@ class SessionPool:
             request_id, decision, message=message, responder=responder,
         )
 
+    def pending_agent_permissions(self) -> list[dict[str, Any]]:
+        """Every agent permission still waiting for an answer, across the pool.
+
+        The orchestrator twin of ``session_started.permissions`` (spec 12
+        PM-6): its "Agent approvals" list is otherwise fed only by live
+        ``nested_session_event`` frames, so an orchestrator view opened (or
+        rebuilt) after a request was emitted never showed it.
+        """
+        out: list[dict[str, Any]] = []
+        for session_id, sm in self._sessions.items():
+            pending = getattr(sm, "pending_permissions", None)
+            rows = pending() if callable(pending) else None
+            if not isinstance(rows, list):  # a manager that predates it / a test double
+                continue
+            for req in rows:
+                if isinstance(req, dict):
+                    out.append({"session_id": session_id, **req})
+        return out
+
     # ------------------------------------------------------------------
     # Agent session access
     # ------------------------------------------------------------------

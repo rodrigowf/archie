@@ -129,6 +129,19 @@ function inputObject(x: unknown): Record<string, unknown> {
   return isPlainObject(x) ? x : {};
 }
 
+/** PM-6: `session_started.permissions` → the rows worth seeding a card for (a row with no
+ *  `request_id` could never be answered). */
+function permissionRows(x: unknown): { request_id: string; tool_name: string; tool_input: Record<string, unknown> }[] {
+  if (!Array.isArray(x)) return [];
+  const out: { request_id: string; tool_name: string; tool_input: Record<string, unknown> }[] = [];
+  for (const row of x) {
+    if (!isPlainObject(row)) continue;
+    const rid = str(row.request_id);
+    if (rid) out.push({ request_id: rid, tool_name: str(row.tool_name), tool_input: inputObject(row.tool_input) });
+  }
+  return out;
+}
+
 function sameJson(a: unknown, b: unknown): boolean {
   return a === b || JSON.stringify(a) === JSON.stringify(b);
 }
@@ -208,6 +221,7 @@ export function initialConversation(o: InitialConversationOptions): Conversation
     connectionBanner: null,
     gapPossible: false,
     agentApprovals: [],
+    permissionSnapshot: [],
     subagents: [],
     subagentsListed: false,
     checkpoint: null,
@@ -401,6 +415,10 @@ class Machine extends Draft {
       for (const g of held) this.dispatch(g);
       if (rs) this.s.checkpoint = mergeResumeState(this.s.checkpoint, rs);
     }
+    // PM-6: after the held frames (a replayed `permission_resolved` must not be undone by the
+    // snapshot) and before the status fixup. While reloading the entries are about to be replaced
+    // from history, so the seeding waits for the reload to land (§5.6, onHistoryPage).
+    if (!this.s.reloading) this.applyPermissionSnapshot();
     const st = this.s.status;
     if (!this.s.inTurn && (st === 'connecting' || st === 'stopped' || st === 'terminated')) this.s.status = 'idle';
     if (this.s.termination !== null) this.s.termination = null;
@@ -450,6 +468,7 @@ class Machine extends Draft {
       this.s.gapPossible = false;
       this.maybeListSubagents();
       this.refetchOpenSubagents(); // D6: before the buffered frames, so their inner frames are held
+      this.applyPermissionSnapshot(); // PM-6: history has no `permission_request` — re-seed the card
       this.flushReload();
       return;
     }
@@ -836,6 +855,18 @@ class Machine extends Draft {
 
   // ───────────────────────── permissions (§4.6) ─────────────────────────
 
+  /**
+   * PM-6: seed a card for every permission `session_started` says is still unanswered and that we do
+   * not already show. `permission_request` is live-only — never persisted, and replayed only to a
+   * subscriber that still holds a checkpoint — so a view that attaches after the request was emitted
+   * (another device, a reopened conversation, a replay that overflowed) has no other way to learn
+   * about it, and the agent waits forever (2026-11-05). Idempotent: `onPermissionRequest` drops a
+   * known `request_id` (I-11), so a replayed or re-sent frame never duplicates the card.
+   */
+  private applyPermissionSnapshot(): void {
+    for (const p of this.s.permissionSnapshot) this.onPermissionRequest(p.request_id, p.tool_name, p.tool_input);
+  }
+
   private onPermissionRequest(rid: string, name: string, input: Record<string, unknown>): void {
     this.clearStall();
     if (this.findPerm(rid)) return; // I-11
@@ -856,6 +887,9 @@ class Machine extends Draft {
 
   private onPermissionResolved(rid: string, decision: string, responder: unknown, message: unknown): void {
     this.clearStall();
+    // PM-6: answered — a later reload must not resurrect it as pending.
+    if (this.s.permissionSnapshot.some((p) => p.request_id === rid))
+      this.s.permissionSnapshot = this.s.permissionSnapshot.filter((p) => p.request_id !== rid);
     const loc = this.findPerm(rid);
     if (!loc) return; // we never saw the request: nothing to show
     const pb = this.blockMut(loc) as Mutable<PermissionBlock>;
@@ -905,6 +939,9 @@ class Machine extends Draft {
     }
     this.s.pendingSplit = null;
     this.s.stall = null;
+    // PM-4/PM-6: the backend drains every pending permission when the stream ends, so the
+    // snapshot is spent — a reload after this must not bring the card back.
+    if (this.s.permissionSnapshot.length) this.s.permissionSnapshot = [];
     this.s.inTurn = false;
     this.s.turnDepth = 0;
     this.s.turnHasContent = false;
@@ -1101,6 +1138,21 @@ class Machine extends Draft {
       case 'session_started':
         if (f.voice === true) this.s.voiceActive = true; // the other fields: onSessionStarted (§3.6)
         if (ref.kind === 'agent' && Array.isArray(f.subagents)) for (const row of f.subagents) this.upsertRow(row); // SA-3
+        // PM-6: pending-permission snapshots. The agent view seeds its own card (onSessionStarted,
+        // and again after a reload); the orchestrator view seeds its "Agent approvals" list.
+        if (ref.kind === 'agent') this.s.permissionSnapshot = permissionRows(f.permissions);
+        else if (ref.kind === 'orchestrator' && Array.isArray(f.agent_permissions)) {
+          for (const row of f.agent_permissions) {
+            if (!isPlainObject(row)) continue;
+            const localId = str(row.session_id);
+            const rid = str(row.request_id);
+            if (!localId || !rid) continue;
+            if (this.s.agentApprovals.some((a) => a.localId === localId && a.request_id === rid)) continue;
+            this.s.agentApprovals = this.s.agentApprovals.concat([
+              { localId, request_id: rid, tool_name: str(row.tool_name), tool_input: inputObject(row.tool_input) },
+            ]);
+          }
+        }
         return;
       case 'subagent_started':
         if (ref.kind !== 'agent') return;

@@ -3,7 +3,7 @@ name: agent-sessions
 category: archie/architecture
 tags: [agent-sessions, session-pool, session-manager, claude-agent-sdk, local-id, lifecycle, permissions, stall-watchdog, session-config, resume]
 created: 2026-02-23
-modified: 2026-10-13
+modified: 2026-11-05
 summary: How agent (chat) sessions run — SessionPool, session managers, dual IDs, out-of-turn events and subagents, lifecycle hardening, permissions, stall watchdog, per-session config.
 source: curated (consolidated from memory notes assistant/architecture/project-overview.md, assistant/architecture/permissions_branch_architecture.md, assistant/architecture/orchestrator-vision.md, auto-memory project_session_config.md, project_sdk_upgrade_path_2026_06_18.md, feedback_diagnose_via_direct_ws_probe.md; verified against code 2026-10-06)
 references:
@@ -290,6 +290,15 @@ The bundled CLI calls the SDK `can_use_tool` callback before tools when `permiss
      that session as `deny` with the typed text as the reason, then sends the text normally.
 - `permission_request` / `permission_resolved` are broadcast, not written as their own JSONL lines;
   the plan text from `ExitPlanMode` appears as normal assistant text.
+- **Pending requests are part of the attach state** (spec 12 PM-6). Because the request frame is
+  live-only — no JSONL line, and the replay ring only serves a subscriber that still holds a
+  checkpoint — a client that attaches *after* it was emitted used to see no card at all, and the
+  agent waited on the gate forever (2026-11-05: an `ExitPlanMode` sat unanswered for ~20 min; the
+  session was `tool_use` with nothing on screen to answer). `BaseSessionManager.pending_permissions()`
+  keeps `{request_id, tool_name, tool_input}` for every unanswered request; every chat
+  `session_started` carries them as `permissions`, and the orchestrator's carries
+  `SessionPool.pending_agent_permissions()` as `agent_permissions`. The clients seed the card from
+  that snapshot (and re-seed it after a canonical reload, which rebuilds entries from history).
 
 ## Stall watchdog
 

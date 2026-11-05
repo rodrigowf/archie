@@ -28,6 +28,7 @@ import asyncio
 import uuid
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from .config import ManagerConfig
@@ -41,6 +42,24 @@ from .types import (
 
 if TYPE_CHECKING:
     pass
+
+
+@dataclass
+class PendingPermission:
+    """One unanswered ``PermissionRequest``: the Future the gating callback
+    is awaiting plus the request itself.
+
+    The request is kept because ``permission_request`` is a live-only frame —
+    it is never written to the session's JSONL — so a client that attaches
+    after it was emitted (another device, a reopened view, a replay that
+    overflowed) can only learn about it from the session's own state.
+    :meth:`BaseSessionManager.pending_permissions` is what
+    ``session_started`` advertises (spec 12 PM-6).
+    """
+
+    future: "asyncio.Future[tuple[str, str | None, str]]"
+    tool_name: str = ""
+    tool_input: dict = field(default_factory=dict)
 
 
 class TurnAbandoned(Exception):
@@ -147,9 +166,11 @@ class BaseSessionManager(ABC):
 
         # Permission gating shared state. ``_event_inbox`` is set by send()
         # so the permission callback can inject events into the live stream;
-        # ``_pending_permissions`` holds the asyncio.Future per request.
+        # ``_pending_permissions`` holds the asyncio.Future per request plus
+        # the request itself, so a client attaching later can be told what is
+        # still waiting for an answer (``pending_permissions``, spec 12 PM-6).
         self._gated_tools: set[str] = set()
-        self._pending_permissions: dict[str, asyncio.Future[tuple[str, str | None, str]]] = {}
+        self._pending_permissions: dict[str, PendingPermission] = {}
         self._event_inbox: asyncio.Queue[Event] | None = None
 
         # Out-of-turn events (spec 12 §4.8): what the harness emits while no
@@ -366,14 +387,32 @@ class BaseSessionManager(ABC):
         responder: str = "user",
     ) -> bool:
         """Answer a pending PermissionRequest. First call wins."""
-        future = self._pending_permissions.get(request_id)
-        if future is None or future.done():
+        pending = self._pending_permissions.get(request_id)
+        if pending is None or pending.future.done():
             return False
-        future.set_result((decision, message, responder))
+        pending.future.set_result((decision, message, responder))
         return True
 
     def pending_permission_ids(self) -> list[str]:
-        return [rid for rid, fut in self._pending_permissions.items() if not fut.done()]
+        return [rid for rid, p in self._pending_permissions.items() if not p.future.done()]
+
+    def pending_permissions(self) -> list[dict]:
+        """Every unanswered permission request, oldest first (spec 12 PM-6).
+
+        Same shape as the ``permission_request`` frame minus the envelope, so
+        a client can seed the card it never received::
+
+            [{"request_id": ..., "tool_name": ..., "tool_input": {...}}, ...]
+        """
+        return [
+            {
+                "request_id": rid,
+                "tool_name": p.tool_name,
+                "tool_input": dict(p.tool_input),
+            }
+            for rid, p in self._pending_permissions.items()
+            if not p.future.done()
+        ]
 
     def _inject_event(self, event: Event) -> None:
         """Push an out-of-band event into the active ``send()`` stream.
@@ -415,7 +454,9 @@ class BaseSessionManager(ABC):
         request_id = str(uuid.uuid4())
         loop = asyncio.get_running_loop()
         future: asyncio.Future[tuple[str, str | None, str]] = loop.create_future()
-        self._pending_permissions[request_id] = future
+        self._pending_permissions[request_id] = PendingPermission(
+            future=future, tool_name=tool_name, tool_input=dict(tool_input),
+        )
 
         self._inject_event(PermissionRequest(
             request_id=request_id,
@@ -442,9 +483,9 @@ class BaseSessionManager(ABC):
         Called at the end of a send() so the SDK doesn't leak a future
         nothing will ever resolve.
         """
-        for rid, fut in list(self._pending_permissions.items()):
-            if not fut.done():
-                fut.set_result(("deny", "stream ended", "system"))
+        for rid, pending in list(self._pending_permissions.items()):
+            if not pending.future.done():
+                pending.future.set_result(("deny", "stream ended", "system"))
             self._pending_permissions.pop(rid, None)
 
     # ------------------------------------------------------------------
