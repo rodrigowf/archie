@@ -219,6 +219,8 @@ exports `PYTHONPATH=<repo>/backend`, `CLAUDE_CONFIG_DIR=<repo>/.claude_config`, 
 ```bash
 context/scripts/run.sh -m uvicorn api.app:create_app --factory --host 0.0.0.0 --port 8765
 ./start.sh     # same, detached with setsid, output in logs/api_<timestamp>.log
+./toggle-backend.sh   # stop this install's backend if running, else start it detached (desktop launchers);
+                      # port from ARCHIE_PORT (default 8765), never touches another install's backend
 cd apps/web && npm run dev        # dev server 5450 (compat: npm run dev:compat, 5451)
 ```
 
