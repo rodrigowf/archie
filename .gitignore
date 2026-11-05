@@ -20,6 +20,9 @@ __pycache__/
 apps/web/dist/
 apps/web/node_modules/
 
+# Editor settings are per machine
+.vscode/
+
 # Local logs
 logs/
 
