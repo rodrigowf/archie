@@ -326,6 +326,19 @@ class TestFlows:
             await flow.submit_code("again")
         await flow.wait_closed()
 
+    async def test_pty_code_and_enter_are_separate_keystrokes(self, tmp_path):
+        # Ink (`claude setup-token`) takes "code\r" in one read as a paste and never submits.
+        marker = tmp_path / "marker"
+        spec = fake_spec("paste", scan=_generic_scan, pty=True, needs_code=True)
+        spec.env["FAKE_LOGIN_MARKER"] = str(marker)
+        flow = LoginFlow(spec)
+        await flow.start()
+        await flow.wait_ready(5)
+        await flow.submit_code("good")
+        await flow.wait_done(5)
+        assert flow.status == "succeeded" and marker.read_text() == "ok"
+        await flow.wait_closed()
+
     async def test_tty_only_cli_needs_pty(self):
         piped = LoginFlow(fake_spec("tty", scan=_generic_scan))
         await piped.start()
@@ -785,6 +798,32 @@ class TestLoginSnapshots:
         await flow.wait_closed()
         assert flow.status == "failed" and "saving the login failed" in flow.message
         assert cred.read_text() == '{"old": true}'
+
+    @pytest.mark.parametrize("ending", ["fail", "promote"])
+    async def test_spent_once_finished_a_later_shutdown_keeps_a_newer_login(self, tmp_path, login_backups, ending):
+        # A failed flow lingers in FlowManager; shutting the backend down later used to restore its
+        # snapshot over credentials saved in the meantime.
+        cred = tmp_path / "auth.json"
+        cred.write_text('{"old": true}')
+
+        def promote():
+            raise AccountError("nothing staged")
+
+        if ending == "fail":
+            spec = self._spec("code", cred, needs_code=True)
+            code = "bad"
+        else:
+            spec = self._spec("code", cred, needs_code=True, promote=promote)
+            code = "good"
+        mgr = FlowManager()
+        flow = await mgr.start(spec)
+        await flow.submit_code(code)
+        await flow.wait_done(5)
+        await flow.wait_closed()
+        assert flow.status == "failed" and cred.read_text() == '{"old": true}'
+        cred.write_text('{"pasted": true}')
+        await mgr.shutdown()
+        assert cred.read_text() == '{"pasted": true}'
 
     async def test_absent_before_and_created_by_a_failed_login_is_moved_aside(self, tmp_path, login_backups):
         cred = tmp_path / "auth.json"

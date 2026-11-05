@@ -5,6 +5,8 @@ Usage: fake_login.py <mode>
   device  print a URL and a device code, exit 0 after a moment (the user approved elsewhere)
   token   print a URL, read a code, print a token and wait (like `claude setup-token`)
   tty     like code, but refuse to run without a terminal (Ink / readline TUIs)
+  paste   like code in a raw terminal, read like Ink: a multi-character chunk is a paste (an Enter
+          inside it is text) and only a lone Enter submits
   hang    print a URL and never finish
 """
 
@@ -22,6 +24,10 @@ if os.environ.get("FAKE_LOGIN_CLOBBER"):
 if mode == "tty" and not sys.stdin.isatty():
     print("stdin is not a terminal", flush=True)
     sys.exit(3)
+if mode == "paste":  # raw from the start, like Ink (setraw would flush input typed later)
+    import tty
+
+    tty.setraw(0)
 print("Visit https://example.test/oauth/authorize?state=abc&x=1", flush=True)
 if mode == "device":
     print("Enter this one-time code\n   WXYZ-12345", flush=True)
@@ -33,7 +39,13 @@ if mode == "hang":
         time.sleep(1)
 sys.stdout.write("Paste code here if prompted > ")
 sys.stdout.flush()
-code = sys.stdin.readline().strip()
+if mode == "paste":
+    pasted = ""
+    while (chunk := os.read(0, 4096).decode()) != "\r":
+        pasted += chunk
+    code = pasted.strip()
+else:
+    code = sys.stdin.readline().strip()
 if mode == "token":
     if code == "good":
         print("\nYour token: sk-ant-oat01-" + "T" * 40, flush=True)

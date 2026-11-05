@@ -49,6 +49,8 @@ _DONE: frozenset[str] = frozenset({"succeeded", "failed", "cancelled", "expired"
 KEEP_FINISHED_S = 600
 # How long POST /login waits for the URL before answering "starting".
 READY_WAIT_S = 12.0
+# Pause between a code typed into a PTY and its Enter, so the two arrive as separate reads.
+PASTE_SETTLE_S = 0.5
 _MAX_OUTPUT = 256 * 1024
 
 # ─────────────────────────────── terminal text ───────────────────────────────
@@ -247,8 +249,14 @@ class LoginFlow:
             raise AccountError("That doesn't look like a sign-in code.")
         if self.spec.submit is not None:
             await self.spec.submit(code)
+        elif self.spec.pty:
+            # Ink reads a multi-character chunk as a paste and an Enter inside it as text, so
+            # `claude setup-token` would sit on a full-length code forever: Enter goes on its own.
+            self._write(code)
+            await asyncio.sleep(PASTE_SETTLE_S)
+            self._write("\r")
         else:
-            self._write(code + ("\r" if self.spec.pty else "\n"))
+            self._write(code + "\n")
         self.code_sent = True
         self.status = "verifying"
         self.message = "Checking the code…"
@@ -399,6 +407,8 @@ class LoginFlow:
             except Exception:  # noqa: BLE001
                 logger.exception("accounts: restoring the %s credentials failed", self.spec.service)
                 message += " Restoring the previous login failed; see the backups in .backups/login/."
+        if status == "succeeded" or self._proc is None or self._proc.returncode is not None:
+            self._snaps = []  # spent: see _release
         self.status = status
         self.message = message
         self.finished_at = time.time()
@@ -423,9 +433,12 @@ class LoginFlow:
         """Close our ends (stdin pipe, PTY master) so asyncio can close the transport."""
         proc = self._proc
         if self.done and self.status != "succeeded" and self._snaps and (proc is None or proc.returncode is not None):
-            # Once more now that the CLI is gone: it can't write after this.
+            # Once more now that the CLI is gone: it can't write after this. Then the snapshots are
+            # spent — the finished flow lingers in FlowManager, and a cancel or shutdown minutes
+            # later must not roll back a login saved since (e.g. pasted credentials).
             with contextlib.suppress(Exception):
                 restore(self._snaps)
+            self._snaps = []
         if self.spec.on_close is not None and (proc is None or proc.returncode is not None):
             hook, self.spec.on_close = self.spec.on_close, None
             with contextlib.suppress(Exception):
