@@ -156,10 +156,15 @@
   opacity: 0.75;
 }
 
+/* Half-margin spacing instead of flex gap (Safari 12 has no flex gap). */
 .options {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  margin: -4px;
+}
+
+.options > * {
+  margin: 4px;
 }
 
 .answerField {
