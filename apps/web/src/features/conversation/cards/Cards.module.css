@@ -139,3 +139,35 @@
 .muted {
   color: var(--md-sys-color-on-surface-variant);
 }
+
+/* ---------- AskUserQuestion picker (§4.6a) ---------- */
+.question + .question {
+  margin-top: 12px;
+}
+
+.questionText {
+  margin: 0 0 6px;
+  font-weight: 500;
+}
+
+.questionHeader {
+  margin-right: 6px;
+  font-weight: 400;
+  opacity: 0.75;
+}
+
+.options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.answerField {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid currentColor;
+  border-radius: var(--md-sys-shape-corner-small, 8px);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}

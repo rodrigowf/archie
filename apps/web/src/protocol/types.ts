@@ -100,6 +100,8 @@ export interface ToolBlock {
   readonly inferred?: boolean;
   readonly executing?: boolean;
   readonly progress?: ToolProgress;
+  /** QU-2: the `AskUserQuestion` this card is asking (pending, answered or expired). */
+  readonly question?: QuestionCard;
   readonly scope: BlockScope;
   readonly origin: BlockOrigin;
 }
@@ -126,7 +128,50 @@ export interface PermissionBlock {
   readonly origin: BlockOrigin;
 }
 
-export type Block = TextBlock | ThinkingBlock | ToolBlock | PermissionBlock;
+/** One `AskUserQuestion` call waiting for (or holding) an answer — §4.6a. */
+export type QuestionState = 'pending' | 'answered' | 'expired';
+
+export interface QuestionOption {
+  readonly label: string;
+  readonly description?: string;
+  readonly preview?: string;
+}
+
+export interface QuestionItem {
+  readonly question: string;
+  readonly header?: string;
+  /** `choice` (the default) offers `options`; `text`/`number` take a typed value. */
+  readonly kind?: 'choice' | 'text' | 'number';
+  readonly options: readonly QuestionOption[];
+  readonly multiSelect?: boolean;
+  readonly min?: number;
+  readonly max?: number;
+}
+
+/**
+ * QU-1: the agent is blocked inside an `AskUserQuestion` call until this is
+ * answered. Carried on the tool block it belongs to (QU-2) — or standalone when
+ * that block was never streamed.
+ */
+export interface QuestionCard {
+  readonly request_id: string;
+  readonly tool_use_id: string | null;
+  readonly questions: readonly QuestionItem[];
+  readonly state: QuestionState;
+  /** Question text → chosen label, or labels for a multi-select (QU-3). */
+  readonly answers: Readonly<Record<string, string | readonly string[]>>;
+  readonly response: string | null;
+  readonly responder: PermissionResponder | null;
+}
+
+export interface QuestionBlock extends QuestionCard {
+  readonly id: string;
+  readonly type: 'question';
+  readonly scope: BlockScope;
+  readonly origin: BlockOrigin;
+}
+
+export type Block = TextBlock | ThinkingBlock | ToolBlock | PermissionBlock | QuestionBlock;
 export type StreamBlock = TextBlock | ThinkingBlock;
 
 export type UserOrigin = 'local' | 'echo' | 'voice' | 'audio' | 'inject' | 'history';
@@ -244,6 +289,21 @@ export interface PendingPermission {
   readonly tool_input: Readonly<Record<string, unknown>>;
 }
 
+/** QU-6: one `AskUserQuestion` `session_started` says is still waiting. */
+export interface PendingQuestion {
+  readonly request_id: string;
+  readonly questions: readonly QuestionItem[];
+  readonly tool_use_id: string | null;
+}
+
+/** QU-8: an agent question seen through `nested_session_event` (orchestrator view). */
+export interface AgentQuestion {
+  readonly localId: string;
+  readonly request_id: string;
+  readonly questions: readonly QuestionItem[];
+  readonly tool_use_id: string | null;
+}
+
 /** spec 12 §4.8: a subagent's lifecycle state. */
 export type SubagentStatus = 'running' | 'done' | 'failed' | 'stopped';
 
@@ -318,6 +378,10 @@ export interface Conversation {
    * or the turn ends.
    */
   readonly permissionSnapshot: readonly PendingPermission[];
+  /** QU-6: the same, for `AskUserQuestion` calls still waiting for an answer. */
+  readonly questionSnapshot: readonly PendingQuestion[];
+  /** QU-8: every agent question seen from an orchestrator view, in first-sight order. */
+  readonly agentQuestions: readonly AgentQuestion[];
   /** spec 12 §4.8: every subagent known for this session, in first-sight order (never deleted). */
   readonly subagents: readonly Subagent[];
   /** SA-8: the subagent list was fetched once after a history page with placeholders. */

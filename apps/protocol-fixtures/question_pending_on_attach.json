@@ -1,0 +1,165 @@
+{
+  "name": "question_pending_on_attach",
+  "description": "QU-6 (PM-6 applied to questions). A view attaches while the agent is blocked inside AskUserQuestion: no question_request frame is ever delivered, but session_started.questions advertises it and the picker appears on the tool block from history, so the user can answer and unblock the agent.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1",
+    "live_status": "tool_use"
+  },
+  "initial_history": {
+    "messages": [
+      {
+        "role": "user",
+        "text": "set up storage",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "set up storage",
+            "tool_use_id": null,
+            "tool_name": null,
+            "tool_input": null,
+            "output": null,
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-11-06T01:00:00+00:00"
+      },
+      {
+        "role": "assistant",
+        "text": "",
+        "blocks": [
+          {
+            "type": "tool_use",
+            "text": null,
+            "tool_use_id": "toolu_1",
+            "tool_name": "AskUserQuestion",
+            "tool_input": {
+              "questions": [
+                {
+                  "question": "Which database?",
+                  "header": "Storage",
+                  "options": [
+                    {
+                      "label": "Postgres",
+                      "description": "Needs a server"
+                    },
+                    {
+                      "label": "SQLite",
+                      "description": "One file"
+                    }
+                  ]
+                }
+              ]
+            },
+            "output": null,
+            "is_error": false
+          }
+        ],
+        "timestamp": "2026-11-06T01:00:05+00:00"
+      }
+    ],
+    "total_count": 2,
+    "has_more": false,
+    "start_index": 0
+  },
+  "events": [
+    {
+      "type": "session_started",
+      "session_id": "L1",
+      "context_window": 200000,
+      "subagents": [],
+      "permissions": [],
+      "questions": [
+        {
+          "request_id": "q1",
+          "questions": [
+            {
+              "question": "Which database?",
+              "header": "Storage",
+              "options": [
+                {
+                  "label": "Postgres",
+                  "description": "Needs a server"
+                },
+                {
+                  "label": "SQLite",
+                  "description": "One file"
+                }
+              ]
+            }
+          ],
+          "tool_use_id": "toolu_1"
+        }
+      ],
+      "resume_state": {
+        "stream_id": "L1:1762400000000",
+        "next_seq": 6
+      }
+    }
+  ],
+  "client_actions": [],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "set up storage",
+        "origin": "history",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "toolu_1",
+            "tool_name": "AskUserQuestion",
+            "tool_input": {
+              "questions": [
+                {
+                  "question": "Which database?",
+                  "header": "Storage",
+                  "options": [
+                    {
+                      "label": "Postgres",
+                      "description": "Needs a server"
+                    },
+                    {
+                      "label": "SQLite",
+                      "description": "One file"
+                    }
+                  ]
+                }
+              ]
+            },
+            "status": "running",
+            "output": null,
+            "question": {
+              "request_id": "q1",
+              "tool_use_id": "toolu_1",
+              "questions": [
+                {
+                  "question": "Which database?",
+                  "options": [
+                    "Postgres",
+                    "SQLite"
+                  ]
+                }
+              ],
+              "state": "pending",
+              "answers": {},
+              "response": null,
+              "responder": null
+            }
+          }
+        ]
+      }
+    ],
+    "state": {
+      "status": "tool_use",
+      "in_turn": true
+    }
+  }
+}

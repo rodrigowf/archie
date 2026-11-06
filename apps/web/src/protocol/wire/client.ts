@@ -39,6 +39,15 @@ export type ClientMessage =
   | { type: 'stop' }
   | { type: 'command'; text: string }
   | { type: 'permission_response'; request_id: string; decision: 'allow' | 'deny'; message?: string; session_id?: string }
+  | {
+      type: 'question_response';
+      request_id: string;
+      /** QU-3: keyed by the question's exact text; a label, or labels for a multi-select. */
+      answers?: Record<string, string | string[]>;
+      response?: string;
+      annotations?: Record<string, { notes?: string }>;
+      session_id?: string;
+    }
   /** spec 12 §4.8 SA-9: ask the harness to stop one subagent (chat WS). */
   | { type: 'stop_subagent'; tool_use_id: string }
   // orchestrator only

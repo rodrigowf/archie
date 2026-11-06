@@ -12,7 +12,7 @@ import { memo, useMemo, type ReactNode } from 'react';
 import { groupToolSteps, isSubagentTool, type AssistantEntry, type Block, type SessionKind, type ToolBlock } from '@/protocol';
 import { StepGroup, ToolCard } from '@/features/tools';
 import styles from '../Conversation.module.css';
-import { PermissionBlockView, TextBlockView, ThinkingBlockView } from './blocks';
+import { PermissionBlockView, QuestionBlockView, TextBlockView, ThinkingBlockView } from './blocks';
 import { VisualCard, visualFromTool } from './VisualCard';
 
 export interface AssistantMessageProps {
@@ -49,6 +49,8 @@ function renderBlock(b: Block, p: AssistantMessageProps, isTail: boolean): React
       return <ThinkingBlockView key={b.id} block={b} />;
     case 'permission':
       return <PermissionBlockView key={b.id} block={b} sessionKind={p.sessionKind} />;
+    case 'question':
+      return <QuestionBlockView key={b.id} block={b} />;
     case 'tool':
       return [
         <ToolCard

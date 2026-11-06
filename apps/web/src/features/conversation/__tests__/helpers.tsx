@@ -96,6 +96,7 @@ export function convSequence(entries: readonly Entry[], kind: SessionKind = 'age
         } else if (b.type === 'thinking') {
           if (b.text || b.streaming) out.push('thinking');
         } else if (b.type === 'tool') out.push(`tool:${normalizeToolName(b.tool_name, kind)}`);
+        else if (b.type === 'question') out.push(`question:${b.request_id}`);
         else out.push(`permission:${b.tool_name}`);
       }
   }

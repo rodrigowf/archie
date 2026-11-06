@@ -58,6 +58,7 @@ import com.assistant.core.protocol.toPutBody
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.encodeToJsonElement
@@ -204,6 +205,24 @@ class ArchieApi(private val rest: RestCaller) {
             put("request_id", requestId)
             put("decision", if (allow) "allow" else "deny")
             if (message != null) put("message", message)
+        })
+
+    /** QU-3 twin of `question_response`, for a device with no socket open on that agent. */
+    suspend fun resolveQuestion(
+        localId: String,
+        requestId: String,
+        answers: Map<String, List<String>>,
+        response: String? = null,
+    ): ApiResult<Unit> =
+        rest.sendJson("POST", sessionUrl(localId, "question"), buildJsonObject {
+            put("request_id", requestId)
+            if (answers.isNotEmpty()) put("answers", buildJsonObject {
+                // One label stays a string, several become an array (QU-3).
+                for ((q, labels) in answers) {
+                    if (labels.size == 1) put(q, labels[0]) else put(q, JsonArray(labels.map(::JsonPrimitive)))
+                }
+            })
+            if (response != null) put("response", response)
         })
 
     // ───────────── visualizations (inv01 §3.3, BX-2) ─────────────

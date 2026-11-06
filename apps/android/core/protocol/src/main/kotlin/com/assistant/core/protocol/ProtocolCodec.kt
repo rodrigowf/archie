@@ -5,6 +5,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 
@@ -64,6 +66,9 @@ object ProtocolCodec {
                 permissions = o.arr("permissions")?.mapNotNull { (it as? JsonObject)?.let(::decodePendingPermission) },
                 agentPermissions = o.arr("agent_permissions")
                     ?.mapNotNull { (it as? JsonObject)?.let(::decodeAgentPendingPermission) },
+                questions = o.arr("questions")?.mapNotNull { (it as? JsonObject)?.let(::decodePendingQuestion) },
+                agentQuestions = o.arr("agent_questions")
+                    ?.mapNotNull { (it as? JsonObject)?.let(::decodeAgentPendingQuestion) },
                 seq = seq, streamId = sid,
             )
             "status" -> ServerFrame.Status(o.str("status"), o.str("detail"), seq, sid)
@@ -110,6 +115,13 @@ object ProtocolCodec {
             )
             "permission_resolved" -> ServerFrame.PermissionResolved(
                 o.str("request_id"), o.str("decision"), o.str("responder"), o.str("message"), seq, sid,
+            )
+            "question_request" -> ServerFrame.QuestionRequest(
+                o.str("request_id"), o.arr("questions"), o.str("tool_use_id"), seq, sid,
+            )
+            "question_resolved" -> ServerFrame.QuestionResolved(
+                o.str("request_id"), o.obj("answers"), o.str("response"), o.obj("annotations"),
+                o.str("responder"), o.str("message"), seq, sid,
             )
             "subagent_started" -> ServerFrame.SubagentStarted(
                 o.str("tool_use_id"), o.str("parent_tool_use_id"), o.str("agent_type"), o.str("description"),
@@ -206,6 +218,10 @@ object ProtocolCodec {
                     frame.agentPermissions?.let { l ->
                         put("agent_permissions", JsonArray(l.map(::encodeAgentPendingPermission)))
                     }
+                    frame.questions?.let { l -> put("questions", JsonArray(l.map(::encodePendingQuestion))) }
+                    frame.agentQuestions?.let { l ->
+                        put("agent_questions", JsonArray(l.map(::encodeAgentPendingQuestion)))
+                    }
                 }
                 is ServerFrame.Status -> { put("status", frame.status); put("detail", frame.detail) }
                 is ServerFrame.SessionStopped, is ServerFrame.Ping, is ServerFrame.VoiceStopped -> Unit
@@ -254,6 +270,15 @@ object ProtocolCodec {
                 }
                 is ServerFrame.PermissionResolved -> {
                     put("request_id", frame.requestId); put("decision", frame.decision)
+                    put("responder", frame.responder); put("message", frame.message)
+                }
+                is ServerFrame.QuestionRequest -> {
+                    put("request_id", frame.requestId); put("questions", frame.questions)
+                    put("tool_use_id", frame.toolUseId)
+                }
+                is ServerFrame.QuestionResolved -> {
+                    put("request_id", frame.requestId); put("answers", frame.answers)
+                    put("response", frame.response); put("annotations", frame.annotations)
                     put("responder", frame.responder); put("message", frame.message)
                 }
                 is ServerFrame.SubagentStarted -> {
@@ -352,6 +377,15 @@ object ProtocolCodec {
                 put("request_id", frame.requestId); put("decision", frame.decision)
                 put("message", frame.message); put("session_id", frame.sessionId)
             }
+            is ClientFrame.QuestionResponse -> {
+                put("request_id", frame.requestId)
+                // One label stays a string, several become an array — what the CLI reads back
+                // for a multi-select (QU-3).
+                if (frame.answers.isNotEmpty()) put("answers", JsonObject(frame.answers.mapValues { (_, v) ->
+                    if (v.size == 1) JsonPrimitive(v[0]) else JsonArray(v.map(::JsonPrimitive))
+                }))
+                put("response", frame.response); put("session_id", frame.sessionId)
+            }
             is ClientFrame.SetModel -> put("model", frame.model)
             is ClientFrame.StopSubagent -> put("tool_use_id", frame.toolUseId)
             is ClientFrame.VoiceEvent -> put("event", frame.event)
@@ -401,6 +435,17 @@ object ProtocolCodec {
             "compact" -> ClientFrame.Compact
             "permission_response" -> ClientFrame.PermissionResponse(
                 o.str("request_id") ?: return null, o.str("decision") ?: return null, o.str("message"), o.str("session_id"),
+            )
+            "question_response" -> ClientFrame.QuestionResponse(
+                o.str("request_id") ?: return null,
+                o.obj("answers")?.mapNotNull { (k, v) ->
+                    when (v) {
+                        is JsonArray -> k to v.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                        is JsonPrimitive -> k to listOf(v.content)
+                        else -> null
+                    }
+                }?.toMap() ?: emptyMap(),
+                o.str("response"), o.str("session_id"),
             )
             "stop" -> ClientFrame.Stop
             "stop_subagent" -> ClientFrame.StopSubagent(o.str("tool_use_id") ?: return null)

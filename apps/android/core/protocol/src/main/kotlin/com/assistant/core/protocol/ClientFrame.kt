@@ -60,6 +60,19 @@ sealed interface ClientFrame {
         val sessionId: String? = null,
     ) : ClientFrame { override val type get() = "permission_response" }
 
+    /**
+     * QU-3: answer an `AskUserQuestion`. [answers] is keyed by the question's exact text and holds
+     * the chosen labels (one, or several for a multi-select); [response] is freeform prose for when
+     * nothing offered fits. Sending `response` alone makes the harness ignore the selections.
+     */
+    data class QuestionResponse(
+        val requestId: String,
+        val answers: Map<String, List<String>> = emptyMap(),
+        val response: String? = null,
+        /** Agent `localId` when answering on a socket attached to another session (T-8). */
+        val sessionId: String? = null,
+    ) : ClientFrame { override val type get() = "question_response" }
+
     /** Chat: detach only. Orchestrator: stop it. Never sent from lifecycle paths (decision P-1). */
     data object Stop : ClientFrame { override val type get() = "stop" }
 

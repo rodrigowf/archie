@@ -8,6 +8,7 @@ import {
   type Conversation,
   type OrphanResult,
   type PermissionBlock,
+  type QuestionCard,
   type SessionRef,
   type Subagent,
   type ToolBlock,
@@ -74,6 +75,24 @@ export function groupToolSteps(blocks: readonly Block[], opts: GroupToolStepsOpt
 /** The run at `entryIndex` is the tail run of a turn in flight. */
 export function isRunLive(conv: Conversation, entryIndex: number): boolean {
   return conv.inTurn && entryIndex === conv.entries.length - 1 && conv.entries[entryIndex]?.kind === 'assistant';
+}
+
+/**
+ * QU-1: the newest unanswered question of the view. The agent is blocked inside that call, so
+ * this is what the composer hint and the approval bar point at.
+ */
+export function pendingQuestion(conv: Conversation): QuestionCard | null {
+  for (let i = conv.entries.length - 1; i >= 0; i--) {
+    const e = conv.entries[i];
+    if (!e || e.kind !== 'assistant') continue;
+    for (let j = e.blocks.length - 1; j >= 0; j--) {
+      const b = e.blocks[j];
+      if (!b) continue;
+      if (b.type === 'question' && b.state === 'pending') return b;
+      if (b.type === 'tool' && b.question?.state === 'pending') return b.question;
+    }
+  }
+  return null;
 }
 
 /** PM-3: the newest pending permission of the view (the approval bar). */

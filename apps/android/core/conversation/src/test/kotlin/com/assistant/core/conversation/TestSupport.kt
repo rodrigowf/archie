@@ -86,6 +86,7 @@ fun shape(s: ConversationState): String = s.entries.joinToString(" ") { e ->
                 is ThinkingBlock -> "K(${b.text})" + (if (b.streaming) "~" else "")
                 is ToolBlock -> "X(${b.toolUseId}:${b.status.wire}" + (b.output?.let { "=$it" } ?: "") + ")" + (if (b.inferred) "?" else "")
                 is PermissionBlock -> "P(${b.requestId}:${b.state.wire})"
+                is QuestionBlock -> "Q(${b.card.requestId}:${b.card.state.name.lowercase()})"
             }
         } + "]"
     }

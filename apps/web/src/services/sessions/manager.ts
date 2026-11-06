@@ -641,6 +641,28 @@ export async function respondAgentPermission(agentLocalId: string, requestId: st
   }
 }
 
+
+/**
+ * QU-8: answer an agent's question from the orchestrator view — its own socket when a view is
+ * open, else `POST /api/sessions/{localId}/question`. A 409 (someone answered first) is success:
+ * `question_resolved` removes the card.
+ */
+export async function respondAgentQuestion(
+  agentLocalId: string,
+  requestId: string,
+  answer: { answers?: Record<string, string | string[]>; response?: string },
+): Promise<void> {
+  const rt = getSessionRuntime(agentLocalId);
+  if (rt instanceof SessionRuntime && rt.respondQuestionFor(agentLocalId, requestId, answer)) return;
+  try {
+    await api.sessions.question(agentLocalId, { request_id: requestId, ...answer });
+  } catch (err) {
+    if (isApiError(err, 409)) return;
+    if (isApiError(err, 404)) throw new SessionActionError('That agent session is no longer running');
+    throw err;
+  }
+}
+
 /** T-8 fallback for servers without the REST route. */
 function respondOnTransientSocket(agentLocalId: string, requestId: string, decision: 'allow' | 'deny'): void {
   const sock: ArchieSocket = new ArchieSocket(CHAT_WS_PATH, {

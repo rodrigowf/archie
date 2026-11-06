@@ -593,6 +593,7 @@ class QwenSessionManager(BaseSessionManager):
                     logger.exception("on_pid_exit callback raised for pid=%d", proc.pid)
             self._event_inbox = None
             self._drain_pending_permissions()
+            self._drain_pending_questions()
             # The CLI process is gone: a subagent it did not report on
             # (killed or interrupted turn) can no longer run.
             for ev in self._subagents.stop_all():

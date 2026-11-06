@@ -251,3 +251,100 @@ describe('empty states and long prompts', () => {
     expect(screen.queryAllByRole('button', { name: /Show all/ })).toHaveLength(0);
   });
 });
+
+describe('question card (spec 12 §4.6a)', () => {
+  const QUESTION = {
+    question: 'Which database?',
+    header: 'Storage',
+    options: [
+      { label: 'Postgres', description: 'Needs a server' },
+      { label: 'SQLite', description: 'One file' },
+    ],
+  };
+
+  async function ask(ws: FakeWebSocket, questions: Record<string, unknown>[] = [QUESTION]): Promise<void> {
+    await emit(
+      ws,
+      { type: 'status', status: 'processing' },
+      { type: 'tool_use', tool_use_id: 't1', tool_name: 'AskUserQuestion', tool_input: { questions } },
+      { type: 'question_request', request_id: 'q1', tool_use_id: 't1', questions },
+    );
+  }
+
+  it('picking an option sends question_response once; only the matching resolve closes it', async () => {
+    const { rt, ws } = await openAgent();
+    rt.send('set up storage');
+    await ask(ws);
+
+    const c = card('permission') as HTMLElement;
+    expect(c.textContent).toContain('One question');
+    expect(c.textContent).toContain('Which database?');
+    expect(c.textContent).toContain('Or just type your answer below');
+    // QU-1: nothing is sent until the user actually answers.
+    expect(within(c).getByRole('button', { name: 'Send answer' }).getAttribute('aria-disabled')).toBe('true');
+    expect(ws.messages().filter((m) => m.type === 'question_response')).toHaveLength(0);
+
+    fireEvent.click(within(c).getByRole('radio', { name: 'SQLite' }));
+    fireEvent.click(within(c).getByRole('button', { name: 'Send answer' }));
+    expect(ws.messages().filter((m) => m.type === 'question_response')).toEqual([
+      { type: 'question_response', request_id: 'q1', answers: { 'Which database?': 'SQLite' } },
+    ]);
+
+    await emit(ws, { type: 'question_resolved', request_id: 'other', answers: {}, response: 'x', responder: 'user' });
+    expect(card('permission')).not.toBeNull(); // a foreign resolve never closes it (as PM-3)
+    await emit(ws, {
+      type: 'question_resolved', request_id: 'q1',
+      answers: { 'Which database?': 'SQLite' }, response: null, responder: 'user',
+    });
+    expect(card('permission')).toBeNull();
+    // QU-2: the answer shows on the tool card that asked, not as a new entry.
+    expect(document.querySelector('[data-block="question"]')).toBeNull();
+    expect((document.querySelector('[data-tool="AskUserQuestion"]') as HTMLElement).textContent).toContain('SQLite');
+  });
+
+  it('a multi-select question collects several labels', async () => {
+    const { rt, ws } = await openAgent();
+    rt.send('pick deps');
+    await ask(ws, [{ ...QUESTION, multiSelect: true }]);
+
+    const c = card('permission') as HTMLElement;
+    fireEvent.click(within(c).getByRole('checkbox', { name: 'Postgres' }));
+    fireEvent.click(within(c).getByRole('checkbox', { name: 'SQLite' }));
+    fireEvent.click(within(c).getByRole('checkbox', { name: 'Postgres' })); // toggles off
+    fireEvent.click(within(c).getByRole('button', { name: 'Send answer' }));
+    expect(ws.messages().filter((m) => m.type === 'question_response')).toEqual([
+      { type: 'question_response', request_id: 'q1', answers: { 'Which database?': ['SQLite'] } },
+    ]);
+  });
+
+  it('QU-7: an unanswered question closes when the turn ends', async () => {
+    const { rt, ws } = await openAgent();
+    rt.send('set up storage');
+    await ask(ws);
+    expect(card('permission')).not.toBeNull();
+
+    await emit(ws, { type: 'turn_complete', cost: 0.01, num_turns: 1 });
+    expect(card('permission')).toBeNull();
+    expect((document.querySelector('[data-tool="AskUserQuestion"]') as HTMLElement).textContent).toContain('No answer');
+  });
+
+  it('QU-6: a view that attaches mid-question seeds the picker from session_started', async () => {
+    openSession({ kind: 'agent', localId: 'A2', sdkId: 'sdk-2', provider: 'claude', focus: true });
+    const ws = FakeWebSocket.last(CHAT);
+    ws.open();
+    ws.emit({
+      type: 'session_started', session_id: 'A2', context_window: 200000,
+      questions: [{ request_id: 'q9', questions: [QUESTION], tool_use_id: 'tx' }],
+    });
+    render(<ConversationPanel localId="A2" hidden={false} />);
+    await pump();
+
+    const c = card('permission') as HTMLElement;
+    expect(c.textContent).toContain('Which database?');
+    fireEvent.click(within(c).getByRole('radio', { name: 'Postgres' }));
+    fireEvent.click(within(c).getByRole('button', { name: 'Send answer' }));
+    expect(ws.messages().filter((m) => m.type === 'question_response')).toEqual([
+      { type: 'question_response', request_id: 'q9', answers: { 'Which database?': 'Postgres' } },
+    ]);
+  });
+});

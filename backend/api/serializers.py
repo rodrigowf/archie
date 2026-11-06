@@ -9,6 +9,8 @@ from manager.types import (
     Event,
     PermissionRequest,
     PermissionResolved,
+    QuestionRequest,
+    QuestionResolved,
     SessionStalled,
     SessionTerminated,
     SubagentEvent,
@@ -92,6 +94,23 @@ def serialize_event(event: Event) -> dict[str, Any]:
             "request_id": event.request_id,
             "decision": event.decision,
             "responder": event.responder,
+            "message": event.message,
+        }
+    if isinstance(event, QuestionRequest):
+        return {
+            "type": "question_request",
+            "request_id": event.request_id,
+            "questions": event.questions,
+            "tool_use_id": event.tool_use_id,
+        }
+    if isinstance(event, QuestionResolved):
+        return {
+            "type": "question_resolved",
+            "request_id": event.request_id,
+            "responder": event.responder,
+            "answers": event.answers,
+            "response": event.response,
+            "annotations": event.annotations,
             "message": event.message,
         }
     if isinstance(event, SessionTerminated):

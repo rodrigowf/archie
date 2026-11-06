@@ -124,6 +124,10 @@ from ..types import (
 # popup hook still wired so the set can grow without code changes.
 _DEFAULT_GATED_TOOLS: frozenset[str] = frozenset({"ExitPlanMode"})
 
+# Not a gated tool: the CLI collects this one's answers *through* the permission
+# callback (spec 12 QU-1), so it gets its own branch rather than an allow/deny.
+_ASK_USER_QUESTION = "AskUserQuestion"
+
 
 # Appended to the bundled Claude Code system prompt at session start.  Turns
 # gated-tool permission popups into conversational checkpoints — see
@@ -140,7 +144,11 @@ _PERMISSION_GATING_PROMPT = (
     "plan or actions before proceeding.  When the user types a chat message "
     "while a permission is pending, the system auto-treats that as a denial "
     "with their prose as the reason — refine your approach based on their "
-    "feedback and re-announce when ready."
+    "feedback and re-announce when ready.\n"
+    "AskUserQuestion blocks until the person actually answers: they either "
+    "pick an option in the card or simply type a reply, which arrives as their "
+    "response. Ask only when their answer changes what you do next, and keep "
+    "working on everything that does not depend on it first."
 )
 
 # Thinking display.  CLI ≥ 2.1.287 streams thinking as short "updates"
@@ -921,13 +929,14 @@ class ClaudeSessionManager(BaseSessionManager):
             # pool's sink broadcasts them) and into the replay ring.  The
             # receive loop keeps running.  Events the loop dispatched after
             # our TurnComplete (held in the backlog) go first, in order.
-            # Permissions still pending can never be answered through this
-            # stream, so resolve them as 'deny' to unblock the SDK.
+            # Permissions and questions still pending can never be answered
+            # through this stream, so release them to unblock the SDK.
             if self._event_inbox is inbox:
                 self._event_inbox = None
                 self._inbox_closed = False
                 self._flush_post_turn_backlog()
             self._drain_pending_permissions()
+            self._drain_pending_questions()
 
     async def _receive_loop(self) -> None:
         """Long-lived consumer of ``client.receive_messages()``.
@@ -1226,7 +1235,13 @@ class ClaudeSessionManager(BaseSessionManager):
         event onto the active send-stream and await a Future resolved by
         :meth:`resolve_permission`.  No active stream → auto-allow rather than
         deadlock (an out-of-band tool call shouldn't be silently blocked).
+
+        ``AskUserQuestion`` is answered through this same callback — see
+        :meth:`_answer_user_question`.
         """
+        if tool_name == _ASK_USER_QUESTION:
+            return await self._answer_user_question(tool_input, _context)
+
         if tool_name not in self._gated_tools:
             return PermissionResultAllow()
 
@@ -1241,6 +1256,52 @@ class ClaudeSessionManager(BaseSessionManager):
         if decision == "allow":
             return PermissionResultAllow()
         return PermissionResultDeny(message=message or "Denied", interrupt=False)
+
+    async def _answer_user_question(
+        self,
+        tool_input: dict,
+        context: ToolPermissionContext,
+    ) -> PermissionResultAllow:
+        """Hold an ``AskUserQuestion`` call until the user answers it.
+
+        The CLI has no UI channel of its own for this tool: it collects the
+        answers *through the permission callback* and reads them back out of
+        the tool input it is handed (the schema calls ``answers`` "User answers
+        collected by the permission component").  So a host that just allows
+        the call — which is what we did until 2026-11-05 — hands the tool an
+        input with no answers, and the CLI resolves it itself in ~70 ms with
+        "The user did not answer the questions."  The agent never waits and the
+        user is never asked (54 such calls across 14 sessions).
+
+        We instead emit a ``QuestionRequest`` and block here until someone
+        answers (spec 12 QU-1), then return the selections as ``updated_input``.
+        Nobody answered → allow the call unchanged, so the CLI emits its own
+        "did not answer" result and the agent carries on rather than hanging.
+        """
+        questions = tool_input.get("questions")
+        if not isinstance(questions, list) or not questions:
+            return PermissionResultAllow()  # malformed: let the CLI reject it
+
+        if self._event_inbox is None:
+            logger.warning("AskUserQuestion with no active send() stream — nobody can answer it")
+            return PermissionResultAllow()
+
+        answer = await self._emit_question_request(
+            questions, tool_use_id=getattr(context, "tool_use_id", None),
+        )
+        if answer is None:
+            return PermissionResultAllow()
+
+        # `response` and `answers` are mutually exclusive downstream: a
+        # non-empty `response` makes the CLI ignore every selection.
+        # `resolve_question` already demoted a typed note to an annotation
+        # when both were given, so at most one of them is set here.
+        patch: dict = {"answers": answer.answers}
+        if answer.response:
+            patch["response"] = answer.response
+        if answer.annotations:
+            patch["annotations"] = answer.annotations
+        return PermissionResultAllow(updated_input={**tool_input, **patch})
 
     async def _drain_stale_sdk_messages(self) -> int:
         """Legacy hook — no-op in the persistent-receive-loop design.

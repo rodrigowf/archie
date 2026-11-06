@@ -3,8 +3,10 @@ package com.assistant.archie.feature.chat
 import androidx.compose.runtime.Immutable
 import com.assistant.archie.feature.chat.model.ChatItem
 import com.assistant.core.conversation.AgentApproval
+import com.assistant.core.conversation.AgentQuestion
 import com.assistant.core.conversation.ConversationState
 import com.assistant.core.conversation.PermissionBlock
+import com.assistant.core.conversation.QuestionCard
 import com.assistant.core.conversation.QueuedPrompt
 import com.assistant.core.design.components.ComposerPrimary
 import com.assistant.core.model.ConnectionState
@@ -89,6 +91,19 @@ sealed interface InlineCardUi {
     /** An agent's permission seen from the Archie view (PM-5); answerable from here (§6.9). */
     data class AgentApprovalCard(val approval: AgentApproval, val answered: Boolean) : InlineCardUi {
         override val id get() = "agent-perm:${approval.localId}:${approval.requestId}"
+    }
+
+    /**
+     * QU-1: the newest unanswered question of this view. The agent is blocked inside the call until
+     * it is answered, so this card is what unblocks it.
+     */
+    data class Question(val card: QuestionCard, val answered: Boolean) : InlineCardUi {
+        override val id get() = "question:${card.requestId}"
+    }
+
+    /** QU-8: an agent's question seen from the Archie view; answerable from here. */
+    data class AgentQuestionCard(val question: AgentQuestion, val answered: Boolean) : InlineCardUi {
+        override val id get() = "agent-question:${question.localId}:${question.requestId}"
     }
 
     /** §6.12: "<tool> silent for <t>" + Interrupt. */
@@ -192,9 +207,17 @@ object ConversationUiMapper {
             val card = InlineCardUi.Permission(p, answered = p.requestId in answered)
             if (card.id !in dismissed) out += card
         }
+        s.newestPendingQuestion()?.let { q ->                                  // QU-1
+            val card = InlineCardUi.Question(q, answered = q.requestId in answered)
+            if (card.id !in dismissed) out += card
+        }
         if (s.kind == SessionKind.ORCHESTRATOR) {
             for (a in s.agentApprovals) {
                 val card = InlineCardUi.AgentApprovalCard(a, "${a.localId}:${a.requestId}" in answered)
+                if (card.id !in dismissed) out += card
+            }
+            for (q in s.agentQuestions) {                                      // QU-8
+                val card = InlineCardUi.AgentQuestionCard(q, "${q.localId}:${q.requestId}" in answered)
                 if (card.id !in dismissed) out += card
             }
         }

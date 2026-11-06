@@ -264,6 +264,7 @@ object HistoryMerger {
         is ThinkingBlock -> "k|${b.text}"
         is ToolBlock -> if (b.toolUseId.isNotEmpty()) "x|${b.toolUseId}" else "x|${b.toolName}|${b.toolInput}"
         is PermissionBlock -> "p|${b.requestId}"
+        is QuestionBlock -> "q|${b.card.requestId}"
     }
 
     private fun withId(e: Entry, id: String): Entry = when (e) {
@@ -277,5 +278,6 @@ object HistoryMerger {
         is ThinkingBlock -> b.copy(id = id)
         is ToolBlock -> b.copy(id = id)
         is PermissionBlock -> b.copy(id = id)
+        is QuestionBlock -> b.copy(id = id)
     }
 }

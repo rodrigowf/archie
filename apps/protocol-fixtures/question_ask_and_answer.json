@@ -1,0 +1,164 @@
+{
+  "name": "question_ask_and_answer",
+  "description": "QU-1..QU-3. AskUserQuestion blocks the agent: the request attaches to its own tool block (QU-2, no second card), the user picks an option, and question_resolved closes it in place with the answer. No timeline entry is appended.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1",
+    "live_status": "idle"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "text_complete",
+      "text": "One thing to settle first.",
+      "seq": 1,
+      "stream_id": "L1:1762400000000"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "toolu_1",
+      "tool_name": "AskUserQuestion",
+      "tool_input": {
+        "questions": [
+          {
+            "question": "Which database?",
+            "header": "Storage",
+            "options": [
+              {
+                "label": "Postgres",
+                "description": "Needs a server"
+              },
+              {
+                "label": "SQLite",
+                "description": "One file"
+              }
+            ]
+          }
+        ]
+      },
+      "seq": 2,
+      "stream_id": "L1:1762400000000"
+    },
+    {
+      "type": "question_request",
+      "request_id": "q1",
+      "tool_use_id": "toolu_1",
+      "questions": [
+        {
+          "question": "Which database?",
+          "header": "Storage",
+          "options": [
+            {
+              "label": "Postgres",
+              "description": "Needs a server"
+            },
+            {
+              "label": "SQLite",
+              "description": "One file"
+            }
+          ]
+        }
+      ],
+      "seq": 3,
+      "stream_id": "L1:1762400000000"
+    },
+    {
+      "type": "question_resolved",
+      "request_id": "q1",
+      "answers": {
+        "Which database?": "SQLite"
+      },
+      "response": null,
+      "responder": "user",
+      "seq": 4,
+      "stream_id": "L1:1762400000000"
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "toolu_1",
+      "output": "Your questions have been answered: \"Which database?\"=\"SQLite\". You can now continue with these answers in mind.",
+      "is_error": false,
+      "seq": 5,
+      "stream_id": "L1:1762400000000"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 4,
+      "type": "question_response",
+      "request_id": "q1",
+      "answers": {
+        "Which database?": "SQLite"
+      }
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "text",
+            "text": "One thing to settle first.",
+            "streaming": false
+          },
+          {
+            "type": "tool",
+            "tool_use_id": "toolu_1",
+            "tool_name": "AskUserQuestion",
+            "tool_input": {
+              "questions": [
+                {
+                  "question": "Which database?",
+                  "header": "Storage",
+                  "options": [
+                    {
+                      "label": "Postgres",
+                      "description": "Needs a server"
+                    },
+                    {
+                      "label": "SQLite",
+                      "description": "One file"
+                    }
+                  ]
+                }
+              ]
+            },
+            "status": "done",
+            "output": "Your questions have been answered: \"Which database?\"=\"SQLite\". You can now continue with these answers in mind.",
+            "question": {
+              "request_id": "q1",
+              "tool_use_id": "toolu_1",
+              "questions": [
+                {
+                  "question": "Which database?",
+                  "options": [
+                    "Postgres",
+                    "SQLite"
+                  ]
+                }
+              ],
+              "state": "answered",
+              "answers": {
+                "Which database?": "SQLite"
+              },
+              "response": null,
+              "responder": "user"
+            }
+          }
+        ]
+      }
+    ],
+    "state": {
+      "status": "tool_use",
+      "in_turn": true
+    }
+  }
+}

@@ -4,7 +4,7 @@
  * identity, so only the streaming block re-renders (spec 13 §5.1 item 2).
  */
 import { memo, useState } from 'react';
-import type { PermissionBlock, SessionKind, TextBlock, ThinkingBlock } from '@/protocol';
+import type { PermissionBlock, QuestionBlock, SessionKind, TextBlock, ThinkingBlock } from '@/protocol';
 import { Markdown, StreamingMarkdown } from '@/features/markdown';
 import { resolveTool } from '@/features/tools';
 import { Disclosure } from '@/ui/controls';
@@ -111,3 +111,40 @@ export const PermissionBlockView = memo(function PermissionBlockView({ block, se
     </div>
   );
 });
+/**
+ * QU-2 fallback: a question whose `AskUserQuestion` tool block was never streamed (so there is no
+ * card to put it on). The answering control is the picker near the composer; this is the record of
+ * it in the timeline.
+ */
+export const QuestionBlockView = memo(function QuestionBlockView({ block }: { block: QuestionBlock }) {
+  const state =
+    block.state === 'pending'
+      ? 'Waiting for your answer'
+      : block.state === 'expired'
+        ? 'No answer — the turn ended'
+        : `Answered${block.responder ? ` by ${RESPONDER[block.responder] ?? block.responder}` : ''}`;
+  const icon = block.state === 'pending' ? 'help' : block.state === 'answered' ? 'check_circle' : 'close';
+  return (
+    <div className={styles.permLine} data-block="question" data-state={block.state}>
+      <Icon name="help" size={18} />
+      <span className={styles.permText}>
+        {block.questions.map((q) => {
+          const a = block.answers[q.question];
+          const picked = Array.isArray(a) ? a.join(', ') : a;
+          return (
+            <span key={q.question} className={styles.permName}>
+              {q.question}
+              {picked ? <span className={styles.permSummary}>{picked}</span> : null}
+            </span>
+          );
+        })}
+        {block.response ? <span className={styles.permSummary}>{block.response}</span> : null}
+      </span>
+      <span className={cx(styles.permState, PERM_STATE_CLASS[block.state === 'answered' ? 'allowed' : block.state === 'pending' ? 'pending' : 'denied'])}>
+        <Icon name={icon} size={16} />
+        <span>{state}</span>
+      </span>
+    </div>
+  );
+});
+

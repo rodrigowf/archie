@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import com.assistant.core.conversation.NoticeKind
 import com.assistant.core.conversation.PendingResult
 import com.assistant.core.conversation.PermissionBlock
+import com.assistant.core.conversation.QuestionBlock
 import com.assistant.core.conversation.ToolBlock
 import com.assistant.core.conversation.UserOrigin
 import com.assistant.core.markdown.MdNode
@@ -123,6 +124,19 @@ sealed interface ChatItem {
     ) : ChatItem {
         override val key get() = "m:$entryId/b:${block.id}"
         override val contentType get() = "permission"
+    }
+
+    /**
+     * QU-2 fallback: a question whose `AskUserQuestion` tool card was never streamed. The answering
+     * control is the inline card above the composer; this is its record in the timeline.
+     */
+    data class Question(
+        override val entryId: String,
+        val block: QuestionBlock,
+        override val gap: Gap,
+    ) : ChatItem {
+        override val key get() = "m:$entryId/b:${block.id}"
+        override val contentType get() = "question"
     }
 
     data class CompactDivider(

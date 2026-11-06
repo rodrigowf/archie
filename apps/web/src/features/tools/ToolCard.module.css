@@ -679,3 +679,23 @@
   white-space: pre-wrap;
   overflow-wrap: break-word;
 }
+
+/* AskUserQuestion: the answer that came back (§4.6a) */
+.waiting {
+  margin: 0 0 6px;
+  color: var(--tool-c, var(--md-sys-color-primary));
+  font-size: var(--md-sys-typescale-body-small-size);
+}
+
+.optionChosen .optionLabel {
+  color: var(--tool-c, var(--md-sys-color-primary));
+}
+
+.optionChosen::marker {
+  content: '✓ ';
+}
+
+.answerLine {
+  margin: 4px 0 0;
+  font-weight: 500;
+}

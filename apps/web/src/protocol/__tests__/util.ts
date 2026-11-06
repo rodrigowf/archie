@@ -59,7 +59,17 @@ function isInput(x: ConversationInput | Record<string, unknown>): x is Conversat
 export function texts(conv: Conversation): string[] {
   return conv.entries.map((e) =>
     e.kind === 'assistant'
-      ? `A[${e.blocks.map((b) => (b.type === 'tool' ? `tool:${b.tool_use_id}:${b.status}` : b.type === 'permission' ? `perm:${b.request_id}:${b.state}` : `${b.type}:${b.text}`)).join('|')}]`
+      ? `A[${e.blocks
+          .map((b) =>
+            b.type === 'tool'
+              ? `tool:${b.tool_use_id}:${b.status}`
+              : b.type === 'permission'
+                ? `perm:${b.request_id}:${b.state}`
+                : b.type === 'question'
+                  ? `q:${b.request_id}:${b.state}`
+                  : `${b.type}:${b.text}`,
+          )
+          .join('|')}]`
       : e.kind === 'user'
         ? `U(${e.origin}${e.state === 'pending' ? ',pending' : ''}):${e.text}`
         : `N(${e.notice}):${e.text}`,

@@ -2,12 +2,14 @@ package com.assistant.core.conversation
 
 import com.assistant.core.model.SessionKind
 import com.assistant.core.model.SessionStatus
+import com.assistant.core.protocol.PendingQuestion
 import com.assistant.core.protocol.normalizeImages
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -40,6 +42,8 @@ internal class Draft(s: ConversationState) {
     val pendingInjects = s.pendingInjects.builder()
     val agentApprovals = s.agentApprovals.builder()
     val permissionSnapshot = s.permissionSnapshot.builder()   // PM-6
+    val questionSnapshot = s.questionSnapshot.builder()       // QU-6
+    val agentQuestions = s.agentQuestions.builder()           // QU-8
     var voiceActive = s.voiceActive
     var openVoiceUserId = s.openVoiceUserId
     var speechAnchor = s.speechAnchor
@@ -106,6 +110,8 @@ internal class Draft(s: ConversationState) {
         pendingInjects = pendingInjects.build(),
         agentApprovals = agentApprovals.build(),
         permissionSnapshot = permissionSnapshot.build(),
+        questionSnapshot = questionSnapshot.build(),
+        agentQuestions = agentQuestions.build(),
         voiceActive = voiceActive,
         openVoiceUserId = openVoiceUserId,
         speechAnchor = speechAnchor,
@@ -185,6 +191,45 @@ internal class Draft(s: ConversationState) {
         if (bi < 0) return false
         list[i] = e.copy(blocks = e.blocks.set(bi, f(e.blocks[bi] as PermissionBlock)))
         return true
+    }
+
+    /**
+     * QU-2: patches the question card wherever it lives — on its own tool block, or standalone
+     * when that block was never streamed.
+     */
+    fun updateQuestion(requestId: String, f: (QuestionCard) -> QuestionCard): Boolean {
+        for (list in listOfNotNull(entries, kept)) {
+            for (i in list.indices.reversed()) {
+                val e = list[i] as? AssistantEntry ?: continue
+                val bi = e.blocks.indexOfFirst {
+                    (it is QuestionBlock && it.card.requestId == requestId) ||
+                        (it is ToolBlock && it.question?.requestId == requestId)
+                }
+                if (bi < 0) continue
+                val updated = when (val b = e.blocks[bi]) {
+                    is QuestionBlock -> b.copy(card = f(b.card))
+                    is ToolBlock -> b.copy(question = b.question?.let(f))
+                    else -> b
+                }
+                list[i] = e.copy(blocks = e.blocks.set(bi, updated))
+                return true
+            }
+        }
+        return false
+    }
+
+    fun hasQuestion(requestId: String): Boolean {
+        for (list in listOfNotNull(entries, kept)) {
+            for (i in list.indices.reversed()) {
+                val e = list[i] as? AssistantEntry ?: continue
+                if (e.blocks.any {
+                        (it is QuestionBlock && it.card.requestId == requestId) ||
+                            (it is ToolBlock && it.question?.requestId == requestId)
+                    }
+                ) return true
+            }
+        }
+        return false
     }
 
     /** Updates the block with [blockId] anywhere (used for R-4 inference, where the id may be empty). */
@@ -514,6 +559,46 @@ internal class Draft(s: ConversationState) {
         }
     }
 
+    // ───────────────────────── questions (§4.6a) ─────────────────────────
+
+    /**
+     * QU-1: the session is blocked inside an `AskUserQuestion` call until this is answered.
+     * QU-2: the card goes on the tool block named by [toolUseId] — the UI already renders that
+     * call's questions, and a second card would duplicate them.
+     */
+    fun onQuestionRequest(rid: String?, questions: List<QuestionItem>, toolUseId: String?) {
+        clearStall()
+        if (rid == null || questions.isEmpty() || hasQuestion(rid)) return      // idempotent, as I-11
+        val card = QuestionCard(rid, toolUseId, questions)
+        val tool = toolUseId?.let { id -> tools[id]?.let { _ -> updateToolQuestion(id, card) } } ?: false
+        if (tool) return
+        ensureAgentTurn()
+        pushBlock(QuestionBlock(newBlockId(), card))
+    }
+
+    private fun updateToolQuestion(toolUseId: String, card: QuestionCard): Boolean =
+        updateTool(toolUseId) { it.copy(question = card) }
+
+    /** QU-6: seed a picker for every question `session_started` says is still unanswered. */
+    fun applyQuestionSnapshot(parse: (JsonArray?) -> List<QuestionItem>) {
+        for (q in questionSnapshot.toList()) onQuestionRequest(q.requestId, parse(q.questions), q.toolUseId)
+    }
+
+    /** QU-2/QU-3: updates the card in place; never appends an entry. */
+    fun onQuestionResolved(rid: String?, answers: Map<String, List<String>>, response: String?, responder: String?) {
+        clearStall()
+        if (rid == null) return
+        questionSnapshot.removeAll { it.requestId == rid }                      // QU-6: answered
+        updateQuestion(rid) {
+            it.copy(
+                state = QuestionState.ANSWERED,
+                answers = answers,
+                response = response?.takeIf { t -> t.isNotEmpty() },
+                responder = responder,
+            )
+        }
+    }
+
     // ───────────────────────── turns ─────────────────────────
 
     fun beginTurn() {
@@ -529,9 +614,18 @@ internal class Draft(s: ConversationState) {
             if (b.scope != BlockScope.TURN) return@mapAllBlocks b
             when (b) {
                 is StreamedBlock -> if (b.streaming) b.with(streaming = false) else b
-                is ToolBlock -> if (b.status == ToolStatus.RUNNING) {
-                    if (b.origin == BlockOrigin.LIVE) sweptLiveTool = true
-                    b.copy(status = ToolStatus.NO_RESULT, executing = false, progress = null)
+                is ToolBlock -> {
+                    // QU-7: the backend released the question unanswered; the picker closes.
+                    val q = b.question?.takeIf { it.state == QuestionState.PENDING }
+                        ?.copy(state = QuestionState.EXPIRED, responder = "system")
+                    val swept = if (b.status == ToolStatus.RUNNING) {
+                        if (b.origin == BlockOrigin.LIVE) sweptLiveTool = true
+                        b.copy(status = ToolStatus.NO_RESULT, executing = false, progress = null)
+                    } else b
+                    if (q != null) swept.copy(question = q) else swept
+                }
+                is QuestionBlock -> if (b.card.state == QuestionState.PENDING) {
+                    b.copy(card = b.card.copy(state = QuestionState.EXPIRED, responder = "system"))
                 } else b
                 is PermissionBlock -> if (b.state == PermissionState.PENDING) {
                     b.copy(state = PermissionState.DENIED, responder = "system", message = "stream ended")
@@ -542,6 +636,7 @@ internal class Draft(s: ConversationState) {
         // PM-4/PM-6: the backend drains every pending permission when the stream ends, so the
         // snapshot is spent — a reload after this must not bring the card back.
         permissionSnapshot.clear()
+        questionSnapshot.clear()   // QU-6, same reason
         inTurn = false; turnDepth = 0; turnHasContent = false; turnIsLocal = false
         dispatchedFromTray.clear()
         if (status != SessionStatus.STOPPED && status != SessionStatus.TERMINATED) {

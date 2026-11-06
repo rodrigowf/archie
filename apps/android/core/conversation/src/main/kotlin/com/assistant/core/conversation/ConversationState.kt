@@ -8,6 +8,7 @@ import com.assistant.core.model.SessionStatus
 import com.assistant.core.protocol.ClientFrame
 import com.assistant.core.protocol.PaginatedMessagesDto
 import com.assistant.core.protocol.PendingPermission
+import com.assistant.core.protocol.PendingQuestion
 import com.assistant.core.protocol.ServerFrame
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.PersistentMap
@@ -41,6 +42,14 @@ data class HistoryState(
 
 /** An agent permission seen on the orchestrator WS via `nested_session_event` (PM-5, §6.9). */
 data class AgentApproval(val localId: String, val requestId: String, val toolName: String, val toolInput: JsonObject)
+
+/** QU-8: one agent question seen from an orchestrator view. */
+data class AgentQuestion(
+    val localId: String,
+    val requestId: String,
+    val questions: List<QuestionItem>,
+    val toolUseId: String?,
+)
 
 /** A streaming block closed by an interleaved entry; a continuation may follow (I-5). */
 data class SplitRef(val blockId: String, val thinking: Boolean, val scope: BlockScope, val text: String)
@@ -82,6 +91,10 @@ data class ConversationState(
      * or the turn ends.
      */
     val permissionSnapshot: PersistentList<PendingPermission> = persistentListOf(),
+    /** QU-6: the same, for the `AskUserQuestion` calls still waiting for an answer. */
+    val questionSnapshot: PersistentList<PendingQuestion> = persistentListOf(),
+    /** Orchestrator only (QU-8): the questions agents are blocked on, first-sight order. */
+    val agentQuestions: PersistentList<AgentQuestion> = persistentListOf(),
     val voiceActive: Boolean = false,
     val openVoiceUserId: String? = null,
     val speechAnchor: Int? = null,
@@ -126,6 +139,24 @@ data class ConversationState(
     val nextId: Long = 1,
 ) {
     val kind: SessionKind get() = ref.kind
+
+    /**
+     * QU-1: the newest unanswered question of this view, or `null`. The agent is blocked inside
+     * that call, so this is what the picker and the composer hint point at.
+     */
+    fun newestPendingQuestion(): QuestionCard? {
+        for (i in entries.indices.reversed()) {
+            val e = entries[i] as? AssistantEntry ?: continue
+            for (j in e.blocks.indices.reversed()) {
+                when (val b = e.blocks[j]) {
+                    is QuestionBlock -> if (b.card.state == QuestionState.PENDING) return b.card
+                    is ToolBlock -> b.question?.let { if (it.state == QuestionState.PENDING) return it }
+                    else -> Unit
+                }
+            }
+        }
+        return null
+    }
 
     /** The newest `pending` permission (PM-3), or `null`. */
     fun newestPendingPermission(): PermissionBlock? {

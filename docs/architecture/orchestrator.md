@@ -4,7 +4,7 @@ category: archie/architecture
 tags: [orchestrator, agent-loop, tools, providers, system-prompt, background-runner, notifications, run-script, persistence, jsonl]
 created: 2026-02-23
 modified: 2026-11-05
-summary: The orchestrator agent — session vs agent loop, model providers, system prompt, the 24 tools, background runner, persistence.
+summary: The orchestrator agent — session vs agent loop, model providers, system prompt, the 25 tools, background runner, persistence.
 source: curated (consolidated from memory notes assistant/architecture/orchestrator-vision.md, assistant/architecture/permissions_branch_architecture.md, assistant/architecture/project-overview.md, assistant/infrastructure/features_and_integrations_summary.md; verified against code 2026-10-06)
 references:
   - system-overview.md
@@ -184,10 +184,11 @@ Tools can declare a `schema_builder` to inject live state (e.g. the MCP list) in
 | | `resume_conversation` | Reopen a past agent conversation (Claude/Qwen/Gemini) from a search result's `session_id` |
 | | `switch_conversation` | Leave this conversation and continue in one of the orchestrator's own past conversations: ends voice if active, stops this orchestrator, sends the client an `orchestrator_switch` frame (uncommitted on 2026-10-06; protocol §6.11a) |
 | | `close_agent_session` | Close a live session |
-| | `read_agent_session` | The last N messages that contain text (default 5; tool-only entries skipped), each with its transcript `index`, plus a `live` block: `running` (turn id, live event tail) or `idle`, and `pending_permissions: [{request_id, tool_name, tool_input}]` when the session is waiting on a gated tool (spec 12 PM-6 — without the `request_id` the orchestrator cannot answer it with `respond_to_agent_permission`; a long plan is truncated). Pages instead of cutting: the response is sized to a budget (voice: just under the 8,000-char realtime tool-output cap; text: 40,000, `max_chars` overrides), filled newest first, and carries cursors — `earlier: {before_index}` to page back, `continue: {message_index, char_offset}` to read the rest of a long message (`message_index` + `char_offset` read one message in chunks). A voice read therefore never reaches `truncate_voice_tool_output`, which would shorten every message and drop the newest (`backend/tests/test_read_agent_session.py`) |
+| | `read_agent_session` | The last N messages that contain text (default 5; tool-only entries skipped), each with its transcript `index`, plus a `live` block: `running` (turn id, live event tail) or `idle`, and `pending_permissions: [{request_id, tool_name, tool_input}]` when the session is waiting on a gated tool (spec 12 PM-6 — without the `request_id` the orchestrator cannot answer it with `respond_to_agent_permission`; a long plan is truncated) and `pending_questions: [{request_id, questions}]` when it is blocked inside `AskUserQuestion` (QU-6; each question trimmed to its text, option labels and `multiSelect`). Pages instead of cutting: the response is sized to a budget (voice: just under the 8,000-char realtime tool-output cap; text: 40,000, `max_chars` overrides), filled newest first, and carries cursors — `earlier: {before_index}` to page back, `continue: {message_index, char_offset}` to read the rest of a long message (`message_index` + `char_offset` read one message in chunks). A voice read therefore never reaches `truncate_voice_tool_output`, which would shorten every message and drop the newest (`backend/tests/test_read_agent_session.py`) |
 | | `send_to_agent_session` | Fire-and-forget: returns `{turn_id, session_id, status: "running", started_at}` at once (below) |
 | | `interrupt_agent_session` | Cancel a running turn via `runner.cancel_session` (SDK interrupt while the agent works on it, stops the turn's running subagents); the runner reports it as `cancelled`. With no runner turn: a plain `pool.interrupt` |
 | | `respond_to_agent_permission` | Answer a pending `ExitPlanMode` request (`allow`/`deny`, optional message) |
+| | `respond_to_agent_question` | Answer a pending `AskUserQuestion` — the agent is blocked inside that call (spec 12 QU-3). `answers` keyed by each question's exact text (a label, or a list for a multiSelect; an unoffered label is allowed), or `response` for prose. Seen as a `question_request` nested event and listed in `read_agent_session`'s `live.pending_questions` |
 | | `list_history` | Past sessions with type (`agent` / `orchestrator`) |
 | `assistant_config.py` | `get_assistant_config` | Coding-agent settings the next session inherits (working dir + history, harness/model, MCPs, chrome flag) |
 | | `update_assistant_config` | Change only those coding-agent fields; voice/orchestrator runtime settings are deliberately not exposed |
@@ -204,8 +205,9 @@ Tools can declare a `schema_builder` to inject live state (e.g. the MCP list) in
 | `voice_control.py` | `end_voice_session` | Hang up the realtime voice call |
 | `audio_playback.py` | `listen_recording` | Replay a time range of a recorded voice session into the live call |
 
-24 tools in total. `peek_agent_session` and `check_index_health` no longer exist (merged into
-`read_agent_session` / removed on 2026-06-04, `20ccfdd`).
+25 tools in total (`respond_to_agent_question` was added on 2026-11-05). `peek_agent_session` and
+`check_index_health` no longer exist (merged into `read_agent_session` / removed on 2026-06-04,
+`20ccfdd`).
 
 ## Fire-and-forget agent turns (`backend/orchestrator/runner.py`)
 

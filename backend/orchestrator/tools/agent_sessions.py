@@ -460,6 +460,33 @@ def _fit_tool_input(data: Any, room: int = 2000) -> dict[str, Any]:
     return out
 
 
+def _fit_questions(rows: Any, room: int = 600) -> list[dict[str, Any]]:
+    """Pending questions trimmed for a ``live`` block: the text, the option
+    labels and whether several may be picked — enough for the orchestrator to
+    answer one, without the descriptions and previews a UI needs."""
+    if not isinstance(rows, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        text = str(row.get("question") or "")
+        entry: dict[str, Any] = {"question": text[:room]}
+        labels = [
+            str(o.get("label"))
+            for o in (row.get("options") or [])
+            if isinstance(o, dict) and o.get("label") is not None
+        ]
+        if labels:
+            entry["options"] = labels
+        if row.get("multiSelect") is True:
+            entry["multiSelect"] = True
+        if row.get("kind") in ("text", "number"):
+            entry["kind"] = row["kind"]
+        out.append(entry)
+    return out
+
+
 def _message_entry(index: int, p: Any) -> dict[str, Any]:
     return {
         "index": index,
@@ -670,6 +697,18 @@ async def read_agent_session(
                 "tool_input": _fit_tool_input(r.get("tool_input")),
             }
             for r in rows_p if isinstance(r, dict)
+        ]
+    # Questions waiting for an answer (spec 12 QU-6): the session is blocked
+    # inside AskUserQuestion, and `respond_to_agent_question` needs these ids.
+    asking = getattr(sm, "pending_questions", None) if sm is not None else None
+    rows_q = asking() if callable(asking) else None
+    if isinstance(rows_q, list) and rows_q:
+        live["pending_questions"] = [
+            {
+                "request_id": r.get("request_id"),
+                "questions": _fit_questions(r.get("questions")),
+            }
+            for r in rows_q if isinstance(r, dict)
         ]
     live = _fit_live(live, int(budget * _LIVE_SHARE))
 
@@ -918,6 +957,85 @@ async def respond_to_agent_permission(
         "session_id": session_id,
         "request_id": request_id,
         "decision": decision,
+        "result": "ok",
+    })
+
+
+@registry.register(
+    name="respond_to_agent_question",
+    description=(
+        "Answer a pending AskUserQuestion from an agent session (the agent is "
+        "blocked inside that tool call until someone answers). You see these as "
+        "'question_request' nested events, and read_agent_session lists them "
+        "under live.pending_questions with the request_id and the options. "
+        "Normally the user answers in their own tab — intervene when the user is "
+        "away, when they told you the answer by voice, or when the agent asked "
+        "you directly. Pass 'answers' keyed by the question's exact text, or "
+        "'response' for freeform prose when nothing offered fits. First answer "
+        "wins; the loser's call is a no-op."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "session_id": {
+                "type": "string",
+                "description": "The agent session that asked the question.",
+            },
+            "request_id": {
+                "type": "string",
+                "description": "The request_id from the question_request event.",
+            },
+            "answers": {
+                "type": "object",
+                "description": (
+                    "Keyed by the question's exact text; the value is the chosen "
+                    "option label, or a list of labels for a multiSelect question. "
+                    "A label that was not offered is allowed — use it to answer in "
+                    "your own words while keeping it attached to that question."
+                ),
+                "additionalProperties": True,
+            },
+            "response": {
+                "type": "string",
+                "description": (
+                    "Freeform answer, for when no option fits. Sent alone it "
+                    "replaces the structured answers entirely."
+                ),
+            },
+        },
+        "required": ["session_id", "request_id"],
+    },
+)
+async def respond_to_agent_question(
+    context: dict[str, Any],
+    session_id: str,
+    request_id: str,
+    answers: dict[str, Any] | None = None,
+    response: str | None = None,
+) -> str:
+    pool = context["pool"]
+    if not answers and not (response or "").strip():
+        return json.dumps({"error": "answers or response is required"})
+    resolver = getattr(pool, "resolve_session_question", None)
+    if resolver is None:
+        return json.dumps({"error": "this backend cannot answer agent questions"})
+    won = await resolver(
+        session_id,
+        request_id,
+        answers=answers if isinstance(answers, dict) else None,
+        response=response,
+        responder="orchestrator",
+    )
+    if not won:
+        return json.dumps({
+            "session_id": session_id,
+            "request_id": request_id,
+            "result": "no_op",
+            "detail": "question was already answered or no longer exists",
+        })
+    return json.dumps({
+        "session_id": session_id,
+        "request_id": request_id,
         "result": "ok",
     })
 

@@ -274,7 +274,8 @@ per-harness docs. `SessionStore` and the provider adapters make all three appear
 The bundled CLI calls the SDK `can_use_tool` callback before tools when `permission_mode` is
 `"default"` (the `ManagerConfig` default — required for the callback to fire).
 
-- `_DEFAULT_GATED_TOOLS = frozenset({"ExitPlanMode"})`. Every other tool auto-allows.
+- `_DEFAULT_GATED_TOOLS = frozenset({"ExitPlanMode"})`. Every other tool auto-allows — except
+  `AskUserQuestion`, which the same callback *answers* rather than approves (see below).
 - For a gated tool, `_emit_permission_request()` injects a `PermissionRequest` (with a fresh
   `request_id`) into the stream and awaits a future; the answer is injected as `PermissionResolved`
   (`decision`, `responder`, `message`). No active `send()` stream → auto-allow (a popup nobody can
@@ -299,6 +300,44 @@ The bundled CLI calls the SDK `can_use_tool` callback before tools when `permiss
   `session_started` carries them as `permissions`, and the orchestrator's carries
   `SessionPool.pending_agent_permissions()` as `agent_permissions`. The clients seed the card from
   that snapshot (and re-seed it after a canonical reload, which rebuilds entries from history).
+
+## Asking the user a question (`AskUserQuestion`)
+
+The same callback carries a second, different conversation: `AskUserQuestion` is not gated
+allow/deny — it is **answered**. The CLI has no UI channel of its own for it and collects the
+selections *through* `can_use_tool`, reading them back out of the tool input the host returns (the
+schema calls `answers` "User answers collected by the permission component").
+
+- A host that merely allows the call hands the tool an input with no answers, so the CLI resolves it
+  itself in ~70 ms with *"The user did not answer the questions."* That is what Archie did until
+  2026-11-05: **54 such calls across 14 sessions**, the agent never waiting and the user never asked
+  (including a "deploy now or wait?" question in the session that found the bug).
+- `ClaudeSessionManager._answer_user_question()` now injects a `QuestionRequest`
+  (`request_id`, `questions`, `tool_use_id`) and blocks on a future until someone answers, then
+  returns `PermissionResultAllow(updated_input={**tool_input, "answers": …})`. Nobody answered →
+  allow the call unchanged, so the CLI reports it and the agent carries on instead of hanging.
+- **Answer shapes** (measured against CLI 2.1.292, pinned by
+  `backend/tests/test_ask_user_question.py`): `answers` keyed by the question's exact text, value a
+  label or a list of labels for a multi-select; a label that was never offered is accepted (that is
+  how "Other" free text stays attached to its question); `response` is freeform prose. **A non-empty
+  `response` makes the CLI ignore `answers` entirely**, so `resolve_question()` demotes a typed note
+  to `annotations[<first question>].notes` when both arrive — nothing is silently dropped.
+- Ways to answer (first answer wins, `BaseSessionManager.resolve_question()`):
+  1. `question_response` on the chat WS;
+  2. `POST /api/sessions/{local_id}/question`;
+  3. the orchestrator's `respond_to_agent_question` tool (it sees `question_request` as a
+     `nested_session_event`, and `read_agent_session` lists pending ones under
+     `live.pending_questions`);
+  4. **typing** — a `send` while a question is pending answers it with the prose as `response` and
+     is *not* also delivered as a prompt: the harness is blocked inside the tool call and hands the
+     text to the model as the result, so sending it too would deliver it twice. (A pending
+     *permission* keeps its own chat-as-deny rule; a question is answered first when both are pending.)
+- Pending questions are part of the attach state exactly as permissions are (spec 12 QU-6):
+  `pending_questions()` → `session_started.questions`, `SessionPool.pending_agent_questions()` →
+  `agent_questions`. A delegated turn waiting on one is never idle, so the runner's 30-min reaper
+  leaves it alone (`_TurnRecord.pending_question_ids`).
+- Clients put the picker on the `AskUserQuestion` tool card named by `tool_use_id` (QU-2) and show
+  the answer there once it lands; spec 12 §4.6a has the rules and the four fixtures.
 
 ## Stall watchdog
 

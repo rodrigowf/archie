@@ -155,16 +155,21 @@ async def _safe_send_bytes(ws: WebSocket, payload: bytes) -> bool:
 
 
 def _attach_agent_permissions(payload: dict, pool: SessionPool) -> dict:
-    """Add the agent permissions still waiting for an answer (spec 12 PM-6).
+    """Add what the agents are still waiting on a person for: permissions
+    (spec 12 PM-6) and AskUserQuestion calls (QU-6).
 
     The orchestrator's "Agent approvals" list is otherwise fed only by live
     ``nested_session_event`` frames, so a view that attaches after a request
     was emitted never learns about it and the agent waits forever.  Every
     ``session_started`` the orchestrator socket sends carries the snapshot.
     """
-    getter = getattr(pool, "pending_agent_permissions", None)
-    rows = getter() if callable(getter) else None
-    payload["agent_permissions"] = rows if isinstance(rows, list) else []
+    for key, method in (
+        ("agent_permissions", "pending_agent_permissions"),
+        ("agent_questions", "pending_agent_questions"),
+    ):
+        getter = getattr(pool, method, None)
+        rows = getter() if callable(getter) else None
+        payload[key] = rows if isinstance(rows, list) else []
     return payload
 
 

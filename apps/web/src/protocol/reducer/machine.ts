@@ -37,8 +37,13 @@ import {
   type NoticeKind,
   type PermissionBlock,
   type PermissionResponder,
+  type PendingQuestion,
   type QueuedPrompt,
   type Provider,
+  type QuestionBlock,
+  type QuestionCard,
+  type QuestionItem,
+  type QuestionOption,
   type SessionKind,
   type SessionStatus,
   type StreamBlock,
@@ -142,6 +147,74 @@ function permissionRows(x: unknown): { request_id: string; tool_name: string; to
   return out;
 }
 
+/** QU-1: `questions` rows worth rendering (a row with no text could not be answered). */
+function questionItems(x: unknown): QuestionItem[] {
+  if (!Array.isArray(x)) return [];
+  const out: QuestionItem[] = [];
+  for (const row of x) {
+    if (!isPlainObject(row)) continue;
+    const text = str(row.question);
+    if (!text) continue;
+    const kind = str(row.kind);
+    const options: QuestionOption[] = [];
+    for (const o of Array.isArray(row.options) ? row.options : []) {
+      if (!isPlainObject(o)) continue;
+      const label = str(o.label);
+      if (!label) continue;
+      options.push({
+        label,
+        ...(str(o.description) ? { description: str(o.description) } : {}),
+        ...(str(o.preview) ? { preview: str(o.preview) } : {}),
+      });
+    }
+    out.push({
+      question: text,
+      ...(str(row.header) ? { header: str(row.header) } : {}),
+      ...(kind === 'text' || kind === 'number' || kind === 'choice' ? { kind } : {}),
+      options,
+      ...(row.multiSelect === true ? { multiSelect: true } : {}),
+      ...(typeof row.min === 'number' ? { min: row.min } : {}),
+      ...(typeof row.max === 'number' ? { max: row.max } : {}),
+    });
+  }
+  return out;
+}
+
+/** QU-6: `session_started.questions` → the rows worth seeding a picker for. */
+function questionRows(x: unknown): PendingQuestion[] {
+  if (!Array.isArray(x)) return [];
+  const out: PendingQuestion[] = [];
+  for (const row of x) {
+    if (!isPlainObject(row)) continue;
+    const rid = str(row.request_id);
+    const questions = questionItems(row.questions);
+    if (rid && questions.length)
+      out.push({ request_id: rid, questions, tool_use_id: str(row.tool_use_id) || null });
+  }
+  return out;
+}
+
+/** QU-7: nobody answered before the turn ended. */
+const EXPIRED_QUESTION = { state: 'expired', responder: 'system' } as const;
+
+/** QU-3: an answer is a label, or a list of labels for a multi-select. */
+function answerMap(x: unknown): Record<string, string | string[]> {
+  const out: Record<string, string | string[]> = {};
+  if (!isPlainObject(x)) return out;
+  for (const [k, v] of Object.entries(x)) {
+    if (Array.isArray(v)) {
+      const labels = v.map((i) => str(i)).filter(Boolean);
+      if (labels.length) out[k] = labels;
+    } else if (str(v)) out[k] = str(v);
+  }
+  return out;
+}
+
+function responderOf(x: unknown): PermissionResponder | null {
+  const v = str(x);
+  return v === 'user' || v === 'orchestrator' || v === 'system' ? v : null;
+}
+
 function sameJson(a: unknown, b: unknown): boolean {
   return a === b || JSON.stringify(a) === JSON.stringify(b);
 }
@@ -222,6 +295,8 @@ export function initialConversation(o: InitialConversationOptions): Conversation
     gapPossible: false,
     agentApprovals: [],
     permissionSnapshot: [],
+    questionSnapshot: [],
+    agentQuestions: [],
     subagents: [],
     subagentsListed: false,
     checkpoint: null,
@@ -326,6 +401,8 @@ class Machine extends Draft {
       case 'clear_agent_approvals':
         if (this.s.agentApprovals.some((a) => a.localId === x.localId))
           this.s.agentApprovals = this.s.agentApprovals.filter((a) => a.localId !== x.localId);
+        if (this.s.agentQuestions.some((q) => q.localId === x.localId))
+          this.s.agentQuestions = this.s.agentQuestions.filter((q) => q.localId !== x.localId);
         return;
       case 'open_subagent':
         return this.openSubagent(x.toolUseId);
@@ -418,7 +495,10 @@ class Machine extends Draft {
     // PM-6: after the held frames (a replayed `permission_resolved` must not be undone by the
     // snapshot) and before the status fixup. While reloading the entries are about to be replaced
     // from history, so the seeding waits for the reload to land (§5.6, onHistoryPage).
-    if (!this.s.reloading) this.applyPermissionSnapshot();
+    if (!this.s.reloading) {
+      this.applyPermissionSnapshot();
+      this.applyQuestionSnapshot(); // QU-6
+    }
     const st = this.s.status;
     if (!this.s.inTurn && (st === 'connecting' || st === 'stopped' || st === 'terminated')) this.s.status = 'idle';
     if (this.s.termination !== null) this.s.termination = null;
@@ -469,6 +549,7 @@ class Machine extends Draft {
       this.maybeListSubagents();
       this.refetchOpenSubagents(); // D6: before the buffered frames, so their inner frames are held
       this.applyPermissionSnapshot(); // PM-6: history has no `permission_request` — re-seed the card
+      this.applyQuestionSnapshot(); // QU-6: and no `question_request` either
       this.flushReload();
       return;
     }
@@ -629,6 +710,15 @@ class Machine extends Draft {
 
   private findPerm(rid: string): Loc | null {
     return this.findBlock((b) => b.type === 'permission' && b.request_id === rid);
+  }
+
+  /** QU-2: a question lives on its tool block, or standalone when that block was never streamed. */
+  private findQuestion(rid: string): Loc | null {
+    return this.findBlock(
+      (b) =>
+        (b.type === 'question' && b.request_id === rid) ||
+        (b.type === 'tool' && b.question?.request_id === rid),
+    );
   }
 
   private findBlock(pred: (b: Block) => boolean): Loc | null {
@@ -885,6 +975,70 @@ class Machine extends Draft {
     });
   }
 
+  // ───────────────────────── questions (§4.6a) ─────────────────────────
+
+  /** QU-6, the PM-6 rule applied to questions: seed every picker we don't already show. */
+  private applyQuestionSnapshot(): void {
+    for (const q of this.s.questionSnapshot) this.onQuestionRequest(q.request_id, q.questions, q.tool_use_id);
+  }
+
+  /**
+   * QU-1: the session is blocked inside an `AskUserQuestion` call until this is answered, so the
+   * card has to be answerable. QU-2: it belongs to the tool block named by `tool_use_id` — the
+   * clients already render that call's questions, and a second card would duplicate them.
+   */
+  private onQuestionRequest(rid: string, questions: readonly QuestionItem[], toolUseId: string | null): void {
+    this.clearStall();
+    if (!questions.length || this.findQuestion(rid)) return; // idempotent, as I-11
+    const card: QuestionCard = {
+      request_id: rid,
+      tool_use_id: toolUseId,
+      questions,
+      state: 'pending',
+      answers: {},
+      response: null,
+      responder: null,
+    };
+    const loc = toolUseId ? this.findTool(toolUseId) : null;
+    if (loc) {
+      (this.blockMut(loc) as Mutable<ToolBlock>).question = card;
+      return;
+    }
+    this.ensureAgentTurn();
+    this.pushBlock({ id: this.newId(), type: 'question', ...card, scope: 'turn', origin: 'live' });
+  }
+
+  private onQuestionResolved(
+    rid: string,
+    answers: Record<string, unknown>,
+    response: string | null,
+    responder: unknown,
+  ): void {
+    this.clearStall();
+    // QU-6: answered — a later reload must not resurrect it as pending.
+    if (this.s.questionSnapshot.some((q) => q.request_id === rid))
+      this.s.questionSnapshot = this.s.questionSnapshot.filter((q) => q.request_id !== rid);
+    const loc = this.findQuestion(rid);
+    if (!loc) return; // we never saw the request: nothing to close
+    this.setQuestion(loc, {
+      state: 'answered',
+      answers: answerMap(answers),
+      response: response || null,
+      responder: responderOf(responder),
+    });
+  }
+
+  /** Patch the card wherever it lives — on a tool block (QU-2) or standalone. */
+  private setQuestion(loc: Loc, patch: Partial<QuestionCard>): void {
+    const b = this.blockAt(loc) as Block;
+    if (b.type === 'tool') {
+      const m = this.blockMut(loc) as Mutable<ToolBlock>;
+      if (m.question) m.question = { ...m.question, ...patch };
+      return;
+    }
+    Object.assign(this.blockMut(loc) as Mutable<QuestionBlock>, patch);
+  }
+
   private onPermissionResolved(rid: string, decision: string, responder: unknown, message: unknown): void {
     this.clearStall();
     // PM-6: answered — a later reload must not resurrect it as pending.
@@ -929,6 +1083,10 @@ class Machine extends Draft {
             expired += 1;
             this.taskSettled(loc);
           }
+          // QU-7: the backend released the question unanswered; the picker closes.
+          if (b.question?.state === 'pending') this.setQuestion(loc, EXPIRED_QUESTION);
+        } else if (b.type === 'question') {
+          if (b.state === 'pending') this.setQuestion(loc, EXPIRED_QUESTION);
         } else if (b.state === 'pending') {
           const pb = this.blockMut(loc) as Mutable<PermissionBlock>;
           pb.state = 'denied'; // mirrors the backend drain (G-17)
@@ -942,6 +1100,7 @@ class Machine extends Draft {
     // PM-4/PM-6: the backend drains every pending permission when the stream ends, so the
     // snapshot is spent — a reload after this must not bring the card back.
     if (this.s.permissionSnapshot.length) this.s.permissionSnapshot = [];
+    if (this.s.questionSnapshot.length) this.s.questionSnapshot = [];
     this.s.inTurn = false;
     this.s.turnDepth = 0;
     this.s.turnHasContent = false;
@@ -1135,14 +1294,27 @@ class Machine extends Draft {
       case 'voice_ended':
       case 'voice_stopped':
         return this.endVoice();
+      case 'question_request':
+        if (ref.kind !== 'agent') return;
+        return this.onQuestionRequest(
+          f.request_id, questionItems(f.questions), str(f.tool_use_id) || null,
+        );
+      case 'question_resolved':
+        if (ref.kind !== 'agent') return;
+        return this.onQuestionResolved(
+          f.request_id, inputObject(f.answers), str(f.response) || null, f.responder,
+        );
       case 'session_started':
         if (f.voice === true) this.s.voiceActive = true; // the other fields: onSessionStarted (§3.6)
         if (ref.kind === 'agent' && Array.isArray(f.subagents)) for (const row of f.subagents) this.upsertRow(row); // SA-3
         // PM-6: pending-permission snapshots. The agent view seeds its own card (onSessionStarted,
         // and again after a reload); the orchestrator view seeds its "Agent approvals" list.
-        if (ref.kind === 'agent') this.s.permissionSnapshot = permissionRows(f.permissions);
-        else if (ref.kind === 'orchestrator' && Array.isArray(f.agent_permissions)) {
-          for (const row of f.agent_permissions) {
+        if (ref.kind === 'agent') {
+          this.s.permissionSnapshot = permissionRows(f.permissions);
+          this.s.questionSnapshot = questionRows(f.questions); // QU-6
+        }
+        else if (ref.kind === 'orchestrator') {
+          for (const row of Array.isArray(f.agent_permissions) ? f.agent_permissions : []) {
             if (!isPlainObject(row)) continue;
             const localId = str(row.session_id);
             const rid = str(row.request_id);
@@ -1150,6 +1322,18 @@ class Machine extends Draft {
             if (this.s.agentApprovals.some((a) => a.localId === localId && a.request_id === rid)) continue;
             this.s.agentApprovals = this.s.agentApprovals.concat([
               { localId, request_id: rid, tool_name: str(row.tool_name), tool_input: inputObject(row.tool_input) },
+            ]);
+          }
+          // QU-6/QU-8: the questions agents are blocked on, same seeding rules.
+          for (const row of Array.isArray(f.agent_questions) ? f.agent_questions : []) {
+            if (!isPlainObject(row)) continue;
+            const localId = str(row.session_id);
+            const rid = str(row.request_id);
+            const questions = questionItems(row.questions);
+            if (!localId || !rid || !questions.length) continue;
+            if (this.s.agentQuestions.some((q) => q.localId === localId && q.request_id === rid)) continue;
+            this.s.agentQuestions = this.s.agentQuestions.concat([
+              { localId, request_id: rid, questions, tool_use_id: str(row.tool_use_id) || null },
             ]);
           }
         }
@@ -1232,6 +1416,19 @@ class Machine extends Draft {
       ]);
     } else if (eventType === 'permission_resolved' && has) {
       this.s.agentApprovals = this.s.agentApprovals.filter((a) => !(a.localId === localId && a.request_id === rid));
+    }
+    // QU-8: the same list semantics for the questions agents are blocked on.
+    const asked = this.s.agentQuestions.some((q) => q.localId === localId && q.request_id === rid);
+    if (eventType === 'question_request' && !asked) {
+      const questions = questionItems(data.questions);
+      if (questions.length)
+        this.s.agentQuestions = this.s.agentQuestions.concat([
+          { localId, request_id: rid, questions, tool_use_id: str(data.tool_use_id) || null },
+        ]);
+    } else if (eventType === 'question_resolved' && asked) {
+      this.s.agentQuestions = this.s.agentQuestions.filter(
+        (q) => !(q.localId === localId && q.request_id === rid),
+      );
     }
   }
 

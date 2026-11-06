@@ -213,6 +213,43 @@ class PermissionResolved(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class QuestionRequest(Event):
+    """The agent is asking the user a structured question (``AskUserQuestion``).
+
+    The CLI answers this tool through the **permission callback**: the host is
+    expected to return the selections in ``PermissionResultAllow.updated_input``
+    (the tool's own ``answers`` field is documented as "User answers collected
+    by the permission component"). Until we do, the SDK is blocked — exactly
+    like a gated tool, which is why this reuses the same machinery.
+
+    ``tool_use_id`` is the id of the ``AskUserQuestion`` call this belongs to,
+    so a client can put the picker on the tool card it already renders.
+    """
+
+    request_id: str
+    questions: list[dict[str, Any]]
+    tool_use_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class QuestionResolved(Event):
+    """A pending question was answered (or expired).
+
+    ``answers`` maps a question's text to the chosen option label, or to a list
+    of labels for a multi-select; ``response`` is freeform text the user typed
+    instead of choosing. Both empty means nobody answered — ``responder`` is
+    then ``"system"`` and ``message`` says why.
+    """
+
+    request_id: str
+    responder: str
+    answers: dict[str, Any] = field(default_factory=dict)
+    response: str | None = None
+    annotations: dict[str, Any] = field(default_factory=dict)
+    message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class SessionStalled(Event):
     """Emitted when the SDK has produced no message for an extended period.
 

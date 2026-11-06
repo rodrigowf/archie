@@ -159,11 +159,19 @@ async def chat_ws(ws: WebSocket):
                         "detail": "Send a 'start' message first",
                     }))
                     continue
+                text_payload = msg.get("text", "")
+                # A question is pending: the typed text *is* the answer (spec 12
+                # QU-4).  The harness is blocked inside the AskUserQuestion call
+                # and hands the text to the model as its result, so this message
+                # must not also be steered — that would deliver it twice.
+                if text_payload and await _answer_pending_questions(
+                    pool, sm, session_id, text_payload,
+                ):
+                    continue
                 # If a permission is pending on this session, treat the user's
                 # chat as a denial with their prose as the rejection reason.
                 # See the conversational-checkpoint policy in
                 # manager.claude.session._PERMISSION_GATING_PROMPT.
-                text_payload = msg.get("text", "")
                 denied = False
                 if text_payload:
                     pending_ids = list(sm.pending_permission_ids())
@@ -251,6 +259,34 @@ async def chat_ws(ws: WebSocket):
                     request_id,
                     decision,
                     message=msg.get("message"),
+                    responder="user",
+                )
+
+            elif msg_type == "question_response":
+                # Answer a pending AskUserQuestion (spec 12 QU-3).  Like
+                # permission_response, don't gate on session_id matching `sm`:
+                # the losing device still gets the `question_resolved` broadcast
+                # that closes its picker.
+                target_id = msg.get("session_id") or session_id
+                request_id = msg.get("request_id")
+                answers = msg.get("answers")
+                annotations = msg.get("annotations")
+                response = msg.get("response")
+                if (
+                    not target_id
+                    or not request_id
+                    or (not isinstance(answers, dict) and not isinstance(response, str))
+                ):
+                    await ws.send_bytes(orjson.dumps({
+                        "type": "error", "error": "invalid_question_response",
+                    }))
+                    continue
+                await pool.resolve_session_question(
+                    target_id,
+                    request_id,
+                    answers=answers if isinstance(answers, dict) else None,
+                    response=response if isinstance(response, str) else None,
+                    annotations=annotations if isinstance(annotations, dict) else None,
                     responder="user",
                 )
 
@@ -460,11 +496,10 @@ async def _send_session_started(
     # batch from the envelope (frames broadcast in between would be neither
     # replayed nor kept by the client, SEQ-5).
     subagents = await _subagents_snapshot(ws, pool, sm, session_id)
-    # PM-6, same tolerance as `replay_after` above: a manager that predates the
-    # method (or a test double) simply advertises nothing pending.
-    _pending = getattr(sm, "pending_permissions", None)
-    _rows = _pending() if callable(_pending) else None
-    permissions = _rows if isinstance(_rows, list) else []
+    # PM-6 / QU-6, same tolerance as `replay_after` above: a manager that
+    # predates the method (or a test double) simply advertises nothing pending.
+    permissions = _pending_snapshot(sm, "pending_permissions")
+    questions = _pending_snapshot(sm, "pending_questions")
     resume_state = pool.resume_state_for(session_id)
     status, replay_payloads = pool.replay_for_subscriber(session_id, resume_from)
 
@@ -481,6 +516,10 @@ async def _send_session_started(
         # without this snapshot a view opened after the request was emitted
         # shows no card and the agent waits forever.
         "permissions": permissions,
+        # Spec 12 QU-6: the AskUserQuestion calls still waiting for an answer,
+        # live-only for the same reason — a view that attached later would
+        # otherwise show no picker while the agent sits blocked on it.
+        "questions": questions,
     }
     if resume_state is not None:
         envelope["resume_state"] = resume_state
@@ -528,6 +567,36 @@ async def _subagents_snapshot(
                     pass
     # A brand-new session (not resumed) has no history: its live registry is all.
     return merge_summaries(disk, live)
+
+
+def _pending_snapshot(sm: BaseSessionManager, method: str) -> list:
+    """``sm.<method>()`` when it exists and returns a list, else ``[]``."""
+    getter = getattr(sm, method, None)
+    rows = getter() if callable(getter) else None
+    return rows if isinstance(rows, list) else []
+
+
+async def _answer_pending_questions(
+    pool: SessionPool,
+    sm: BaseSessionManager,
+    session_id: str,
+    text: str,
+) -> bool:
+    """Answer every question pending on this session with the user's prose
+    (spec 12 QU-4). Returns True when at least one was answered — the caller
+    then stops, because the harness already delivers the text to the model as
+    the tool's result.
+    """
+    ids = getattr(sm, "pending_question_ids", None)
+    pending = ids() if callable(ids) else None
+    if not pending:
+        return False
+    answered = False
+    for rid in list(pending):
+        answered = await pool.resolve_session_question(
+            session_id, rid, response=text, responder="user",
+        ) or answered
+    return answered
 
 
 async def _handle_stop_subagent(ws: WebSocket, sm: BaseSessionManager, tool_use_id: object) -> None:

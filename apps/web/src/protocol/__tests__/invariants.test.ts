@@ -219,7 +219,10 @@ function arrivalViolations(c: Conversation, by: 'ids' | 'keys'): string[] {
     let lastKey = -1;
     for (const b of e.blocks) {
       if (b.origin !== 'live') continue;
-      const src = by === 'ids' ? b.id : b.type === 'tool' ? b.tool_use_id : b.type === 'permission' ? b.request_id : b.text;
+      const src = by === 'ids' ? b.id
+        : b.type === 'tool' ? b.tool_use_id
+        : b.type === 'permission' || b.type === 'question' ? b.request_id
+        : b.text;
       const m = /(\d+)/.exec(src);
       if (!m) continue;
       const key = Number(m[1]);

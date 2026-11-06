@@ -3,9 +3,11 @@ package com.assistant.core.conversation
 import com.assistant.core.model.ConnectionState
 import com.assistant.core.model.SessionStatus
 import com.assistant.core.protocol.ServerFrame
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
 
 /** spec 12 §4.3 `reduce(f)`: one server frame, already deduplicated by the connection manager. */
 internal fun Draft.reduceFrame(f: ServerFrame) {
@@ -20,6 +22,10 @@ internal fun Draft.reduceFrame(f: ServerFrame) {
         is ServerFrame.ToolProgress -> onToolProgress(f.toolUseId, f.elapsedSeconds, f.message)
         is ServerFrame.PermissionRequest -> onPermissionRequest(f.requestId, f.toolName, f.toolInput)
         is ServerFrame.PermissionResolved -> onPermissionResolved(f.requestId, f.decision, f.responder, f.message)
+        is ServerFrame.QuestionRequest ->
+            onQuestionRequest(f.requestId, parseQuestionItems(f.questions), f.toolUseId)
+        is ServerFrame.QuestionResolved ->
+            onQuestionResolved(f.requestId, parseAnswers(f.answers), f.response, f.responder)
         is ServerFrame.UserMessage -> onUserMessage(f)
         is ServerFrame.Status -> f.status?.let { onStatus(it) }
         is ServerFrame.TurnComplete -> onTurnComplete(f)
@@ -51,10 +57,18 @@ internal fun Draft.reduceFrame(f: ServerFrame) {
             if (isAgent) {
                 permissionSnapshot.clear()
                 permissionSnapshot.addAll(f.permissions.orEmpty())
+                questionSnapshot.clear()                                       // QU-6
+                questionSnapshot.addAll(f.questions.orEmpty())
             } else if (isOrchestrator) {
                 for (p in f.agentPermissions.orEmpty()) {
                     if (agentApprovals.any { it.localId == p.sessionId && it.requestId == p.requestId }) continue
                     agentApprovals.add(AgentApproval(p.sessionId, p.requestId, p.toolName, p.toolInput))
+                }
+                for (q in f.agentQuestions.orEmpty()) {                        // QU-8
+                    if (agentQuestions.any { it.localId == q.sessionId && it.requestId == q.requestId }) continue
+                    val items = parseQuestionItems(q.questions)
+                    if (items.isEmpty()) continue
+                    agentQuestions.add(AgentQuestion(q.sessionId, q.requestId, items, q.toolUseId))
                 }
             }
         }
@@ -361,4 +375,51 @@ private fun Draft.voiceTurnEnd() {
     if (openBlock(thinking = false, scope = BlockScope.VOICE) != null) {
         replaceLastBlock { (it as StreamedBlock).with(streaming = false) }
     }
+}
+
+// ───────────────────────── questions, wire → model (§4.6a) ─────────────────────────
+
+/**
+ * QU-1: the `questions` rows worth rendering. A row with no text is dropped — it could not be
+ * answered, and the agent is blocked until something is.
+ */
+internal fun parseQuestionItems(arr: JsonArray?): List<QuestionItem> {
+    if (arr == null) return emptyList()
+    val out = ArrayList<QuestionItem>(arr.size)
+    for (el in arr) {
+        val o = el as? JsonObject ?: continue
+        val text = o.string("question")?.takeIf { it.isNotEmpty() } ?: continue
+        val options = (o["options"] as? JsonArray ?: JsonArray(emptyList())).mapNotNull { oe ->
+            val oo = oe as? JsonObject ?: return@mapNotNull null
+            val label = oo.string("label")?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            QuestionOption(label, oo.string("description"), oo.string("preview"))
+        }
+        out.add(
+            QuestionItem(
+                question = text,
+                header = o.string("header"),
+                kind = o.string("kind")?.takeIf { it == "choice" || it == "text" || it == "number" },
+                options = options,
+                multiSelect = o.truthy("multiSelect"),
+                min = (o["min"] as? JsonPrimitive)?.content?.toDoubleOrNull(),
+                max = (o["max"] as? JsonPrimitive)?.content?.toDoubleOrNull(),
+            ),
+        )
+    }
+    return out
+}
+
+/** QU-3: an answer is one label, or several for a multi-select. */
+internal fun parseAnswers(o: JsonObject?): Map<String, List<String>> {
+    if (o == null) return emptyMap()
+    val out = LinkedHashMap<String, List<String>>()
+    for ((k, v) in o) {
+        when (v) {
+            is JsonArray -> v.mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotEmpty) }
+                .takeIf { it.isNotEmpty() }?.let { out[k] = it }
+            is JsonPrimitive -> v.contentOrNull?.takeIf { it.isNotEmpty() }?.let { out[k] = listOf(it) }
+            else -> Unit
+        }
+    }
+    return out
 }

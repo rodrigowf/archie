@@ -25,6 +25,7 @@ class ProtocolCodecTest {
     private val json = Json
 
     private fun obj(text: String) = json.parseToJsonElement(text).jsonObject
+    private fun arr(text: String) = json.parseToJsonElement(text).jsonArray
 
     /** The nested implementations of a sealed frame interface (no kotlin-reflect on the classpath). */
     private fun subtypes(root: Class<*>): Set<Class<*>> =
@@ -88,6 +89,14 @@ class ProtocolCodecTest {
         ServerFrame.SessionStalled(120.4, "Bash", "t1", 5, "L1:1"),
         ServerFrame.PermissionRequest("r1", "ExitPlanMode", obj("""{"plan":"1. a"}"""), 8, "L1:1"),
         ServerFrame.PermissionResolved("r1", "deny", "user", "keep planning", 9, "L1:1"),
+        // QU-1..QU-3: the question, its options, and every answer shape (one label, several, prose).
+        ServerFrame.QuestionRequest(
+            "q1",
+            arr("""[{"question":"Which database?","header":"Storage","multiSelect":true,"options":[{"label":"Postgres","description":"server"},{"label":"SQLite"}]}]"""),
+            "t1", 10, "L1:1",
+        ),
+        ServerFrame.QuestionResolved("q1", obj("""{"Which database?":["Postgres","SQLite"]}"""), null, null, "user", null, 11, "L1:1"),
+        ServerFrame.QuestionResolved("q2", obj("{}"), "use the file store", null, "orchestrator", null, 12, "L1:1"),
         ServerFrame.ModelChanged(modelInfo),
         ServerFrame.ModelInfo(modelInfo),
         ServerFrame.ModelsList(listOf(modelInfo.modelInfo!!)),
@@ -303,6 +312,10 @@ class ProtocolCodecTest {
         ClientFrame.Command("/help"),
         ClientFrame.Compact,
         ClientFrame.PermissionResponse("r1", "deny", "no", "A1"),
+        // QU-3: one label stays a string on the wire, several become an array.
+        ClientFrame.QuestionResponse("q1", mapOf("Which database?" to listOf("SQLite"))),
+        ClientFrame.QuestionResponse("q1", mapOf("Which?" to listOf("A", "B")), null, "A1"),
+        ClientFrame.QuestionResponse("q1", emptyMap(), "use the file store"),
         ClientFrame.Stop,
         ClientFrame.StopSubagent("t1"),
         ClientFrame.VoiceStop,

@@ -462,7 +462,7 @@ the web.
   transcript with the normal `ChatList` (its own `MarkdownStore`; latest page only), a breadcrumb for
   nested agents (`Main › Explore › worker`), the history error when the first page failed, and a
   read-only bar instead of the composer (Viewing … · Stop · Back to Main); the inline cards (the main
-  agent's permissions, stall, connection) stay. Status changes are announced through
+  agent's permissions, its `AskUserQuestion` picker, stall, connection) stay. Status changes are announced through
   `core/design` `LiveAnnouncement` (polite; failures assertive).
 - **Performance rules** (2026-10-12, a 2.5–3.7 s main-thread freeze on the POCO while two subagents
   streamed and on tab switches): agent cards never fold into "N steps" groups (web parity) and never

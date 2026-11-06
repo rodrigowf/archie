@@ -40,6 +40,16 @@ interface ChatBackend {
      * here, else over REST. A `Failed` answer re-enables the card.
      */
     suspend fun respondToAgentApproval(agentLocalId: String, requestId: String, allow: Boolean): ApprovalAnswer
+
+    /** QU-3: answer this view's pending AskUserQuestion. */
+    fun respondToQuestion(requestId: String, answers: Map<String, List<String>>): SendResult?
+
+    /** QU-8: answer an agent's question from the Archie view. */
+    suspend fun respondToAgentQuestion(
+        agentLocalId: String,
+        requestId: String,
+        answers: Map<String, List<String>>,
+    ): ApprovalAnswer
     fun loadOlder()
     fun reload()
     fun dismissBanner()
@@ -82,6 +92,15 @@ class RepositoryChatBackend(
     override fun interrupt() { repo.interrupt(key) }
     override fun compact() { repo.compact(key) }
     override fun respondToPermission(requestId: String, allow: Boolean) = repo.respondToPermission(key, requestId, allow)
+
+    override fun respondToQuestion(requestId: String, answers: Map<String, List<String>>) =
+        repo.respondToQuestion(key, requestId, answers)
+
+    override suspend fun respondToAgentQuestion(
+        agentLocalId: String,
+        requestId: String,
+        answers: Map<String, List<String>>,
+    ) = repo.answerAgentQuestion(agentLocalId, requestId, answers)
 
     override suspend fun respondToAgentApproval(agentLocalId: String, requestId: String, allow: Boolean) =
         repo.answerAgentApproval(agentLocalId, requestId, allow)

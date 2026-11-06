@@ -35,6 +35,8 @@ from manager.subagents import is_spawn_tool
 from manager.types import (
     PermissionRequest,
     PermissionResolved,
+    QuestionRequest,
+    QuestionResolved,
     SubagentEvent,
     SubagentFinished,
     SubagentProgress,
@@ -114,6 +116,9 @@ class _TurnRecord:
     next_seq: int = 1
     last_assistant_text: str = ""
     pending_permission_ids: tuple[str, ...] = ()
+    # Unanswered AskUserQuestion calls (spec 12 QU-1) — like a permission, the
+    # turn is waiting on a person, so it must not count as idle.
+    pending_question_ids: tuple[str, ...] = ()
     # Subagents of this turn, by spawning tool_use_id: a one-line summary
     # each (spec 12 §4.8).  Kept apart from ``events`` so a busy subagent
     # cannot evict the parent's own events from the ring.  ``status`` is
@@ -166,6 +171,7 @@ class AgentTurnHandle:
     elapsed_seconds: float
     status: str
     pending_permission_ids: tuple[str, ...]
+    pending_question_ids: tuple[str, ...] = ()
     # "agent" (the delegated prompt is running), "waiting_for_subagents" or
     # "notification_turn" (the session reports on this turn's subagents).
     phase: str = "agent"
@@ -536,6 +542,7 @@ class BackgroundAgentRunner:
             elapsed_seconds=elapsed,
             status=r.status,
             pending_permission_ids=r.pending_permission_ids,
+            pending_question_ids=r.pending_question_ids,
             phase=_phase(r),
             waiting_for_subagents=0 if r.finished else len(self._running(r)),
         )
@@ -753,6 +760,19 @@ class BackgroundAgentRunner:
                 "responder": event.responder,
                 "message": event.message,
             })
+        elif isinstance(event, QuestionRequest):
+            self._buffer(record, "question_request", {
+                "request_id": event.request_id,
+                "questions": event.questions,
+                "tool_use_id": event.tool_use_id,
+            })
+        elif isinstance(event, QuestionResolved):
+            self._buffer(record, "question_resolved", {
+                "request_id": event.request_id,
+                "responder": event.responder,
+                "answers": event.answers,
+                "response": event.response,
+            })
 
     def _tap(self, record: _TurnRecord) -> Callable[[], None]:
         """Observe the session's events outside our own ``pool.send()``
@@ -812,15 +832,23 @@ class BackgroundAgentRunner:
         if not record.nt_open:
             return  # out-of-turn noise of another turn
         sm = self._pool.get(record.session_id)
-        if sm is not None and hasattr(sm, "pending_permission_ids"):
-            try:
-                ids = sm.pending_permission_ids()
-                record.pending_permission_ids = tuple(ids) if isinstance(ids, (list, tuple, set)) else ()
-            except Exception:  # noqa: BLE001
-                pass
+        if sm is not None:
+            for attr, dest in (
+                ("pending_permission_ids", "pending_permission_ids"),
+                ("pending_question_ids", "pending_question_ids"),
+            ):
+                getter = getattr(sm, attr, None)
+                if getter is None:
+                    continue
+                try:
+                    ids = getter()
+                    setattr(record, dest, tuple(ids) if isinstance(ids, (list, tuple, set)) else ())
+                except Exception:  # noqa: BLE001
+                    pass
         if isinstance(event, TurnComplete):
             record.nt_open = False
             record.pending_permission_ids = ()
+            record.pending_question_ids = ()
             record.cost += event.cost or 0.0
             record.turns += event.num_turns or 0
             record.obs_seq += 1
@@ -919,9 +947,11 @@ class BackgroundAgentRunner:
 
         async def _consume() -> None:
             async for event in self._pool.send(record.session_id, message):
-                # Track pending permissions for the prompt-builder snapshot
+                # Track what the turn is waiting on for the prompt-builder snapshot
                 if hasattr(sm, "pending_permission_ids"):
                     record.pending_permission_ids = tuple(sm.pending_permission_ids())
+                if hasattr(sm, "pending_question_ids"):
+                    record.pending_question_ids = tuple(sm.pending_question_ids())
 
                 if isinstance(event, TextComplete):
                     record.last_assistant_text = event.text
@@ -1079,8 +1109,8 @@ class BackgroundAgentRunner:
     ) -> None:
         """Await ``coro``; raise :class:`_TurnTimedOut` (after cancelling it) when
         the agent has produced nothing for ``idle_timeout`` seconds, or the turn
-        passed ``max_turn_seconds``.  A turn waiting on a permission answer is
-        waiting on a person, so it is never idle."""
+        passed ``max_turn_seconds``.  A turn waiting on a permission answer or on
+        an AskUserQuestion is waiting on a person, so it is never idle."""
         task = asyncio.ensure_future(coro)
         tick = max(0.05, min(15.0, idle_timeout / 4))
         try:
@@ -1093,7 +1123,7 @@ class BackgroundAgentRunner:
                 reason: str | None = None
                 if self._max_turn_seconds is not None and now - record.started_at > self._max_turn_seconds:
                     reason = f"turn exceeded {self._max_turn_seconds:g}s"
-                elif record.pending_permission_ids:
+                elif record.pending_permission_ids or record.pending_question_ids:
                     record.last_progress_at = now
                 elif now - record.last_progress_at > idle_timeout:
                     reason = f"no progress for {idle_timeout:g}s"

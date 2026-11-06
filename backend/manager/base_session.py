@@ -36,6 +36,8 @@ from .types import (
     Event,
     PermissionRequest,
     PermissionResolved,
+    QuestionRequest,
+    QuestionResolved,
     SessionStatus,
     TerminationReason,
 )
@@ -60,6 +62,42 @@ class PendingPermission:
     future: "asyncio.Future[tuple[str, str | None, str]]"
     tool_name: str = ""
     tool_input: dict = field(default_factory=dict)
+
+
+@dataclass
+class QuestionAnswer:
+    """What the user chose, in the shape the CLI's ``AskUserQuestion`` reads.
+
+    ``answers`` is keyed by the question's **text** (that is how the CLI looks
+    them up) and holds an option label, or a list of labels for a multi-select;
+    a label the question never offered is allowed — it is how "Other" free text
+    is attributed to its question. ``response`` is freeform text typed instead
+    of choosing anything.
+    """
+
+    answers: dict = field(default_factory=dict)
+    response: str | None = None
+    annotations: dict = field(default_factory=dict)
+    responder: str = "user"
+    message: str | None = None
+
+    def answered(self) -> bool:
+        return bool(self.answers) or bool((self.response or "").strip()) or bool(self.annotations)
+
+
+@dataclass
+class PendingQuestion:
+    """One unanswered ``QuestionRequest``: the Future the ``AskUserQuestion``
+    gate is awaiting plus the questions themselves.
+
+    Kept for the same reason as :class:`PendingPermission` — the request frame
+    is live-only, so a client that attaches later can only learn about it from
+    :meth:`BaseSessionManager.pending_questions` (spec 12 QU-6).
+    """
+
+    future: "asyncio.Future[QuestionAnswer]"
+    questions: list = field(default_factory=list)
+    tool_use_id: str | None = None
 
 
 class TurnAbandoned(Exception):
@@ -171,6 +209,9 @@ class BaseSessionManager(ABC):
         # still waiting for an answer (``pending_permissions``, spec 12 PM-6).
         self._gated_tools: set[str] = set()
         self._pending_permissions: dict[str, PendingPermission] = {}
+        # Unanswered AskUserQuestion calls (spec 12 QU-1): same lifecycle as a
+        # permission — the harness blocks on the future until someone answers.
+        self._pending_questions: dict[str, PendingQuestion] = {}
         self._event_inbox: asyncio.Queue[Event] | None = None
 
         # Out-of-turn events (spec 12 §4.8): what the harness emits while no
@@ -487,6 +528,120 @@ class BaseSessionManager(ABC):
             if not pending.future.done():
                 pending.future.set_result(("deny", "stream ended", "system"))
             self._pending_permissions.pop(rid, None)
+
+    # ------------------------------------------------------------------
+    # Questions (``AskUserQuestion``, spec 12 QU-1..QU-6)
+    # ------------------------------------------------------------------
+
+    def resolve_question(
+        self,
+        request_id: str,
+        *,
+        answers: dict | None = None,
+        response: str | None = None,
+        annotations: dict | None = None,
+        responder: str = "user",
+    ) -> bool:
+        """Answer a pending :class:`QuestionRequest`. First call wins.
+
+        ``response`` and ``answers`` are not independent on the wire the CLI
+        reads: a non-empty ``response`` makes it ignore ``answers`` entirely.
+        So when both arrive (the user picked options *and* typed something) the
+        typed text is demoted to a note on the first question, which the CLI
+        renders alongside the selection instead of replacing it.
+        """
+        pending = self._pending_questions.get(request_id)
+        if pending is None or pending.future.done():
+            return False
+
+        answers = dict(answers or {})
+        annotations = {k: dict(v) for k, v in (annotations or {}).items() if isinstance(v, dict)}
+        text = (response or "").strip() or None
+        if text and answers:
+            first = next(
+                (q.get("question") for q in pending.questions if isinstance(q, dict) and q.get("question")),
+                None,
+            )
+            if first:
+                note = annotations.setdefault(str(first), {})
+                note["notes"] = f"{note['notes']}\n{text}" if note.get("notes") else text
+                text = None
+
+        pending.future.set_result(QuestionAnswer(
+            answers=answers, response=text, annotations=annotations, responder=responder,
+        ))
+        return True
+
+    def pending_question_ids(self) -> list[str]:
+        return [rid for rid, q in self._pending_questions.items() if not q.future.done()]
+
+    def pending_questions(self) -> list[dict]:
+        """Every unanswered question, oldest first (spec 12 QU-6).
+
+        Same shape as the ``question_request`` frame minus the envelope, so a
+        client that attached after it was asked can seed the picker it missed.
+        """
+        return [
+            {
+                "request_id": rid,
+                "questions": [dict(q) for q in p.questions if isinstance(q, dict)],
+                "tool_use_id": p.tool_use_id,
+            }
+            for rid, p in self._pending_questions.items()
+            if not p.future.done()
+        ]
+
+    async def _emit_question_request(
+        self,
+        questions: list,
+        *,
+        tool_use_id: str | None = None,
+    ) -> QuestionAnswer | None:
+        """Emit a ``QuestionRequest`` into the active stream and await the
+        answer. Returns ``None`` when nobody answered (the harness then lets
+        the tool report that itself).
+
+        No active stream → ``None`` immediately: a question nobody can see
+        would block the turn forever.
+        """
+        if self._event_inbox is None:
+            return None
+
+        request_id = str(uuid.uuid4())
+        loop = asyncio.get_running_loop()
+        future: "asyncio.Future[QuestionAnswer]" = loop.create_future()
+        rows = [dict(q) for q in (questions or []) if isinstance(q, dict)]
+        self._pending_questions[request_id] = PendingQuestion(
+            future=future, questions=rows, tool_use_id=tool_use_id,
+        )
+
+        self._inject_event(QuestionRequest(
+            request_id=request_id, questions=rows, tool_use_id=tool_use_id,
+        ))
+
+        try:
+            answer = await future
+        finally:
+            self._pending_questions.pop(request_id, None)
+
+        self._inject_event(QuestionResolved(
+            request_id=request_id,
+            responder=answer.responder,
+            answers=dict(answer.answers),
+            response=answer.response,
+            annotations=dict(answer.annotations),
+            message=answer.message,
+        ))
+        return answer if answer.answered() else None
+
+    def _drain_pending_questions(self) -> None:
+        """Release every still-pending question as unanswered (stream ended)."""
+        for rid, pending in list(self._pending_questions.items()):
+            if not pending.future.done():
+                pending.future.set_result(QuestionAnswer(
+                    responder="system", message="stream ended",
+                ))
+            self._pending_questions.pop(rid, None)
 
     # ------------------------------------------------------------------
     # Read-only properties shared by every session

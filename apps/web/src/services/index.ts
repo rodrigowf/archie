@@ -55,6 +55,7 @@ export {
   replaceInPlace,
   replaceRunningArchie,
   respondAgentPermission,
+  respondAgentQuestion,
   rewindSession,
   runtimeHooks,
   servicesStarted,

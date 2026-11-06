@@ -55,6 +55,7 @@ import com.assistant.archie.feature.chat.model.ChatItem.Gap
 import com.assistant.archie.feature.chat.model.ChatItem.GroupPosition
 import com.assistant.core.conversation.NoticeKind
 import com.assistant.core.conversation.PermissionState
+import com.assistant.core.conversation.QuestionState
 import com.assistant.core.conversation.UserOrigin
 import com.assistant.core.design.Corner
 import com.assistant.core.design.components.ArchieButton
@@ -236,6 +237,7 @@ private fun ChatItemView(
             )
         }
         is ChatItem.Permission -> PermissionRecord(item, m, onLink)
+        is ChatItem.Question -> QuestionRecord(item, m)
         is ChatItem.CompactDivider -> CompactDivider(item, m)
         is ChatItem.Notice -> NoticeLine(item, m)
         is ChatItem.UnmatchedResults -> UnmatchedResults(item, m)
@@ -371,6 +373,41 @@ private fun PermissionRecord(item: ChatItem.Permission, modifier: Modifier, onLi
         }
         if (open && plan != null) {
             Markdown(plan, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp), onLinkClick = onLink, cacheId = "plan:${b.requestId}")
+        }
+    }
+}
+
+/** QU-2 fallback record: the question and whatever answer it ended up with. */
+@Composable
+private fun QuestionRecord(item: ChatItem.Question, modifier: Modifier) {
+    val c = ArchieTheme.colors
+    val q = item.block.card
+    val state = when (q.state) {
+        QuestionState.PENDING -> "Waiting for your answer"
+        QuestionState.ANSWERED -> "Answered" + responderSuffix(q.responder)
+        QuestionState.EXPIRED -> "No answer — the turn ended"
+    }
+    val tint = when (q.state) {
+        QuestionState.PENDING -> ArchieTheme.extended.warning.color
+        QuestionState.ANSWERED -> ArchieTheme.extended.success.color
+        QuestionState.EXPIRED -> c.onSurfaceVariant
+    }
+    Column(modifier.clip(RoundedCornerShape(Corner.Large)).background(c.surfaceContainer).padding(12.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            ArchieIcon(ArchieIcons.Help, null, size = 20.dp, tint = tint)
+            Text(state, Modifier.weight(1f), style = ArchieTheme.typography.bodyMedium, color = c.onSurfaceVariant, maxLines = 1)
+        }
+        for (row in q.questions) {
+            val picked = q.answers[row.question]?.joinToString(", ")
+            Text(
+                row.question + (picked?.let { " · $it" } ?: ""),
+                Modifier.padding(top = 4.dp),
+                style = ArchieTheme.typography.bodyMedium,
+                color = c.onSurface,
+            )
+        }
+        q.response?.takeIf { it.isNotEmpty() }?.let {
+            Text(it, Modifier.padding(top = 4.dp), style = ArchieTheme.typography.bodyMedium, color = c.onSurface)
         }
     }
 }

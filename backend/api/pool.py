@@ -115,6 +115,16 @@ def _kill_tracked_pid(pid: int) -> bool:
 
 logger = logging.getLogger(__name__)
 
+# Agent-session frames mirrored to the orchestrator as ``nested_session_event``
+# (spec 12 PM-5, QU-5): everything a person is expected to answer, so the
+# orchestrator can show it and answer it on their behalf.
+_MIRRORED_TO_ORCHESTRATOR = (
+    "permission_request",
+    "permission_resolved",
+    "question_request",
+    "question_resolved",
+)
+
 # ``agent_turn_finished.preview``: one line, short enough for a notification body.
 TURN_PREVIEW_MAX = 200
 _MD_NOISE = re.compile(r"(\*\*|__|`+|^#{1,6}\s+|^>\s?|^\s*[-*+]\s+)", re.MULTILINE)
@@ -617,6 +627,34 @@ class SessionPool:
             request_id, decision, message=message, responder=responder,
         )
 
+    async def resolve_session_question(
+        self,
+        session_id: str,
+        request_id: str,
+        *,
+        answers: dict[str, Any] | None = None,
+        response: str | None = None,
+        annotations: dict[str, Any] | None = None,
+        responder: str = "user",
+    ) -> bool:
+        """Answer a pending ``AskUserQuestion`` for a session (spec 12 QU-3).
+
+        Same race semantics as :meth:`resolve_session_permission`: the first
+        answer wins and the ``question_resolved`` event closes every other
+        device's picker.
+        """
+        sm = self._sessions.get(session_id)
+        resolver = getattr(sm, "resolve_question", None) if sm is not None else None
+        if resolver is None:
+            return False
+        return resolver(
+            request_id,
+            answers=answers,
+            response=response,
+            annotations=annotations,
+            responder=responder,
+        )
+
     def pending_agent_permissions(self) -> list[dict[str, Any]]:
         """Every agent permission still waiting for an answer, across the pool.
 
@@ -625,9 +663,17 @@ class SessionPool:
         ``nested_session_event`` frames, so an orchestrator view opened (or
         rebuilt) after a request was emitted never showed it.
         """
+        return self._pending_across_pool("pending_permissions")
+
+    def pending_agent_questions(self) -> list[dict[str, Any]]:
+        """Every agent question still waiting for an answer, across the pool
+        (spec 12 QU-6) — the orchestrator twin of ``session_started.questions``."""
+        return self._pending_across_pool("pending_questions")
+
+    def _pending_across_pool(self, method: str) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         for session_id, sm in self._sessions.items():
-            pending = getattr(sm, "pending_permissions", None)
+            pending = getattr(sm, method, None)
             rows = pending() if callable(pending) else None
             if not isinstance(rows, list):  # a manager that predates it / a test double
                 continue
@@ -1278,11 +1324,11 @@ class SessionPool:
                                 text=final_text or event.result,
                                 error=(event.result or "Turn failed") if event.is_error else None,
                             )
-                    if payload.get("type") in ("permission_request", "permission_resolved"):
+                    if payload.get("type") in _MIRRORED_TO_ORCHESTRATOR:
                         # Mirror to the orchestrator so its UI can show a matching
-                        # banner and (for permission_request) so the orchestrator
-                        # agent can respond programmatically.  Same envelope as
-                        # nested_session_event so existing dispatch logic fits.
+                        # banner and so the orchestrator agent can answer the
+                        # request itself.  Same envelope as nested_session_event
+                        # so existing dispatch logic fits.
                         await self.broadcast_orchestrator({
                             "type": "nested_session_event",
                             "session_id": session_id,
@@ -2023,7 +2069,7 @@ class SessionPool:
                     text=turn["text"] or event.result,
                     error=(event.result or "Turn failed") if event.is_error else None,
                 )
-        if payload.get("type") in ("permission_request", "permission_resolved"):
+        if payload.get("type") in _MIRRORED_TO_ORCHESTRATOR:
             await self.broadcast_orchestrator({
                 "type": "nested_session_event",
                 "session_id": session_id,

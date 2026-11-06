@@ -36,6 +36,7 @@ import com.assistant.core.conversation.AssistantEntry
 import com.assistant.core.conversation.ConversationState
 import com.assistant.core.conversation.NoticeEntry
 import com.assistant.core.conversation.PermissionBlock
+import com.assistant.core.conversation.QuestionBlock
 import com.assistant.core.conversation.TextBlock
 import com.assistant.core.conversation.ThinkingBlock
 import com.assistant.core.conversation.ToolBlock
@@ -133,6 +134,7 @@ fun ConversationPlaceholder(
                                     is ThinkingBlock -> Unit
                                     is ToolBlock -> SystemLine(b.toolName, icon = ArchieIcons.Build)
                                     is PermissionBlock -> SystemLine("Permission: ${b.toolName} · ${b.state.wire}", icon = ArchieIcons.Shield)
+                                    is QuestionBlock -> SystemLine("Question · ${b.card.state}", icon = ArchieIcons.Help)
                                 }
                             }
                             is NoticeEntry -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {

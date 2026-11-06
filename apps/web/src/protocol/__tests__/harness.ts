@@ -3,7 +3,7 @@
  * "Normalisation"). Every event goes through the real decoder as a binary frame first (T-1).
  */
 import type { Fixture, FixtureAction } from '../../../mock-server/scenarios.mjs';
-import type { Conversation, ConversationInput, Effect, Entry, MessagesPage, Subagent } from '../index';
+import type { Conversation, ConversationInput, Effect, Entry, MessagesPage, QuestionCard, Subagent } from '../index';
 import { decodeFrame, initialConversation, stepConversation } from '../index';
 
 export interface RunResult {
@@ -41,6 +41,7 @@ export function actionInput(a: FixtureAction): ConversationInput | null {
     case 'stop':
       return { type: 'local_stop' };
     case 'permission_response':
+    case 'question_response':
       return null; // the resolve comes from the server
     case 'datachannel_event':
       return { type: 'datachannel_event', event: a.event as Record<string, unknown> };
@@ -146,8 +147,10 @@ export function normaliseEntry(e: Entry): Record<string, unknown> {
         };
         if (b.images?.length) t.images = b.images.map((i) => ({ url: i.url, media_type: i.media_type }));
         if (b.inferred === true) t.inferred = true;
+        if (b.question) t.question = normaliseQuestion(b.question);
         return t;
       }
+      if (b.type === 'question') return { type: 'question', ...normaliseQuestion(b) };
       return {
         type: 'permission',
         request_id: b.request_id,
@@ -157,6 +160,24 @@ export function normaliseEntry(e: Entry): Record<string, unknown> {
         message: b.message,
       };
     }),
+  };
+}
+
+/** QU-1..QU-7: the question, its options and whatever answer it carries. */
+function normaliseQuestion(q: QuestionCard): Record<string, unknown> {
+  return {
+    request_id: q.request_id,
+    tool_use_id: q.tool_use_id,
+    questions: q.questions.map((i) => ({
+      question: i.question,
+      options: i.options.map((o) => o.label),
+      ...(i.multiSelect === true ? { multiSelect: true } : {}),
+      ...(i.kind ? { kind: i.kind } : {}),
+    })),
+    state: q.state,
+    answers: q.answers,
+    response: q.response,
+    responder: q.responder,
   };
 }
 

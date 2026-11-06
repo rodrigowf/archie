@@ -140,6 +140,51 @@ data class ToolBlock(
     val inferred: Boolean = false,
     val executing: Boolean = false,
     val progress: ToolProgressInfo? = null,
+    /** QU-2: the `AskUserQuestion` this card is asking (pending, answered or expired). */
+    val question: QuestionCard? = null,
+    override val scope: BlockScope = BlockScope.TURN,
+    override val origin: BlockOrigin = BlockOrigin.LIVE,
+) : Block
+
+enum class QuestionState { PENDING, ANSWERED, EXPIRED }
+
+/** One option of a question (§4.6a); [preview] is a mockup/snippet some questions carry. */
+data class QuestionOption(
+    val label: String,
+    val description: String? = null,
+    val preview: String? = null,
+)
+
+data class QuestionItem(
+    val question: String,
+    val header: String? = null,
+    /** `choice` (the default), `text` or `number`. */
+    val kind: String? = null,
+    val options: List<QuestionOption> = emptyList(),
+    val multiSelect: Boolean = false,
+    val min: Double? = null,
+    val max: Double? = null,
+)
+
+/**
+ * QU-1: an `AskUserQuestion` the agent is blocked inside until someone answers.
+ * [answers] is keyed by each question's exact text (QU-3): one label, or several
+ * for a multi-select.
+ */
+data class QuestionCard(
+    val requestId: String,
+    val toolUseId: String?,
+    val questions: List<QuestionItem>,
+    val state: QuestionState = QuestionState.PENDING,
+    val answers: Map<String, List<String>> = emptyMap(),
+    val response: String? = null,
+    val responder: String? = null,
+)
+
+/** QU-2 fallback: a question whose `AskUserQuestion` tool block was never streamed. */
+data class QuestionBlock(
+    override val id: String,
+    val card: QuestionCard,
     override val scope: BlockScope = BlockScope.TURN,
     override val origin: BlockOrigin = BlockOrigin.LIVE,
 ) : Block

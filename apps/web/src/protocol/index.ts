@@ -58,6 +58,7 @@ export {
   isBusy,
   isRunLive,
   pendingPermission,
+  pendingQuestion,
   runningSubagents,
   subagentPath,
   unmatchedResults,

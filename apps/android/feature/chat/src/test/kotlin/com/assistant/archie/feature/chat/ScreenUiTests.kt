@@ -184,6 +184,54 @@ class InlineCardsUiTest : ScreenTestBase() {
         compose.onNodeWithTag("card:perm:r1").assertDoesNotExist()
     }
 
+    private val question = arrayOf(
+        """{"type":"status","status":"processing"}""",
+        """{"type":"tool_use","tool_use_id":"t1","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Which database?","header":"Storage","options":[{"label":"Postgres","description":"Needs a server"},{"label":"SQLite"}]}]}}""",
+        """{"type":"question_request","request_id":"q1","tool_use_id":"t1","questions":[{"question":"Which database?","header":"Storage","options":[{"label":"Postgres","description":"Needs a server"},{"label":"SQLite"}]}]}""",
+    )
+
+    /** QU-1..QU-3: the agent is blocked until this is answered; one tap, one send, then it closes. */
+    @Test
+    fun answeringAQuestionSendsItOnceAndClosesOnResolve() {
+        show(Frames.reduce(Frames.agent(), *question))
+        compose.onNodeWithText("One question").assertExists()
+        compose.onNodeWithText("Or just type your answer below").assertExists()
+        compose.onNodeWithText("Send answer").assertDoesNotExist()      // nothing picked yet
+        compose.onNodeWithTag("question-option:SQLite").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Send answer").performClick()
+        compose.waitForIdle()
+        assertEquals(listOf("q1" to mapOf("Which database?" to listOf("SQLite"))), backend.questions)
+        compose.onNodeWithText("Send answer").assertDoesNotExist()      // one send only
+        backend.frames("""{"type":"question_resolved","request_id":"q1","answers":{"Which database?":"SQLite"},"response":null,"responder":"user"}""")
+        compose.waitForIdle()
+        compose.onNodeWithTag("card:question:q1").assertDoesNotExist()
+    }
+
+    /** QU-4: typing answers it, and the text is not also delivered as a prompt. */
+    @Test
+    fun typingAnswersTheQuestion() {
+        show(Frames.reduce(Frames.agent(), *question))
+        field().performTextInput("neither, use the file store")
+        compose.onNodeWithContentDescription("Send").performClick()
+        compose.waitForIdle()
+        assertEquals(listOf("neither, use the file store"), backend.sent)
+        assertTrue(backend.questions.isEmpty())                         // the server answers it
+        backend.frames("""{"type":"question_resolved","request_id":"q1","answers":{},"response":"neither, use the file store","responder":"user"}""")
+        compose.waitForIdle()
+        compose.onNodeWithTag("card:question:q1").assertDoesNotExist()
+    }
+
+    /** QU-7: nobody answered before the turn ended. */
+    @Test
+    fun anUnansweredQuestionClosesAtTurnEnd() {
+        show(Frames.reduce(Frames.agent(), *question))
+        compose.onNodeWithTag("card:question:q1").assertExists()
+        backend.frames("""{"type":"turn_complete","cost":0.01,"num_turns":1}""")
+        compose.waitForIdle()
+        compose.onNodeWithTag("card:question:q1").assertDoesNotExist()
+    }
+
     @Test
     fun stallInterrupts() {
         show(

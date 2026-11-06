@@ -237,6 +237,28 @@ export class SessionRuntime extends ConversationRuntime {
     return this.transportSend(msg);
   }
 
+  /** QU-3: answer an AskUserQuestion of this session. */
+  respondQuestion(
+    requestId: string,
+    answer: { answers?: Record<string, string | string[]>; response?: string },
+  ): boolean {
+    const msg: ClientMessage = { type: 'question_response', request_id: requestId };
+    if (answer.answers && Object.keys(answer.answers).length) msg.answers = answer.answers;
+    if (answer.response) msg.response = answer.response;
+    return this.transportSend(msg);
+  }
+
+  /** QU-8: answer an agent's question from the orchestrator view. */
+  respondQuestionFor(
+    localId: string,
+    requestId: string,
+    answer: { answers?: Record<string, string | string[]>; response?: string },
+  ): boolean {
+    return this.transportSend({
+      type: 'question_response', session_id: localId, request_id: requestId, ...answer,
+    });
+  }
+
   /** Answer an agent permission for this session from the orchestrator view (§6.9). */
   respondPermissionFor(localId: string, requestId: string, decision: 'allow' | 'deny'): boolean {
     return this.transportSend({ type: 'permission_response', session_id: localId, request_id: requestId, decision });

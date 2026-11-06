@@ -1,5 +1,6 @@
 package com.assistant.core.protocol
 
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -97,4 +98,38 @@ internal fun encodeAgentPendingPermission(p: AgentPendingPermission): JsonObject
     put("request_id", p.requestId)
     put("tool_name", p.toolName)
     put("tool_input", p.toolInput)
+}
+
+// ───────────── pending questions (QU-6) ─────────────
+// Same leniency: a row with no `request_id` or no questions is dropped — it could never be
+// answered, and showing an empty picker would just block the agent silently.
+
+private val EMPTY_JSON_ARRAY = JsonArray(emptyList())
+
+/** One `session_started.questions` row; `null` without a `request_id` and a non-empty list. */
+internal fun decodePendingQuestion(o: JsonObject): PendingQuestion? {
+    val rid = o.str("request_id")?.takeIf { it.isNotEmpty() } ?: return null
+    val questions = o.arr("questions")?.takeIf { it.isNotEmpty() } ?: return null
+    return PendingQuestion(rid, questions, o.str("tool_use_id")?.takeIf { it.isNotEmpty() })
+}
+
+internal fun encodePendingQuestion(q: PendingQuestion): JsonObject = jsonObject {
+    put("request_id", q.requestId)
+    put("questions", q.questions)
+    put("tool_use_id", q.toolUseId)
+}
+
+/** One `session_started.agent_questions` row; `null` without a `session_id` and `request_id`. */
+internal fun decodeAgentPendingQuestion(o: JsonObject): AgentPendingQuestion? {
+    val sid = o.str("session_id")?.takeIf { it.isNotEmpty() } ?: return null
+    val rid = o.str("request_id")?.takeIf { it.isNotEmpty() } ?: return null
+    val questions = o.arr("questions")?.takeIf { it.isNotEmpty() } ?: return null
+    return AgentPendingQuestion(sid, rid, questions, o.str("tool_use_id")?.takeIf { it.isNotEmpty() })
+}
+
+internal fun encodeAgentPendingQuestion(q: AgentPendingQuestion): JsonObject = jsonObject {
+    put("session_id", q.sessionId)
+    put("request_id", q.requestId)
+    put("questions", q.questions)
+    put("tool_use_id", q.toolUseId)
 }

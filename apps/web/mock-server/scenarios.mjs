@@ -63,6 +63,7 @@ const WAIT_FOR = {
   compact: 'compact',
   stop: 'stop',
   permission_response: 'permission_response',
+  question_response: 'question_response',
 };
 
 /** Fixture → replay steps (see the file header). Client-only actions are skipped. */

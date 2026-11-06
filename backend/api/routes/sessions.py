@@ -668,3 +668,63 @@ async def resolve_permission(
             409, detail=f"No pending permission request {request_id!r}",
         )
     return {"ok": True}
+
+
+@router.post("/{local_id}/question", status_code=200)
+async def resolve_question(
+    local_id: str,
+    request: Request,
+    pool: SessionPool = Depends(get_pool),
+):
+    """Answer a pending ``AskUserQuestion`` of a live agent session (spec 12 QU-3).
+
+    REST twin of the chat WebSocket's ``question_response`` frame, for a device
+    that has no socket open on that agent. First answer wins; the manager
+    broadcasts ``question_resolved`` to every subscriber either way.
+
+    Body: ``{request_id, answers?: {question: label|[labels]}, response?: str,
+    annotations?: {question: {notes}}}`` — ``answers`` or ``response`` (or
+    both) must be present. A label the question never offered is accepted: it
+    is how free text is attributed to its own question.
+    404 when the session is not in the pool; 409 when there is no such pending
+    question (already answered, expired, or unknown).
+    """
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        raise HTTPException(400, detail="body must be a JSON object")
+    request_id = body.get("request_id")
+    answers = body.get("answers")
+    response = body.get("response")
+    annotations = body.get("annotations")
+    if not isinstance(request_id, str) or not request_id:
+        raise HTTPException(400, detail="request_id (non-empty string) is required")
+    if answers is not None and not isinstance(answers, dict):
+        raise HTTPException(400, detail="answers must be an object")
+    if response is not None and not isinstance(response, str):
+        raise HTTPException(400, detail="response must be a string")
+    if annotations is not None and not isinstance(annotations, dict):
+        raise HTTPException(400, detail="annotations must be an object")
+    if not answers and not (response or "").strip():
+        raise HTTPException(400, detail="answers or response is required")
+
+    if not pool.has(local_id):
+        raise HTTPException(
+            404, detail=f"No live pool session with local_id={local_id!r}",
+        )
+
+    resolved = await pool.resolve_session_question(
+        local_id,
+        request_id,
+        answers=answers,
+        response=response,
+        annotations=annotations,
+        responder="user",
+    )
+    if not resolved:
+        raise HTTPException(
+            409, detail=f"No pending question {request_id!r}",
+        )
+    return {"ok": True}

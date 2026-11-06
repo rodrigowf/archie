@@ -119,6 +119,8 @@ Conversation = {
   pendingInjects: string[],               // orchestrator inject_text texts awaiting their echo
   agentApprovals: { localId, request_id, tool_name, tool_input }[],  // orchestrator: agent permissions seen via nested_session_event (PM-5)
   permissionSnapshot: { request_id, tool_name, tool_input }[],      // what session_started says is still unanswered (PM-6)
+  questionSnapshot: { request_id, questions, tool_use_id }[],       // same, for AskUserQuestion (QU-6)
+  agentQuestions: { localId, request_id, questions, tool_use_id }[],// orchestrator: agent questions (QU-8)
   voiceActive: boolean,                   // orchestrator: voice live on ANY device (§7)
   openVoiceUser: UserEntry | null,        // Gemini transcript being coalesced (§4.7)
   speechAnchor: number | null,            // §4.7
@@ -672,6 +674,28 @@ function onPermissionResolved(rid, decision, responder, message) {
 
 function applyPermissionSnapshot() {                           // PM-6
   for (const p of permissionSnapshot) onPermissionRequest(p.request_id, p.tool_name, p.tool_input)
+  for (const q of questionSnapshot) onQuestionRequest(q.request_id, q.questions, q.tool_use_id)   // QU-6
+}
+
+// ───────────────────────── questions (§4.6a) ─────────────────────────
+function onQuestionRequest(rid, questions, toolUseId) {
+  clearStall()
+  if (questions.has(rid)) return                               // idempotent, as I-11
+  const q = { request_id: rid, tool_use_id: toolUseId ?? null, questions, state: "pending",
+              answers: {}, response: null, responder: null, scope: "turn", origin: "live" }
+  const tb = toolUseId ? tools.get(toolUseId) : null            // QU-2: onto its own tool block
+  if (tb) tb.question = q
+  else { ensureAgentTurn(); pushBlock({ type: "question", ...q }) }
+  questions.set(rid, q)
+}
+
+function onQuestionResolved(rid, answers, response, responder) {
+  clearStall()
+  questionSnapshot = questionSnapshot.filter(q => q.request_id != rid)   // QU-6: answered
+  const q = questions.get(rid)
+  if (!q) return                                               // never saw the request
+  q.state = "answered"; q.answers = answers ?? {}; q.response = response ?? null
+  q.responder = responder ?? null                              // NO entry is appended (QU-2)
 }
 
 // ───────────────────────── turns ─────────────────────────
@@ -691,6 +715,9 @@ function endTurn(reason) {                                     // I-7, scope "tu
   }
   pendingSplit = null; stall = null
   permissionSnapshot = []                                      // PM-6: the backend drained them (G-17)
+  questionSnapshot = []                                        // QU-6, same reason
+  for (const q of questions.values())                          // QU-7
+    if (q.state == "pending") { q.state = "expired"; q.responder = "system" }
   inTurn = false; turnDepth = 0; turnHasContent = false; turnIsLocal = false
   if (status != "stopped" && status != "terminated") status = compactPending ? "compacting" : "idle"
 }
@@ -718,6 +745,8 @@ function reduce(f) {
   case "tool_progress":     return onToolProgress(f.tool_use_id, f.elapsed_seconds, f.message)
   case "permission_request":  return onPermissionRequest(f.request_id, f.tool_name, f.tool_input)
   case "permission_resolved": return onPermissionResolved(f.request_id, f.decision, f.responder, f.message)
+  case "question_request":    return onQuestionRequest(f.request_id, f.questions, f.tool_use_id)
+  case "question_resolved":   return onQuestionResolved(f.request_id, f.answers, f.response, f.responder)
 
   case "user_message": {
     if (f.queued) { queue.push({ text: f.text, owner: "remote" }); return }      // I-12
@@ -1024,6 +1053,56 @@ Rules:
   - **orchestrator WS** — `agent_permissions: [{session_id, request_id, tool_name, tool_input}]` (`SessionPool.pending_agent_permissions()`): the same rows for every live agent session, added to `agentApprovals` once per `(localId, request_id)` (PM-5 then removes them as usual).
 
   *Rationale:* without this a view opened after the request was emitted — another device, a reopened conversation, a replay that overflowed — showed no approval card at all, and the agent waited on the gate forever (2026-11-05: an `ExitPlanMode` sat unanswered for ~20 min; the request was still in the session's replay ring, but nothing on the wire told the client). Fixtures `permission_pending_on_attach`, `permission_pending_survives_reload`.
+
+#### 4.6a Questions (`AskUserQuestion`)
+
+A gated tool asks "may I?"; `AskUserQuestion` asks "which?". The harness blocks on it the same way,
+so the client's job is the same shape — show it, answer it, close it — with an answer payload
+instead of a yes/no.
+
+- **QU-1.** `question_request{request_id, questions, tool_use_id}` means a session is **blocked**
+  inside an `AskUserQuestion` call until somebody answers. `questions` is the tool's own array:
+  `{question, header?, kind?: "choice"|"text"|"number", options: [{label, description?, preview?}],
+  multiSelect?, min?, max?}`. The client MUST render it as an answerable control and MUST NOT
+  auto-answer it. *Rationale:* the bundled CLI collects this tool's answers **through the permission
+  callback** (its `answers` field is documented as "User answers collected by the permission
+  component"). A host that just allows the call hands the tool an empty input and the CLI resolves it
+  itself in ~70 ms with "The user did not answer the questions" — the agent never waits and the user
+  is never asked (2026-11-05: 54 such calls across 14 sessions).
+- **QU-2.** The request belongs to the `AskUserQuestion` tool block named by `tool_use_id`: the
+  client MUST attach the control to that block rather than adding a second card for the same call.
+  When no such block is known (it was never streamed), the control goes on the current run as its own
+  block. Resolving never appends a timeline entry (the W-5 rule of PM-2 applies unchanged).
+- **QU-3.** Answering sends `question_response{request_id, answers?, response?, annotations?}` on the
+  chat WS, or `POST /api/sessions/{localId}/question` with the same body. `answers` is keyed by each
+  question's **exact text**; the value is an option `label`, or an array of labels for
+  `multiSelect`. A label that was never offered is legal and is how free text ("Other") stays
+  attached to its question. First answer wins across devices and the orchestrator; the loser's call
+  is a no-op (409 over REST) and its `question_resolved` closes the control.
+- **QU-4. Typing answers the question.** While a question is pending, a plain `send` on that session
+  resolves it with the typed text as `response` and MUST NOT also be delivered as a prompt: the
+  harness is blocked inside the tool call and hands the text to the model as the tool's result, so
+  sending it too would deliver it twice. (A pending *permission* keeps its own rule — typing denies
+  it, PM-4's conversational checkpoint — and a question is answered first when both are pending.)
+- **QU-5.** `answers` and `response` are **not** independent downstream: a non-empty `response` makes
+  the CLI ignore every selection. A client MAY send both (a pick plus a note); the backend demotes
+  the note to `annotations[<first question>].notes`, which the CLI renders beside the selection
+  instead of replacing it. A client MUST NOT rely on sending both and getting both back.
+- **QU-6. Pending questions are part of the attach state** — PM-6 applies verbatim, with
+  `session_started.questions: [{request_id, questions, tool_use_id}]` on the chat WS and
+  `agent_questions: [{session_id, …}]` on the orchestrator's. Seeding is idempotent on `request_id`;
+  the snapshot drops a row on its `question_resolved` and empties at `endTurn`.
+- **QU-7.** At `endTurn` a still-pending question is marked `expired` (scope `turn`, like PM-4's
+  expiry). The backend releases it as unanswered, and the CLI reports "The user did not answer the
+  questions" to the model — the agent carries on rather than hanging.
+- **QU-8.** On an orchestrator conversation, `nested_session_event{event_type:"question_request"}`
+  adds `{localId, request_id, questions, tool_use_id}` to `agentQuestions` once per
+  `(localId, request_id)`; `question_resolved` and `clear_agent_approvals{localId}` remove it. The
+  orchestrator answers with `respond_to_agent_question` (its own tool) or the client sends
+  `question_response{session_id}`. Same list semantics as PM-5's approvals.
+
+Fixtures: `question_ask_and_answer`, `question_typed_text_answers`, `question_pending_on_attach`,
+`question_expires_at_turn_end`.
 
 ### 4.7 Voice transcripts in the timeline
 
@@ -1515,6 +1594,27 @@ if the session is live but not open here: →REST POST /api/sessions/{pool.local
 remove from SessionDirectory.list; refreshList(); syncPool()
 ```
 The pool close MUST come before `DELETE` so the CLI does not keep writing a file that moved to trash. Duplicate: `POST …/duplicate` ⇒ `{session_id}`, refresh, do not open (web parity).
+
+### 6.9a Questions: answer, or just type
+
+```
+pick:    WS→ {type:"question_response", request_id, answers:{"<question text>":"<label>"}}
+multi:   WS→ {type:"question_response", request_id, answers:{"<q>":["<label>","<label>"]}}
+other:   WS→ {type:"question_response", request_id, answers:{"<q>":"<free text>"}}   (QU-3)
+type it: just send the text: WS→ {type:"send", text}
+         ⇒ server answers every pending question with response=text and does NOT send it (QU-4)
+⇐ question_resolved{request_id, answers, response, responder}   (first answer wins)
+
+REST twin (no socket open on that agent):
+POST /api/sessions/{localId}/question   {request_id, answers?, response?, annotations?}
+  200 {ok: true} · 404 session not live · 409 already answered (not an error: close the picker)
+```
+
+- The agent is **blocked** until this is answered: a view that shows the question must make it
+  answerable, and one that attaches later seeds it from `session_started.questions` (QU-6).
+- From the orchestrator view, `nested_session_event{event_type:"question_request"}` adds it to
+  `agentQuestions` (QU-8); the orchestrator model answers with `respond_to_agent_question`, and
+  `read_agent_session` lists the pending ones in its `live` block.
 
 ### 6.9 Permissions: approve, deny, deny with feedback
 
@@ -2144,6 +2244,10 @@ IDs: **W-n** = item n of 02 §6.3; **W-6.1 / W-6.2** = the lists in 02 §6.1 / �
 | `web_bug5_permission_feedback_then_result` | W-5, PM-2, I-12, deny-with-feedback |
 | `permission_request_resolve` | PM-1…PM-3 |
 | `permission_pending_on_attach` | PM-6 (`session_started.permissions` seeds the card a late view never saw) |
+| `question_ask_and_answer` | QU-1…QU-3 (the picker, the answer, the close) |
+| `question_typed_text_answers` | QU-4 (typing answers it; the text is not also sent) |
+| `question_pending_on_attach` | QU-6 (`session_started.questions` seeds a picker a late view never saw) |
+| `question_expires_at_turn_end` | QU-7 (unanswered at `endTurn`) |
 | `permission_pending_survives_reload` | PM-6 + SEQ-6 (re-seeded after the reload, exactly once) |
 | `stall_notice_repeated_seq` | SEQ-2 |
 | `replay_after_reconnect_overlap` | SEQ-1, SEQ-5, A-4.3 (b) |

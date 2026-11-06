@@ -63,6 +63,10 @@ export interface SessionStartedFrame extends Sequenced {
   permissions?: unknown[];
   /** PM-6: agent permissions still waiting for an answer, any session (orchestrator WS). */
   agent_permissions?: unknown[];
+  /** QU-6: AskUserQuestion calls of this session still waiting (chat WS). */
+  questions?: unknown[];
+  /** QU-6: agent questions still waiting, any session (orchestrator WS). */
+  agent_questions?: unknown[];
 }
 
 export interface StatusFrame extends Sequenced {
@@ -167,6 +171,23 @@ export interface PermissionResolvedFrame extends Sequenced {
   type: 'permission_resolved';
   request_id: string;
   decision: string;
+  responder?: string | null;
+  message?: string | null;
+}
+
+export interface QuestionRequestFrame extends Sequenced {
+  type: 'question_request';
+  request_id: string;
+  questions: unknown[];
+  tool_use_id?: string | null;
+}
+
+export interface QuestionResolvedFrame extends Sequenced {
+  type: 'question_resolved';
+  request_id: string;
+  answers?: Record<string, unknown> | null;
+  response?: string | null;
+  annotations?: Record<string, unknown> | null;
   responder?: string | null;
   message?: string | null;
 }
@@ -412,6 +433,8 @@ export type ServerFrame =
   | SessionStalledFrame
   | PermissionRequestFrame
   | PermissionResolvedFrame
+  | QuestionRequestFrame
+  | QuestionResolvedFrame
   | SessionTerminatedFrame
   | SessionStoppedFrame
   | ErrorFrame

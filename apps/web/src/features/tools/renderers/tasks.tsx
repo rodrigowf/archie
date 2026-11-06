@@ -123,10 +123,23 @@ export function parseQuestions(input: ToolInput): Question[] {
   }));
 }
 
+/**
+ * §4.6a: the questions as asked, plus what came back. While one is pending the agent is blocked
+ * inside this call — the answering control is the card near the composer (cards/question.tsx), so
+ * here we only say so; answered, the selections show inline.
+ */
 export function AskUserQuestionBody({ block, input, out }: ToolBodyProps) {
   const questions = parseQuestions(input);
+  const card = block.question;
+  const picked = (text: string): string | null => {
+    const a = card?.answers[text];
+    if (Array.isArray(a)) return a.join(', ');
+    return typeof a === 'string' ? a : null;
+  };
   return (
     <Section>
+      {card?.state === 'pending' ? <p className={styles.waiting}>Waiting for your answer…</p> : null}
+      {card?.state === 'expired' ? <p className={styles.dim}>No answer — the turn ended.</p> : null}
       {questions.map((q, i) => (
         <div key={i} className={styles.question}>
           <p className={styles.questionText}>
@@ -137,13 +150,14 @@ export function AskUserQuestionBody({ block, input, out }: ToolBodyProps) {
           {q.options.length > 0 ? (
             <ul className={styles.options}>
               {q.options.map((o, j) => (
-                <li key={j}>
+                <li key={j} className={picked(q.question) === o.label ? styles.optionChosen : undefined}>
                   <span className={styles.optionLabel}>{o.label}</span>
                   {o.description ? <span className={styles.dim}>{` — ${o.description}`}</span> : null}
                 </li>
               ))}
             </ul>
           ) : null}
+          {picked(q.question) ? <p className={styles.answerLine}>{picked(q.question)}</p> : null}
         </div>
       ))}
       <OutputView block={block} {...out} label="Answer" />

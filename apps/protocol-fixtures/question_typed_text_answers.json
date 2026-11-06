@@ -1,0 +1,147 @@
+{
+  "name": "question_typed_text_answers",
+  "description": "QU-4. The user types instead of picking: the backend answers the pending question with the prose as `response` and does NOT deliver it as a prompt — the harness is blocked inside the tool call and hands the text to the model as the result, so sending it too would deliver it twice. No user entry appears.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1",
+    "live_status": "idle"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "toolu_1",
+      "tool_name": "AskUserQuestion",
+      "tool_input": {
+        "questions": [
+          {
+            "question": "Which database?",
+            "header": "Storage",
+            "options": [
+              {
+                "label": "Postgres",
+                "description": "Needs a server"
+              },
+              {
+                "label": "SQLite",
+                "description": "One file"
+              }
+            ]
+          }
+        ]
+      },
+      "seq": 1,
+      "stream_id": "L1:1762400000000"
+    },
+    {
+      "type": "question_request",
+      "request_id": "q1",
+      "tool_use_id": "toolu_1",
+      "questions": [
+        {
+          "question": "Which database?",
+          "header": "Storage",
+          "options": [
+            {
+              "label": "Postgres",
+              "description": "Needs a server"
+            },
+            {
+              "label": "SQLite",
+              "description": "One file"
+            }
+          ]
+        }
+      ],
+      "seq": 2,
+      "stream_id": "L1:1762400000000"
+    },
+    {
+      "type": "question_resolved",
+      "request_id": "q1",
+      "answers": {},
+      "response": "neither — use the file store",
+      "responder": "user",
+      "seq": 3,
+      "stream_id": "L1:1762400000000"
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "toolu_1",
+      "output": "The user responded: neither — use the file store",
+      "is_error": false,
+      "seq": 4,
+      "stream_id": "L1:1762400000000"
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 3,
+      "type": "question_response",
+      "request_id": "q1",
+      "response": "neither — use the file store"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "toolu_1",
+            "tool_name": "AskUserQuestion",
+            "tool_input": {
+              "questions": [
+                {
+                  "question": "Which database?",
+                  "header": "Storage",
+                  "options": [
+                    {
+                      "label": "Postgres",
+                      "description": "Needs a server"
+                    },
+                    {
+                      "label": "SQLite",
+                      "description": "One file"
+                    }
+                  ]
+                }
+              ]
+            },
+            "status": "done",
+            "output": "The user responded: neither — use the file store",
+            "question": {
+              "request_id": "q1",
+              "tool_use_id": "toolu_1",
+              "questions": [
+                {
+                  "question": "Which database?",
+                  "options": [
+                    "Postgres",
+                    "SQLite"
+                  ]
+                }
+              ],
+              "state": "answered",
+              "answers": {},
+              "response": "neither — use the file store",
+              "responder": "user"
+            }
+          }
+        ]
+      }
+    ],
+    "state": {
+      "status": "tool_use",
+      "in_turn": true
+    }
+  }
+}

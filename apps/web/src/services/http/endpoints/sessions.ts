@@ -37,6 +37,11 @@ export const sessions = {
    */
   permission: (localId: string, body: { request_id: string; decision: 'allow' | 'deny'; message?: string }) =>
     http.post<{ ok: boolean }>(`/api/sessions/${id(localId)}/permission`, { json: body }),
+  /** QU-3 twin of `question_response`, for a device with no socket open on that agent. */
+  question: (
+    localId: string,
+    body: { request_id: string; answers?: Record<string, string | string[]>; response?: string },
+  ) => http.post<{ ok: boolean }>(`/api/sessions/${id(localId)}/question`, { json: body }),
   /** Explicit close only (P-1): never called from unload, teardown or lifecycle paths. */
   close: (localId: string) => http.post<undefined>(`/api/sessions/${id(localId)}/close`, { as: 'none' }),
 };

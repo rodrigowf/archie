@@ -2,7 +2,16 @@ package com.assistant.archie.feature.chat.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import com.assistant.core.conversation.QuestionItem
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
@@ -50,6 +59,8 @@ fun InlineCardsArea(
             when (card) {
                 is InlineCardUi.Permission -> PermissionCard(card, onAction, onLink, m)
                 is InlineCardUi.AgentApprovalCard -> AgentApprovalCard(card, onAction, m)
+                is InlineCardUi.Question -> QuestionCard(card, onAction, m)
+                is InlineCardUi.AgentQuestionCard -> AgentQuestionCard(card, onAction, m)
                 is InlineCardUi.Stall -> InlineCard(
                     InlineCardKind.Stall,
                     ConversationUiMapper.stallTitle(card.toolName, card.elapsedSeconds),
@@ -136,6 +147,129 @@ private fun AgentApprovalCard(
         },
     )
 }
+
+/**
+ * QU-1/QU-3: the AskUserQuestion picker. The agent is blocked inside the call until this is
+ * answered, so one tap per question and Send unblocks it; typing in the composer answers it too
+ * (QU-4), which is what the hint says.
+ */
+@Composable
+private fun QuestionCard(card: InlineCardUi.Question, onAction: (ChatAction) -> Unit, modifier: Modifier) {
+    val q = card.card
+    var picks by rememberSaveable(q.requestId) { mutableStateOf(mapOf<String, List<String>>()) }
+    InlineCard(
+        InlineCardKind.Permission,
+        if (q.questions.size > 1) "A few questions" else "One question",
+        modifier,
+        icon = ArchieIcons.Help,
+        onDismiss = { onAction(ChatAction.DismissCard(card.id)) },
+        hint = "Or just type your answer below",
+        body = { QuestionRows(q.questions, picks, card.answered) { k, v -> picks = picks + (k to v) } },
+        actions = {
+            InlineCardActionGate(!card.answered && allAnswered(q.questions, picks)) {
+                InlineCardAction("Send answer", { onAction(ChatAction.Question(q.requestId, picks)) }, primary = true)
+            }
+        },
+    )
+}
+
+/** QU-8: the same picker for a question an agent is blocked on, from the Archie view. */
+@Composable
+private fun AgentQuestionCard(
+    card: InlineCardUi.AgentQuestionCard,
+    onAction: (ChatAction) -> Unit,
+    modifier: Modifier,
+) {
+    val q = card.question
+    val key = "${q.localId}:${q.requestId}"
+    var picks by rememberSaveable(key) { mutableStateOf(mapOf<String, List<String>>()) }
+    InlineCard(
+        InlineCardKind.Permission,
+        "Agent session ${q.localId.take(8)} is asking",
+        modifier,
+        icon = ArchieIcons.Help,
+        onDismiss = { onAction(ChatAction.DismissCard(card.id)) },
+        hint = "Or tell Archie below",
+        body = { QuestionRows(q.questions, picks, card.answered) { k, v -> picks = picks + (k to v) } },
+        actions = {
+            InlineCardActionGate(!card.answered && allAnswered(q.questions, picks)) {
+                InlineCardAction(
+                    "Send answer",
+                    { onAction(ChatAction.AgentQuestion(q.localId, q.requestId, picks)) },
+                    primary = true,
+                )
+            }
+        },
+    )
+}
+
+/** Every question of one card: choice chips (multi-select toggles) or a field for text/number. */
+@Composable
+private fun QuestionRows(
+    questions: List<QuestionItem>,
+    picks: Map<String, List<String>>,
+    answered: Boolean,
+    onPick: (String, List<String>) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        for (item in questions) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    buildString {
+                        item.header?.takeIf { it.isNotEmpty() }?.let { append(it).append(" · ") }
+                        append(item.question)
+                        if (item.multiSelect) append("  (pick any)")
+                    },
+                    style = LocalTextStyle.current.copy(fontWeight = FontWeight.Medium),
+                )
+                val chosen = picks[item.question].orEmpty()
+                if (item.kind == "text" || item.kind == "number") {
+                    OutlinedTextField(
+                        value = chosen.firstOrNull() ?: "",
+                        onValueChange = { onPick(item.question, if (it.isEmpty()) emptyList() else listOf(it)) },
+                        enabled = !answered,
+                        singleLine = true,
+                        keyboardOptions = if (item.kind == "number") {
+                            KeyboardOptions(keyboardType = KeyboardType.Number)
+                        } else {
+                            KeyboardOptions.Default
+                        },
+                        modifier = Modifier.fillMaxWidth().testTag("question-field:${item.question}"),
+                    )
+                } else {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (o in item.options) {
+                            val on = o.label in chosen
+                            FilterChip(
+                                selected = on,
+                                enabled = !answered,
+                                onClick = {
+                                    onPick(
+                                        item.question,
+                                        when {
+                                            !item.multiSelect -> listOf(o.label)
+                                            on -> chosen - o.label
+                                            else -> chosen + o.label
+                                        },
+                                    )
+                                },
+                                label = { Text(o.label) },
+                                modifier = Modifier.testTag("question-option:${o.label}"),
+                            )
+                        }
+                    }
+                }
+                item.options.firstOrNull { it.label in chosen }?.description?.takeIf { it.isNotEmpty() }?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = LocalContentColor.current.copy(alpha = 0.7f))
+                }
+            }
+        }
+    }
+}
+
+/** QU-3: every question needs an answer before the card can be sent. */
+private fun allAnswered(questions: List<QuestionItem>, picks: Map<String, List<String>>): Boolean =
+    questions.isNotEmpty() && questions.all { picks[it.question]?.any { v -> v.isNotBlank() } == true }
 
 @Composable
 private fun ErrorCard(card: InlineCardUi.Error, onAction: (ChatAction) -> Unit, modifier: Modifier) {

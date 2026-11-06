@@ -1,0 +1,130 @@
+{
+  "name": "question_expires_at_turn_end",
+  "description": "QU-7. Nobody answered before the turn ended: the backend released the question unanswered (the CLI then tells the model so), and the picker closes as expired instead of inviting an answer that can no longer be delivered.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1",
+    "live_status": "idle"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "toolu_1",
+      "tool_name": "AskUserQuestion",
+      "tool_input": {
+        "questions": [
+          {
+            "question": "Which database?",
+            "header": "Storage",
+            "options": [
+              {
+                "label": "Postgres",
+                "description": "Needs a server"
+              },
+              {
+                "label": "SQLite",
+                "description": "One file"
+              }
+            ]
+          }
+        ]
+      },
+      "seq": 1,
+      "stream_id": "L1:1762400000000"
+    },
+    {
+      "type": "question_request",
+      "request_id": "q1",
+      "tool_use_id": "toolu_1",
+      "questions": [
+        {
+          "question": "Which database?",
+          "header": "Storage",
+          "options": [
+            {
+              "label": "Postgres",
+              "description": "Needs a server"
+            },
+            {
+              "label": "SQLite",
+              "description": "One file"
+            }
+          ]
+        }
+      ],
+      "seq": 2,
+      "stream_id": "L1:1762400000000"
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "num_turns": 1,
+      "seq": 3,
+      "stream_id": "L1:1762400000000"
+    }
+  ],
+  "client_actions": [],
+  "expected": {
+    "entries": [
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "toolu_1",
+            "tool_name": "AskUserQuestion",
+            "tool_input": {
+              "questions": [
+                {
+                  "question": "Which database?",
+                  "header": "Storage",
+                  "options": [
+                    {
+                      "label": "Postgres",
+                      "description": "Needs a server"
+                    },
+                    {
+                      "label": "SQLite",
+                      "description": "One file"
+                    }
+                  ]
+                }
+              ]
+            },
+            "status": "no_result",
+            "output": null,
+            "question": {
+              "request_id": "q1",
+              "tool_use_id": "toolu_1",
+              "questions": [
+                {
+                  "question": "Which database?",
+                  "options": [
+                    "Postgres",
+                    "SQLite"
+                  ]
+                }
+              ],
+              "state": "expired",
+              "answers": {},
+              "response": null,
+              "responder": "system"
+            }
+          }
+        ]
+      }
+    ],
+    "state": {
+      "status": "idle",
+      "in_turn": false
+    }
+  }
+}

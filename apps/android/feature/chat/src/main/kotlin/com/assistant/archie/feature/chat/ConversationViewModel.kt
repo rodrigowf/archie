@@ -62,6 +62,13 @@ sealed interface ChatAction {
     data object LoadOlder : ChatAction
     data class Permission(val requestId: String, val allow: Boolean) : ChatAction
     data class AgentApproval(val localId: String, val requestId: String, val allow: Boolean) : ChatAction
+    /** QU-3: answers keyed by the question's exact text; the labels the user picked. */
+    data class Question(val requestId: String, val answers: Map<String, List<String>>) : ChatAction
+    data class AgentQuestion(
+        val localId: String,
+        val requestId: String,
+        val answers: Map<String, List<String>>,
+    ) : ChatAction
     data class DismissCard(val id: String) : ChatAction
     data class Retry(val kind: RetryKind, val cardId: String) : ChatAction
     data class Rewind(val entryId: String) : ChatAction
@@ -300,6 +307,23 @@ class ConversationViewModel(
                 if (a.requestId in answered.value) return
                 answered.update { it + a.requestId }
                 backend.respondToPermission(a.requestId, a.allow)
+            }
+            is ChatAction.Question -> {
+                if (a.requestId in answered.value) return
+                answered.update { it + a.requestId }
+                backend.respondToQuestion(a.requestId, a.answers)
+            }
+            is ChatAction.AgentQuestion -> {
+                val id = "${a.localId}:${a.requestId}"
+                if (id in answered.value) return
+                answered.update { it + id }
+                viewModelScope.launch {
+                    val r = backend.respondToAgentQuestion(a.localId, a.requestId, a.answers)
+                    if (r is ApprovalAnswer.Failed) {
+                        answered.update { it - id }
+                        effects.trySend(ChatEffect.Snackbar(r.message))
+                    }
+                }
             }
             is ChatAction.AgentApproval -> {
                 val id = "${a.localId}:${a.requestId}"

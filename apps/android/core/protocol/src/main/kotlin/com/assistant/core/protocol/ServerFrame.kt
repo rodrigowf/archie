@@ -1,6 +1,7 @@
 package com.assistant.core.protocol
 
 import com.assistant.core.model.ConnectionInfo
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
@@ -25,6 +26,21 @@ data class AgentPendingPermission(
     val requestId: String,
     val toolName: String,
     val toolInput: JsonObject,
+)
+
+/**
+ * One `AskUserQuestion` still waiting for an answer, from `session_started.questions` (QU-6).
+ * Live-only for the same reason as [PendingPermission]: without the snapshot a view that attaches
+ * mid-question shows no picker while the agent sits blocked inside the call.
+ */
+data class PendingQuestion(val requestId: String, val questions: JsonArray, val toolUseId: String?)
+
+/** The orchestrator twin of [PendingQuestion]: `session_started.agent_questions` (QU-6/QU-8). */
+data class AgentPendingQuestion(
+    val sessionId: String,
+    val requestId: String,
+    val questions: JsonArray,
+    val toolUseId: String?,
 )
 
 /**
@@ -70,6 +86,10 @@ sealed interface ServerFrame {
         val permissions: List<PendingPermission>? = null,
         /** Orchestrator only (PM-6): agent permissions still waiting for an answer, any session. */
         val agentPermissions: List<AgentPendingPermission>? = null,
+        /** Chat only (QU-6): this session's AskUserQuestion calls still waiting for an answer. */
+        val questions: List<PendingQuestion>? = null,
+        /** Orchestrator only (QU-6/QU-8): agent questions still waiting, any session. */
+        val agentQuestions: List<AgentPendingQuestion>? = null,
         override val seq: Long? = null,
         override val streamId: String? = null,
     ) : ServerFrame { override val type get() = "session_started" }
@@ -233,6 +253,26 @@ sealed interface ServerFrame {
         override val seq: Long? = null,
         override val streamId: String? = null,
     ) : ServerFrame { override val type get() = "permission_resolved" }
+
+    /** QU-1: the agent is blocked inside an `AskUserQuestion` call until this is answered. */
+    data class QuestionRequest(
+        val requestId: String?,
+        val questions: JsonArray?,
+        val toolUseId: String? = null,
+        override val seq: Long? = null,
+        override val streamId: String? = null,
+    ) : ServerFrame { override val type get() = "question_request" }
+
+    data class QuestionResolved(
+        val requestId: String?,
+        val answers: JsonObject? = null,
+        val response: String? = null,
+        val annotations: JsonObject? = null,
+        val responder: String? = null,
+        val message: String? = null,
+        override val seq: Long? = null,
+        override val streamId: String? = null,
+    ) : ServerFrame { override val type get() = "question_resolved" }
 
     // ───────────── subagents (chat WS, spec 12 §4.8) ─────────────
 

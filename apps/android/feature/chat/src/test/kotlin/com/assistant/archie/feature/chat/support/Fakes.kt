@@ -54,6 +54,18 @@ class FakeChatBackend(initial: ConversationState) : ChatBackend {
     override fun interrupt() { interrupts++; apply(ConversationInput.LocalInterrupt) }
     override fun compact() { compacts++ }
     override fun respondToPermission(requestId: String, allow: Boolean): SendResult { permissions += requestId to allow; return SendResult.SENT }
+    val questions = mutableListOf<Pair<String, Map<String, List<String>>>>()
+    val agentQuestions = mutableListOf<Triple<String, String, Map<String, List<String>>>>()
+    override fun respondToQuestion(requestId: String, answers: Map<String, List<String>>): SendResult {
+        questions += requestId to answers; return SendResult.SENT
+    }
+    override suspend fun respondToAgentQuestion(
+        agentLocalId: String,
+        requestId: String,
+        answers: Map<String, List<String>>,
+    ): com.assistant.core.data.ApprovalAnswer {
+        agentQuestions += Triple(agentLocalId, requestId, answers); return approvalAnswer
+    }
     var approvalAnswer: com.assistant.core.data.ApprovalAnswer = com.assistant.core.data.ApprovalAnswer.Sent
     override suspend fun respondToAgentApproval(agentLocalId: String, requestId: String, allow: Boolean): com.assistant.core.data.ApprovalAnswer {
         agentApprovals += Triple(agentLocalId, requestId, allow); return approvalAnswer

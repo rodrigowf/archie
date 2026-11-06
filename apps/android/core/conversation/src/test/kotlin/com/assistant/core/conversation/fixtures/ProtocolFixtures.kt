@@ -5,6 +5,8 @@ import com.assistant.core.conversation.ConversationInput
 import com.assistant.core.conversation.ConversationReducer
 import com.assistant.core.conversation.ConversationState
 import com.assistant.core.conversation.NoticeEntry
+import com.assistant.core.conversation.QuestionBlock
+import com.assistant.core.conversation.QuestionCard
 import com.assistant.core.conversation.PageMode
 import com.assistant.core.conversation.PermissionBlock
 import com.assistant.core.conversation.TextBlock
@@ -102,7 +104,7 @@ object ProtocolFixtures {
         "interrupt" -> ConversationInput.LocalInterrupt
         "compact" -> ConversationInput.LocalCompact
         "stop" -> ConversationInput.LocalStop
-        "permission_response" -> null
+        "permission_response", "question_response" -> null
         "datachannel_event" -> ConversationInput.DataChannelEvent(a["event"]!!.jsonObject)
         "voice_local_end" -> ConversationInput.VoiceLocalEnd
         "ws_closed" -> ConversationInput.SocketClosed
@@ -114,6 +116,28 @@ object ProtocolFixtures {
         "release_subagent" -> ConversationInput.ReleaseSubagent(a.str("tool_use_id")!!)
         "subagent_list" -> ConversationInput.SubagentList(ProtocolCodec.decodeSubagentList(a["response"]!!.jsonObject))
         else -> error("unknown client action $t")
+    }
+
+    /** QU-1..QU-7 (web parity, `normaliseQuestion` in harness.ts). */
+    private fun questionJson(q: QuestionCard): JsonObject = buildJsonObject {
+        put("request_id", q.requestId)
+        put("tool_use_id", q.toolUseId?.let { JsonPrimitive(it) } ?: JsonNull)
+        put("questions", buildJsonArray {
+            for (i in q.questions) add(buildJsonObject {
+                put("question", i.question)
+                put("options", buildJsonArray { for (o in i.options) add(JsonPrimitive(o.label)) })
+                if (i.multiSelect) put("multiSelect", true)
+                i.kind?.let { put("kind", it) }
+            })
+        })
+        put("state", q.state.name.lowercase())
+        put("answers", buildJsonObject {
+            for ((k, v) in q.answers) {
+                if (v.size == 1) put(k, v[0]) else put(k, buildJsonArray { for (l in v) add(JsonPrimitive(l)) })
+            }
+        })
+        put("response", q.response?.let { JsonPrimitive(it) } ?: JsonNull)
+        put("responder", q.responder?.let { JsonPrimitive(it) } ?: JsonNull)
     }
 
     private fun pageMode(m: String) = when (m) {
@@ -169,6 +193,11 @@ object ProtocolFixtures {
                                     put("output", b.output?.let { JsonPrimitive(it) } ?: JsonNull)
                                     if (b.inferred) put("inferred", true)
                                     if (b.images.isNotEmpty()) put("images", b.images.toWireJson())
+                                    b.question?.let { put("question", questionJson(it)) }
+                                }
+                                is QuestionBlock -> buildJsonObject {
+                                    put("type", "question")
+                                    for ((k, v) in questionJson(b.card)) put(k, v)
                                 }
                                 is PermissionBlock -> buildJsonObject {
                                     put("type", "permission"); put("request_id", b.requestId); put("tool_name", b.toolName)

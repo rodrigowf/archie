@@ -177,6 +177,19 @@ Commit hashes are in the public repo unless they refer to the private context re
   (`permissions` on the chat WS, `agent_permissions` on the orchestrator's), the clients seed the
   card from that snapshot and re-seed it after a canonical reload, and the snapshot is dropped on
   the resolve and at turn end. Web + Android + two shared conformance fixtures.
+  Same day, the sibling bug on the other half of the same callback: **`AskUserQuestion` never
+  asked anybody**. The bundled CLI collects that tool's answers *through* `can_use_tool` and reads
+  them back out of the input the host returns, so merely allowing the call handed it an empty input
+  and the CLI answered itself in ~70 ms with "The user did not answer the questions" — 54 calls
+  across 14 sessions, the agent never waiting and no card ever shown (one of them asked whether to
+  deploy). Fixed with **spec 12 §4.6a (QU-1..QU-8)**: the call now blocks on a `QuestionRequest`
+  until someone answers; the answer rides back as `updated_input` (`answers` keyed by the question's
+  text, a label or a list, an unoffered label for free text; `response` for prose — never both,
+  because a non-empty `response` makes the CLI drop the selections, so a typed note is demoted to an
+  annotation). Answerable four ways — the picker on the tool card, the REST twin, the orchestrator's
+  new `respond_to_agent_question`, or simply typing in the composer — pending questions are part of
+  the attach state like PM-6, and a delegated turn waiting on one never counts as idle. Web +
+  Android + four shared fixtures.
 - **11-05** — **Dictation and voice notes.** Speech reached agent sessions for the first time:
   an empty composer on a Claude tab now shows a mic instead of a dead disabled Send, and
   punctuated text streams into the field while you speak (Send stops and sends in one press).

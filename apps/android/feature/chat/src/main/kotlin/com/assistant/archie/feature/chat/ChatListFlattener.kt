@@ -12,6 +12,7 @@ import com.assistant.core.conversation.ConversationState
 import com.assistant.core.conversation.NoticeEntry
 import com.assistant.core.conversation.NoticeKind
 import com.assistant.core.conversation.PermissionBlock
+import com.assistant.core.conversation.QuestionBlock
 import com.assistant.core.conversation.StreamedBlock
 import com.assistant.core.conversation.TextBlock
 import com.assistant.core.conversation.ThinkingBlock
@@ -125,6 +126,7 @@ class ChatListFlattener(
                                 }
                             }
                             is PermissionBlock -> out += ChatItem.Permission(e.id, b, gap(Gap.Item))
+                            is QuestionBlock -> out += ChatItem.Question(e.id, b, gap(Gap.Item))
                         }
                         i++
                     }

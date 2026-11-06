@@ -684,6 +684,7 @@ class CodexSessionManager(BaseSessionManager):
                 self._inbox_closed = False
                 self._flush_post_turn_backlog()
             self._drain_pending_permissions()
+            self._drain_pending_questions()
             self._turns += 1
             if self._status not in (SessionStatus.INTERRUPTED, SessionStatus.DISCONNECTED):
                 self._status = SessionStatus.IDLE

@@ -22,6 +22,7 @@ private fun Draft.applyInput(input: ConversationInput) {
                 gapPossible = false                                            // the page covers the gap (web parity)
                 refetchOpenSubagents()                                         // §5.6: before the buffered frames, so theirs are held
                 applyPermissionSnapshot()                                      // PM-6: history has no `permission_request`
+                applyQuestionSnapshot(::parseQuestionItems)                    // QU-6: nor `question_request`
                 finishReload()
             }
         }
@@ -135,7 +136,10 @@ private fun Draft.onSessionStarted(f: ServerFrame.SessionStarted) {
     }
     // PM-6: after the held frames and before the status fixup. While reloading the entries are about
     // to be replaced from history, so the seeding waits for the reload to land (§5.6).
-    if (!reloading) applyPermissionSnapshot()
+    if (!reloading) {
+        applyPermissionSnapshot()
+        applyQuestionSnapshot(::parseQuestionItems)                            // QU-6
+    }
     if (!inTurn && status in RESTART_STATUSES) status = SessionStatus.IDLE
     termination = null
 }
