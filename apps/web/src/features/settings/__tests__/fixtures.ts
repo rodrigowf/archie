@@ -34,6 +34,10 @@ export const CONFIG: ServerConfig = {
   voice_vad_threshold: 0.28,
   voice_vad_min_silence_ms: 1800,
   voice_mic_gain: 1,
+  dictation_enabled: true,
+  dictation_provider: 'openai',
+  dictation_model: 'gpt-live-transcribe',
+  dictation_language: '',
 };
 
 const voice = (id: string, extra: Record<string, unknown> = {}) => ({
@@ -95,6 +99,43 @@ export const CATALOGS = {
   },
   skills: { skills: [{ name: 'recall', description: 'Search memory', dir: 'recall' }] },
   agents: { agents: [{ name: 'researcher', description: 'Web research', file: 'researcher.md' }] },
+  transcribers: {
+    transcribers: [
+      {
+        id: 'openai/gpt-live-transcribe',
+        provider: 'openai',
+        model: 'gpt-live-transcribe',
+        label: 'OpenAI · gpt-live-transcribe',
+        description: 'Word by word as you speak, punctuated.',
+        streaming: true,
+        sample_rate: 24000,
+        cost_note: '≈ $0.36/h',
+        available: true,
+        unavailable_reason: '',
+        default: true,
+      },
+      {
+        id: 'elevenlabs/scribe_v2_realtime',
+        provider: 'elevenlabs',
+        model: 'scribe_v2_realtime',
+        label: 'ElevenLabs · Scribe v2 realtime',
+        description: '150 ms partials, 90+ languages.',
+        streaming: true,
+        sample_rate: 16000,
+        cost_note: '$0.39/h',
+        available: false,
+        unavailable_reason: 'No ELEVENLABS_API_KEY on this server',
+        default: false,
+      },
+    ],
+    languages: [
+      { id: '', label: 'Auto-detect' },
+      { id: 'en', label: 'English' },
+      { id: 'pt', label: 'Português' },
+    ],
+    default: 'openai/gpt-live-transcribe',
+    dictation: { enabled: true, provider: 'openai', model: 'gpt-live-transcribe', streaming: true, language: '' },
+  },
 };
 
 export interface ConfigServer {
@@ -146,6 +187,7 @@ export function serveConfig(
     .on('GET', '/api/mcp/servers', CATALOGS.mcp)
     .on('GET', '/api/skills', CATALOGS.skills)
     .on('GET', '/api/agents', CATALOGS.agents)
+    .on('GET', '/api/transcribe/providers', CATALOGS.transcribers)
     .on('GET', '/api/auth/status', { authenticated: true, auth_url: null, headless: true });
   return state;
 }

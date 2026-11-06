@@ -11,13 +11,17 @@ Note on ``request.client``: uvicorn's default ``--proxy-headers`` (trusting
 ``X-Forwarded-For`` client when the TCP peer is the local nginx. So behind
 nginx the "peer" may already be a LAN address taken from a header; the checks
 below therefore also look at ``X-Real-IP``, which nginx always overwrites.
+
+The checks take an ``HTTPConnection`` rather than a ``Request`` because they read only
+``.client`` and ``.headers``: ``WS /api/transcribe/stream`` is held to the same rules as
+``POST /api/transcribe``, and a WebSocket is not a ``Request``.
 """
 
 from __future__ import annotations
 
 import ipaddress
 
-from fastapi import Request
+from starlette.requests import HTTPConnection
 
 # Headers a reverse proxy adds. nginx on the Jetson (``~/nginx-server.conf``)
 # sets ``X-Real-IP $remote_addr`` on both the 443 and the 80 server block.
@@ -50,11 +54,11 @@ def is_loopback(value: str | None) -> bool:
     return ip is not None and ip.is_loopback
 
 
-def _peer(request: Request) -> str | None:
+def _peer(request: HTTPConnection) -> str | None:
     return request.client.host if request.client else None
 
 
-def real_client_address(request: Request) -> str | None:
+def real_client_address(request: HTTPConnection) -> str | None:
     """The address of whoever made the request.
 
     Behind nginx the TCP peer is always 127.0.0.1 and the true client is in
@@ -72,7 +76,7 @@ def real_client_address(request: Request) -> str | None:
     return peer
 
 
-def is_proxied_from_lan(request: Request) -> str | None:
+def is_proxied_from_lan(request: HTTPConnection) -> str | None:
     """Return the offending client address unless the caller is on this machine.
 
     A request counts as local only when the TCP peer is loopback **and**
@@ -106,7 +110,7 @@ def is_home_network(value: str | None) -> bool:
     return ip is not None and any(ip in net for net in _HOME_NETWORKS)
 
 
-def is_from_home_network(request: Request) -> bool:
+def is_from_home_network(request: HTTPConnection) -> bool:
     """True when the caller is on this machine, the LAN or Tailscale.
 
     Both the peer and, when present, ``X-Real-IP`` must be home addresses:

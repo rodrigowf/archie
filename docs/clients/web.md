@@ -260,6 +260,44 @@ shown as an index and as tabs; their activity never enters the parent timeline. 
   `services/__tests__/subagents.test.ts`, the mock end-to-end test in `mockBackend.test.ts`,
   `features/subagents/__tests__/subagents.test.tsx`.
 
+## Dictation (speaking into the composer)
+
+An empty composer on an agent session shows a **mic** instead of a dead disabled Send: speaking
+streams punctuated text into the field, Stop leaves it there to edit, Send stops and sends in one
+press. Archie's tab keeps the realtime-voice button (speaking *to* Archie is that tab's point) and
+offers dictation from the ＋ menu, which every tab has.
+
+- `voice/dictation.ts` opens `WS /api/transcribe/stream` and feeds it PCM from the voice stack's
+  own `startPcmCapture` — same worklet, same resampling, different destination. It lives **in the
+  voice package** because it uses that microphone stack, and the server names the provider's
+  sample rate in `ready`, so the mic opens only after that.
+- It is reached as **`@/voice/dictation`, a second entry of the package, deliberately off its
+  barrel** — like `@/features/subagents/card` (spec 13 §5.4; the eslint boundary rule re-includes
+  both by name). This matters: `features/voice/*` imports the `@/voice` barrel eagerly, so
+  anything the barrel re-exports is in the **initial** bundle. Routing dictation through the
+  barrel therefore drags the whole capture stack in — worth ~2 kB against a budget with 0.3 kB of
+  headroom, and `gate:budgets` fails.
+- `features/composer/dictationLazy.tsx` fetches the engine and the listening UI
+  (`DictationPanel.tsx` + `DictationStrip.tsx`) together on that press, and `startDict()` awaits
+  both before showing the listening composer, so the panel never suspends in practice. It fetches
+  **one engine or the other** — `@/voice/dictation` when the browser can stream, otherwise
+  `audio/dictationFallback.ts`, which uses the composer's WAV recorder and no voice code at all.
+  So a Safari 12 client never downloads `@/voice`. The only eager piece is `canDictate()` in
+  `logic.ts` — three capability flags.
+- While listening the composer becomes a **column**: the transcript takes the full width (it is
+  what you are about to edit) and the controls move to a row beneath it. One row again on stop.
+  Design board: `context/public/composer-dictation/`.
+- Which model transcribes is a server setting (Settings → Dictation). The composer reads the
+  effective state from `GET /api/transcribe/providers`, loaded once per session by
+  `ensureDictation()` — `/api/config` is not broadcast and is fetched only when Settings opens.
+- Safari 12 has no `AudioWorklet`: there dictation records a WAV and posts it to
+  `/api/transcribe` on stop. Same buttons, no live text, same "transcribing" state as a batch
+  model on a modern browser.
+- Whatever was already transcribed is kept on any failure. Only an explicit discard throws it away.
+
+Protocol: spec 12 §6.17. Providers, costs and the realtime-API quirks:
+[integrations/transcription.md](../integrations/transcription.md).
+
 ## Low-end mode
 
 `src/platform/lowEnd.ts` adds `html.low-end` when `navigator.hardwareConcurrency <= 2` or

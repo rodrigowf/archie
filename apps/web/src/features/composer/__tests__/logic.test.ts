@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { formatClock, isSubmitKey, placeholderFor, primaryMode, ringTone, withSlashCommand } from '../logic';
+import { canDictate, dictatedDraft, formatClock, isSubmitKey, placeholderFor, primaryMode, ringTone, withSlashCommand } from '../logic';
 
-describe('primaryMode (IA §6: Voice → Send → Stop)', () => {
+describe('primaryMode (IA §6: Voice → Dictate → Send → Stop)', () => {
   const base = { kind: 'orchestrator' as const, hasText: false, working: false, voiceAvailable: true };
   it('Archie, empty, idle → Voice', () => expect(primaryMode(base)).toBe('voice'));
   it('any text → Send (also while working: Enter queues)', () => {
@@ -13,8 +13,51 @@ describe('primaryMode (IA §6: Voice → Send → Stop)', () => {
     expect(primaryMode({ ...base, working: true })).toBe('stop');
     expect(primaryMode({ ...base, kind: 'agent', working: true })).toBe('stop');
   });
-  it('agent, empty, idle → disabled Send (no voice for agents)', () => expect(primaryMode({ ...base, kind: 'agent' })).toBe('send-disabled'));
+  it('agent, empty, idle, no dictation → disabled Send (no voice for agents)', () =>
+    expect(primaryMode({ ...base, kind: 'agent' })).toBe('send-disabled'));
   it('Archie without voice capability → disabled Send', () => expect(primaryMode({ ...base, voiceAvailable: false })).toBe('send-disabled'));
+
+  describe('dictate', () => {
+    it('agent, empty, idle, dictation on → Dictate (the dead disabled Send is gone)', () =>
+      expect(primaryMode({ ...base, kind: 'agent', dictationAvailable: true })).toBe('dictate'));
+    it('Archie keeps Voice ahead of Dictate: speaking to Archie is that tab’s point', () =>
+      expect(primaryMode({ ...base, dictationAvailable: true })).toBe('voice'));
+    it('Archie with voice impossible falls to Dictate rather than a dead button', () =>
+      expect(primaryMode({ ...base, voiceAvailable: false, dictationAvailable: true })).toBe('dictate'));
+    it('text and working still win over it', () => {
+      expect(primaryMode({ ...base, kind: 'agent', dictationAvailable: true, hasText: true })).toBe('send');
+      expect(primaryMode({ ...base, kind: 'agent', dictationAvailable: true, working: true })).toBe('stop');
+    });
+  });
+});
+
+describe('canDictate (reads the detected capabilities, so ?caps=compat is honoured)', () => {
+  const able = { getUserMedia: true, webAudio: true, audioWorklet: true };
+  it('needs a microphone, Web Audio and an AudioWorklet', () => {
+    expect(canDictate(able)).toBe(true);
+    expect(canDictate(null)).toBe(false);
+    expect(canDictate({ ...able, getUserMedia: false })).toBe(false);
+    expect(canDictate({ ...able, webAudio: false })).toBe(false);
+    // Safari 12 and the compat simulation: record-then-transcribe instead of streaming.
+    expect(canDictate({ ...able, audioWorklet: false })).toBe(false);
+  });
+});
+
+describe('dictatedDraft (dictation appends to what is already typed)', () => {
+  it('exactly one space between the halves, whatever each side carries', () => {
+    // OpenAI transcripts open with a leading space; ElevenLabs ones do not.
+    expect(dictatedDraft('Check the', ' composer')).toBe('Check the composer');
+    expect(dictatedDraft('Check the ', 'composer')).toBe('Check the composer');
+    expect(dictatedDraft('Check the\n', '  composer')).toBe('Check the composer');
+  });
+  it('either half alone is returned as-is', () => {
+    expect(dictatedDraft('', ' just dictated')).toBe('just dictated');
+    expect(dictatedDraft('just typed ', '')).toBe('just typed');
+    expect(dictatedDraft('', '')).toBe('');
+  });
+  it('keeps internal whitespace of the dictated text', () => {
+    expect(dictatedDraft('One.', ' Two. Three.')).toBe('One. Two. Three.');
+  });
 });
 
 describe('context ring (spec 12 §6.4: caution ≥ 50 %, warning ≥ 80 %)', () => {

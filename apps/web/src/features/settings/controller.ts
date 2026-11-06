@@ -11,6 +11,7 @@ import { createStore } from 'zustand/vanilla';
 import {
   errorMessage,
   loadConfigCatalogs,
+  loadDictation,
   loadGoogleVoiceModels,
   loadServerConfig,
   saveServerConfig,
@@ -90,6 +91,9 @@ export async function saveSetting(patch: ServerConfigUpdate, key: string): Promi
     const cfg = await saveServerConfig(patch, { key });
     if ('default_voice_endpoint' in patch || 'default_voice_provider' in patch) await loadGoogleFor(cfg);
     if (key === 'voice') await maybeAutoCorrectVoice();
+    // The composer reads `dictation` (not `config`), and the server decides `enabled` from the
+    // chosen model's key as well as the switch — so re-read it rather than patching it here.
+    if (Object.keys(patch).some((k) => k.indexOf('dictation_') === 0)) await loadDictation();
     return serverConfigStore.getState().config ?? cfg;
   } catch {
     return null;

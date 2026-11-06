@@ -1,6 +1,10 @@
 """Tests for POST /api/transcribe (spec 15 §4.1).
 
-The OpenAI call goes through an ``httpx.MockTransport`` — no network, no paid calls.
+The provider call goes through an ``httpx.MockTransport`` — no network, no paid calls.
+
+Since the transcription providers moved to ``backend/transcription/``, the two seams are
+``registry.api_key`` (which key, if any, this server has) and ``batch._make_client`` (the
+HTTP client that talks to the provider).
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from api.routes import transcribe
+from transcription import batch, registry
 
 # TestClient's default peer ("testclient") is not an address; the endpoint
 # only serves the home network.
@@ -39,12 +44,12 @@ def app() -> FastAPI:
 
 @pytest.fixture
 def key(monkeypatch):
-    monkeypatch.setattr(transcribe, "_resolve_openai_key", lambda: "sk-test")
+    monkeypatch.setattr(registry, "api_key", lambda spec: "sk-test")
 
 
 @pytest.fixture
 def openai(monkeypatch):
-    """Route the OpenAI call to a handler; returns the list of captured requests
+    """Route the provider call to a handler; returns the list of captured requests
     and a dict to set the reply (``status``, ``json``, ``raise``)."""
     seen: list[httpx.Request] = []
     reply: dict = {"status": 200, "json": {"text": "  Hey Archie, open the solar dashboard. "}}
@@ -56,7 +61,7 @@ def openai(monkeypatch):
         return httpx.Response(reply["status"], json=reply.get("json"))
 
     monkeypatch.setattr(
-        transcribe, "_make_client",
+        batch, "_make_client",
         lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
     return seen, reply
@@ -71,7 +76,7 @@ def _post(client, audio: bytes, language: str | None = None):
     )
 
 
-def test_transcribes_with_whisper_and_server_key(app, key, openai):
+def test_transcribes_with_the_batch_model_and_the_server_key(app, key, openai):
     seen, _ = openai
     with TestClient(app, client=LOCAL) as client:
         r = _post(client, _wav(), language="pt")
@@ -79,10 +84,12 @@ def test_transcribes_with_whisper_and_server_key(app, key, openai):
     assert r.json() == {"text": "Hey Archie, open the solar dashboard."}
 
     (req,) = seen
-    assert str(req.url) == transcribe.OPENAI_TRANSCRIPTIONS_URL
+    assert str(req.url) == batch.OPENAI_TRANSCRIPTIONS_URL
     assert req.headers["authorization"] == "Bearer sk-test"
     body = req.content
-    assert b'name="model"' in body and b"whisper-1" in body
+    # whisper-1 retires 2027-02-26; the batch default is gpt-transcribe.
+    assert b'name="model"' in body and b"gpt-transcribe" in body
+    assert b"whisper-1" not in body
     assert b'name="language"' in body and b"\r\npt\r\n" in body
     assert b'filename="audio.wav"' in body
     assert _wav() in body
@@ -174,7 +181,7 @@ def test_missing_audio_field_is_422(app, key, openai):
 
 def test_no_key_is_503(app, monkeypatch, openai):
     seen, _ = openai
-    monkeypatch.setattr(transcribe, "_resolve_openai_key", lambda: None)
+    monkeypatch.setattr(registry, "api_key", lambda spec: "")
     with TestClient(app, client=LOCAL) as client:
         r = _post(client, _wav())
     assert r.status_code == 503

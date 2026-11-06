@@ -1658,6 +1658,50 @@ Shown only on orchestrator views and only when the selected orchestrator model o
 - **VM-1.** A voice message is a visible prompt on every subscriber, exactly once. The sender shows its own bubble at `local_send_audio` (with the accompanying prompt, if any). After decoding the clip, the server broadcasts `user_message{text, source:"voice_message"}` (`text` = the accompanying prompt or `""`) to every **other** orchestrator subscriber (`api/routes/orchestrator.py` `_handle_send_audio`, `exclude` = the sending socket), before `status{streaming}`. The receivers append `UserEntry{origin:"audio"}`, so the reply follows a user entry and BG-1 adds no notice. No echo reaches the sending socket, so the sender needs no dedupe; a client MUST therefore send `send_audio` on the same socket that feeds its Archie view. An undecodable clip (`error{invalid_audio}`) is not echoed. The UI shows an audio entry as a "Voice message" bubble, with the prompt text when it is not empty. History stores the same turn as `[audio:<fmt>] <prompt>` (`[audio:<fmt>] (audio message)` without one), which §5.1 classifies to the same entry. Fixtures `orchestrator_voice_message_echo_no_background_notice`, `orchestrator_voice_message_sender_and_history`.
 - `POST /api/orchestrator/audio` starts no turn (it only broadcasts an `audio_upload` frame that nothing consumes, G-36), so it has no echo. Clients MUST NOT use it. If it ever starts turns, it MUST echo like VM-1 and carry a client-generated id in the echo so the uploading device can recognise its own echo (a REST caller has no socket to exclude).
 
+### 6.17 Dictation (speech into the composer)
+
+```
+GET /api/transcribe/providers   → {transcribers[], languages[], dictation:{enabled, provider, model, streaming, language}}
+WS  /api/transcribe/stream
+  → {type:"start", provider?, model?, language?, sample_rate?, save?:{title?}}
+  ⇐ {type:"ready", provider, model, streaming, sample_rate, note_id}
+  → {type:"audio", audio:"<base64 pcm16 mono>"}        ~100 ms chunks, at `ready.sample_rate`
+  → {type:"stop"} | {type:"cancel"}
+  ⇐ {type:"text", append:"newly final", partial:"volatile tail"}      (zero or more)
+  ⇐ {type:"final", text, note?} | {type:"cancelled"} | {type:"error", error, detail}
+```
+
+Dictation turns speech into **text in the field**, unlike §6.16, which sends audio to an
+audio-capable model. It is therefore available on agent sessions, where voice never was. The
+socket is home-network only (like `POST /api/transcribe`) and the server owns the API keys, so no
+client holds a transcription credential. Full design: `docs/integrations/transcription.md`.
+
+- **DICT-1.** The client renders `committed + partial`: `append` is text the provider will not
+  revise and is appended **verbatim**; `partial` **replaces** the previous partial. The split
+  exists because the two provider families disagree — one sends append-only word deltas, the
+  other rewrites a whole segment until it commits it — and a client that follows this rule is
+  correct for both without knowing which is configured.
+- **DICT-2.** The composer's primary button gains a `dictate` mode: empty field, idle, dictation
+  available. It sits **after** `voice` in precedence, so Archie keeps the realtime-voice button
+  and agent sessions lose their dead disabled Send. Every tab also offers it in the ＋ menu.
+- **DICT-3.** Dictated text **appends** to whatever was already in the field, with exactly one
+  space between, so speaking after typing (or dictating twice) reads as one message.
+- **DICT-4.** Send while listening stops and sends in one press. Stop leaves the text in the field
+  as an ordinary draft, editable, caret at the end.
+- **DICT-5.** Whatever was already transcribed is **kept** on any failure: a provider error, a
+  dropped socket, the idle timeout or the duration cap all leave the words in the field. Only an
+  explicit cancel discards them.
+- **DICT-6.** `dictation.enabled` is false when the switch is off **or** the chosen model has no
+  key on that server; a client MUST NOT offer the mic in either case. The flag travels with the
+  catalogue because `/api/config` is not broadcast (CFG-3) and is fetched far too late.
+- **DICT-7.** A client with no `AudioWorklet` (Safari 12 / compat) MAY fall back to recording a
+  WAV and posting it to `POST /api/transcribe`: same buttons, no live text. Clients MUST render
+  that identically to a non-streaming model (`ready.streaming == false`), so there is one
+  "transcribing on stop" state, not two.
+- **DICT-8.** `save` turns the dictation into a kept voice note; the backend writes audio to disk
+  as it arrives and returns the note in `final`. Unknown message types are ignored, and any
+  message resets the idle timer (a paused recorder pings).
+
 ---
 
 ## 7. Voice signaling
@@ -1796,6 +1840,7 @@ When `session_started.voice_recording_enabled` and the transport is WebRTC, the 
 - **CFG-5.** Voice defaults cascade server-side (01 §3.6); after a PUT the client re-renders from the returned object instead of patching locally.
 - **CFG-6.** Google auto-correct (02 §7.12): if `default_voice_provider == "google"` and the saved model is not in a non-empty discovered list, PUT the discovered default once and show the dismissible notice.
 - **CFG-7.** `working_directory_history` PUT is a full replacement; local paths must exist on the server. Android gets full add/edit/delete parity (03 §5).
+- **CFG-9.** Dictation keys (`dictation_enabled`, `dictation_provider`, `dictation_model`, `dictation_language`) are validated server-side against the transcriber registry; provider and model are validated as a pair. A client reads the *effective* state from `GET /api/transcribe/providers` (DICT-6), not from `/api/config`, and refetches it after saving any dictation key.
 - **CFG-8.** `default_model` is stored but the backend ignores it (G-37). Clients MUST label it accurately ("Default for new orchestrator sessions") and see Appendix B Q3.
 
 ### 8.2 Device-local (never sent to the backend)

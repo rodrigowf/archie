@@ -21,6 +21,7 @@ import { ScopeChip, useFieldId } from './parts';
 import { SettingsHome } from './SettingsHome';
 import { AccountsPage } from './pages/AccountsPage';
 import { AboutPage, AppearancePage, NotificationsPage } from './pages/DevicePages';
+import { DictationPage } from './pages/DictationPage';
 import { McpServersPage } from './pages/McpServersPage';
 import { AgentSessionsPage, ConversationModelPage } from './pages/ModelPages';
 import { VoicePage, VoiceTuningPage } from './pages/VoicePages';
@@ -33,6 +34,7 @@ export const PAGE_COMPONENTS: Record<SettingsPageId, ComponentType> = {
   'conversation-model': ConversationModelPage,
   voice: VoicePage,
   'voice-tuning': VoiceTuningPage,
+  dictation: DictationPage,
   'agent-sessions': AgentSessionsPage,
   'working-directories': WorkingDirectoriesPage,
   'mcp-servers': McpServersPage,

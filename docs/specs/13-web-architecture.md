@@ -407,6 +407,7 @@ build flag, so a modern Safari loading `/compat/` still gets the better path.
 | Voice playback (`voice_audio_out`) | `AudioBufferSourceNode` | ✅ | ✅ (`webkitAudioContext`) | Same gapless `PCMPlayer` (inv02 F-26) |
 | Level meters | `AnalyserNode` | ✅ ~15 fps | ✅ 10 fps on low-end | — |
 | Audio message (`send_audio`) | `MediaRecorder` (Safari 14.1+) | ✅ webm/opus → ogg → mp4 | ⚠ **WAV fallback**: PCM via the same ScriptProcessor capture at 16 kHz, encoded to WAV in JS (`src/voice/audio/wav.ts`), `format: "wav"` (accepted by the backend, inv01 §5.2) | 60 s cap; ~2.6 MB base64 per minute over WS (WS frames are not subject to nginx's 1 MiB body cap) |
+| Dictation into the composer (`WS /api/transcribe/stream`) | AudioWorklet + `getUserMedia` | ✅ live text while you speak (`voice/dictation.ts`, same `startPcmCapture` as the WS relay, at the rate the server names in `ready`; a lazy entry off the barrel, §5.4) | ⚠ **record-then-transcribe**: the WAV fallback plus one `POST /api/transcribe` on stop — same buttons, no live text | Rendered identically to a non-streaming model (spec 12 DICT-7), so there is one "transcribing on stop" state |
 | WebRTC session recording (`voice_recording_chunk`) | AudioWorklet | ✅ (fixes the `"pcm-capture-processor"` name bug, inv02 F-30) | ❌ hidden | — |
 | Echo cancellation / noise suppression constraints | `getUserMedia` constraints | ✅ | partial (ignored if unsupported) | — |
 
@@ -1126,7 +1127,7 @@ let a dependent start before its dependency finishes.
 ### W-11 — Composer and session actions
 
 - **Goal:** input, attachments, audio messages, and every session-level action.
-- **Inputs:** §3.6 (composer, session-actions), §2.5 (audio messages), §2.6 (16 px, iOS keyboard);
+- **Inputs:** §3.6 (composer, session-actions), §2.5 (audio messages, dictation), §2.6 (16 px, iOS keyboard);
   inv02 F-08…F-10, F-16, F-17, F-20…F-22, F-25; IA §6.
 - **Boundary:** `src/features/composer/`, `src/features/session-actions/`.
 - **DoD:** morphing primary button state tests; queued send while working; draft persistence;

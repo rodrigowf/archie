@@ -15,15 +15,16 @@
  *   (iOS focus zoom; fixes inv02 §6.2). On iOS the page offset is undone on blur (spec 13 §2.6).
  * - Read-only views (H-3) show a Resume bar instead.
  */
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react';
+import { memo, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react';
 import { contextUsage, isBusy, steersMidTurn } from '@/protocol';
-import { ArchieRuntime, errorMessage, getSessionRuntime, sharedFileText, uploadFile, AbortedError } from '@/services';
+import { ArchieRuntime, ensureDictation, errorMessage, getSessionRuntime, sharedFileText, uploadFile, AbortedError } from '@/services';
 import { generateUUID } from '@/platform';
 import {
   getSessionEntry,
   modelAcceptsAudio,
   showSnackbar,
   useCapabilities,
+  useServerConfig,
   useSession,
   useShallow,
   useTabLiveStatus,
@@ -34,8 +35,10 @@ import { AgentsButton } from '@/features/subagents';
 import { IconButton } from '@/ui/controls';
 import { Menu, MenuItem } from '@/ui/overlays';
 import { cx } from '@/ui/primitives';
+import type { DictationSession } from '@/voice/dictation';
 import { micErrorMessage, startRecording, type Recording } from './audio/recorder';
-import { isSubmitKey, placeholderFor, primaryMode, withSlashCommand, type PrimaryMode } from './logic';
+import { canDictate, dictatedDraft, isSubmitKey, placeholderFor, primaryMode, withSlashCommand, type PrimaryMode } from './logic';
+import { LazyDictationPanel, loadDictation } from './dictationLazy';
 import { ContextRing, PrimaryButton, QueueTray, ReadOnlyBar, RecordingStrip, SlashCommandsDialog, type TrayItem } from './parts';
 import { startVoice } from './voiceHook';
 import styles from './Composer.module.css';
@@ -59,6 +62,19 @@ interface UploadItem {
 interface RecState {
   readonly rec: Recording;
   readonly processing: boolean;
+}
+
+/**
+ * A dictation in progress. `base` is whatever was already typed when it started: dictated text
+ * appends to it (`dictatedDraft`), so speaking after typing reads as one message.
+ */
+interface DictState {
+  readonly session: DictationSession;
+  readonly committed: string;
+  readonly partial: string;
+  /** Stopped, waiting for the transcriber's last words. */
+  readonly flushing: boolean;
+  readonly base: string;
 }
 
 function isIOS(): boolean {
@@ -106,6 +122,13 @@ function ComposerImpl({ localId }: ComposerProps) {
     recRef.current = v;
     setRecState(v);
   }, []);
+  const [dict, setDictState] = useState<DictState | null>(null);
+  const dictRef = useRef<DictState | null>(null);
+  const setDict = useCallback((v: DictState | null): void => {
+    dictRef.current = v;
+    setDictState(v);
+  }, []);
+  const dictation = useServerConfig((c) => c.dictation);
 
   const archie = s.kind === 'orchestrator';
   const hasText = s.draft.trim().length > 0;
@@ -114,7 +137,13 @@ function ComposerImpl({ localId }: ComposerProps) {
   const micAvailable = archie && !s.readOnly && audioModel && canRecord(client);
   const voiceAvailable =
     archie && !s.voiceActive && !!client && client.secureContext && client.getUserMedia && (client.webrtc || client.webAudio);
-  const mode: PrimaryMode = rec ? 'send' : primaryMode({ kind: s.kind, hasText, working: s.working, voiceAvailable });
+  // Streaming needs an AudioWorklet; without one (Safari 12) the fallback records a WAV and
+  // posts it, which only needs what a voice message already needs.
+  const dictationAvailable =
+    dictation?.enabled === true && !s.readOnly && (canDictate(client) || canRecord(client));
+  const mode: PrimaryMode = rec
+    ? 'send'
+    : primaryMode({ kind: s.kind, hasText, working: s.working, voiceAvailable, dictationAvailable });
 
   const setDraft = useCallback(
     (text: string): void => {
@@ -132,13 +161,34 @@ function ComposerImpl({ localId }: ComposerProps) {
     if (el.scrollHeight > 0) el.style.height = `${el.scrollHeight}px`;
   }, [s.draft, rec]);
 
-  // a recording never outlives its composer (tab closed)
+  // a recording or dictation never outlives its composer (tab closed)
   useEffect(
     () => () => {
       recRef.current?.rec.cancel();
+      dictRef.current?.session.cancel();
     },
     [],
   );
+
+  // Whether dictation is on is a server setting, and config is not broadcast (G-27), so the
+  // composer asks once per session rather than waiting for someone to open Settings.
+  useEffect(() => {
+    ensureDictation();
+  }, []);
+
+  // Focus the field once dictation ends. It cannot be done in the stop handler:
+  // the textarea is not mounted while the composer is in its listening layout.
+  const focusAfterDictation = useRef(false);
+  useEffect(() => {
+    if (!dict && focusAfterDictation.current) {
+      focusAfterDictation.current = false;
+      const el = field.current;
+      if (el) {
+        el.focus();
+        el.setSelectionRange(el.value.length, el.value.length); // caret at the end
+      }
+    }
+  }, [dict]);
 
   // ───────── actions ─────────
 
@@ -200,14 +250,96 @@ function ComposerImpl({ localId }: ComposerProps) {
     setRec(null);
   };
 
+  // ───────── dictation ─────────
+
+  /** Stop listening and put the final text in the draft. Returns it, so Send can chain. */
+  const finishDictation = async (): Promise<string> => {
+    const cur = dictRef.current;
+    if (!cur || cur.flushing) return '';
+    setDict({ ...cur, flushing: true });
+    let text = '';
+    try {
+      text = await cur.session.stop();
+    } catch (err) {
+      showSnackbar(micErrorMessage(err), { tone: 'error' });
+    }
+    const draft = dictatedDraft(cur.base, text);
+    focusAfterDictation.current = true;
+    setDict(null);
+    setDraft(draft);
+    return draft;
+  };
+
+  const startDict = (): void => {
+    if (dictRef.current || recRef.current) return;
+    if (s.working) {
+      showSnackbar(STOP_FIRST);
+      return;
+    }
+    const base = getSessionEntry(localId)?.handle.store.getState().draft ?? '';
+    const streaming = canDictate(client);
+
+    const open = async (): Promise<DictationSession> => {
+      // Engine + listening UI, fetched on this press (never in the initial bundle).
+      const start = await loadDictation(streaming);
+      return start({
+        ...(dictation?.language ? { language: dictation.language } : {}),
+        onText: ({ committed, partial }) => {
+          const cur = dictRef.current;
+          if (cur) setDict({ ...cur, committed, partial });
+        },
+        onError: (message) => {
+          // Whatever was already transcribed is kept: a dropped socket never costs
+          // the sentence you just spoke.
+          const cur = dictRef.current;
+          if (cur) {
+            setDict(null);
+            setDraft(dictatedDraft(cur.base, (cur.committed + cur.partial).trim()));
+          }
+          showSnackbar(message, { tone: 'error' });
+        },
+      });
+    };
+
+    open().then(
+      (session) => {
+        setDict({ session, committed: '', partial: '', flushing: false, base });
+      },
+      (err: unknown) => {
+        showSnackbar(micErrorMessage(err), { tone: 'error' });
+      },
+    );
+  };
+
+  const cancelDict = (): void => {
+    const cur = dictRef.current;
+    if (!cur) return;
+    cur.session.cancel();
+    setDict(null);
+    setDraft(cur.base);
+  };
+
   const onPrimary = (m: PrimaryMode): void => {
     if (rec) {
       void finishRecording();
       return;
     }
+    if (dict) {
+      // Send while listening stops and sends in one press (the mockup's "(2) Listening").
+      void finishDictation().then((text) => {
+        const rt = getSessionRuntime(localId);
+        const body = text.trim();
+        if (body && rt && !rt.readOnly) {
+          rt.send(body);
+          setDraft('');
+        }
+      });
+      return;
+    }
     if (m === 'send') send();
     else if (m === 'stop') stop();
     else if (m === 'voice') startVoice(localId);
+    else if (m === 'dictate') startDict();
   };
 
   const upload = (file: File): void => {
@@ -283,9 +415,35 @@ function ComposerImpl({ localId }: ComposerProps) {
     );
   }
 
-  const showRing = !rec && (s.percent !== null || s.hasEntries);
+  const showRing = !rec && !dict && (s.percent !== null || s.hasEntries);
   const agentTitle = GENERIC_AGENT_TITLE.test(title.trim()) ? '' : title;
   const placeholder = placeholderFor({ kind: s.kind, title: agentTitle, working: s.working, permissionPending, steers: s.steers });
+
+  // While listening the composer is a column: the transcript gets the full width (it is what you
+  // are about to edit) and the controls sit beneath it. See `context/public/composer-dictation/`.
+  if (dict) {
+    return (
+      <div className={styles.wrap} data-composer="">
+        <QueueTray items={tray} />
+        <div className={cx(styles.cmp, styles.cmpDictating)} data-dictating="">
+          <Suspense fallback={<div className={styles.dictBody} />}>
+            <LazyDictationPanel
+              base={dict.base}
+              committed={dict.committed}
+              partial={dict.partial}
+              flushing={dict.flushing}
+              startedAt={dict.session.startedAt}
+              level={dict.session.level}
+              onStop={() => void finishDictation()}
+              onCancel={cancelDict}
+            >
+              <PrimaryButton mode="send" label="Stop and send" onPress={onPrimary} />
+            </LazyDictationPanel>
+          </Suspense>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.wrap} data-composer="">
@@ -318,6 +476,13 @@ function ComposerImpl({ localId }: ComposerProps) {
           {micAvailable ? (
             <MenuItem icon="mic" disabled={s.working} description={s.working ? STOP_FIRST : undefined} onSelect={startRec}>
               Voice message
+            </MenuItem>
+          ) : null}
+          {/* On every tab, so dictation is reachable where the primary button is spoken for
+              (Archie keeps realtime voice there). */}
+          {dictationAvailable ? (
+            <MenuItem icon="record_voice_over" disabled={s.working} description={s.working ? STOP_FIRST : undefined} onSelect={startDict}>
+              Dictate a message
             </MenuItem>
           ) : null}
           {archie ? null : (
@@ -366,6 +531,11 @@ function ComposerImpl({ localId }: ComposerProps) {
         ) : null}
         {micAvailable && !rec ? (
           <IconButton icon="mic" aria-label="Record voice message" disabled={s.working} onClick={startRec} />
+        ) : null}
+        {/* Once there is text the primary button is Send, so the mic stays here to add another
+            sentence to what is already in the field (mockup "(3) Stopped"). */}
+        {dictationAvailable && !micAvailable && !rec && mode !== 'dictate' ? (
+          <IconButton icon="mic" aria-label="Dictate" disabled={s.working} onClick={startDict} />
         ) : null}
         <PrimaryButton mode={mode} label={rec ? 'Send voice message' : undefined} onPress={onPrimary} />
         <input ref={fileRef} type="file" multiple hidden tabIndex={-1} aria-hidden="true" onChange={onFile} />

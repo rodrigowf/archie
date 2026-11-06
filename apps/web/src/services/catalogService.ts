@@ -175,6 +175,33 @@ export async function loadServerConfig(): Promise<void> {
   }
 }
 
+// ───────────────────────── dictation (spec 12 §8.4) ─────────────────────────
+
+let dictationOnce: Promise<void> | null = null;
+
+/** `GET /api/transcribe/providers` → the catalogue *and* the current dictation settings. */
+export async function loadDictation(): Promise<void> {
+  try {
+    const r = await api.transcribe.providers();
+    patchServerConfig({
+      transcribers: r.transcribers,
+      transcriberLanguages: r.languages,
+      dictation: r.dictation ?? DICTATION_OFF,
+    });
+  } catch {
+    // An older server has no such endpoint: dictation stays off and the composer's
+    // empty-field primary keeps its previous behaviour.
+    patchServerConfig({ transcribers: [], transcriberLanguages: [], dictation: DICTATION_OFF });
+  }
+}
+
+/** Load it once per session — every composer mounts and asks, only the first one fetches. */
+export function ensureDictation(): void {
+  dictationOnce ??= loadDictation();
+}
+
+const DICTATION_OFF = { enabled: false, provider: '', model: '', streaming: false, language: '' };
+
 /** The read-only catalogs of the settings pages. Each failure is independent. */
 export async function loadConfigCatalogs(): Promise<void> {
   const settle = async <T>(p: Promise<T>, apply: (v: T) => void): Promise<void> => {
@@ -186,6 +213,7 @@ export async function loadConfigCatalogs(): Promise<void> {
   };
   await Promise.all([
     loadHarnessCatalogs(),
+    loadDictation(),
     settle(api.voice.orchestratorModels(), (r) => patchServerConfig({ orchestratorModels: r })),
     settle(api.voice.voiceModels(), (r) => patchServerConfig({ voiceModels: r })),
     settle(api.catalogs.mcpServers(), (r) => patchServerConfig({ mcpServers: r })),

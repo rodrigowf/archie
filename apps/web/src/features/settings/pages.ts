@@ -11,6 +11,7 @@ export type SettingsPageId =
   | 'conversation-model'
   | 'voice'
   | 'voice-tuning'
+  | 'dictation'
   | 'agent-sessions'
   | 'working-directories'
   | 'mcp-servers'
@@ -32,6 +33,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDef[] = [
   { id: 'conversation-model', title: 'Conversation model', icon: 'forum', group: 'server' },
   { id: 'voice', title: 'Voice', icon: 'record_voice_over', group: 'server' },
   { id: 'voice-tuning', title: 'Voice tuning', icon: 'tune', group: 'server' },
+  { id: 'dictation', title: 'Dictation', icon: 'mic', group: 'server' },
   { id: 'agent-sessions', title: 'Agent sessions', icon: 'smart_toy', group: 'server' },
   { id: 'working-directories', title: 'Working directories', icon: 'folder', group: 'server' },
   { id: 'mcp-servers', title: 'MCP servers', icon: 'hub', group: 'server' },

@@ -47,6 +47,10 @@ const CONFIG: ServerConfig = {
   voice_vad_threshold: 0.28,
   voice_vad_min_silence_ms: 1800,
   voice_mic_gain: 1,
+  dictation_enabled: true,
+  dictation_provider: 'openai',
+  dictation_model: 'gpt-live-transcribe',
+  dictation_language: '',
 };
 
 const voices = [

@@ -50,7 +50,7 @@ export function ContextRing({ usage, disabled, disabledReason, onCompact }: Cont
 
 /* ───────────────────────── primary button (IA §6) ───────────────────────── */
 
-const PRIMARY_ICON = { voice: 'graphic_eq', send: 'arrow_upward', 'send-disabled': 'arrow_upward', stop: 'stop' } as const;
+const PRIMARY_ICON = { voice: 'graphic_eq', dictate: 'mic', send: 'arrow_upward', 'send-disabled': 'arrow_upward', stop: 'stop' } as const;
 
 export function PrimaryButton({ mode, label, onPress }: { readonly mode: PrimaryMode; readonly label?: string; readonly onPress: (mode: PrimaryMode) => void }) {
   const disabled = mode === 'send-disabled';
@@ -132,6 +132,10 @@ export function RecordingStrip({ startedAt, processing, onCancel }: { readonly s
     </div>
   );
 }
+
+/* ───────────────────────── dictation (mockup `composer-dictation/` §2 option A) ───────────────────────── */
+
+/** The four level bars. `visualLevel` is already 0–1 and eased for display. */
 
 /* ───────────────────────── read-only bar (spec 12 H-3) ───────────────────────── */
 

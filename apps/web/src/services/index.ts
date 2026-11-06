@@ -75,8 +75,10 @@ export {
 } from './sessions/manager';
 export {
   duplicateSession,
+  ensureDictation,
   ensureMemoryTree,
   loadConfigCatalogs,
+  loadDictation,
   loadGoogleVoiceModels,
   loadHarnessCatalogs,
   loadServerConfig,

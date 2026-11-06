@@ -21,7 +21,7 @@ browser, and they are served at `/memory/archie/<path>`.
 | [voice/](voice/INDEX.md) | Realtime voice: providers, transports, lifecycle, prompt budget, OpenAI / Qwen / Gemini specifics, Android wake word | [architecture.md](voice/architecture.md) |
 | [clients/](clients/INDEX.md) | Web app (+ Safari 12 build), Android apps, companion app, Chrome extension, legacy apps | [web.md](clients/web.md), [android.md](clients/android.md) |
 | [devices/](devices/INDEX.md) | The reference deployment's devices; Fire TV; photo servers | [devices.md](devices/devices.md) |
-| [integrations/](integrations/INDEX.md) | Skills system and catalog; YouTube; Google Photos; visualizations and document sharing | [skills.md](integrations/skills.md) |
+| [integrations/](integrations/INDEX.md) | Skills system and catalog; YouTube; Google Photos; transcription (dictation + voice notes); visualizations and document sharing | [skills.md](integrations/skills.md) |
 | [infrastructure/](infrastructure/INDEX.md) | Laptop + Jetson topology, the Jetson server, deployment, context-sync, installation, SSH remote sessions | [topology.md](infrastructure/topology.md) |
 | [operations/](operations/INDEX.md) | Working rules for agents, debugging playbook, symptom → fix table, refactor methodology | [working-rules.md](operations/working-rules.md) |
 | [history/](history/INDEX.md) | Timeline and historical records (handoffs, plans, logs) | [timeline.md](history/timeline.md) |

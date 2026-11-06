@@ -14,6 +14,7 @@ references:
   - ../voice/architecture.md
   - ../voice/lifecycle.md
   - ../voice/wake-word.md
+  - ../integrations/transcription.md
   - ../clients/android.md
   - ../clients/legacy-apps.md
   - ../clients/browser-extension.md
@@ -176,3 +177,14 @@ Commit hashes are in the public repo unless they refer to the private context re
   (`permissions` on the chat WS, `agent_permissions` on the orchestrator's), the clients seed the
   card from that snapshot and re-seed it after a canonical reload, and the snapshot is dropped on
   the resolve and at turn end. Web + Android + two shared conformance fixtures.
+- **11-05** — **Dictation and voice notes.** Speech reached agent sessions for the first time:
+  an empty composer on a Claude tab now shows a mic instead of a dead disabled Send, and
+  punctuated text streams into the field while you speak (Send stops and sends in one press).
+  New provider-agnostic backend service (`backend/transcription/`, `WS /api/transcribe/stream`)
+  over OpenAI `gpt-live-transcribe` (default), ElevenLabs Scribe v2 realtime and three batch
+  models, chosen in Settings → Dictation. A `/voice-notes/` canvas records notes of any length —
+  audio is written to disk as it arrives, so nothing is held in the browser and a crashed tab
+  still leaves the recording — and can drop any transcript into an open session. `whisper-1`
+  retired from `POST /api/transcribe` ahead of its 2027-02-26 shutdown. Design board:
+  `context/public/composer-dictation/`; providers and the realtime-API quirks:
+  [integrations/transcription.md](../integrations/transcription.md).

@@ -171,7 +171,68 @@ export interface ServerConfig {
   voice_vad_threshold: number;
   voice_vad_min_silence_ms: number;
   voice_mic_gain: number;
+  /** Dictation: a mic on the empty composer of agent sessions. Absent on older servers. */
+  dictation_enabled?: boolean;
+  dictation_provider?: string;
+  dictation_model?: string;
+  /** "" = let the transcriber detect the language. */
+  dictation_language?: string;
   [key: string]: unknown;
+}
+
+/** One selectable transcriber from `GET /api/transcribe/providers`. */
+export interface TranscriberInfo {
+  /** `provider/model`. */
+  id: string;
+  provider: string;
+  model: string;
+  label: string;
+  description: string;
+  /** True when text arrives while you are still speaking. */
+  streaming: boolean;
+  sample_rate: number;
+  cost_note: string;
+  /** False when this server has no API key for it; shown greyed, not hidden. */
+  available: boolean;
+  unavailable_reason: string;
+  default: boolean;
+}
+
+/** What dictation is set to right now — travels with the catalogue so one call answers both. */
+export interface DictationSettings {
+  /** False when switched off in Settings or when the chosen model has no key on this server. */
+  enabled: boolean;
+  provider: string;
+  model: string;
+  /** False for the batch models: no live text, the transcript lands on stop. */
+  streaming: boolean;
+  language: string;
+}
+
+export interface TranscriberCatalog {
+  transcribers: TranscriberInfo[];
+  languages: { id: string; label: string }[];
+  default: string;
+  /** Absent on older servers (dictation then stays off). */
+  dictation?: DictationSettings;
+}
+
+/** A saved voice note (`context/recordings/voice-notes/<id>/`). */
+export interface VoiceNote {
+  id: string;
+  title: string;
+  created: string;
+  created_ts: number;
+  duration_ms: number;
+  sample_rate: number;
+  /** `audio.mp3`, or `audio.wav` when ffmpeg was unavailable. */
+  audio: string;
+  has_audio: boolean;
+  bytes: number;
+  provider: string;
+  model: string;
+  language: string;
+  text: string;
 }
 
 export type ServerConfigUpdate = Partial<ServerConfig>;

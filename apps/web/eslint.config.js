@@ -73,7 +73,9 @@ const BOUNDARY_MESSAGE =
   'Import another package only through its index.ts entry (spec 13 §3.9). Inside a package, use relative imports.';
 const BOUNDARY_PATTERNS = [
   {
-    group: ['@/protocol/*', '@/services/*', '@/stores/*', '@/voice/*', '@/platform/*', '!@/platform/polyfills', '@/ui/*/*'],
+    // `@/voice/dictation` is a second entry of the voice package, kept off its barrel so the
+    // capture stack stays out of the initial bundle (spec 13 §5.4, like @/features/subagents/card).
+    group: ['@/protocol/*', '@/services/*', '@/stores/*', '@/voice/*', '!@/voice/dictation', '@/platform/*', '!@/platform/polyfills', '@/ui/*/*'],
     message: BOUNDARY_MESSAGE,
   },
   {

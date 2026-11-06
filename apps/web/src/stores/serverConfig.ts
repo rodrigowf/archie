@@ -6,12 +6,14 @@
 import { createStore } from 'zustand/vanilla';
 import type {
   AgentInfo,
+  DictationSettings,
   HarnessInfo,
   McpServers,
   OrchestratorModels,
   ProviderInfo,
   ServerConfig,
   SkillInfo,
+  TranscriberInfo,
   VoiceModelEntry,
   VoiceModels,
 } from '@/services';
@@ -38,6 +40,14 @@ export interface ServerConfigState {
   readonly mcpServers: McpServers | null;
   readonly skills: readonly SkillInfo[] | null;
   readonly agents: readonly AgentInfo[] | null;
+  /**
+   * `GET /api/transcribe/providers`. Unlike the rest of this store it is fetched **outside**
+   * Settings too — the composer needs it to decide whether the empty-field primary is a mic —
+   * so it is loaded once per session by `ensureDictation()` and refreshed when Settings saves.
+   */
+  readonly transcribers: readonly TranscriberInfo[] | null;
+  readonly transcriberLanguages: readonly { readonly id: string; readonly label: string }[] | null;
+  readonly dictation: DictationSettings | null;
 }
 
 const initial: ServerConfigState = {
@@ -54,6 +64,9 @@ const initial: ServerConfigState = {
   mcpServers: null,
   skills: null,
   agents: null,
+  transcribers: null,
+  transcriberLanguages: null,
+  dictation: null,
 };
 
 export const serverConfigStore = createStore<ServerConfigState>(() => initial);

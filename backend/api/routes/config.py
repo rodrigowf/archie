@@ -112,6 +112,10 @@ def _default_config() -> dict[str, Any]:
         DEFAULT_VOICE_PROVIDER,
         resolve_voice_target,
     )
+    from transcription.registry import (
+        DEFAULT_MODEL as TRANSCRIBE_DEFAULT_MODEL,
+        DEFAULT_PROVIDER as TRANSCRIBE_DEFAULT_PROVIDER,
+    )
 
     default_path = str(PROJECT_ROOT)
     default_entry = {"id": default_path, "path": default_path, "label": None, "ssh_host": None, "ssh_user": None, "ssh_key": None, "claude_config_dir": None}
@@ -167,6 +171,15 @@ def _default_config() -> dict[str, Any]:
         "voice_vad_threshold": 0.5,         # Silero on-threshold; off = on - 0.15
         "voice_vad_min_silence_ms": 2500,   # ms below off-threshold before speech_stopped
         "voice_mic_gain": 1.0,              # server-side mic-input gain (reserved)
+        # Dictation: speaking into the composer of any agent session, which
+        # transcribes to text rather than sending audio. On by default — the
+        # feature is useless if it has to be discovered in Settings first —
+        # and the model is resolved through ``transcription.registry`` so a
+        # choice that later loses its API key degrades instead of breaking.
+        "dictation_enabled": True,
+        "dictation_provider": TRANSCRIBE_DEFAULT_PROVIDER,
+        "dictation_model": TRANSCRIBE_DEFAULT_MODEL,
+        "dictation_language": "",           # "" = let the provider detect it
     }
 
 
@@ -271,6 +284,12 @@ class ConfigUpdate(BaseModel):
     voice_vad_threshold: float | None = None
     voice_vad_min_silence_ms: int | None = None
     voice_mic_gain: float | None = None
+    # Dictation (composer + the voice-notes canvas); validated against
+    # ``transcription.registry`` below.
+    dictation_enabled: bool | None = None
+    dictation_provider: str | None = None
+    dictation_model: str | None = None
+    dictation_language: str | None = None   # "" = auto-detect
 
 
 # -----------------------------------------------------------------------
@@ -910,6 +929,37 @@ async def update_config(body: ConfigUpdate) -> dict[str, Any]:
                 ),
             )
         config["voice_mic_gain"] = float(body.voice_mic_gain)
+
+    # Dictation. Provider and model are validated as a pair, because either one
+    # alone can name a row that does not exist.
+    if body.dictation_enabled is not None:
+        config["dictation_enabled"] = bool(body.dictation_enabled)
+
+    if body.dictation_provider is not None or body.dictation_model is not None:
+        from transcription import registry as transcribe_registry
+
+        provider = body.dictation_provider if body.dictation_provider is not None \
+            else config.get("dictation_provider")
+        model = body.dictation_model if body.dictation_model is not None \
+            else config.get("dictation_model")
+        spec = transcribe_registry.find(provider, model)
+        if spec is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"unknown transcriber {provider}/{model}",
+            )
+        config["dictation_provider"] = spec.provider
+        config["dictation_model"] = spec.model
+
+    if body.dictation_language is not None:
+        from transcription import registry as transcribe_registry
+
+        language = body.dictation_language.strip()
+        if language and language not in {code for code, _ in transcribe_registry.LANGUAGES}:
+            raise HTTPException(
+                status_code=400, detail=f"unknown dictation language {language!r}",
+            )
+        config["dictation_language"] = language
 
     _save_config(config)
     return config
