@@ -83,7 +83,13 @@ class ProtocolCodecTest {
         ),
         ServerFrame.ToolExecuting("c1", "list_agent_sessions"),
         ServerFrame.ToolProgress("c1", "list_agent_sessions", 5.0, "Still executing list_agent_sessions..."),
-        ServerFrame.TurnComplete(0.0123, obj("""{"input_tokens":10,"output_tokens":50}"""), 1010, 50, 1, "sdk-1", false, "ok", 7, "L1:1"),
+        // Named, not positional: this frame has ten fields and gains optional ones (TOK-2).
+        ServerFrame.TurnComplete(
+            cost = 0.0123, usage = obj("""{"input_tokens":10,"output_tokens":50}"""),
+            inputTokens = 1010, outputTokens = 50, contextWindow = 1_000_000,
+            numTurns = 1, sessionId = "sdk-1", isError = false, result = "ok",
+            seq = 7, streamId = "L1:1",
+        ),
         ServerFrame.CompactComplete("manual", null, 9000, 1200),
         ServerFrame.CompactComplete("auto", "Summary."),
         ServerFrame.SessionStalled(120.4, "Bash", "t1", 5, "L1:1"),
