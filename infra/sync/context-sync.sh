@@ -85,6 +85,14 @@ TOMBSTONE_SECONDS="${TOMBSTONE_SECONDS:-120}"
 # Full two-way reconcile (see "Reconcile") at startup, after the remote comes
 # back, and at least this often.
 RECONCILE_SECONDS="${RECONCILE_SECONDS:-600}"
+# Addresses to reach the remote on, best first (see "Remote address"). Defaults
+# to the single REMOTE_HOST, so a config without it behaves exactly as before.
+REMOTE_HOSTS="${REMOTE_HOSTS:-$REMOTE_HOST}"
+# Reconcile interval while connected over a fallback address. The other machine
+# usually cannot push to us there (its own service has only the primary, and
+# the reverse path may not even be open), so our periodic reconcile is what
+# carries its changes: 600 s of latency would be too coarse.
+RECONCILE_SECONDS_FALLBACK="${RECONCILE_SECONDS_FALLBACK:-60}"
 # How often the idle loop wakes up to check for approve/reject decisions and
 # whether a periodic reconcile is due.
 TICK_SECONDS="${TICK_SECONDS:-30}"
@@ -157,6 +165,36 @@ err() { echo "[$(date '+%H:%M:%S')] ERROR: $*" | systemd-cat -t "$LOG_TAG" -p er
 
 SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes -i $SSH_KEY"
 REMOTE="${REMOTE_USER}@${REMOTE_HOST}"
+# The address in REMOTE_HOSTS we are currently using; the first is "primary".
+PRIMARY_HOST="${REMOTE_HOSTS%% *}"
+RECONCILE_INTERVAL="$RECONCILE_SECONDS"
+
+# ── Remote address ───────────────────────────────────────────────────────────
+# The remote may be reachable on more than one address — a LAN IP at home and
+# a VPN/tailnet IP anywhere else. REMOTE_HOSTS lists them best first; we use
+# the first that answers and re-probe the whole list whenever it stops
+# answering, so coming home switches back to the LAN on its own.
+#
+# Only this side needs the list: reconcile() runs the remote --list and then
+# rsyncs both ways over our connection, so one working direction converges
+# both machines. What the other machine's own service adds is latency — its
+# pushes land in ~2 s — and while we are on a fallback address it probably
+# cannot reach us at all, which is why RECONCILE_SECONDS_FALLBACK tightens
+# our polling to carry its changes instead.
+use_host() {
+  local host="$1"
+  [[ "$host" == "$REMOTE_HOST" ]] && return 0
+  REMOTE_HOST="$host"
+  REMOTE="${REMOTE_USER}@${REMOTE_HOST}"
+  if [[ "$host" == "$PRIMARY_HOST" ]]; then
+    RECONCILE_INTERVAL="$RECONCILE_SECONDS"
+  else
+    RECONCILE_INTERVAL="$RECONCILE_SECONDS_FALLBACK"
+  fi
+  log "Remote address is now ${REMOTE_HOST} (reconcile every ${RECONCILE_INTERVAL}s)."
+  # The address changed under us, so the agreed state must be re-checked.
+  NEED_RECONCILE=1
+}
 
 # Files/patterns to sync (exclude git internals, the trash, temp files, conflict files)
 RSYNC_EXCLUDES=(
@@ -352,8 +390,22 @@ remote_delete_paths() {
     ssh $SSH_OPTS "$REMOTE" "bash '${REMOTE_SCRIPT}' --trash '${REMOTE_DIR}'"
 }
 
+# True when the remote answers on any address in REMOTE_HOSTS; the one that
+# answered becomes the address every later ssh/rsync uses. The current address
+# is tried first, so the common case is one probe and no switching.
 remote_reachable() {
-  ssh $SSH_OPTS "$REMOTE" true 2>/dev/null
+  local host
+  if ssh $SSH_OPTS "$REMOTE" true 2>/dev/null; then
+    return 0
+  fi
+  for host in $REMOTE_HOSTS; do
+    [[ "$host" == "$REMOTE_HOST" ]] && continue   # just failed
+    if ssh $SSH_OPTS -o BatchMode=yes "${REMOTE_USER}@${host}" true 2>/dev/null; then
+      use_host "$host"
+      return 0
+    fi
+  done
+  return 1
 }
 
 purge_trash() {
@@ -500,12 +552,12 @@ reconcile() {
 # A reconcile is due: after an outage, when it's been RECONCILE_SECONDS, or
 # when an approve/reject decision is waiting.
 reconcile_due() {
-  (( NEED_RECONCILE )) || (( SECONDS - LAST_RECONCILE >= RECONCILE_SECONDS )) || [[ -s "$APPROVED" || -s "$REJECTED" ]]
+  (( NEED_RECONCILE )) || (( SECONDS - LAST_RECONCILE >= RECONCILE_INTERVAL )) || [[ -s "$APPROVED" || -s "$REJECTED" ]]
 }
 
 # ── Startup ───────────────────────────────────────────────────────────────────
-log "Starting context-sync: $LOCAL_DIR → ${REMOTE}:${REMOTE_DIR}"
-log "Debounce: ${DEBOUNCE_SECONDS}s, reconcile every ${RECONCILE_SECONDS}s, tombstones ${TOMBSTONE_SECONDS}s, hold deletes > ${MAX_DELETES} or ${MAX_DELETE_PERCENT}%"
+log "Starting context-sync: $LOCAL_DIR → ${REMOTE_USER}@${REMOTE_HOSTS// /, }:${REMOTE_DIR}"
+log "Debounce: ${DEBOUNCE_SECONDS}s, reconcile every ${RECONCILE_SECONDS}s (${RECONCILE_SECONDS_FALLBACK}s on a fallback address), tombstones ${TOMBSTONE_SECONDS}s, hold deletes > ${MAX_DELETES} or ${MAX_DELETE_PERCENT}%"
 
 # A full reconcile when the service starts catches up on the offline period,
 # including deletes made while the service or the other machine was down.

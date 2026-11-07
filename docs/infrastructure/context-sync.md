@@ -3,7 +3,7 @@ name: context-sync
 category: archie/infrastructure
 tags: [context-sync, rsync, inotifywait, systemd, git, delete-gating, tombstones, inotify, vscode, large-files]
 created: 2026-04-17
-modified: 2026-10-09
+modified: 2026-11-07
 summary: The context-sync service that mirrors context/ between laptop and Jetson — design, install, delete gating, git rule, pitfalls.
 source: curated (consolidated from memory notes assistant/infrastructure/server_hub_project.md, project_context_sync_delete_gating.md, feedback_jetson_main_repo_normal_git.md, assistant/utilities/review_artifacts_location.md, projects/video-editing/large_assets_outside_context.md, assistant/infrastructure/repo_layout_cutover_2026_10.md; verified against infra/sync/ 2026-10-06)
 references:
@@ -40,6 +40,8 @@ changes to the other. Code is not synced this way — see [topology.md](topology
 |---|---|
 | `LOCAL_DIR` | Local `context/` (absolute, no trailing slash) |
 | `REMOTE_HOST`, `REMOTE_USER` | The other machine (laptop config → `192.168.0.200`; Jetson config → `192.168.0.230`) |
+| `REMOTE_HOSTS` | Optional — every address the remote answers on, space-separated, best first (LAN, then a VPN/tailnet address). The first that answers is used and the list is re-probed whenever it stops answering. Unset = just `REMOTE_HOST`. See step 7 |
+| `RECONCILE_SECONDS_FALLBACK` | Default `60` — the reconcile interval while a non-primary address is in use |
 | `REMOTE_DIR` | Remote `context/` — same path on both machines |
 | `SSH_KEY` | Passphrase-less private key authorized on the other side |
 | `DEBOUNCE_SECONDS` | Default `2` |
@@ -92,7 +94,16 @@ changes to the other. Code is not synced this way — see [topology.md](topology
    `path\tsize\tmtime`) is updated: what this batch changed now exists on both sides; deletions the
    remote applied are dropped. It is the "last agreed" state the reconcile compares against.
 7. **Remote offline.** The batch is skipped and logged; deletes stay in the manifest; the reconcile
-   after the remote is back replays them.
+   after the remote is back replays them. "Offline" means no address in `REMOTE_HOSTS` answered:
+   the current one is probed first, then the rest, and the one that answers becomes the address
+   every later ssh/rsync uses (logged as *"Remote address is now …"*, and it forces a reconcile
+   because the agreed state must be re-checked). A machine that leaves the LAN therefore keeps
+   syncing over its tailnet address, and switches back on its own when it comes home. Only the
+   side that can open the connection needs the list — a reconcile rsyncs **both** ways, so one
+   working direction converges both machines; what the peer's own service adds is latency, hence
+   the tighter `RECONCILE_SECONDS_FALLBACK` while on a fallback. Note a peer running Tailscale
+   SSH (`RunSSH: true`) refuses `BatchMode` connections, so the reverse direction may not be
+   available at all.
 8. **Reconcile** — at startup, after an outage, when an approve/reject decision is waiting, and every
    `RECONCILE_SECONDS` (checked every `TICK_SECONDS` even when busy). It lists both sides
    (`context-sync.sh --list` over ssh; the remote runs the same script) and compares them with the
