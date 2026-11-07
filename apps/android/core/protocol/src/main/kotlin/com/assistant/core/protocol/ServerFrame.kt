@@ -207,8 +207,11 @@ sealed interface ServerFrame {
     data class TurnComplete(
         val cost: Double? = null,
         val usage: JsonObject? = null,
+        /** TOK-1: tokens in the context window right now, not the turn's spend. */
         val inputTokens: Long? = null,
         val outputTokens: Long? = null,
+        /** TOK-2: the serving model's real window, when the harness reports it. */
+        val contextWindow: Long? = null,
         val numTurns: Int? = null,
         /** Chat only: the sdk id (ID-2). */
         val sessionId: String? = null,

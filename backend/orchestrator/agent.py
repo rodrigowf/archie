@@ -111,7 +111,12 @@ class OrchestratorAgent:
         system = build_system_prompt(self._config, self._context)
         tools = self._registry.get_definitions()
 
-        total_input_tokens = 0
+        # Input is NOT summed: every tool loop re-sends the whole
+        # conversation, so a sum counts the context once per loop and the
+        # clients' context ring (input_tokens / context_window) pins to
+        # 100 % on any turn with a few tool calls.  The last loop's request
+        # is the current context size.  Output tokens really are additive.
+        context_input_tokens = 0
         total_output_tokens = 0
 
         for loop_idx in range(MAX_TOOL_LOOPS):
@@ -150,7 +155,8 @@ class OrchestratorAgent:
                     yield event
 
                 elif isinstance(event, TurnComplete):
-                    total_input_tokens += event.input_tokens
+                    if event.input_tokens:
+                        context_input_tokens = event.input_tokens
                     total_output_tokens += event.output_tokens
 
                 elif isinstance(event, ErrorEvent):
@@ -200,7 +206,7 @@ class OrchestratorAgent:
                 self._history.append({"role": "user", "content": tool_results})
 
         yield TurnComplete(
-            input_tokens=total_input_tokens,
+            input_tokens=context_input_tokens,
             output_tokens=total_output_tokens,
         )
 

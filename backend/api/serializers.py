@@ -55,7 +55,13 @@ def serialize_event(event: Event) -> dict[str, Any]:
         }
     if isinstance(event, TurnComplete):
         usage = event.usage or {}
-        # Total context size = new tokens + cached tokens read
+        # ``input_tokens`` on the wire is what the clients' context ring
+        # divides by the window: the tokens in the context *right now*.
+        # A harness that can tell us (Claude: the last request of the turn)
+        # sets ``context_tokens``.  Otherwise fall back to summing the
+        # usage's input fields — right for the harnesses that report one
+        # request's usage, an overcount for any that report the turn's
+        # cumulative spend.
         total_input = (
             usage.get("input_tokens", 0)
             + usage.get("cache_read_input_tokens", 0)
@@ -65,12 +71,15 @@ def serialize_event(event: Event) -> dict[str, Any]:
             "type": "turn_complete",
             "cost": event.cost,
             "usage": usage,
-            "input_tokens": total_input,
+            "input_tokens": event.context_tokens or total_input,
             "output_tokens": usage.get("output_tokens", 0),
             "num_turns": event.num_turns,
             "session_id": event.session_id,
             "is_error": event.is_error,
             "result": event.result,
+            # Only when the harness told us (spec 12 TOK-2): absent means
+            # "keep the window you were given at session_started".
+            **({"context_window": event.context_window} if event.context_window else {}),
         }
     if isinstance(event, CompactComplete):
         return {"type": "compact_complete", "trigger": event.trigger, "summary": event.summary}

@@ -3,7 +3,7 @@ name: model-studio
 category: archie/harnesses
 tags: [harness, model-studio, dashscope, claude-code, glm, deepseek, kimi, qwen, anthropic-compatible, provider-pinning, harness-catalog, thinking]
 created: 2026-10-07
-modified: 2026-10-12
+modified: 2026-11-07
 summary: The Model Studio harness — Claude Code's agent loop driving GLM, DeepSeek, Kimi and Qwen through Alibaba Model Studio's Anthropic-compatible endpoint; env contract, provider pinning, catalog/options, landmines.
 source: curated (implementation + live verification 2026-10-07, CLI 2.1.292, claude-agent-sdk 0.2.164)
 references:
@@ -57,6 +57,8 @@ Claude Code's agent loop on GLM, DeepSeek, Kimi and Qwen models.
 | `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU,FABLE}_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `CLAUDE_CODE_SUBAGENT_MODEL` | the chosen model — background calls and subagents never ask DashScope for a `claude-*` id |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | `1` (no telemetry, error reporting, update checks) |
 | `CLAUDE_CODE_MAX_CONTEXT_TOKENS` | the model's window when known (the CLI assumes 200K for unknown models, which skews auto-compact) |
+
+Because the CLI assumes 200K for these models, this harness overrides `_result_context_window()` to return `None`: `model_context_window()` stays the ring's denominator and TOK-2 (spec 12) never overwrites it with the CLI's guess. The per-request context size (TOK-1) is inherited unchanged.
 | `CLAUDE_CODE_EXTRA_BODY` | the `thinking` option (below); blank otherwise |
 | `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `ANTHROPIC_CUSTOM_HEADERS`, `CLAUDE_CODE_USE_{BEDROCK,VERTEX,FOUNDRY}` | **blanked** (`""`) so the Anthropic credentials never reach a third party |
 

@@ -92,6 +92,43 @@ class TestSerializeEvent:
         assert result["cost"] is None
         assert result["num_turns"] == 0
 
+    def test_input_tokens_prefers_context_tokens(self):
+        """``input_tokens`` on the wire is the context size, not the spend.
+
+        ``usage`` is cumulative over the turn's requests, so its sum
+        (48 588 here) is ~3× the real context the ring should divide by.
+        """
+        result = serialize_event(TurnComplete(
+            usage={
+                "input_tokens": 6,
+                "cache_read_input_tokens": 32_286,
+                "cache_creation_input_tokens": 16_296,
+                "output_tokens": 300,
+            },
+            context_tokens=16_298,
+        ))
+        assert result["input_tokens"] == 16_298
+        assert result["output_tokens"] == 300
+        # The raw blob still travels untouched for anyone accounting spend.
+        assert result["usage"]["cache_read_input_tokens"] == 32_286
+
+    def test_context_window_travels_only_when_known(self):
+        """TOK-2: absent means "keep the window session_started gave you"."""
+        assert "context_window" not in serialize_event(TurnComplete())
+        with_window = serialize_event(TurnComplete(context_window=1_000_000))
+        assert with_window["context_window"] == 1_000_000
+
+    def test_input_tokens_falls_back_to_the_usage_sum(self):
+        """Harnesses that report one request's usage need no context_tokens."""
+        result = serialize_event(TurnComplete(
+            usage={
+                "input_tokens": 1_200,
+                "cache_read_input_tokens": 8_000,
+                "output_tokens": 40,
+            },
+        ))
+        assert result["input_tokens"] == 9_200
+
     def test_compact_complete(self):
         result = serialize_event(CompactComplete(trigger="auto"))
         # The serializer also exposes the ``summary`` field (empty by

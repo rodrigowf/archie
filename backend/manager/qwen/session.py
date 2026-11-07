@@ -199,6 +199,12 @@ class QwenSessionManager(BaseSessionManager):
         # The subagent that produced the latest parent_tool_use_id line: a
         # failed subagent's error ``result`` line carries no parent id.
         self._last_sub: str | None = None
+        # Tokens in the context as of the last main-loop request, from the
+        # ``usageMetadata`` each ``assistant`` line carries.  The ``result``
+        # line's ``usage`` cannot answer this: like gemini-cli (qwen-code is
+        # a fork) it reports the session's accumulated telemetry, which
+        # counts the whole context once per request.
+        self._context_tokens: int | None = None
 
     @property
     def provider_name(self) -> str:
@@ -783,6 +789,12 @@ class QwenSessionManager(BaseSessionManager):
         if obj_type == "assistant":
             # Complete assistant message — extract any tool_use blocks that
             # weren't streamed via stream_event (qwen sends them whole here).
+            if not parent:
+                # ``promptTokenCount`` is what this one request sent, so the
+                # turn's last assistant line is the current context size.
+                prompt = (obj.get("usageMetadata") or {}).get("promptTokenCount")
+                if isinstance(prompt, int) and not isinstance(prompt, bool) and prompt > 0:
+                    self._context_tokens = prompt
             message = obj.get("message", {})
             for block in message.get("content", []):
                 if not isinstance(block, dict):
@@ -869,6 +881,7 @@ class QwenSessionManager(BaseSessionManager):
                 session_id=sid or "",
                 is_error=is_error,
                 result=result,
+                context_tokens=self._context_tokens,
             ))
             return out
 

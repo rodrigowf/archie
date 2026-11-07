@@ -188,6 +188,20 @@ describe('turns, errors, compaction (TL-*, §4.4.4)', () => {
     expect(c.compactPending).toBe(false);
   });
 
+  it('TOK-1/TOK-2: turn_complete sets the context size, and its window when the harness reports one', () => {
+    let c = feed(agent(), { type: 'session_started', session_id: 'local-1', context_window: 200000 }).conv;
+    expect(c.counters.contextWindow).toBe(200000);
+    // The serving model turns out to have a 1M window: the ring's denominator follows.
+    c = feed(c, proc, { ...tc, input_tokens: 420000, context_window: 1000000 }).conv;
+    expect(c.counters).toMatchObject({ contextTokens: 420000, contextWindow: 1000000 });
+    // A later turn that reports no window keeps the one we learned.
+    c = feed(c, proc, { ...tc, input_tokens: 450000 }).conv;
+    expect(c.counters).toMatchObject({ contextTokens: 450000, contextWindow: 1000000 });
+    // Zero and nonsense are no opinion, not a reset.
+    c = feed(c, proc, { ...tc, input_tokens: 0, context_window: 0 }).conv;
+    expect(c.counters).toMatchObject({ contextTokens: 450000, contextWindow: 1000000 });
+  });
+
   it('agent compact: compacting until compact_complete; compact_failed ends it with an error notice', () => {
     let c = feed(agent(), { type: 'local_compact' }).conv;
     expect(c.status).toBe('compacting');

@@ -312,6 +312,44 @@ class TestSendEventTranslation:
         assert tool_uses[0].tool_input == {"command": "ls"}
 
     @pytest.mark.asyncio
+    async def test_context_tokens_come_from_the_last_assistant_line(self):
+        """``usageMetadata.promptTokenCount`` is one request's context.
+
+        The ``result`` line's ``usage`` is qwen-code's session telemetry
+        (accumulated over every request, like its gemini-cli parent), so it
+        cannot drive the context ring. Subagent lines have a context of
+        their own and never count.
+        """
+        def assistant(prompt_tokens: int, parent: str | None = None) -> dict:
+            return {
+                "type": "assistant", "uuid": f"a-{prompt_tokens}", "session_id": "sess-1",
+                "parent_tool_use_id": parent,
+                "usageMetadata": {"promptTokenCount": prompt_tokens, "candidatesTokenCount": 20},
+                "message": {"id": "m", "type": "message", "role": "assistant",
+                            "content": [{"type": "text", "text": "ok"}]},
+            }
+
+        proc = _make_fake_proc([
+            _init_event(),
+            assistant(31_236),
+            assistant(900_000, parent="call_sub"),   # a subagent's own context
+            assistant(34_010),
+            _result_event(),
+        ])
+
+        sm = QwenSessionManager()
+        await sm.start()
+        events = []
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)):
+            async for ev in sm.send("do things"):
+                events.append(ev)
+        await sm.stop()
+
+        done = [e for e in events if isinstance(e, TurnComplete)]
+        assert len(done) == 1
+        assert done[0].context_tokens == 34_010
+
+    @pytest.mark.asyncio
     async def test_tool_result_from_user_message(self):
         """Qwen sends tool results as user messages with tool_result blocks
         in the content array."""

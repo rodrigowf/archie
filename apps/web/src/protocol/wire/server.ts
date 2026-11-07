@@ -136,8 +136,11 @@ export interface TurnCompleteFrame extends Sequenced {
   type: 'turn_complete';
   cost?: number | null;
   usage?: Record<string, unknown> | null;
+  /** TOK-1: tokens in the context window right now, not the turn's spend. */
   input_tokens?: number;
   output_tokens?: number;
+  /** TOK-2: the serving model's real window, when the harness reports it. */
+  context_window?: number;
   num_turns?: number;
   /** The `sdkId` (chat WS only). */
   session_id?: string | null;

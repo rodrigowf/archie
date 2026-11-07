@@ -3,7 +3,7 @@ name: claude-code
 category: archie/harnesses
 tags: [claude-code, claude-agent-sdk, harness, claude-config-dir, jsonl, skills, auth, oauth, chrome, sdk-upgrade, harness-catalog, effort, thinking]
 created: 2026-05-15
-modified: 2026-10-12
+modified: 2026-11-07
 summary: The Claude Code harness — ClaudeSessionManager over claude-agent-sdk, .claude_config layout, JSONL, SDK pin (0.2.164), subagents (routing, Task* lifecycle, notification turns, history files), config catalog + options, auth, Chrome flag.
 source: curated (consolidated from memory notes assistant/providers/provider_generalization.md, assistant/providers/qwen_code_adaptation.md, assistant/utilities/project_skills_not_registered.md, auto-memory project_sdk_upgrade_path_2026_06_18.md, feedback_verify_auth_under_backend_config_dir.md, feedback_jetson_oauth_token_expiry.md, feedback_ssh_remote_cli_nvm_path.md; verified against code 2026-10-06)
 references:
@@ -154,6 +154,29 @@ first turn after a remote resume may count the restored total once. Clients add 
 per turn (spec 12 §4.3), the orchestrator's runner adds a delegated turn's prompted and
 notification turns, `pool/live` reports `sm.cost`. Model Studio reports `None` (Anthropic prices
 applied to DashScope tokens); Qwen, Gemini and Codex report no cost.
+
+## Context size
+
+`ResultMessage.usage` has the same shape of trap as `total_cost_usd`: it is **cumulative over the
+turn's steps** ([cost tracking](https://code.claude.com/docs/en/agent-sdk/cost-tracking)), so
+`input_tokens + cache_read_input_tokens + cache_creation_input_tokens` on it is not the context size
+but roughly *(requests in the turn)* × the context — probe 2026-11-07: 64 988 reported for a
+16 400-token context over a 4-step turn, 49 776 for 16 694 over 3 steps. It pinned the clients'
+context ring to 100 % (spec 12 TOK-1).
+
+Each **`AssistantMessage.usage`** is per request, and its three input fields are exactly what that
+request carried. `_note_step_context()` keeps the last main-loop one (`parent_tool_use_id` lines are
+a subagent's own context; all-zero synthetic usage is an API-error notice) as
+`TurnComplete.context_tokens`, and `_result_context_window()` reads the serving model's real window
+from `ResultMessage.model_usage[model].contextWindow` into `TurnComplete.context_window` (TOK-2),
+which beats the static `(provider, model)` table. `model_usage` also holds the helper models
+(Haiku for titles), hence the lookup by the main loop's model id.
+
+`ClaudeSDKClient.get_context_usage()` is the authoritative cross-check — the data behind the CLI's
+`/context`: `totalTokens`, `maxTokens` (window minus the autocompact buffer), `rawMaxTokens`,
+`percentage`, `model`, `autoCompactThreshold`, plus per-category breakdowns. It is a control request
+(routed by the SDK's reader task, so it is safe to await from the receive loop) and it agreed with
+the per-step numbers exactly in the probe, so Archie does not call it per turn.
 
 ## SDK version
 

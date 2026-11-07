@@ -198,6 +198,8 @@ private fun Draft.onTurnComplete(f: ServerFrame.TurnComplete) {
         )
         val it = f.inputTokens ?: (f.usage?.get("input_tokens") as? JsonPrimitive)?.content?.toLongOrNull()
         if (it != null && it > 0) counters = counters.copy(contextTokens = it)
+        // TOK-2: the harness knows the serving model's window better than the guess at session_started.
+        f.contextWindow?.takeIf { w -> w > 0 }?.let { w -> counters = counters.copy(contextWindow = w) }
         val learned = !f.sessionId.isNullOrEmpty() && ref.sdkId == null
         if (learned) ref = ref.copy(sdkId = f.sessionId)
         if (f.isError == true && !f.result.isNullOrEmpty()) {

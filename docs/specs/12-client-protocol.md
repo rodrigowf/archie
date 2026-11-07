@@ -780,8 +780,9 @@ function reduce(f) {
     if (ref.kind == "agent") {
       counters.cost += f.cost ?? 0            // f.cost = this turn's own cost (USD), never a running total
       counters.turns += f.num_turns ?? 1
-      const it = f.input_tokens ?? f.usage?.input_tokens
+      const it = f.input_tokens ?? f.usage?.input_tokens   // TOK-1: the context size, not the turn's spend
       if (typeof it == "number" && it > 0) counters.contextTokens = it
+      if (typeof f.context_window == "number" && f.context_window > 0) counters.contextWindow = f.context_window  // TOK-2
       if (f.session_id && !ref.sdkId) ref.sdkId = f.session_id
       if (f.is_error && typeof f.result == "string" && f.result != "")
         appendEntry({ kind: "notice", notice: "error", text: f.result, data: { code: "turn_error" } })
@@ -968,6 +969,8 @@ harness:   user_message{source:"task_notification"} → status{processing} → c
 - **TL-1.** `turn_complete` MUST end the turn (`endTurn`) but MUST NOT close the run (I-2). The next run starts only after a non-assistant entry.
 - **TL-2.** A turn is also ended by: `status{interrupted}`, a turn-failure `error`, `session_stopped`, `session_terminated`, and a new `user_message`/`status{processing}` while `inTurn` (the observer of an interrupted turn, G-4) — except `user_message{steered: true}`, which joins the running turn (I-16).
 - **TL-3.** Content arriving while `!inTurn` (observer attached mid-turn, replayed tail, slash-command output) implicitly starts a turn (`ensureAgentTurn`) without a prompt.
+- **TOK-1.** `turn_complete.input_tokens` is the **tokens in the context window right now**, not the turn's input spend: the clients divide it by `counters.contextWindow` for the context ring (§6.4). The backend takes it from the turn's **last main-loop request** (Claude: the last `AssistantMessage.usage`, summing `input_tokens` + `cache_read_input_tokens` + `cache_creation_input_tokens`; Qwen: the last `assistant` line's `usageMetadata.promptTokenCount`), skipping subagent messages, which have a context of their own. A harness's end-of-turn `usage` blob MUST NOT be used for it: Claude's is cumulative over the turn's requests and qwen-code's / gemini-cli's over the whole session, and because every request re-sends the context, such a sum reports ~N× the context and pins the ring at 100 % (it clamps). The raw `usage` blob still travels untouched for spend accounting. The orchestrator follows the same rule: the last tool loop's request, cached prompt tokens included (`orchestrator/agent.py`, `providers/anthropic.py`). Gemini sessions have no per-request count in the stream and still report the session-cumulative number.
+- **TOK-2.** `turn_complete.context_window` is **optional**: when present and positive it replaces `counters.contextWindow` for the rest of the session, because the harness knows which model actually served the turn and what its window is (Claude: `ResultMessage.model_usage[model].contextWindow`). Absent (every harness that doesn't report it, and every older server) means "keep the window `session_started` gave you", which the backend guesses from the configured `(provider, model)` — a guess that goes stale when the harness runs a model we did not predict. A 200 000 denominator under a 1M model is the most common way a context meter pins itself to 100 %, so clients MUST honour this field rather than cache the first window they saw.
 
 #### 4.4.2 Orchestrator text turns
 

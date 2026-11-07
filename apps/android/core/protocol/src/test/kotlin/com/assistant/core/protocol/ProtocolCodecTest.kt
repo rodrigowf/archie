@@ -200,6 +200,9 @@ class ProtocolCodecTest {
         assertEquals("Bash", f.toolName)
         val tc = ProtocolCodec.decodeServer("""{"type":"turn_complete","cost":null,"input_tokens":12.0,"num_turns":"x"}""") as ServerFrame.TurnComplete
         assertNull(tc.cost); assertEquals(12L, tc.inputTokens); assertNull(tc.numTurns)
+        assertNull(tc.contextWindow) // TOK-2: optional, and older servers never send it
+        val win = ProtocolCodec.decodeServer("""{"type":"turn_complete","input_tokens":420000,"context_window":1000000}""") as ServerFrame.TurnComplete
+        assertEquals(1_000_000L, win.contextWindow)
         // a voice_event without an object event is kept whole as Unknown, not dropped silently
         assertTrue(ProtocolCodec.decodeServer("""{"type":"voice_event","event":"x"}""") is ServerFrame.Unknown)
     }

@@ -98,6 +98,7 @@ object ProtocolCodec {
                 usage = o.obj("usage"),
                 inputTokens = o.long("input_tokens"),
                 outputTokens = o.long("output_tokens"),
+                contextWindow = o.long("context_window"),
                 numTurns = o.int("num_turns"),
                 sessionId = o.str("session_id"),
                 isError = o.bool("is_error"),
@@ -254,6 +255,7 @@ object ProtocolCodec {
                 is ServerFrame.TurnComplete -> {
                     put("cost", frame.cost); put("usage", frame.usage)
                     put("input_tokens", frame.inputTokens); put("output_tokens", frame.outputTokens)
+                    put("context_window", frame.contextWindow)
                     put("num_turns", frame.numTurns); put("session_id", frame.sessionId)
                     put("is_error", frame.isError); put("result", frame.result)
                 }

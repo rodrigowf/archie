@@ -97,6 +97,18 @@ class TurnComplete(Event):
     #: end of our turn when the CLI goes on with a turn of its own for
     #: messages steered into it (the user's turn is not over).  Not serialized.
     origin: str | None = None
+    #: How many tokens sit in the context window *right now* — the size of
+    #: the turn's last request, not the turn's token spend.  ``usage`` is
+    #: cumulative over every step (API request) of the turn, so summing its
+    #: input fields counts the whole context once per tool call and blows
+    #: past the window on any long turn.  ``None`` when the harness gives us
+    #: nothing better: the API then falls back to the ``usage`` sum.
+    context_tokens: int | None = None
+    #: The context window of the model that actually served this turn, as the
+    #: harness reports it.  Corrects the (provider, model) guess the API made
+    #: at session start — the most common way a context ring goes wrong in
+    #: the wild is a 200K denominator on a 1M model.  ``None`` = no opinion.
+    context_window: int | None = None
 
     @property
     def prompted(self) -> bool:

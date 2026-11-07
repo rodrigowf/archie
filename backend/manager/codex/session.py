@@ -925,6 +925,10 @@ class CodexSessionManager(BaseSessionManager):
             result = "interrupted"
         else:
             result = self._last_agent_text
+        # ``tokenUsage.last`` is already one request's worth, so the context
+        # size is just its input + cached halves (spec 12 TOK-1); the CLI
+        # also tells us the model's real window (TOK-2).
+        last_input = self._turn_usage.get("input_tokens", 0) + self._turn_usage.get("cache_read_input_tokens", 0)
         out.append(TurnComplete(
             cost=None,
             usage=dict(self._turn_usage),
@@ -932,6 +936,8 @@ class CodexSessionManager(BaseSessionManager):
             session_id=self._thread_id or "",
             is_error=is_error,
             result=result,
+            context_tokens=last_input or None,
+            context_window=self._turn_usage.get("context_window"),
         ))
         self._active_turn_id = None
         self._turn_idle.set()

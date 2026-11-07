@@ -1923,3 +1923,170 @@ class TestSlashCommands:
         compact_events = [e for e in events if isinstance(e, CompactComplete)]
         assert len(compact_events) == 1
         assert compact_events[0].trigger == "auto"
+
+
+class TestContextTokens:
+    """TurnComplete.context_tokens = the context size, not the turn's spend.
+
+    ``ResultMessage.usage`` is cumulative over the turn's requests, so the
+    old ``input + cache_read + cache_creation`` sum reported roughly
+    (number of steps) × context and the UI's context ring pinned to 100 %.
+    """
+
+    @staticmethod
+    def _step(mid: str, read: int, create: int, fresh: int = 2, parent: str | None = None):
+        from claude_agent_sdk import AssistantMessage, TextBlock
+
+        return AssistantMessage(
+            content=[TextBlock(text=f"step {mid}")],
+            model="claude-opus-5-5",
+            parent_tool_use_id=parent,
+            error=None,
+            usage={
+                "input_tokens": fresh,
+                "cache_read_input_tokens": read,
+                "cache_creation_input_tokens": create,
+                "output_tokens": 100,
+            },
+            message_id=mid,
+        )
+
+    @pytest.mark.asyncio
+    async def test_last_step_wins_over_cumulative_usage(self):
+        """A 3-step turn reports the last step's context, not the sum."""
+        from claude_agent_sdk import SystemMessage
+
+        init_msg = SystemMessage(subtype="init", data={"session_id": "s1"})
+        steps = [
+            self._step("m1", read=0, create=16_092),      # ctx 16_094
+            self._step("m2", read=16_092, create=102),    # ctx 16_196
+            self._step("m3", read=16_194, create=102),    # ctx 16_298
+        ]
+        # What the CLI puts on the result: every step's input added up.
+        result = _mock_result(session_id="s1")
+        result.usage = {
+            "input_tokens": 6,
+            "cache_read_input_tokens": 32_286,
+            "cache_creation_input_tokens": 16_296,
+            "output_tokens": 300,
+        }
+
+        async def fake_response():
+            for s in steps:
+                yield s
+            yield result
+
+        client = _make_mock_client([init_msg], fake_response)
+
+        with patch("manager.claude.session.ClaudeSDKClient", return_value=client):
+            sm = SessionManager()
+            await sm.start()
+            events = [e async for e in sm.send("do three things")]
+
+        done = [e for e in events if isinstance(e, TurnComplete)]
+        assert len(done) == 1
+        assert done[0].context_tokens == 16_298  # not 48_588, the cumulative sum
+
+    @pytest.mark.asyncio
+    async def test_subagent_steps_and_synthetic_messages_ignored(self):
+        """A subagent's own context and all-zero synthetic usage never count."""
+        from claude_agent_sdk import SystemMessage
+
+        init_msg = SystemMessage(subtype="init", data={"session_id": "s1"})
+        steps = [
+            self._step("m1", read=0, create=9_000),                    # ctx 9_002
+            self._step("sub", read=500_000, create=0, parent="toolu_1"),  # subagent
+            self._step("m2", read=9_000, create=50),                   # ctx 9_052
+            self._step("syn", read=0, create=0, fresh=0),              # synthetic
+        ]
+        result = _mock_result(session_id="s1")
+
+        async def fake_response():
+            for s in steps:
+                yield s
+            yield result
+
+        client = _make_mock_client([init_msg], fake_response)
+
+        with patch("manager.claude.session.ClaudeSDKClient", return_value=client):
+            sm = SessionManager()
+            await sm.start()
+            events = [e async for e in sm.send("spawn an agent")]
+
+        done = [e for e in events if isinstance(e, TurnComplete)]
+        assert done[0].context_tokens == 9_052
+
+    @pytest.mark.asyncio
+    async def test_context_window_comes_from_the_serving_models_entry(self):
+        """TOK-2: the CLI states the real window; a subagent's does not count."""
+        from claude_agent_sdk import SystemMessage
+
+        init_msg = SystemMessage(subtype="init", data={"session_id": "s1"})
+        result = _mock_result(session_id="s1")
+        result.model_usage = {
+            "claude-haiku-4-5-20251001": {"contextWindow": 200_000},  # a subagent's model
+            "claude-opus-5-5": {"contextWindow": 1_000_000},
+        }
+
+        async def fake_response():
+            yield self._step("m1", read=0, create=9_000)
+            yield result
+
+        client = _make_mock_client([init_msg], fake_response)
+
+        with patch("manager.claude.session.ClaudeSDKClient", return_value=client):
+            sm = SessionManager()
+            await sm.start()
+            events = [e async for e in sm.send("hi")]
+
+        assert [e for e in events if isinstance(e, TurnComplete)][0].context_window == 1_000_000
+
+    @pytest.mark.asyncio
+    async def test_context_window_absent_when_the_model_is_unknown(self):
+        """No opinion beats a wrong one: the client keeps session_started's."""
+        from claude_agent_sdk import SystemMessage
+
+        init_msg = SystemMessage(subtype="init", data={"session_id": "s1"})
+        result = _mock_result(session_id="s1")
+        result.model_usage = {"some-other-model": {"contextWindow": 200_000}}
+
+        async def fake_response():
+            yield self._step("m1", read=0, create=9_000)
+            yield result
+
+        client = _make_mock_client([init_msg], fake_response)
+
+        with patch("manager.claude.session.ClaudeSDKClient", return_value=client):
+            sm = SessionManager()
+            await sm.start()
+            events = [e async for e in sm.send("hi")]
+
+        assert [e for e in events if isinstance(e, TurnComplete)][0].context_window is None
+
+    @pytest.mark.asyncio
+    async def test_value_survives_a_turn_that_reports_nothing(self):
+        """A turn with no usable usage keeps the last known context size."""
+        from claude_agent_sdk import SystemMessage
+
+        init_msg = SystemMessage(subtype="init", data={"session_id": "s1"})
+        turns = [[self._step("m1", read=0, create=12_000)], []]
+
+        def next_turn():
+            batch = turns.pop(0) if turns else []
+
+            async def gen():
+                for s in batch:
+                    yield s
+                yield _mock_result(session_id="s1")
+            return gen()
+
+        client = _make_mock_client([init_msg], next_turn)
+
+        with patch("manager.claude.session.ClaudeSDKClient", return_value=client):
+            sm = SessionManager()
+            await sm.start()
+            first = [e async for e in sm.send("one")]
+            second = [e async for e in sm.send("two")]
+
+        assert [e for e in first if isinstance(e, TurnComplete)][0].context_tokens == 12_002
+        assert [e for e in second if isinstance(e, TurnComplete)][0].context_tokens == 12_002

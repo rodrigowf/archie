@@ -3,7 +3,7 @@ name: troubleshooting
 category: archie/operations
 tags: [troubleshooting, incidents, symptoms, fixes, jetson, deploy, context-sync, ssh, voice, android, search]
 created: 2026-04-20
-modified: 2026-10-27
+modified: 2026-11-07
 summary: Symptom → cause → fix table for every known Archie incident, each linked to the doc with the detail.
 source: curated (consolidated from all feedback_* and reference_* auto-memory notes, project_jetson_crash_2026_04_20.md, project_context_sync_delete_gating.md, project_indexer_full_reembed_fix_2026_06_17.md, project_voice_ghost_state_fix_2026_06_30.md (index line), project_qwen_voice_gate_no_staleness_clear.md (index line), assistant/infrastructure/server_hub_project.md, assistant/utilities/*.md, projects/video-editing/large_assets_outside_context.md; verified against code 2026-10-06)
 references:
@@ -123,6 +123,7 @@ matches, start from [debugging.md](debugging.md) and capture real logs first.
 | `Skill(<name>)` → "Unknown skill" for a project skill | Project skills under `context/skills/` don't always register | Read `context/skills/<name>/SKILL.md` and follow it; delegate with the path | [working-rules.md](working-rules.md#before-acting), [skills.md](../integrations/skills.md) |
 | `flock` doesn't serialize builds after a reboot | `/tmp/archie-locks/*.lock` gone | `mkdir -p /tmp/archie-locks && touch …/{gradle,npm,testenv}.lock` | [working-rules.md](working-rules.md#git-and-parallel-work) |
 | Agent session closes by itself mid-turn (often right after reading an image); its background subagents die with it; journal shows `JSON message exceeded maximum buffer size of 1048576 bytes` then `Dead-session reaper: closing … subprocess_crashed` | One stream-json line from the CLI over the SDK's 1 MiB default — an image `Read` carries its base64 twice, so a ~450 KB JPEG is a 1.2 MB line | Fixed 2026-10-15: `_MAX_BUFFER_SIZE` (64 MiB) in `backend/manager/claude/session.py`; reopen the conversation from History | — |
+| The composer's context ring reads 100 % (or any number far too high), and the longer a turn's tool use the worse it is | The backend derived `turn_complete.input_tokens` from the harness's end-of-turn `usage`, which is **cumulative over the turn's requests** (Claude) or the whole session (qwen-code / gemini-cli); every request re-sends the context, so the sum is ~N× the real context and the ring clamps at 100 % | Fixed 2026-11-07: the context size now comes from the turn's last main-loop request (spec 12 TOK-1). Gemini sessions still report the cumulative number. Cross-check a live session with `get_context_usage()` (the CLI's own `/context`) | [agent-sessions.md](../architecture/agent-sessions.md#context-window-accounting-tok-1) |
 | Parallel subagents all stop mid-work | API usage limit (six agents, 2026-10-03) | ≤ 4 long agents; resume with `SendMessage` | [working-rules.md](working-rules.md#git-and-parallel-work) |
 | Laptop disk at 98–100 % | AVD userdata + Gradle build outputs | Delete AVD overlays, `gradle clean` finished modules | [working-rules.md](working-rules.md#git-and-parallel-work) |
 | Local server dies when the tool's shell exits | Not detached | `setsid … > logs/… 2>&1 &` | [working-rules.md](working-rules.md#processes-and-services) |

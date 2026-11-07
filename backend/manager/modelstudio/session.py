@@ -117,6 +117,18 @@ class ModelStudioSessionManager(ClaudeSessionManager):
     def provider_name(self) -> str:
         return PROVIDER
 
+    def _result_context_window(self, msg: object) -> int | None:
+        """No TOK-2 here: the CLI's window for a DashScope model is a guess.
+
+        `model_context_window()` is the authoritative number for these models
+        (and this manager already hands it to the CLI as
+        ``CLAUDE_CODE_MAX_CONTEXT_TOKENS``), so letting
+        ``model_usage[...].contextWindow`` overwrite it could only make the
+        ring's denominator worse.  The per-request `context_tokens` (TOK-1)
+        are real token counts and still apply.
+        """
+        return None
+
     # ── start ──────────────────────────────────────────────────────────
 
     async def _pre_start_check(self) -> None:

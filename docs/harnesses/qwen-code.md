@@ -3,7 +3,7 @@ name: qwen-code
 category: archie/harnesses
 tags: [qwen, qwen-code, harness, jsonl, stream-json, dashscope, spawn-per-turn, models, lazy-loading, catalog, harness-options, auto-memory]
 created: 2026-05-15
-modified: 2026-10-12
+modified: 2026-11-07
 summary: The Qwen Code harness (qwen-code 0.25.0) — spawn-per-turn qwen CLI, per-run system settings file, ~/.qwen symlinks into context/, JSONL normalization, model catalog + options, the auto-memory landmine.
 source: curated (consolidated from memory notes assistant/providers/qwen_code_adaptation.md, assistant/providers/provider_generalization.md; verified against code 2026-10-06)
 references:
@@ -126,7 +126,7 @@ Qwen's stdout is Anthropic-shaped, and `_translate_event()` maps it:
 | `system` `subtype: compact` | `CompactComplete` |
 | `stream_event` `content_block_delta` `text_delta` / `thinking_delta` | `TextDelta` / `ThinkingDelta` |
 | `stream_event` `content_block_stop` | `TextComplete` / `ThinkingComplete` |
-| `assistant` (complete message) | `ToolUse` for each `tool_use` block |
+| `assistant` (complete message) | `ToolUse` for each `tool_use` block; main-loop lines also record `usageMetadata.promptTokenCount` as the context size (spec 12 TOK-1) — the `result` line's `usage` is qwen-code's session-cumulative telemetry and cannot serve that |
 | `user` with `tool_result` blocks | `ToolResult` |
 | `result` | `TurnComplete` (`cost=None` — Qwen reports no cost; `session_id`, usage). On `is_error` with no `result` text, `error.message` (API errors, loop detection, `--max-wall-time`/tool-call budgets) — else the `subtype` — becomes `TurnComplete.result`. A failed subagent's parentless error `result` is **not** a turn end ([Subagents](#subagents)) |
 | any line with `parent_tool_use_id` | the same mapping, wrapped in `SubagentEvent` ([Subagents](#subagents)) |

@@ -3,7 +3,7 @@ name: gemini-cli
 category: archie/harnesses
 tags: [gemini, gemini-cli, harness, jsonl, stream-json, skip-trust, glob-resolver, spawn-per-turn, api-key, workspace-settings, catalog, thinking]
 created: 2026-05-15
-modified: 2026-10-12
+modified: 2026-11-07
 summary: The Gemini CLI harness (pinned 0.63.0) — spawn-per-turn gemini --prompt, API-key-only auth since the oauth-personal shutdown, env-templated workspace settings, catalog + options, JSONL log semantics, landmines.
 source: curated (consolidated from memory notes assistant/providers/gemini_cli_adaptation.md, assistant/providers/provider_generalization.md; upgraded to CLI 0.63.0 and verified live 2026-10-07)
 references:
@@ -295,6 +295,13 @@ that replays to exactly the earlier turns. Detection: a header with `sessionId` 
 | `tool_result` | `tool_id`, `status`, `output` (display text, also on errors since 0.63 — **only when the tool's display is a string**), `error.message` | `ToolResult` (`is_error` when `status == "error"`); for `invoke_agent` see [Subagents](#subagents) |
 | `error` | `severity` `warning` (loop detected, blocked tool) or `error` (quota, invalid stream), `message` | logged; an error's message becomes the turn's error text if the turn fails |
 | `result` | `status`, `error?{type, message}`, `stats {input_tokens, output_tokens, total_tokens, cached, models{…}}` | `TurnComplete` with usage (`cached` → `cache_read_input_tokens`); `status: "error"` → `is_error` + message |
+
+`stats` is `convertToStreamStats(SessionMetrics)` — the CLI's **session-cumulative** telemetry, summed
+over every request it has made, not the last one. So a Gemini session is the one harness that still
+feeds the clients' context ring an accumulating number instead of the current context size (spec 12
+TOK-1): it over-reads and eventually pins at 100 %. Nothing in the stream carries a per-request
+prompt count to fix it with — the `message` events have no usage — so fixing it needs either a new
+field upstream or a `/context`-style query the CLI does not expose.
 
 A run that ends without a `result` never ends silently: exit ≠ 0 → `TurnComplete(is_error=True)`
 whose `result` is the error event's message or the last useful stderr lines (an

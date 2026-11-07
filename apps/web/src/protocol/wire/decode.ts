@@ -57,6 +57,7 @@ const SCHEMAS: Readonly<Record<ServerFrameType, Schema>> = {
     usage: OPT_OBJ,
     input_tokens: OPT_NUM,
     output_tokens: OPT_NUM,
+    context_window: OPT_NUM,
     num_turns: OPT_NUM,
     session_id: OPT_STR,
     is_error: OPT_BOOL,

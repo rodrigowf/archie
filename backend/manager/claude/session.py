@@ -395,6 +395,14 @@ class ClaudeSessionManager(BaseSessionManager):
         # to None after a successful clean exit lets stop() distinguish
         # "process already gone" from "we should kill it".
         self._subprocess_pid: int | None = None
+        # Tokens in the context window as of the last main-loop request —
+        # see ``_note_step_context``.  Survives across turns: the ring keeps
+        # showing the last number we knew while the next turn runs.
+        self._context_tokens: int | None = None
+        # The model that served the last main-loop request — the key into
+        # ``ResultMessage.model_usage``, where the CLI states that model's
+        # real context window.
+        self._context_model: str | None = None
         # Override base class defaults with Claude's gated-tool set.
         self._gated_tools = set(_DEFAULT_GATED_TOOLS)
         # Persistent SDK receive loop — owns ``client.receive_messages()``
@@ -1740,6 +1748,8 @@ class ClaudeSessionManager(BaseSessionManager):
 
         elif isinstance(msg, AssistantMessage):
             parent = getattr(msg, "parent_tool_use_id", None)
+            if not parent:
+                self._note_step_context(getattr(msg, "usage", None), getattr(msg, "model", None))
             for block in msg.content:
                 out: Event | None = None
                 if isinstance(block, TextBlock):
@@ -1905,6 +1915,8 @@ class ClaudeSessionManager(BaseSessionManager):
                         cost=turn_cost, usage=msg.usage or {}, num_turns=num_turns,
                         session_id=msg.session_id, is_error=msg.is_error,
                         result=msg.result, origin=origin_out,
+                        context_tokens=self._context_tokens,
+                        context_window=self._result_context_window(msg),
                     )
                     return
             yield TurnComplete(
@@ -1915,7 +1927,67 @@ class ClaudeSessionManager(BaseSessionManager):
                 is_error=msg.is_error,
                 result=msg.result,
                 origin=origin_out,
+                context_tokens=self._context_tokens,
+                context_window=self._result_context_window(msg),
             )
+
+    # ------------------------------------------------------------------
+    # Context window accounting
+    # ------------------------------------------------------------------
+
+    def _note_step_context(self, usage: object, model: object = None) -> None:
+        """Record the context size of one main-loop request (one "step").
+
+        Every assistant message carries the ``usage`` of the API request that
+        produced it, and its three input fields add up to exactly what was in
+        the context window for that request.  The last step of a turn is
+        therefore the current context size — which is what the UI's context
+        ring wants.
+
+        ``ResultMessage.usage`` cannot answer this: it is *cumulative over
+        the turn* (documented at code.claude.com/docs/en/agent-sdk/
+        cost-tracking), so a turn with N requests reports roughly N times the
+        context.  A long turn overshot a 1M window and the ring pinned itself
+        to 100 % (it clamps).  Subagent messages carry
+        ``parent_tool_use_id`` and have a context of their own, so the caller
+        filters them out.
+        """
+        if not isinstance(usage, dict):
+            return
+        total = 0
+        for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"):
+            value = usage.get(key)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                continue
+            total += int(value)
+        # Synthetic messages (API errors, the "OAuth expired" notice) report
+        # all-zero usage; keep the last real number instead of dropping to 0.
+        if total > 0:
+            self._context_tokens = total
+            if isinstance(model, str) and model and not model.startswith("<"):
+                self._context_model = model  # "<synthetic>" is not a model
+
+    def _result_context_window(self, msg: object) -> int | None:
+        """The real context window of the model that served this turn.
+
+        ``ResultMessage.model_usage`` is keyed by model id and each entry
+        states that model's ``contextWindow``.  Preferring it over the
+        static ``(provider, model)`` table in ``manager/context_windows.py``
+        keeps the ring's denominator right when the CLI runs a model we did
+        not predict — a 200K denominator under a 1M model is the most
+        reported way a context meter pins itself to 100 %.  Subagent models
+        are in the same map, so we look up the main loop's model by name.
+        """
+        usage = getattr(msg, "model_usage", None)
+        if not isinstance(usage, dict) or not self._context_model:
+            return None
+        entry = usage.get(self._context_model)
+        if not isinstance(entry, dict):
+            return None
+        window = entry.get("contextWindow")
+        if isinstance(window, bool) or not isinstance(window, (int, float)) or window <= 0:
+            return None
+        return int(window)
 
     # ------------------------------------------------------------------
     # Subagents (spec 12 §4.8)

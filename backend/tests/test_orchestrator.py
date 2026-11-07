@@ -639,6 +639,31 @@ class TestAnthropicProvider:
         assert len(turn_completes) == 1
 
     @pytest.mark.asyncio
+    async def test_input_tokens_include_the_cached_context(self):
+        """With caching on, ``input_tokens`` alone is a rounding error.
+
+        The cached prompt is still in the context window, so the context
+        ring needs all three input fields.
+        """
+        from types import SimpleNamespace
+
+        events = _build_mock_text_stream("Hi")
+        events[0].message.usage = SimpleNamespace(
+            input_tokens=12,
+            cache_read_input_tokens=84_000,
+            cache_creation_input_tokens=1_500,
+        )
+        provider = self._make_provider(_MockAsyncContextStream(events))
+
+        turns = [
+            e async for e in provider.create_message(
+                messages=[{"role": "user", "content": "Hi"}], tools=[], system="s",
+            )
+            if isinstance(e, TurnComplete)
+        ]
+        assert turns[0].input_tokens == 85_512
+
+    @pytest.mark.asyncio
     async def test_streaming_tool_use(self):
         """Test that tool use events are accumulated and yielded."""
         events = _build_mock_tool_stream("my_tool", {"arg": "val"})
@@ -1058,6 +1083,43 @@ class TestOrchestratorAgent:
         assert len(tool_results) == 1
         assert "HELLO" in tool_results[0].output
         assert len(text_completes) == 1
+
+    @pytest.mark.asyncio
+    async def test_input_tokens_is_the_last_loops_context_not_the_sum(self):
+        """Every tool loop re-sends the whole conversation.
+
+        Summing each loop's input counted the context once per tool call,
+        so the clients' context ring (input_tokens / context_window) pinned
+        itself to 100 % on any turn with a few tools. The last loop's
+        request is the context size; output tokens stay additive.
+        """
+        from orchestrator.agent import OrchestratorAgent
+        from orchestrator.config import OrchestratorConfig
+
+        config = OrchestratorConfig(project_dir="/tmp/test", memory_path="/tmp/nonexistent")
+        reg = ToolRegistry()
+
+        @reg.register(
+            name="noop",
+            description="Test",
+            input_schema={"type": "object", "properties": {}},
+        )
+        async def noop(context):
+            return "ok"
+
+        provider = _MockProvider([
+            [ToolUseStart(tool_call_id="tc1", tool_name="noop", tool_input={}), TurnComplete(input_tokens=30_000, output_tokens=5)],
+            [ToolUseStart(tool_call_id="tc2", tool_name="noop", tool_input={}), TurnComplete(input_tokens=31_000, output_tokens=5)],
+            [TextComplete(text="done"), TurnComplete(input_tokens=32_000, output_tokens=8)],
+        ])
+
+        agent = OrchestratorAgent(config, reg, provider, context={"orchestrator_sessions": {}})
+        collected = [e async for e in agent.run("Use the tool twice")]
+
+        turns = [e for e in collected if isinstance(e, TurnComplete)]
+        assert len(turns) == 1
+        assert turns[0].input_tokens == 32_000   # not 93_000
+        assert turns[0].output_tokens == 18      # spend really is cumulative
 
 
 # ---------------------------------------------------------------------------

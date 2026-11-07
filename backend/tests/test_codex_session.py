@@ -111,6 +111,10 @@ async def test_streaming_text_and_reasoning(fake_codex, tmp_path):
     assert done.result == "Hello there friend"
     assert done.usage["input_tokens"] == 40 and done.usage["cache_read_input_tokens"] == 60
     assert done.usage["output_tokens"] == 20
+    # TOK-1: `tokenUsage.last` is one request, so its input halves are the context size.
+    # TOK-2: and the CLI states the model's real window, so the ring's denominator is exact.
+    assert done.context_tokens == 100
+    assert done.context_window == 258_400
     # Default reasoning summary is sent so the UI gets thinking.
     turn = _req(fake_codex, "turn/start")[0]
     assert turn["summary"] == "concise"

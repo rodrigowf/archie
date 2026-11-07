@@ -3,7 +3,7 @@ name: codex-cli
 category: archie/harnesses
 tags: [codex, codex-cli, openai, harness, app-server, json-rpc, rollout, persistent-process]
 created: 2026-10-07
-modified: 2026-10-12
+modified: 2026-11-07
 summary: The OpenAI Codex harness — one persistent `codex app-server` per session (JSON-RPC over stdio), CODEX_HOME choice, rollout storage and adapter, catalog/options, landmines.
 source: curated (implemented and verified against Codex CLI 0.161.0 on 2026-10-07)
 references:
@@ -88,7 +88,7 @@ interrupted first so its `turn/completed` cannot end the new turn.
 | `item/started` tool-like item | `ToolUse` |
 | `item/completed` tool-like item | `ToolUse` (if not started) + `ToolResult` |
 | `turn/plan/updated` | `ToolUse("TodoWrite", {todos})` + `ToolResult` |
-| `thread/tokenUsage/updated` | stashed → `TurnComplete.usage` (`last`; `cachedInputTokens` → `cache_read_input_tokens`, `input_tokens` excludes cached) |
+| `thread/tokenUsage/updated` | stashed → `TurnComplete.usage` (`last`; `cachedInputTokens` → `cache_read_input_tokens`, `input_tokens` excludes cached). `last` is one request, so its two input halves are the context size (`context_tokens`, spec 12 TOK-1) and `modelContextWindow` is the ring's denominator (`context_window`, TOK-2) — Codex is the one harness that reports both outright |
 | `error` (`willRetry: false`) | stashed; shown on a failed turn |
 | `thread/compacted` / `contextCompaction` item | `CompactComplete("auto")` (once per turn) |
 | `turn/completed` | open texts → `TextComplete`, open tools → error `ToolResult`, then `TurnComplete(cost=None, num_turns=1, session_id=thread, is_error=status=="failed", result=last answer / "interrupted" / error)`; a failed turn also emits `Codex error: …` as text |

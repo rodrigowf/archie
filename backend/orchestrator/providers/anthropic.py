@@ -20,6 +20,27 @@ from orchestrator.types import (
 
 logger = logging.getLogger(__name__)
 
+#: The three input fields of a Messages API ``usage``.  Together they are
+#: everything the request carried in its context window — with prompt
+#: caching on, ``input_tokens`` alone is a handful of fresh tokens and the
+#: context is almost entirely ``cache_read_input_tokens``.
+_INPUT_TOKEN_FIELDS = (
+    "input_tokens",
+    "cache_read_input_tokens",
+    "cache_creation_input_tokens",
+)
+
+
+def _context_tokens(usage: object) -> int:
+    """Tokens in the context window for the request that reported ``usage``."""
+    total = 0
+    for name in _INPUT_TOKEN_FIELDS:
+        value = getattr(usage, name, 0)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue  # absent, None, or a test double
+        total += int(value)
+    return total
+
 
 class AnthropicProvider:
     """Model provider using the Anthropic Messages API with streaming.
@@ -68,7 +89,7 @@ class AnthropicProvider:
                     if event_type == "message_start":
                         usage = getattr(event.message, "usage", None)
                         if usage:
-                            input_tokens = getattr(usage, "input_tokens", 0)
+                            input_tokens = _context_tokens(usage)
 
                     elif event_type == "content_block_start":
                         block = event.content_block

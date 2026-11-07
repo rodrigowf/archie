@@ -1218,11 +1218,12 @@ class Machine extends Draft {
           const c = this.s.counters;
           const usageIn = isPlainObject(f.usage) ? f.usage.input_tokens : undefined;
           const it = typeof f.input_tokens === 'number' ? f.input_tokens : usageIn;
+          const cw = f.context_window; // TOK-2: the harness knows the serving model's window
           this.s.counters = {
             cost: c.cost + (f.cost ?? 0),
             turns: c.turns + (f.num_turns ?? 1),
             contextTokens: typeof it === 'number' && it > 0 ? it : c.contextTokens,
-            contextWindow: c.contextWindow,
+            contextWindow: typeof cw === 'number' && cw > 0 ? cw : c.contextWindow,
           };
           const learned = !!f.session_id && !ref.sdkId;
           if (learned) this.s.ref = { ...ref, sdkId: f.session_id as string };

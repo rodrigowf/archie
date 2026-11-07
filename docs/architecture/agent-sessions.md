@@ -3,7 +3,7 @@ name: agent-sessions
 category: archie/architecture
 tags: [agent-sessions, session-pool, session-manager, claude-agent-sdk, local-id, lifecycle, permissions, stall-watchdog, session-config, resume]
 created: 2026-02-23
-modified: 2026-11-05
+modified: 2026-11-07
 summary: How agent (chat) sessions run — SessionPool, session managers, dual IDs, out-of-turn events and subagents, lifecycle hardening, permissions, stall watchdog, per-session config.
 source: curated (consolidated from memory notes assistant/architecture/project-overview.md, assistant/architecture/permissions_branch_architecture.md, assistant/architecture/orchestrator-vision.md, auto-memory project_session_config.md, project_sdk_upgrade_path_2026_06_18.md, feedback_diagnose_via_direct_ws_probe.md; verified against code 2026-10-06)
 references:
@@ -351,6 +351,53 @@ waiting (hourglass) while the session still streams. Stall notices are synthetic
 
 Distinct from a stall: **zero messages for 240 s** raises `SessionAbandoned` (a `TurnAbandoned`),
 handled by the retry-once logic in the pool and in the orchestrator's runner.
+
+## Context window accounting (TOK-1)
+
+The clients' context ring (spec 12 §6.4) is `turn_complete.input_tokens / counters.contextWindow`,
+so `input_tokens` has to be **the tokens in the context right now** — not the turn's input spend.
+The two are very different numbers, because every request in a turn re-sends the whole
+conversation:
+
+- A harness's **end-of-turn `usage`** is a spend total. The Claude SDK's `ResultMessage.usage`
+  accumulates over the turn's steps ([cost
+  tracking](https://code.claude.com/docs/en/agent-sdk/cost-tracking)); qwen-code's and gemini-cli's
+  `result.stats` accumulate over the whole session. Summing their input fields reports roughly
+  *(number of requests)* × the context — measured 64 988 for a 16 400-token context on a 4-step
+  turn — so the ring pinned itself to 100 % (it clamps at 100) on any turn with a handful of tool
+  calls, and read about right only on a single-step turn. That was the pre-2026-11-07 behaviour.
+- A **single request's usage** is the context size. Claude: each `AssistantMessage.usage` describes
+  the request that produced it, and `input_tokens + cache_read_input_tokens +
+  cache_creation_input_tokens` is exactly what that request carried (with caching on, `input_tokens`
+  alone is single digits). Qwen: each `assistant` line's `usageMetadata.promptTokenCount`.
+
+So each manager keeps `_context_tokens` — the last **main-loop** request of the turn, ignoring
+messages with a `parent_tool_use_id` (a subagent has a context of its own) and all-zero synthetic
+usage (API-error notices) — and puts it on `TurnComplete.context_tokens`. `serialize_event` sends
+that as `input_tokens`, falling back to the `usage` sum for harnesses that don't set it; the raw
+`usage` blob travels untouched for spend accounting. Codex needs no reconstruction — its
+`thread/tokenUsage/updated` already describes one request (`tokenUsage.last`) and names the model's
+window. Gemini has no per-request count in its stream and still reports the session-cumulative
+number — its ring over-reads.
+
+The ring's **denominator** is the other half, and the more commonly reported one in the wild: a 200K
+window assumed under a 1M model pins any meter to 100 %. `session_started.context_window` is a guess
+from the configured `(provider, model)` (`manager/context_windows.py`), so each turn now also carries
+`TurnComplete.context_window` when the harness knows better — Claude's
+`ResultMessage.model_usage[model].contextWindow`, Codex's `modelContextWindow` — and the clients
+adopt it (spec 12 **TOK-2**). Absent means "keep what you have", so older servers and the harnesses
+that don't report it behave exactly as before.
+
+The orchestrator had the same defect twice over: `OrchestratorAgent.run()` summed each tool loop's
+input, and `AnthropicProvider` counted only uncached `input_tokens`. It now reports the last loop's
+request with its cached prompt included; output tokens stay additive (they are a real total).
+
+For a ground-truth cross-check on a live Claude session, `ClaudeSDKClient.get_context_usage()`
+returns what the CLI's `/context` shows — `totalTokens`, `rawMaxTokens`, `percentage`, the model and
+`autoCompactThreshold`. Archie does not call it on the hot path (the per-step numbers are free and
+agree with it exactly), but it is the thing to compare against when the ring looks wrong again, and
+its `rawMaxTokens` (or the result's `model_usage[model].contextWindow`) is a more authoritative
+denominator than `manager/context_windows.py`'s static table if that ever drifts.
 
 ## Loop watchdog
 
