@@ -18,7 +18,7 @@ export function isSubagentTool(name: string): boolean {
 
 /** The fields an upsert may carry (spec `upsertSubagent`: null / undefined are skipped). */
 export type SubagentPatch = {
-  -readonly [K in Exclude<keyof Subagent, 'tool_use_id' | 'conv' | 'held' | 'loadError'>]?: Subagent[K] | null;
+  -readonly [K in Exclude<keyof Subagent, 'tool_use_id' | 'conv' | 'held' | 'loadError' | 'localStop'>]?: Subagent[K] | null;
 };
 
 /** `blankSubagent(id)`: status `running`, everything else empty. */
@@ -38,6 +38,7 @@ export function blankSubagent(id: string): Subagent {
     conv: null,
     held: null,
     lifecycle: false,
+    localStop: false,
     loadError: null,
   };
 }

@@ -1351,9 +1351,11 @@ class Machine extends Draft {
           started_at: nonEmpty(f.started_at),
           lifecycle: true,
         });
+        this.clearSubagentGuess(f.tool_use_id); // SA-3
         return;
       case 'subagent_progress':
         if (ref.kind !== 'agent') return;
+        this.subagentAlive(f.tool_use_id); // SA-3: proof of life
         this.upsertSubagent(f.tool_use_id, { activity: nonEmpty(f.activity), usage: usageOf(f.usage) });
         return;
       case 'subagent_finished': {
@@ -1365,11 +1367,13 @@ class Machine extends Draft {
           ended_at: nonEmpty(f.ended_at),
           lifecycle: true,
         });
+        this.clearSubagentGuess(f.tool_use_id); // SA-3
         if (sub) this.endSubagentTurn(sub.tool_use_id);
         return;
       }
       case 'subagent_event':
         if (ref.kind !== 'agent') return;
+        this.subagentAlive(f.tool_use_id); // SA-3: proof of life
         return this.onSubagentEvent(f.tool_use_id, f.frame);
       case 'nested_session_event':
         return this.onNestedEvent(f.session_id, f.event_type, f.event_data);
@@ -1726,9 +1730,29 @@ class Machine extends Draft {
       if (p[k] === '') p[k] = undefined; // D6
     // SA-3: terminal statuses stick; a row computed before a live subagent_finished may arrive after it
     const cur = this.subAt(r.id);
-    // (a status that only the spawn card set — no lifecycle frame or row yet, SA-2 — is not authoritative: a row corrects it)
-    if (cur && cur.lifecycle && cur.status !== 'running' && p.status === 'running') p.status = undefined;
+    // (a status that only the spawn card set — no lifecycle frame or row yet, SA-2 — is not authoritative: a row
+    // corrects it; neither is one this client guessed when the session left (localStop), which is the whole point:
+    // the session is back and the row is the server telling us the agent kept working)
+    if (cur && cur.lifecycle && !cur.localStop && cur.status !== 'running' && p.status === 'running') p.status = undefined;
     this.upsertSubagent(r.id, p);
+    if (p.status) this.clearSubagentGuess(r.id); // the server put a status on record
+  }
+
+  /** SA-3 `clearGuess`: the server reported a status, so this client's own stop guess is void. */
+  private clearSubagentGuess(id: string): void {
+    const sub = this.subAt(id);
+    if (sub && sub.localStop) this.patchSub(id, { localStop: false });
+  }
+
+  /**
+   * SA-3 `alive`: a live frame for a subagent this client wrote off (the stop sweep) proves it is
+   * running — the backend sends those only while it considers it running. A terminal status the
+   * *server* reported is left alone: only `subagent_started` undoes one.
+   */
+  private subagentAlive(id: string): void {
+    const sub = this.subAt(id);
+    if (!sub || !sub.localStop) return;
+    this.patchSub(id, { status: 'running', ended_at: null, localStop: false });
   }
 
   /** SA-2: a Task-like spawn card was created (live or history). Agent sessions only. */
@@ -1747,9 +1771,16 @@ class Machine extends Draft {
     if (status) this.upsertSubagent(tb.tool_use_id, { status, summary: tb.output });
   }
 
-  /** SA-3: the session stopped or terminated; every running subagent stopped with it. */
+  /**
+   * SA-3: the session stopped or terminated; every running subagent stopped with it — a *guess*
+   * (`localStop`), inferred from the session leaving, which any later word from the server undoes.
+   */
   private stopRunningSubagents(): void {
-    for (const x of this.s.subagents) if (x.status === 'running') this.upsertSubagent(x.tool_use_id, { status: 'stopped' });
+    for (const x of this.s.subagents) {
+      if (x.status !== 'running') continue;
+      this.upsertSubagent(x.tool_use_id, { status: 'stopped' });
+      this.patchSub(x.tool_use_id, { localStop: true });
+    }
   }
 
   /** SA-4: `subagent_finished` ends the open transcript's turn (or after its first page, while it loads). */

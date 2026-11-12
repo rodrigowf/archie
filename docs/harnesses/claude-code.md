@@ -3,7 +3,7 @@ name: claude-code
 category: archie/harnesses
 tags: [claude-code, claude-agent-sdk, harness, claude-config-dir, jsonl, skills, auth, oauth, chrome, sdk-upgrade, harness-catalog, effort, thinking]
 created: 2026-05-15
-modified: 2026-11-07
+modified: 2026-11-12
 summary: The Claude Code harness — ClaudeSessionManager over claude-agent-sdk, .claude_config layout, JSONL, SDK pin (0.2.164), subagents (routing, Task* lifecycle, notification turns, history files), config catalog + options, auth, Chrome flag.
 source: curated (consolidated from memory notes assistant/providers/provider_generalization.md, assistant/providers/qwen_code_adaptation.md, assistant/utilities/project_skills_not_registered.md, auto-memory project_sdk_upgrade_path_2026_06_18.md, feedback_verify_auth_under_backend_config_dir.md, feedback_jetson_oauth_token_expiry.md, feedback_ssh_remote_cli_nvm_path.md; verified against code 2026-10-06)
 references:
@@ -272,7 +272,7 @@ Contract: [spec 12 §4.8](../specs/12-client-protocol.md#48-subagents-sa-); desi
 | Message with `parent_tool_use_id` | `SubagentEvent(tool_use_id=<parent>, event=<the usual TextComplete / ThinkingComplete / ToolUse / ToolResult / deltas>)`; never touches `status` |
 | `Agent`/`Task` tool_use (main or nested) | the usual `ToolUse`; the registry records the spawn (type, description, `run_in_background`, parent = the message's `parent_tool_use_id`) |
 | `task_started` (`local_agent`) | `SubagentStarted` (`background` = `run_in_background` or `is_backgrounded`); task id ↔ tool_use id mapped. For an agent that already finished (the CLI woke it, above): `SubagentStarted` again — the registry reopens it (`start(reopen=True)`: `running`, no `ended_at`, the first `started_at`) and its real end is a new `SubagentFinished`; a `task_updated` back to `running`/`pending` does the same |
-| `task_progress` | `SubagentProgress(activity = description or last_tool_name, usage)` |
+| `task_progress` | `SubagentProgress(activity = description or last_tool_name, usage)`. For an agent that already finished: `SubagentStarted` first (`revive()` — the CLI resumes a task after an API error, a credit balance that ran out, and does not always repeat `task_started`), so clients never see a terminal card that keeps streaming |
 | `task_notification` | `SubagentFinished(status, summary, usage)` — `completed`→`done`, `failed`→`failed`, `stopped`/`killed`→`stopped` |
 | `task_updated` terminal | `killed` → `SubagentFinished(stopped)` at once; `completed`/`failed` wait for the notification's summary and are flushed by the next unrelated message |
 | spawn's own tool result, not `async_launched` | `SubagentFinished` (a synchronous agent on older CLIs; a failed spawn) |

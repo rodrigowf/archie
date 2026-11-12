@@ -32,6 +32,7 @@ internal fun Draft.upsertSubagent(
     startedAt: String? = null,
     endedAt: String? = null,
     lifecycle: Boolean = false,
+    localStop: Boolean? = null,
 ): Subagent {
     val cur = subagents[id]
     val base = cur ?: Subagent(id)
@@ -49,6 +50,7 @@ internal fun Draft.upsertSubagent(
         startedAt = startedAt.known() ?: base.startedAt,
         endedAt = endedAt.known() ?: base.endedAt,
         lifecycle = base.lifecycle || lifecycle,
+        localStop = localStop ?: base.localStop,
     )
     if (cur == null || n != cur) subagents[id] = n
     return n
@@ -58,17 +60,33 @@ internal fun Draft.upsertSubagent(
  * A server row (SA-3 snapshot, SA-8 list): authoritative, like the lifecycle frames, except that
  * **terminal statuses stick** — a row computed before a live `subagent_finished` may arrive after it, so
  * a row never moves a terminal status (from a lifecycle frame or an earlier row) back to `running`. A
- * status only the spawn card set (no lifecycle yet, SA-2) is always corrected by the row.
+ * status only the spawn card set (no lifecycle yet, SA-2) is always corrected by the row, and so is one
+ * this client only guessed when the session left ([Subagent.localStop]): the row is the server saying the
+ * agent kept working. A status the row carries puts the server on record, so the guess is cleared.
  */
 internal fun Draft.upsertSummary(r: SubagentSummary) {
     val cur = subagents[r.toolUseId]
     var status = SubagentStatus.fromWire(r.status)
-    if (cur != null && cur.lifecycle && cur.status.finished && status == SubagentStatus.RUNNING) status = null
+    if (cur != null && cur.lifecycle && !cur.localStop && cur.status.finished && status == SubagentStatus.RUNNING) {
+        status = null
+    }
     val s = upsertSubagent(
         r.toolUseId, r.parentToolUseId, r.agentType, r.description, r.background, status,
         r.activity, r.usage, r.summary, r.startedAt, r.endedAt, lifecycle = true,
+        localStop = if (status != null) false else null,
     )
     if (s.status.finished) endSubagentTurn(r.toolUseId)
+}
+
+/**
+ * SA-3 `alive`: a live frame for a subagent this client wrote off (the [stopRunningSubagents] sweep)
+ * proves it runs — the backend sends those only while it considers it running. A terminal status the
+ * *server* reported is left alone: only `subagent_started` undoes one.
+ */
+internal fun Draft.subagentAlive(id: String) {
+    val s = subagents[id] ?: return
+    if (!s.localStop) return
+    subagents[id] = s.copy(status = SubagentStatus.RUNNING, endedAt = null, localStop = false)
 }
 
 /**
@@ -119,12 +137,13 @@ internal fun Draft.onSubagentStarted(f: ServerFrame.SubagentStarted) {
     val id = f.toolUseId?.takeIf { it.isNotEmpty() } ?: return
     upsertSubagent(
         id, f.parentToolUseId, f.agentType, f.description, f.background, status = SubagentStatus.RUNNING,
-        startedAt = f.startedAt, lifecycle = true,
+        startedAt = f.startedAt, lifecycle = true, localStop = false,
     )
 }
 
 internal fun Draft.onSubagentProgress(f: ServerFrame.SubagentProgress) {
     val id = f.toolUseId?.takeIf { it.isNotEmpty() } ?: return
+    subagentAlive(id)                                                         // SA-3: proof of life
     upsertSubagent(id, activity = f.activity, usage = f.usage)
 }
 
@@ -132,13 +151,14 @@ internal fun Draft.onSubagentFinished(f: ServerFrame.SubagentFinished) {
     val id = f.toolUseId?.takeIf { it.isNotEmpty() } ?: return
     upsertSubagent(
         id, status = SubagentStatus.fromWire(f.status)?.takeIf { it.finished } ?: SubagentStatus.DONE,   // unknown reads as done
-        summary = f.summary, usage = f.usage, endedAt = f.endedAt, lifecycle = true,
+        summary = f.summary, usage = f.usage, endedAt = f.endedAt, lifecycle = true, localStop = false,
     )
     endSubagentTurn(id)
 }
 
 internal fun Draft.onSubagentEvent(f: ServerFrame.SubagentEvent) {
     val id = f.toolUseId?.takeIf { it.isNotEmpty() } ?: return
+    subagentAlive(id)                                                         // SA-3: proof of life
     val s = upsertSubagent(id)
     val inner = f.frame ?: return
     if (!inner.isSubagentContent()) return                                    // §4.8: content frames only
@@ -151,11 +171,14 @@ internal fun Draft.onSubagentEvent(f: ServerFrame.SubagentEvent) {
     }
 }
 
-/** SA-3: the session left the server; nothing of it runs any more. */
+/**
+ * SA-3: the session left the server; nothing of it runs any more. A *guess* ([Subagent.localStop]),
+ * inferred from the session leaving — any later word from the server undoes it ([subagentAlive]).
+ */
 internal fun Draft.stopRunningSubagents() {
     for ((id, s) in subagents.entries.toList()) {
         if (s.status != SubagentStatus.RUNNING) continue
-        subagents[id] = s.copy(status = SubagentStatus.STOPPED)
+        subagents[id] = s.copy(status = SubagentStatus.STOPPED, localStop = true)
         endSubagentTurn(id)
     }
 }

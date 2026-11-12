@@ -340,6 +340,12 @@ export interface Subagent {
    * never from the spawn card's result (SA-2). Not part of the normalised fixture form.
    */
   readonly lifecycle: boolean;
+  /**
+   * Internal: this terminal status is the client's own guess — the sweep that stops every running
+   * subagent when the session leaves (SA-3) — not a status the server reported. A guess is never
+   * sticky: a server row saying `running`, or any live frame for this subagent, undoes it.
+   */
+  readonly localStop: boolean;
   /** Internal: the transcript fetch failed (SA-5: shown in the agent's tab). */
   readonly loadError: string | null;
 }

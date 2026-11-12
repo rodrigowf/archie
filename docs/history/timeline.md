@@ -3,7 +3,7 @@ name: timeline
 category: archie/history
 tags: [timeline, changelog, history, milestones, incidents]
 created: 2026-10-07
-modified: 2026-11-05
+modified: 2026-11-12
 summary: Dated milestones and incidents in Archie's development, February–October 2026, with commits where known.
 source: curated (timeline entries collected from every memory note consolidated into docs/, 2026-10-07)
 references:
@@ -201,3 +201,18 @@ Commit hashes are in the public repo unless they refer to the private context re
   retired from `POST /api/transcribe` ahead of its 2027-02-26 shutdown. Design board:
   `context/public/composer-dictation/`; providers and the realtime-API quirks:
   [integrations/transcription.md](../integrations/transcription.md).
+- **11-12** — **(incident)** **A subagent that came back kept showing "Stopped".** When a session
+  died under its agents (the credit balance ran out, the CLI crashed), every client swept its running
+  subagents to `stopped` — and that guess then outranked the truth: spec 12's "terminal statuses
+  stick" rule made every later server row saying `running` be discarded, so a reattached session
+  showed the agent as stopped for good while it went on working. Two more
+  holes compounded it: `subagent_progress` / `subagent_event` never revived a card (they only carry
+  activity), and the backend had the same blind spot — the Claude registry re-opened a finished
+  subagent on `task_started` / `task_updated{running}` only, so a task the CLI resumed after an API
+  error and reported on with `task_progress` stayed `failed` server-side while its output streamed.
+  Fixed on all three: **SA-3** now distinguishes a status the *server* reported from one the *client*
+  guessed (`Subagent.localStop`) — only the first is sticky, the second is undone by a row or any live
+  frame —, `SubagentRegistry.revive()` turns any sign of life (Claude `task_progress`, Codex
+  `turn/started` on a child thread) into the ordinary `subagent_started` resume, and a disk-only row
+  whose outcome is unknown now reads `stopped` rather than `running` (only the live registry, which is
+  per process, can prove an agent runs). Web + Android + two shared fixtures.

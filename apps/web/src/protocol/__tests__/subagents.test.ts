@@ -245,4 +245,41 @@ describe('SA-3 terminal statuses stick (2026-10-12 review)', () => {
     c = feed(c, { type: 'subagents_list', rows: [{ tool_use_id: 't1', status: 'failed' }] }).conv;
     expect(sub(c, 't1').status).toBe('failed'); // terminal → terminal from a row is allowed by the spec text
   });
+
+  it('a server-reported finish is never undone by a stray live frame (only subagent_started undoes one)', () => {
+    let c = feed(agent(), proc, spawn('t1'), started('t1'), finished('t1', 'done', 'report')).conv;
+    c = feed(c, { type: 'subagent_progress', tool_use_id: 't1', activity: 'Grep', usage: { tokens: 5 } }).conv;
+    c = feed(c, inner('t1', { type: 'text_delta', text: 'trailing' })).conv;
+    expect(sub(c, 't1')).toMatchObject({ status: 'done', summary: 'report', localStop: false });
+    expect(sub(feed(c, started('t1')).conv, 't1').status).toBe('running'); // the resume path (§4.8)
+  });
+});
+
+describe('SA-3 a client-side stop is a guess, not a fact (2026-11-12)', () => {
+  const run = () => feed(agent(), proc, spawn('t1'), started('t1')).conv;
+
+  it('the stop sweep marks its guess, and a server row that says running undoes it', () => {
+    let c = feed(run(), { type: 'session_terminated', reason: 'subprocess_crashed' }).conv;
+    expect(sub(c, 't1')).toMatchObject({ status: 'stopped', localStop: true });
+    c = feed(c, { type: 'session_started', session_id: 'L1', subagents: [{ tool_use_id: 't1', status: 'running', activity: 'Grep' }] }).conv;
+    expect(sub(c, 't1')).toMatchObject({ status: 'running', localStop: false, activity: 'Grep' });
+  });
+
+  it('the SA-8 list undoes it too, and a row that confirms the stop puts the server on record', () => {
+    const swept = feed(run(), { type: 'session_stopped' }).conv;
+    expect(sub(feed(swept, { type: 'subagents_list', rows: [{ tool_use_id: 't1', status: 'running' }] }).conv, 't1').status).toBe('running');
+    const confirmed = feed(swept, { type: 'subagents_list', rows: [{ tool_use_id: 't1', status: 'stopped' }] }).conv;
+    expect(sub(confirmed, 't1')).toMatchObject({ status: 'stopped', localStop: false });
+    // now it is the server's verdict, so a later stale `running` row no longer moves it
+    expect(sub(feed(confirmed, { type: 'subagents_list', rows: [{ tool_use_id: 't1', status: 'running' }] }).conv, 't1').status).toBe('stopped');
+  });
+
+  it('a live frame for a subagent we wrote off proves it runs (progress, inner frame)', () => {
+    const swept = feed(run(), { type: 'session_terminated', reason: 'crash' }).conv;
+    const byProgress = feed(swept, { type: 'subagent_progress', tool_use_id: 't1', activity: 'Grep', usage: { tokens: 5 } }).conv;
+    expect(byProgress.entries).toBe(swept.entries); // SA-1 still holds
+    expect(sub(byProgress, 't1')).toMatchObject({ status: 'running', localStop: false, ended_at: null });
+    const byInner = feed(swept, inner('t1', { type: 'text_delta', text: 'still here' })).conv;
+    expect(sub(byInner, 't1')).toMatchObject({ status: 'running', localStop: false });
+  });
 });

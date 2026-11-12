@@ -51,6 +51,7 @@ const sub = (over: Partial<Subagent>): Subagent => ({
   conv: null,
   held: null,
   lifecycle: true,
+  localStop: false,
   loadError: null,
   ...over,
 });

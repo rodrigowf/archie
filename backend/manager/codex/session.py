@@ -1105,6 +1105,11 @@ class CodexSessionManager(BaseSessionManager):
             turn = params.get("turn") or {}
             child.turn_id = turn.get("id") or child.turn_id
             child.error = None
+            # A new turn on a child thread we had finished: the agent runs
+            # again (§4.8 "Resumed agents"), so re-open it before its frames.
+            ev = self._subagents.revive(tid)
+            if ev is not None:
+                out.append(ev)
         elif method == "thread/tokenUsage/updated":
             total = (params.get("tokenUsage") or {}).get("total") or {}
             if total.get("totalTokens") is not None:

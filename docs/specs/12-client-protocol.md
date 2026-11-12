@@ -1208,7 +1208,8 @@ Subagent = { tool_use_id, parent_tool_use_id: string|null, agent_type: string, d
              activity: string|null, usage: {tokens, tool_uses, duration_ms} | null, summary: string|null,
              started_at: string|null, ended_at: string|null,
              conv: Conversation | null,          // the subagent's own transcript; null until opened (SA-5)
-             held: Frame[] | null }              // inner frames held while its first history page loads
+             held: Frame[] | null,               // inner frames held while its first history page loads
+             localStop: boolean }                // this terminal status is the client's own guess (SA-3)
 ```
 
 ```ts
@@ -1218,12 +1219,16 @@ function upsertSubagent(id, fields) {            // creates in first-sight order
   return s
 }
 case "subagent_started":  upsertSubagent(f.tool_use_id, { status: "running", ...pick(f, "parent_tool_use_id",
-                                         "agent_type", "description", "background", "started_at") }); return
-case "subagent_progress": upsertSubagent(f.tool_use_id, { activity: f.activity, usage: f.usage }); return
+                                         "agent_type", "description", "background", "started_at") })
+                          clearGuess(f.tool_use_id); return            // SA-3: a server status replaces ours
+case "subagent_progress": alive(f.tool_use_id)                         // SA-3: proof of life
+                          upsertSubagent(f.tool_use_id, { activity: f.activity, usage: f.usage }); return
 case "subagent_finished": { const s = upsertSubagent(f.tool_use_id, { status: f.status, summary: f.summary,
                                         usage: f.usage, ended_at: f.ended_at })
+                            clearGuess(f.tool_use_id)
                             if (s.conv) endTurnOf(s.conv, "subagent_finished"); return }
 case "subagent_event": {
+  alive(f.tool_use_id)                                                 // SA-3: proof of life
   const s = upsertSubagent(f.tool_use_id, {})
   if (f.frame.type == "tool_use") s.activity = f.frame.tool_name
   if (s.held) s.held.push(f.frame)
@@ -1240,6 +1245,13 @@ is a live lifecycle frame, not a stale row, so SA-3's "terminal statuses stick" 
 transcript's turn restarts through TL-3 with the new inner content. Fixtures `subagent_resumed_after_finish`,
 `subagent_resumed_still_running`.
 
+A harness does not always *announce* the resume: the CLI picks a task up again after an API error (a credit
+balance that ran out, a transport blip) and the next thing it says about it is a progress report. The backend
+therefore treats any harness signal that only a running task produces — a task progress report, a new turn on
+a child thread — as a resume of a subagent it had finished, and sends `subagent_started` before that signal's
+own frames (`SubagentRegistry.revive`). Clients see the ordinary resume sequence above and never a terminal
+card that keeps streaming.
+
 - **SA-1. Never in the parent timeline.** `subagent_*` frames MUST NOT change the parent's `entries`,
   `tools`, `status`, `inTurn`, `stall` or `counters`, and MUST NOT start a turn (TL-3 does not apply).
 - **SA-2. Placeholders from spawn cards.** A `ToolBlock` whose normalised tool name is `Task` (§ tool
@@ -1255,9 +1267,28 @@ transcript's turn restarts through TL-3 with the new inner content. Fixtures `su
   deletes). **Terminal statuses stick (rows only):** a server row (this snapshot or the SA-8 list) may move a `running`
   subagent to a terminal status but never a terminal one back to `running` (a row computed before the live
   `subagent_finished` can arrive after it). This applies only to a terminal status that came from a lifecycle
-  frame or an earlier server row: a status that only the spawn card set (SA-2) is always corrected by a row (a
+  frame or an earlier server row and that the client did not merely guess (below): a status that only the
+  spawn card set (SA-2) is always corrected by a row (a
   background agent's card from history reads `done` at launch while the list says `running`). A later `subagent_finished` always applies (the backend may send a
-  second one that fills in `summary`/`usage`). `session_stopped` / `session_terminated` set every `running` subagent to `stopped`.
+  second one that fills in `summary`/`usage`). `session_stopped` / `session_terminated` set every `running` subagent to `stopped`
+  **as a guess** (`localStop = true`), never as a fact: the client infers it from the session leaving, it is
+  not a status the server reported.
+  A guess is not sticky — any later word from the server replaces it, so a subagent the client wrote off
+  recovers by itself:
+
+  ```ts
+  clearGuess(id)  { subagents.get(id)?.localStop = false }        // a server status is now on record
+  alive(id)       { const s = subagents.get(id)                   // live frames only reach a running agent
+                    if (s && s.localStop)
+                        { s.status = "running"; s.ended_at = null; s.localStop = false } }
+  ```
+
+  So: a terminal status the **server** reported is only ever undone by `subagent_started` (the resume path
+  above), and one the spawn card implied by a row (SA-2, unchanged); a terminal status the **client**
+  guessed is undone by a row that says `running` and by any live frame for that subagent
+  (`subagent_progress`, `subagent_event`). The backend sends those only while it considers the subagent
+  running, so they are proof the guess was wrong — most often after a reconnect, when the session the
+  client wrote off is back and its agents kept working.
 - **SA-4. Inner frames.** `reduceInner(conv, frame)` is the §4.3 reducer applied to the subagent's own
   conversation (kind `agent`, the parent's provider), bypassing §3.6 (the parent's checkpoint already
   deduplicated the wrapper). Inner content outside a turn starts one (TL-3); `subagent_finished` ends it — when it arrives while `held`
@@ -1280,7 +1311,10 @@ transcript's turn restarts through TL-3 with the new inner content. Fixtures `su
   NOT pop the tray.
 - **SA-8. REST.** `GET /api/sessions/{sdkId}/subagents` → `{subagents: SubagentSummary[]}` (from the
   live registry and the harness's files on disk; old Claude files without a `toolUseId` are matched
-  through the parent's `toolUseResult.agentId`). `GET /api/sessions/{sdkId}/subagents/{tool_use_id}/messages`
+  through the parent's `toolUseResult.agentId`). A transcript on disk that shows no outcome has an unknown
+  status: it reads `running` when the live registry also knows that subagent and `stopped` when it does not.
+  The registry lives in the process that owns the harness, so a row only disk knows belongs to a CLI that is
+  gone — nothing of it can still be running, and claiming `running` leaves a dead agent spinning forever. `GET /api/sessions/{sdkId}/subagents/{tool_use_id}/messages`
   → the `PaginatedMessagesResponse` shape of §5.1 (404 when unknown; an empty page when the harness keeps
   no transcript). After the first history page of a view that created any SA-2 placeholder, the client
   fetches the list once and upserts every row.
@@ -2296,6 +2330,8 @@ IDs: **W-n** = item n of 02 §6.3; **W-6.1 / W-6.2** = the lists in 02 §6.1 / �
 | `subagent_row_overrides_spawn_card` | SA-2, SA-3, SA-8 (a row corrects a card-derived status) |
 | `subagent_resumed_after_finish` | §4.8 resumed agents (second `subagent_started` → running, second finish), SA-7 |
 | `subagent_resumed_still_running` | §4.8 resumed agents (a finished agent is `running` again after `subagent_started`) |
+| `subagent_local_stop_undone_by_row` | SA-3 (the stop sweep is a guess: the snapshot of the session that came back says `running`) |
+| `subagent_local_stop_undone_by_live_frame` | SA-3 `alive` (proof of life: a progress report and an inner frame undo the guess) |
 
 ---
 

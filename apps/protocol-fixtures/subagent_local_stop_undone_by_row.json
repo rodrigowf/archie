@@ -1,0 +1,174 @@
+{
+  "name": "subagent_local_stop_undone_by_row",
+  "description": "§4.8 SA-3 (a client-side stop is a guess, not a fact): a background subagent is running when the session dies (session_terminated — the CLI went away, e.g. the credit balance ran out), so the client sweeps it to stopped with localStop. The session comes back and its session_started snapshot still lists the subagent as running: the guess is undone and the card spins again. The stickiness of SA-3 protects server-reported terminal statuses only (see subagent_stale_row_terminal_sticks), never the client's own sweep.",
+  "source": "synthetic",
+  "session": {
+    "kind": "agent",
+    "provider": "claude",
+    "local_id": "L1",
+    "sdk_id": "sdk-1"
+  },
+  "initial_history": null,
+  "events": [
+    {
+      "type": "status",
+      "status": "processing"
+    },
+    {
+      "type": "tool_use",
+      "tool_use_id": "t1",
+      "tool_name": "Agent",
+      "tool_input": {
+        "subagent_type": "general-purpose",
+        "description": "Audit the sync suite",
+        "prompt": "Audit the sync suite and report.",
+        "run_in_background": true
+      },
+      "seq": 1,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "subagent_started",
+      "tool_use_id": "t1",
+      "parent_tool_use_id": null,
+      "agent_type": "general-purpose",
+      "description": "Audit the sync suite",
+      "background": true,
+      "started_at": "2026-11-11T12:00:01Z",
+      "seq": 2,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "tool_result",
+      "tool_use_id": "t1",
+      "output": "Async agent launched successfully. agentId: a1b2",
+      "is_error": false,
+      "seq": 3,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "text_complete",
+      "text": "Started a background agent.",
+      "seq": 4,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "turn_complete",
+      "cost": 0.01,
+      "usage": {
+        "input_tokens": 10,
+        "cache_read_input_tokens": 990,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 50
+      },
+      "input_tokens": 1000,
+      "output_tokens": 50,
+      "num_turns": 1,
+      "session_id": "sdk-1",
+      "is_error": false,
+      "result": "",
+      "seq": 5,
+      "stream_id": "L1:1759500000000"
+    },
+    {
+      "type": "session_terminated",
+      "reason": "subprocess_crashed",
+      "detail": "Credit balance is too low",
+      "sdk_session_id": "sdk-1"
+    },
+    {
+      "type": "session_started",
+      "session_id": "L1",
+      "context_window": 200000,
+      "subagents": [
+        {
+          "tool_use_id": "t1",
+          "parent_tool_use_id": null,
+          "agent_type": "general-purpose",
+          "description": "Audit the sync suite",
+          "background": true,
+          "status": "running",
+          "activity": "Grep",
+          "usage": {
+            "tokens": 1200,
+            "tool_uses": 3,
+            "duration_ms": 30000
+          },
+          "summary": null,
+          "started_at": "2026-11-11T12:00:01Z",
+          "ended_at": null
+        }
+      ],
+      "permissions": [],
+      "resume_state": {
+        "stream_id": "L1:1759500000000",
+        "next_seq": 6
+      }
+    }
+  ],
+  "client_actions": [
+    {
+      "at": 0,
+      "type": "send",
+      "text": "audit the sync suite in the background"
+    },
+    {
+      "at": 7,
+      "type": "ws_closed"
+    },
+    {
+      "at": 7,
+      "type": "ws_open"
+    }
+  ],
+  "expected": {
+    "entries": [
+      {
+        "kind": "user",
+        "text": "audit the sync suite in the background",
+        "origin": "local",
+        "state": "sent"
+      },
+      {
+        "kind": "assistant",
+        "blocks": [
+          {
+            "type": "tool",
+            "tool_use_id": "t1",
+            "tool_name": "Agent",
+            "tool_input": {
+              "subagent_type": "general-purpose",
+              "description": "Audit the sync suite",
+              "prompt": "Audit the sync suite and report.",
+              "run_in_background": true
+            },
+            "status": "done",
+            "output": "Async agent launched successfully. agentId: a1b2"
+          },
+          {
+            "type": "text",
+            "text": "Started a background agent.",
+            "streaming": false
+          }
+        ]
+      }
+    ],
+    "subagents": [
+      {
+        "tool_use_id": "t1",
+        "parent_tool_use_id": null,
+        "agent_type": "general-purpose",
+        "description": "Audit the sync suite",
+        "background": true,
+        "status": "running",
+        "activity": "Grep",
+        "summary": null,
+        "open": false
+      }
+    ],
+    "state": {
+      "status": "idle",
+      "in_turn": false
+    }
+  }
+}

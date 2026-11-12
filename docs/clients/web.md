@@ -3,7 +3,7 @@ name: web
 category: archie/clients
 tags: [web, react, vite, zustand, safari-12, ipad, compat-build, remote-console, low-end, deploy]
 created: 2026-04-14
-modified: 2026-10-12
+modified: 2026-11-12
 summary: apps/web — React 18 + Vite web client; one source tree, main build at / and Safari 12 build at /compat/.
 source: curated (consolidated from memory notes assistant/devices/frontend-compat.md, assistant/infrastructure/repo_layout_cutover_2026_10.md, assistant/infrastructure/features_and_integrations_summary.md §3–4, auto-memory feedback_always_build_both_frontends.md, feedback_stale_web_build_voice_symptom.md, project_frontend_refactor_2026_10_03.md; verified against code 2026-10-06)
 references:
@@ -221,7 +221,10 @@ shown as an index and as tabs; their activity never enters the parent timeline. 
   cards live and from history (`reducer/subagents.ts` `SUBAGENT_TOOL_NAMES`, SA-2: empty strings never
   overwrite, status follows the card only until a lifecycle frame or server row was seen), the
   `session_started.subagents` snapshot and stop-on-stop (SA-3; a server row never moves a
-  lifecycle-backed terminal status back to `running`, but may correct a status only a spawn card set), the `task_notification` notice
+  lifecycle-backed terminal status back to `running`, but may correct a status only a spawn card set —
+  or one this client itself guessed when the session left, `Subagent.localStop`: that guess is undone
+  by a row saying `running` and by any live frame for the subagent, so a session that comes back with
+  its agents still working stops showing them as "Stopped"), the `task_notification` notice
   (SA-7), and the inputs `open_subagent` / `subagent_page` / `release_subagent` / `subagents_list`
   with the effects `fetch_subagent_page` / `fetch_subagents` (SA-5, SA-8). Nested spawn cards inside
   an open transcript are hoisted into the root map with their parent (SA-6). Details of the choices

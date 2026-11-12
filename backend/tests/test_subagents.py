@@ -384,6 +384,26 @@ class TestResumedAgent:
         await _process(sm, _spawn("t1"), _task_started("a1", "t1"))
         assert await _process(sm, _task_started("a1", "t1")) == []
 
+    async def test_progress_after_a_finish_reopens_the_agent(self):
+        """The CLI picks a task up again after an API error (a credit balance
+        that ran out) and the next thing it says about it is a progress
+        report: that is a resume, not a finished agent still talking."""
+        sm = _sm()
+        await _process(sm, _spawn("t1"), _task_started("a1", "t1"),
+                       _task_notification("a1", "t1", status="failed", summary="Credit balance is too low"))
+        assert sm._subagents.get("t1").status == "failed"
+
+        evs = await _process(sm, _task_progress("a1", "t1"))
+        assert [type(e) for e in evs] == [SubagentStarted, SubagentProgress]
+        assert sm.subagent_snapshot()[0]["status"] == "running"
+        assert evs[1].activity == "Reading a.ts"
+        # Running already: the next report is just a report.
+        assert [type(e) for e in await _process(sm, _task_progress("a1", "t1"))] == [SubagentProgress]
+        # And it still finishes normally.
+        (fin,) = [e for e in await _process(sm, _task_notification("a1", "t1", summary="done at last"))
+                  if isinstance(e, SubagentFinished)]
+        assert fin.status == "done" and fin.summary == "done at last"
+
 
 # ---------------------------------------------------------------------------
 # send() and the out-of-turn path (manager level)
@@ -744,6 +764,27 @@ class TestRegistry:
         reg.start("t3")
         reg.progress("t3", activity="x", usage={"tokens": 1, "tool_uses": 1, "duration_ms": 7})
         assert reg.finish("t3", status="done").usage["duration_ms"] == 7
+
+    def test_revive_is_the_reopen_of_a_sign_of_life(self):
+        reg = SubagentRegistry()
+        assert reg.revive("nope") is None          # unknown
+        first = reg.start("t1", harness_id="a1")
+        assert reg.revive("t1") is None            # already running
+        reg.finish("t1", status="failed", summary="no credits")
+        again = reg.revive("t1")
+        assert again is not None and again.started_at == first.started_at
+        assert reg.get("t1").status == "running" and reg.get("t1").ended_at is None
+        assert reg.finish("t1", status="done", summary="recovered") is not None
+
+    def test_an_unknown_status_only_disk_knows_is_stopped_not_running(self):
+        # The live registry is per process: a row only disk knows belongs to a
+        # CLI that is gone, so nothing of it can still be running (SA-8).
+        disk = [{"tool_use_id": "old", "agent_type": "Explore", "description": "from a dead CLI"},
+                {"tool_use_id": "now", "agent_type": "Explore", "description": "this process"}]
+        rows = merge_summaries(disk, [{"tool_use_id": "now", "status": "running"}])
+        assert {r["tool_use_id"]: r["status"] for r in rows} == {"old": "stopped", "now": "running"}
+        # No live registry at all (a closed session's history): nothing runs.
+        assert merge_summaries(disk, [])[0]["status"] == "stopped"
 
     def test_merge_live_wins_and_keeps_disk_order(self):
         disk = [{"tool_use_id": "a", "status": "stopped", "agent_type": "Explore", "description": "old"},

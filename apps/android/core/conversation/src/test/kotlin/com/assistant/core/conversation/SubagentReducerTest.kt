@@ -184,6 +184,44 @@ class SubagentReducerTest {
         assertEquals(SubagentStatus.DONE, a.status)
     }
 
+    /**
+     * SA-3 (2026-11-12): the sweep that stops every running subagent when the session leaves is this
+     * client's *guess*; the server's word always wins over it. A terminal status the server reported
+     * is the opposite: only `subagent_started` undoes one.
+     */
+    @Test
+    fun sa3_aClientSideStopIsAGuessThatTheServersWordUndoes() {
+        val swept = running("t1").on(ServerFrame.SessionTerminated("subprocess_crashed"))
+        assertEquals(SubagentStatus.STOPPED, swept.subagents["t1"]!!.status)
+        assertTrue(swept.subagents["t1"]!!.localStop)
+
+        val byRow = swept.on(
+            ServerFrame.SessionStarted("L1", subagents = listOf(SubagentSummary("t1", status = "running", activity = "Grep"))),
+        )
+        assertEquals(SubagentStatus.RUNNING, byRow.subagents["t1"]!!.status)
+        assertFalse(byRow.subagents["t1"]!!.localStop)
+
+        val byProgress = swept.on(ServerFrame.SubagentProgress("t1", "Grep", null))
+        assertEquals(SubagentStatus.RUNNING, byProgress.subagents["t1"]!!.status)
+        assertEquals("the parent is untouched (SA-1)", swept.entries, byProgress.entries)
+        val byInner = swept.on(inner("t1", ServerFrame.TextDelta("still here")))
+        assertEquals(SubagentStatus.RUNNING, byInner.subagents["t1"]!!.status)
+
+        // a row that confirms the stop puts the server on record: stale `running` rows no longer move it
+        val confirmed = swept.input(ConversationInput.SubagentList(listOf(SubagentSummary("t1", status = "stopped"))))
+        assertFalse(confirmed.subagents["t1"]!!.localStop)
+        val stale = confirmed.input(ConversationInput.SubagentList(listOf(SubagentSummary("t1", status = "running"))))
+        assertEquals(SubagentStatus.STOPPED, stale.subagents["t1"]!!.status)
+    }
+
+    @Test
+    fun sa3_aServerReportedFinishSurvivesStrayLiveFrames() {
+        val done = running("t1").on(ServerFrame.SubagentFinished("t1", "done", "report", null, "x"))
+        val after = done.on(ServerFrame.SubagentProgress("t1", "Grep", null), inner("t1", ServerFrame.TextDelta("trailing")))
+        assertEquals(SubagentStatus.DONE, after.subagents["t1"]!!.status)
+        assertEquals(SubagentStatus.RUNNING, after.on(started("t1")).subagents["t1"]!!.status) // the resume path
+    }
+
     @Test
     fun onlyContentFramesReachAnOpenTranscript() {
         val s = running("t1").input(ConversationInput.OpenSubagent("t1"), ConversationInput.SubagentPage("t1", page(0, 0)))

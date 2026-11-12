@@ -188,6 +188,33 @@ async def test_nested_spawn_and_parent_state_untouched():
     assert [(f.tool_use_id, f.status, f.summary) for f in fin] == [("exec-nested", "failed", "bad")]
 
 
+async def test_a_new_turn_on_a_finished_child_thread_reopens_it():
+    """§4.8 "Resumed agents": a child thread that ends (an API error, its turn
+    failing) and then starts a new turn is running again — the clients must
+    see `subagent_started`, not a stopped card that keeps streaming."""
+    sm = CodexSessionManager(config=_config(Path("/tmp")))
+    sm._thread_id = THREAD
+    got: list = []
+    sm.set_out_of_turn_sink(got.append)
+    n = sm._on_notification
+    n("item/completed", {"threadId": THREAD, "item": _collab("spawnAgent", SPAWN, "completed", [CHILD], prompt="go")})
+    n("turn/started", {"threadId": CHILD, "turn": {"id": "ct1"}})
+    n("turn/completed", {"threadId": CHILD, "turn": {"id": "ct1", "status": "failed",
+                                                     "error": {"message": "usage limit"}}})
+    assert sm._subagents.get(SPAWN).status == "failed"
+
+    n("turn/started", {"threadId": CHILD, "turn": {"id": "ct2"}})
+    n("item/completed", {"threadId": CHILD, "item": {"type": "agentMessage", "id": "m1", "text": "back at it"}})
+    n("turn/completed", {"threadId": CHILD, "turn": {"id": "ct2", "status": "completed"}})
+    events = [i.event for i in got]
+    assert [type(e).__name__ for e in events if isinstance(e, (SubagentStarted, SubagentFinished))] == [
+        "SubagentStarted", "SubagentFinished", "SubagentStarted", "SubagentFinished",
+    ]
+    fin = [e for e in events if isinstance(e, SubagentFinished)]
+    assert (fin[0].status, fin[1].status) == ("failed", "done")
+    assert sm._subagents.get(SPAWN).status == "done"
+
+
 async def test_failed_spawn_and_close_agent_states():
     sm = CodexSessionManager(config=_config(Path("/tmp")))
     sm._thread_id = THREAD

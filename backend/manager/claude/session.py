@@ -1659,6 +1659,15 @@ class ClaudeSessionManager(BaseSessionManager):
         elif isinstance(msg, TaskProgressMessage):
             tid = self._task_tool_use_id(msg)
             if tid in self._subagents:
+                # A progress report for a task we had finished: the CLI is
+                # running it again (it resumes a task after an API error —
+                # a credit balance that ran out — without always repeating
+                # task_started).  Re-open it first, so the clients see the
+                # resume as the lifecycle frame of §4.8 "Resumed agents"
+                # instead of a stopped card that keeps producing output.
+                back = self._subagents.revive(tid)
+                if back is not None:
+                    yield back
                 usage = msg.usage if isinstance(msg.usage, dict) else {}
                 ev = self._subagents.progress(
                     tid,

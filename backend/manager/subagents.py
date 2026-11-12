@@ -240,6 +240,21 @@ class SubagentRegistry:
             started_at=rec.started_at,
         )
 
+    def revive(self, tool_use_id: str) -> SubagentStarted | None:
+        """A finished subagent shows a sign of life: it runs again.
+
+        Same transition as ``start(reopen=True)``, for the harness signals
+        that prove a run without announcing one (a progress report for a task
+        the CLI resumed after an API error, where no second ``task_started``
+        came).  ``None`` when the record is unknown or already running — so a
+        caller can simply ``ev = reg.revive(tid); if ev: yield ev`` before the
+        signal's own event.
+        """
+        rec = self._records.get(tool_use_id)
+        if rec is None or not rec.finished_sent:
+            return None
+        return self.start(tool_use_id, reopen=True)
+
     def progress(
         self, tool_use_id: str, *, activity: str | None, usage: dict[str, Any] | None,
     ) -> SubagentProgress | None:
@@ -345,24 +360,35 @@ def merge_summaries(
     live: list[SubagentSummary] | None,
 ) -> list[SubagentSummary]:
     """Disk rows (history, in spawn order) then live-only rows; a live row's
-    non-null fields win over the disk row for the same ``tool_use_id``."""
+    non-null fields win over the disk row for the same ``tool_use_id``.
+
+    A disk row whose transcript shows no outcome has an unknown status
+    (``None``).  Only the live registry can prove that a subagent runs — it
+    lives in the session manager, i.e. in the process that owns the CLI — so
+    an unknown status reads ``running`` when the registry knows the row and
+    ``stopped`` when it does not: the process that could still be running it
+    is gone (spec 12 SA-8).  Reporting ``running`` there pinned a dead
+    agent's card to a spinner for the rest of the session.
+    """
     out: dict[str, SubagentSummary] = {}
     for row in disk or []:
         tid = row.get("tool_use_id")
         if isinstance(tid, str) and tid:
             out[tid] = {k: row.get(k) for k in SUMMARY_FIELDS}
+    live_ids: set[str] = set()
     for row in live or []:
         tid = row.get("tool_use_id")
         if not isinstance(tid, str) or not tid:
             continue
+        live_ids.add(tid)
         base = out.get(tid) or {k: None for k in SUMMARY_FIELDS}
         for k in SUMMARY_FIELDS:
             v = row.get(k)
             if v is not None and v != "":
                 base[k] = v
         out[tid] = base
-    for row in out.values():
-        row["status"] = row.get("status") or "running"
+    for tid, row in out.items():
+        row["status"] = row.get("status") or ("running" if tid in live_ids else "stopped")
         row["agent_type"] = row.get("agent_type") or ""
         row["description"] = row.get("description") or ""
         row["background"] = bool(row.get("background"))

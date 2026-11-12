@@ -3,7 +3,7 @@ name: agent-sessions
 category: archie/architecture
 tags: [agent-sessions, session-pool, session-manager, claude-agent-sdk, local-id, lifecycle, permissions, stall-watchdog, session-config, resume]
 created: 2026-02-23
-modified: 2026-11-07
+modified: 2026-11-12
 summary: How agent (chat) sessions run — SessionPool, session managers, dual IDs, out-of-turn events and subagents, lifecycle hardening, permissions, stall watchdog, per-session config.
 source: curated (consolidated from memory notes assistant/architecture/project-overview.md, assistant/architecture/permissions_branch_architecture.md, assistant/architecture/orchestrator-vision.md, auto-memory project_session_config.md, project_sdk_upgrade_path_2026_06_18.md, feedback_diagnose_via_direct_ws_probe.md; verified against code 2026-10-06)
 references:
@@ -203,7 +203,16 @@ connected client saw nothing until it reconnected.
   disk) by `merge_summaries()` for `session_started.subagents` and
   `GET /api/sessions/{sdk_id}/subagents`; `GET /api/sessions/{sdk_id}/subagents/{tool_use_id}/messages`
   pages the adapter's `read_subagent_messages()` like `/messages` (404 unknown, empty page when the
-  subagent is known but has no transcript yet).
+  subagent is known but has no transcript yet). A disk row whose transcript shows no outcome has an
+  unknown status: it reads `running` only when the live registry knows it too, else `stopped` — the
+  registry lives in the process that owns the CLI, so a row only disk knows belongs to a harness that
+  is gone (spec 12 SA-8; before 2026-11-12 it read `running` and left dead agents spinning).
+- **Resumes** — a harness can pick a subagent up again without announcing it (the CLI resumes a task
+  after an API error — a credit balance that ran out — and the next thing it says is a progress
+  report). `SubagentRegistry.revive()` turns any signal only a running task produces (Claude
+  `task_progress`, Codex `turn/started` on a child thread) into the ordinary resume: a second
+  `subagent_started` before that signal's own frames, then a second `subagent_finished`. Clients
+  never see a terminal card that keeps streaming (spec 12 §4.8 "Resumed agents").
 - **Event taps** — `pool.tap_events(local_id, cb)` lets an observer see every event of a session:
   `cb(event, out_of_turn)` runs synchronously after the broadcast, for each event `send()` streams
   (`False`) and each one the out-of-turn pump sends (`True`, in seq order); a failing tap is logged

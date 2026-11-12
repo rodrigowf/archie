@@ -262,6 +262,12 @@ data class Subagent(
      * those, never from the spawn card (SA-2; a background agent's card completes at launch).
      */
     val lifecycle: Boolean = false,
+    /**
+     * This terminal status is this client's own guess — the sweep that stops every running subagent when
+     * the session leaves (SA-3) — not a status the server reported. A guess is never sticky: a server row
+     * saying `running`, or any live frame for this subagent, undoes it.
+     */
+    val localStop: Boolean = false,
     /** The first history page failed (SA-5): shown in its tab; the transcript starts at the live tail. */
     val historyError: String? = null,
 ) {

@@ -3,7 +3,7 @@ name: android
 category: archie/clients
 tags: [android, kotlin, compose, navigation3, views, app-main, app-lite, a300m, poco, gradle, adb, signing, vosk]
 created: 2026-04-14
-modified: 2026-10-16
+modified: 2026-11-12
 summary: apps/android — Gradle multi-module project with the main app (com.assistant.archie) and the A300M lite app (com.assistant.peripheral).
 source: curated (consolidated from memory notes assistant/android/android_peripheral_project.md, assistant/infrastructure/repo_layout_cutover_2026_10.md, assistant/devices/peripheral_devices.md, auto-memory feedback_android_ws_keepalive_silent_drop.md, feedback_use_adb_input_for_device_tests.md, feedback_hands_on_checks_over_suites.md, feedback_run_test_before_speculating.md, project_frontend_refactor_2026_10_03.md; verified against code 2026-10-06)
 references:
@@ -435,7 +435,9 @@ the web.
   and from history; a spawn card inside an open transcript becomes a nested placeholder), SA-2 status
   sync from the card when no lifecycle frame or server row described the agent, SA-3 snapshot from
   `session_started.subagents` and stop-on-close (a row never moves a terminal status from a lifecycle
-  frame or earlier row back to `running`; a status only the spawn card set is always corrected), SA-7
+  frame or earlier row back to `running`; a status only the spawn card set is always corrected, and so
+  is one this client guessed when the session left — `Subagent.localStop`, undone by a row saying
+  `running` or by any live frame for that subagent), SA-7
   `task_notification` notice (it marks a prompt, so its `status{processing}` never pops the tray). Only
   content frames reach a transcript; an unknown `subagent_finished` status reads as done; empty strings
   never overwrite known fields. A `subagent_finished` while the first page loads is queued in `held` as
